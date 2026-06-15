@@ -48,12 +48,36 @@ function formatColumnTitle(title: string): React.ReactNode {
     )
 }
 
+function getDisplayedColumnTitle(
+    columnName: string,
+    label: string | JSX.Element | undefined,
+    query: DataVisualizationNode,
+    context: QueryContext<DataVisualizationNode> | undefined
+): React.ReactNode {
+    const { title } = renderColumnMeta(columnName, query, context)
+    return label || title || columnName
+}
+
+// Plain-text representation of a cell, used as the hover title so clipped content is
+// still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
+// selecting and copying a cell copies the whole value, not just the clipped portion.
+function getCellTitle(cell: TableDataCell<any>): string | undefined {
+    if (typeof cell.formattedValue === 'string') {
+        return cell.formattedValue
+    }
+    if (typeof cell.value === 'string' || typeof cell.value === 'number') {
+        return String(cell.value)
+    }
+    return undefined
+}
+
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
 
     const {
         tabularData,
         tabularColumns,
+        sourceTabularColumns,
         conditionalFormattingRules,
         responseLoading,
         responseError,
@@ -65,12 +89,12 @@ export const Table = (props: TableProps): JSX.Element => {
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin } = useActions(dataVisualizationLogic)
 
+    const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
+
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
         ({ column, settings }, index) => {
             const { title, ...columnMeta } = renderColumnMeta(column.name, props.query, props.context)
-
             const columnTitle = settings?.display?.label || title || column.name
-
             const formattedTitle = typeof columnTitle === 'string' ? formatColumnTitle(columnTitle) : columnTitle
 
             return {
@@ -99,14 +123,64 @@ export const Table = (props: TableProps): JSX.Element => {
                     </div>
                 ),
                 render: (_, data, recordIndex: number, rowCount: number) => {
-                    return renderColumn(column.name, data[index].formattedValue, data, recordIndex, rowCount, {
-                        kind: NodeKind.DataTableNode,
-                        source: props.query.source,
-                    })
+                    const cell = data[index]
+
+                    if (cell.isTransposedHeader) {
+                        const sourceColumnTitle = cell.sourceColumnName
+                            ? getDisplayedColumnTitle(
+                                  cell.sourceColumnName,
+                                  sourceTabularColumnsByName.get(cell.sourceColumnName)?.settings?.display?.label,
+                                  props.query,
+                                  props.context
+                              )
+                            : cell.formattedValue
+                        const renderedSourceColumnTitle =
+                            typeof sourceColumnTitle === 'string'
+                                ? formatColumnTitle(sourceColumnTitle)
+                                : React.isValidElement(sourceColumnTitle) ||
+                                    sourceColumnTitle == null ||
+                                    typeof sourceColumnTitle === 'number'
+                                  ? sourceColumnTitle
+                                  : String(sourceColumnTitle)
+
+                        return (
+                            <div
+                                className="truncate"
+                                title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+                            >
+                                {renderedSourceColumnTitle}
+                            </div>
+                        )
+                    }
+
+                    return (
+                        <div className="truncate" title={getCellTitle(cell)}>
+                            {renderColumn(
+                                cell.sourceColumnName ?? column.name,
+                                cell.formattedValue,
+                                data,
+                                recordIndex,
+                                rowCount,
+                                {
+                                    kind: NodeKind.DataTableNode,
+                                    source: props.query.source,
+                                }
+                            )}
+                        </div>
+                    )
                 },
                 style: (_, data) => {
+                    const cell = data[index]
+
+                    if (cell.isTransposedHeader) {
+                        return undefined
+                    }
+
+                    const sourceColumnName = cell.sourceColumnName ?? column.name
+                    const sourceColumnType =
+                        sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
                     const cf = conditionalFormattingRules
-                        .filter((n) => n.columnName === column.name)
+                        .filter((n) => n.columnName === sourceColumnName)
                         .filter((n) => {
                             const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
                             if (!isValidHog) {
@@ -120,8 +194,8 @@ export const Table = (props: TableProps): JSX.Element => {
                         .map((n) => {
                             const res = execHog(n.bytecode, {
                                 globals: {
-                                    value: data[index].value,
-                                    input: convertTableValue(n.input, column.type.name),
+                                    value: cell.value,
+                                    input: convertTableValue(n.input, sourceColumnType),
                                 },
                                 functions: {},
                                 maxAsyncSteps: 0,
@@ -194,6 +268,7 @@ export const Table = (props: TableProps): JSX.Element => {
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}
             rowClassName="DataVizRow"
             embedded={props.embedded}
+            allowContentScroll={!!props.embedded}
         />
     )
 }

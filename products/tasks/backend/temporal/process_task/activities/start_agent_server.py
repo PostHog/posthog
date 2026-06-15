@@ -1,0 +1,268 @@
+import shlex
+from dataclasses import dataclass
+
+from temporalio import activity
+
+from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import asyncify
+from posthog.temporal.oauth import PosthogMcpScopes
+
+from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
+from products.tasks.backend.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
+from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.process_task.utils import (
+    format_allowed_domains_for_log,
+    get_sandbox_ph_mcp_configs,
+    get_user_mcp_server_configs,
+    mark_mcp_token_issued,
+)
+
+from .get_task_processing_context import TaskProcessingContext
+
+logger = get_logger(__name__)
+
+
+def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    try:
+        result = sandbox.execute("tail -n 20 /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+    except Exception:
+        logger.exception("Failed to fetch agentsh log tail", task_id=ctx.task_id, run_id=ctx.run_id)
+        return
+
+    log_tail = result.stdout.strip()
+    if log_tail:
+        emit_agent_log(ctx.run_id, "debug", f"agentsh log tail:\n{log_tail}")
+
+
+def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    try:
+        result = sandbox.execute("tail -n 40 /tmp/agent-server.log 2>/dev/null || true", timeout_seconds=5)
+    except Exception:
+        logger.exception("Failed to fetch agent-server log tail", task_id=ctx.task_id, run_id=ctx.run_id)
+        return
+
+    log_tail = result.stdout.strip()
+    if log_tail:
+        emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
+
+
+def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    """Emit diagnostic info about env vars and network connectivity.
+
+    When allowed_domains is set, runs the checks inside the agentsh exec
+    context to verify the env wrapper restores variables and the DNS proxy
+    resolves correctly.  Without domains, runs directly.
+    """
+    try:
+        checks = (
+            "echo ENV_CHECK:"
+            " LLM_GATEWAY_URL=${LLM_GATEWAY_URL:-UNSET}"
+            " POSTHOG_API_URL=${POSTHOG_API_URL:-UNSET}"
+            " ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-UNSET};"
+            ' node -e "'
+            "const dns=require('dns');"
+            "dns.resolve('gateway.us.posthog.com',(e,a)=>console.log('DNS_RESOLVE:',e?e.code:JSON.stringify(a)));"
+            "dns.lookup('gateway.us.posthog.com',(e,a)=>console.log('DNS_LOOKUP:',e?e.code:a))"
+            '" 2>&1;'
+            " curl -sS --max-time 5 -o /dev/null"
+            " -w 'CURL_GATEWAY: http_code=%{http_code}'"
+            " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
+        )
+
+        if ctx.allowed_domains is not None and not (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox):
+            cmd = (
+                f"cd /scripts && env -0 > {ENV_FILE} && "
+                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
+            )
+        else:
+            cmd = f"bash -c {shlex.quote(checks)}"
+
+        result = sandbox.execute(cmd, timeout_seconds=15)
+        output = (result.stdout + "\n" + result.stderr).strip()
+        if output:
+            emit_agent_log(ctx.run_id, "debug", f"Connectivity diagnostics:\n{output}")
+    except Exception as e:
+        logger.warning("Connectivity diagnostics failed (non-fatal)", error=str(e), run_id=ctx.run_id)
+
+
+@dataclass
+class StartAgentServerInput:
+    context: TaskProcessingContext
+    sandbox_id: str
+    sandbox_url: str
+    sandbox_connect_token: str | None = None
+    posthog_mcp_scopes: PosthogMcpScopes = "read_only"
+
+
+@dataclass
+class StartAgentServerOutput:
+    sandbox_url: str
+    connect_token: str | None = None
+
+
+@activity.defn
+@asyncify
+def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
+    """Start the agent-server HTTP server in the sandbox.
+
+    Sandbox credentials (sandbox_url, connect_token) are passed directly via input
+    from get_sandbox_for_repository output.
+    """
+    ctx = input.context
+
+    with log_activity_execution(
+        "start_agent_server",
+        sandbox_id=input.sandbox_id,
+        **ctx.to_log_context(),
+    ):
+        sandbox_url = input.sandbox_url
+        connect_token = input.sandbox_connect_token
+
+        emit_agent_log(ctx.run_id, "debug", "Starting agent server")
+
+        sandbox = Sandbox.get_by_id(input.sandbox_id)
+
+        scopes: PosthogMcpScopes = input.posthog_mcp_scopes
+
+        try:
+            task = Task.objects.select_related("created_by").get(id=ctx.task_id)
+            access_token = create_oauth_access_token(task, scopes=scopes)
+        except OAuthTokenError:
+            raise
+        except Exception as e:
+            raise OAuthTokenError(
+                f"Failed to create OAuth access token for MCP auth in task {ctx.task_id}",
+                {"task_id": ctx.task_id, "error": str(e)},
+                cause=e,
+            )
+
+        event_stream_ingest_enabled = ctx.sandbox_event_ingest_enabled
+        event_ingest_token: str | None = None
+        if event_stream_ingest_enabled:
+            try:
+                task_run = TaskRun.objects.get(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id)
+                event_ingest_token = create_sandbox_event_ingest_token(task_run)
+            except Exception as e:
+                raise SandboxExecutionError(
+                    "Failed to create sandbox event ingest token",
+                    {"task_id": ctx.task_id, "run_id": ctx.run_id, "error": str(e)},
+                    cause=e,
+                )
+
+        mcp_configs = get_sandbox_ph_mcp_configs(
+            token=access_token,
+            project_id=ctx.team_id,
+            scopes=scopes,
+            interaction_origin=ctx.interaction_origin,
+        )
+        if task.created_by_id:
+            user_mcp_configs = get_user_mcp_server_configs(
+                token=access_token,
+                team_id=ctx.team_id,
+                user_id=task.created_by_id,
+                interaction_origin=ctx.interaction_origin,
+            )
+            if user_mcp_configs:
+                mcp_configs = mcp_configs + user_mcp_configs
+
+        if mcp_configs:
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Resolved {len(mcp_configs)} MCP config(s) for agent server: {', '.join(config.name for config in mcp_configs)}",
+            )
+        else:
+            emit_agent_log(
+                ctx.run_id,
+                "warn",
+                "No MCP configs were resolved for this run. PostHog MCP tools will be unavailable in the agent session.",
+            )
+
+        # Modal enforces egress at the edge (gVisor only), so agentsh is skipped only when it does.
+        agentsh_domains = (
+            None if (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox) else ctx.allowed_domains
+        )
+
+        if ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox and ctx.allowed_domains is not None:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Enforcing network allowlist for '{environment_name}' via Modal (agentsh disabled)",
+            )
+        elif agentsh_domains is not None:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Applying agentsh network policy for '{environment_name}' with allowlist: {format_allowed_domains_for_log(agentsh_domains)}",
+            )
+        elif ctx.sandbox_environment_id:
+            environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Sandbox environment '{environment_name}' grants full network access; starting without agentsh restrictions",
+            )
+
+        try:
+            sandbox.start_agent_server(
+                repository=ctx.repository,
+                task_id=ctx.task_id,
+                run_id=ctx.run_id,
+                mode=ctx.mode,
+                create_pr=ctx.create_pr,
+                interaction_origin=ctx.interaction_origin,
+                branch=ctx.branch,
+                runtime_adapter=ctx.runtime_adapter,
+                provider=ctx.provider,
+                model=ctx.model,
+                reasoning_effort=ctx.reasoning_effort,
+                mcp_configs=mcp_configs or None,
+                allowed_domains=agentsh_domains,
+                event_ingest_token=event_ingest_token,
+            )
+
+            # Mark startup-time token issuance so follow-ups within the next
+            # 30m window skip the redundant refresh.
+            if mcp_configs:
+                mark_mcp_token_issued(ctx.run_id)
+
+            # emit agentsh logs
+            if agentsh_domains is not None:
+                _emit_agentsh_log_tail(ctx, sandbox)
+        except Exception as e:
+            if agentsh_domains is not None:
+                _emit_agentsh_log_tail(ctx, sandbox)
+            _emit_agent_server_log_tail(ctx, sandbox)
+            raise SandboxExecutionError(
+                "Failed to start agent server in sandbox",
+                {
+                    "task_id": ctx.task_id,
+                    "sandbox_id": input.sandbox_id,
+                    "repository": ctx.repository,
+                    "error": str(e),
+                },
+                cause=e,
+            )
+
+        if agentsh_domains is not None:
+            emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
+            _emit_agentsh_log_tail(ctx, sandbox)
+        _emit_agent_server_log_tail(ctx, sandbox)
+
+        # Connectivity diagnostics — run inside the agentsh exec context when
+        # domains are restricted so we can verify the env wrapper + DNS proxy work.
+        _run_connectivity_diagnostics(ctx, sandbox)
+
+        emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
+        activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")
+
+        return StartAgentServerOutput(
+            sandbox_url=sandbox_url,
+            connect_token=connect_token,
+        )

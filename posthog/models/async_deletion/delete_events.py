@@ -17,7 +17,6 @@ deletions_counter = Counter("deletions_executed", "Total number of deletions sen
 MAX_QUERY_SIZE = 230_000  # 230KB which is less than 256KB limit in ClickHouse
 MAX_SELECT_EXECUTION_TIME = 1 * 60 * 60  # 1 hour(s)
 
-
 # Note: Session recording, dead letter queue, logs deletion will be handled by TTL
 TABLES_TO_DELETE_TEAM_DATA_FROM = [
     "person",
@@ -50,6 +49,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             },
         )
 
+        query = "SELECT 1"
         conditions, args = [], {}
         for i, deletion in enumerate(deletions):
             condition, arg = self._condition(deletion, str(i))
@@ -129,6 +129,7 @@ class AsyncEventDeletion(AsyncDeletionProcess):
 
     def _verify_by_column(self, distinct_columns: str, async_deletions: list[AsyncDeletion]) -> set[tuple[Any, ...]]:
         conditions, args = self._conditions(async_deletions)
+        # nosemgrep: clickhouse-fstring-param-audit - distinct_columns hardcoded, conditions internal
         clickhouse_result = sync_execute(
             f"""
             SELECT DISTINCT {distinct_columns}

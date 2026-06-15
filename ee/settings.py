@@ -33,8 +33,8 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 
 # Google SSO
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY: str | None = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET: str | None = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: list[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
@@ -47,6 +47,10 @@ elif DEMO:
 # Admin OAuth2 Verification
 ADMIN_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_KEY")
 ADMIN_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_SECRET")
+# Restrict admin OAuth to specific Google Workspace domains (comma-separated list)
+ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS = [
+    d.strip() for d in os.environ.get("ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS", "posthog.com").split(",") if d.strip()
+]
 ENFORCE_ADMIN_OAUTH2 = str_to_bool(get_from_env("ENFORCE_ADMIN_OAUTH2", "True", type_cast=str))
 if ENFORCE_ADMIN_OAUTH2 and ADMIN_AUTH_GOOGLE_OAUTH2_KEY and ADMIN_AUTH_GOOGLE_OAUTH2_SECRET:
     ADMIN_OAUTH2_COOKIE_SECURE = str_to_bool(get_from_env("ADMIN_OAUTH2_COOKIE_SECURE", "True", type_cast=str))
@@ -77,6 +81,9 @@ BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posth
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
 
+# Fixed personal API key for local development, created by `manage.py setup_local_api_key`
+DEV_API_KEY = "phx_dev_local_test_api_key_1234567890abcdef"
+
 PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
     "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
 )
@@ -86,19 +93,35 @@ TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 OPENAI_API_KEY = get_from_env("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+# LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
+LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
+LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY if DEBUG else "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
+# Dedicated key for Replay Vision (own GCP project for cost/quota isolation); falls back to GEMINI_API_KEY
+REPLAY_VISION_GEMINI_API_KEY = get_from_env("REPLAY_VISION_GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
-AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
-AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
+AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
+AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
+
+LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
+LLMA_EVAL_OPENAI_BASE_URL = get_from_env("LLMA_EVAL_OPENAI_BASE_URL", "")
+LLMA_EVAL_ANTHROPIC_API_KEY = get_from_env("LLMA_EVAL_ANTHROPIC_API_KEY", "")
+LLMA_EVAL_GEMINI_API_KEY = get_from_env("LLMA_EVAL_GEMINI_API_KEY", "")
 
 SQS_QUEUES = {
     "usage_reports": {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
         "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
         "type": "usage_reports",
+    },
+    "usage_reports_v2": {
+        "url": get_from_env("SQS_USAGE_REPORT_V2_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_USAGE_REPORT_V2_REGION", "us-east-1", optional=True),
+        "type": "usage_reports_v2",
     },
     "billing": {
         "url": get_from_env("SQS_BILLING_QUEUE_URL", optional=True),
@@ -107,10 +130,12 @@ SQS_QUEUES = {
     },
 }
 
-AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
-AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
+# Salesforce OAuth Client Credentials for internal enrichment (preferred over username/password auth)
+SALESFORCE_INTERNAL_CONSUMER_KEY = get_from_env("SF_INTERNAL_CONSUMER_KEY", "", type_cast=str)
+SALESFORCE_INTERNAL_CONSUMER_SECRET = get_from_env("SF_INTERNAL_CONSUMER_SECRET", "", type_cast=str)
+SALESFORCE_INTERNAL_DOMAIN = get_from_env("SF_INTERNAL_DOMAIN", "posthog.my.salesforce.com", type_cast=str)
 
-# Salesforce API credentials
+# Salesforce legacy API credentials (fallback)
 SALESFORCE_USERNAME = get_from_env("SF_USERNAME", "", type_cast=str)
 SALESFORCE_PASSWORD = get_from_env("SF_PASSWORD", "", type_cast=str)
 SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)
@@ -122,6 +147,7 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+BILLING_PROVIDER_WEBHOOK_SECRET = get_from_env("BILLING_PROVIDER_WEBHOOK_SECRET", "", type_cast=str)
 
 # SCIM Configuration
 # django-scim2 requires these settings

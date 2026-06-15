@@ -162,6 +162,7 @@ pub struct JsJob {
     pub priority: i16,
     pub scheduled: DateTime<Utc>,
     pub function_id: Option<Uuid>,
+    pub parent_run_id: Option<String>,
     pub vm_state: Option<String>,
     pub parameters: Option<String>,
     pub metadata: Option<String>,
@@ -666,6 +667,13 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
         let js_scheduled = cx.string(job.scheduled.to_rfc3339());
         js_obj.set(cx, "scheduled", js_scheduled)?;
 
+        if let Some(parent_run_id) = &job.parent_run_id {
+            let js_parent_run_id = cx.string(parent_run_id);
+            js_obj.set(cx, "parentRunId", js_parent_run_id)?;
+        } else {
+            js_obj.set(cx, "parentRunId", null)?;
+        }
+
         if let Some(vm_state) = job.vm_state {
             let vm_state = match std::str::from_utf8(&vm_state) {
                 Ok(v) => v,
@@ -723,6 +731,7 @@ impl JsJob {
             priority: self.priority,
             scheduled: self.scheduled,
             function_id: self.function_id,
+            parent_run_id: self.parent_run_id.clone(),
             vm_state: self.vm_state.as_ref().map(|s| s.as_bytes().to_vec()),
             parameters: self.parameters.as_ref().map(|s| s.as_bytes().to_vec()),
             metadata: self.metadata.as_ref().map(|s| s.as_bytes().to_vec()),

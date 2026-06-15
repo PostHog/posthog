@@ -7,10 +7,23 @@ on:
         paths:
             - 'livestream/**'
             - '.github/workflows/livestream-docker-image.yml'
+    pull_request:
+        branches:
+            - master
+        paths:
+            - 'livestream/**'
+            - '.github/workflows/livestream-docker-image.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     build:
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+
+        if: github.repository_owner == 'PostHog'
 
         permissions:
             contents: read
@@ -22,54 +35,59 @@ jobs:
 
         steps:
             - name: Check out livestream code
-              uses: actions/checkout@v4
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  sparse-checkout: 'livestream/'
+                  sparse-checkout: |
+                      livestream/
+                      .github/actions/docker-meta/
                   sparse-checkout-cone-mode: false
 
-            - name: Log in to the Container registry
-              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
-
-            - name: Extract metadata (tags, labels) for Docker
-              id: meta
-              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
-              with:
-                  images: ghcr.io/posthog/posthog/livestream
+                  image-name: livestream
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # We don't push to ghcr.io/posthog/livestream due to that being a legacy repo that we can't delete :/
+                  push-to-ghcr: 'false'
+                  # Legacy path — remove once Helm charts are updated to ghcr.io/posthog/<image>
+                  legacy-images: ghcr.io/posthog/posthog/livestream
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
             - name: Build and push Docker image
               id: push
-              if: github.ref == 'refs/heads/master'
-              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   context: ./livestream/
                   file: livestream/Dockerfile
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   platforms: linux/amd64,linux/arm64
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   project: '87b1ch2t7h'
 
     deploy:
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         needs: build
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         steps:
             - name: get deployer token
               id: deployer
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
 
             - name: Trigger livestream deployment
-              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts

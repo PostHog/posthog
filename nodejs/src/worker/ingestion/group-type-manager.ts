@@ -1,4 +1,4 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectId, Team, TeamId } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
@@ -7,8 +7,6 @@ import { GroupRepository } from './groups/repositories/group-repository.interfac
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
-
-export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export class GroupTypeManager {
     private loader: LazyLoader<GroupTypeToColumnIndex>
@@ -26,7 +24,10 @@ export class GroupTypeManager {
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
                     const projectIdNumbers = projectIds.map((id) => parseInt(id) as ProjectId)
-                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(projectIdNumbers)
+                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(
+                        projectIdNumbers,
+                        'ingestion/group-type-resolution'
+                    )
 
                     for (const [projectIdStr, groupTypes] of Object.entries(groupTypesByProject)) {
                         const groupTypeMapping: GroupTypeToColumnIndex = {}
@@ -62,11 +63,21 @@ export class GroupTypeManager {
             return groupTypes[groupType]
         }
 
+        const usedIndexes = new Set(Object.values(groupTypes))
+        if (usedIndexes.size >= MAX_GROUP_TYPES_PER_TEAM) {
+            return null
+        }
+
+        let nextAvailableIndex = 0
+        while (usedIndexes.has(nextAvailableIndex as GroupTypeIndex)) {
+            nextAvailableIndex++
+        }
+
         const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
             groupType,
-            Object.keys(groupTypes).length
+            nextAvailableIndex
         )
         if (groupTypeIndex !== null) {
             this.loader.markForRefresh(projectId.toString())

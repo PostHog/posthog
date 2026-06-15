@@ -44,14 +44,20 @@ import { MessageTemplate } from './MessageTemplate'
 interface NotebookArtifactAnswerProps {
     content: NotebookArtifactContent
     status?: MessageStatus
+    artifactId?: string
 }
 
 const MAX_COLLAPSED_HEIGHT_PX = 400
 
-export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnswerProps): JSX.Element | null {
+export function NotebookArtifactAnswer({
+    content,
+    status,
+    artifactId,
+}: NotebookArtifactAnswerProps): JSX.Element | null {
     const { createNotebook } = useActions(notebooksModel)
     const [isExpanded, setIsExpanded] = useState(false)
     const [needsExpansion, setNeedsExpansion] = useState(false)
+    const [localIsSaved, setLocalIsSaved] = useState(content.is_saved ?? false)
     const contentRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -60,7 +66,17 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
         }
     }, [content.blocks, status])
 
-    if (status !== 'completed') {
+    useEffect(() => {
+        if (content.is_saved) {
+            setLocalIsSaved(true)
+        }
+    }, [content.is_saved])
+
+    const isStreaming = status !== 'completed'
+    const hasContent = content.blocks.length > 0
+
+    // Show skeleton only when streaming AND no content yet
+    if (isStreaming && !hasContent) {
         return (
             <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
                 <div className="p-2">
@@ -78,7 +94,14 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
         // Convert blocks to tiptap JSONContent[] format
         const tiptapContent = blocksToTiptapContent(content.blocks)
 
-        createNotebook(NotebookTarget.Scene, content.title || 'AI Generated Notebook', tiptapContent)
+        createNotebook(
+            NotebookTarget.Scene,
+            content.title || 'AI Generated Notebook',
+            tiptapContent,
+            undefined,
+            artifactId
+        )
+        setLocalIsSaved(true)
     }
 
     const handleExpandClick = (): void => {
@@ -93,6 +116,7 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
                 <div className="flex items-center gap-2 mb-3">
                     <IconNotebook className="size-5 text-secondary" />
                     <h4 className="font-semibold m-0 text-sm">{content.title || 'Notebook'}</h4>
+                    {isStreaming && <span className="text-xs text-muted animate-pulse">Generating...</span>}
                 </div>
 
                 {/* Render each block as a read-only preview */}
@@ -105,7 +129,7 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
                     )}
                 >
                     {content.blocks.map((block, i) => (
-                        <NotebookBlockPreview key={i} block={block} />
+                        <NotebookBlockPreview key={getBlockKey(block, i)} block={block} />
                     ))}
                     {needsExpansion && !isExpanded && (
                         <div className="absolute bottom-0 left-0 right-0 h-24 pointer-events-none bg-gradient-to-b from-transparent to-bg-light" />
@@ -113,9 +137,27 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
                 </div>
 
                 <div className="mt-4 flex justify-end">
-                    <LemonButton onClick={handleCreateNotebook} type="primary" size="small" icon={<IconOpenInNew />}>
-                        Create notebook
-                    </LemonButton>
+                    {localIsSaved && artifactId ? (
+                        <LemonButton
+                            to={urls.notebook(artifactId)}
+                            targetBlank
+                            type="primary"
+                            size="small"
+                            icon={<IconOpenInNew />}
+                        >
+                            Open and save notebook
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            onClick={handleCreateNotebook}
+                            type="primary"
+                            size="small"
+                            icon={<IconOpenInNew />}
+                            disabledReason={isStreaming ? 'Wait for notebook to finish generating' : null}
+                        >
+                            Create notebook
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </MessageTemplate>
@@ -182,6 +224,7 @@ function VisualizationBlockPreview({ block }: { block: VisualizationBlock }): JS
                 </LemonButton>
                 <LemonButton
                     to={urls.insightNew({ query: query as InsightVizNode | DataVisualizationNode })}
+                    targetBlank
                     icon={<IconOpenInNew />}
                     size="xsmall"
                     tooltip="Open as new insight"
@@ -221,6 +264,7 @@ function SessionReplayBlockPreview({ block }: { block: SessionReplayBlock }): JS
                 <span className="text-xs font-medium">{block.title || 'Session Replay'}</span>
                 <LemonButton
                     to={urls.replaySingle(block.session_id)}
+                    targetBlank
                     icon={<IconOpenInNew />}
                     size="xsmall"
                     tooltip="Open session replay"
@@ -249,6 +293,29 @@ function ErrorBlockPreview({ block }: { block: ErrorBlock }): JSX.Element {
             <span className="font-medium">Error:</span> {block.message}
         </div>
     )
+}
+
+/**
+ * Generate a stable key for a DocumentBlock based on its content.
+ * Uses unique identifiers where available, with index as fallback for uniqueness.
+ */
+function getBlockKey(block: DocumentBlock, index: number): string {
+    switch (block.type) {
+        case 'session_replay':
+            return `replay-${block.session_id}`
+        case 'loading':
+            return `loading-${block.artifact_id}`
+        case 'visualization':
+            // Use query kind and index for visualizations since queries are complex objects
+            return `viz-${block.query.kind}-${index}`
+        case 'markdown':
+            // Use first 32 chars of content hash-like identifier
+            return `md-${index}-${block.content.slice(0, 32).replace(/\s/g, '_')}`
+        case 'error':
+            return `error-${index}-${block.message.slice(0, 20).replace(/\s/g, '_')}`
+        default:
+            return `block-${index}`
+    }
 }
 
 /**

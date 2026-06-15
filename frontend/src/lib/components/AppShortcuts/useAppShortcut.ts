@@ -118,6 +118,12 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
     const externalRef = options.interaction !== 'function' ? options.externalRef : undefined
     const callback = options.interaction === 'function' ? options.callback : undefined
 
+    // Keep a ref to the callback to avoid re-registering on every render
+    // This way, the latest callback is always called and callers
+    // don't need to remember to memoize it
+    const callbackFnRef = useRef(callback)
+    callbackFnRef.current = callback
+
     const ref = (externalRef as React.RefObject<T>) ?? internalRef
 
     const callbackRef = useCallback((node: T | null) => {
@@ -130,12 +136,12 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
             return
         }
 
-        if (interaction === 'function' && callback) {
+        if (interaction === 'function' && callbackFnRef.current) {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
             registerAppShortcut({
                 name,
                 keybind: platformAgnosticKeybinds,
-                callback,
+                callback: () => callbackFnRef.current?.(),
                 intent,
                 interaction: 'function',
                 scope,
@@ -157,7 +163,7 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
         return () => {
             unregisterAppShortcut(name)
         }
-    }, [isRefReady, name, intent, interaction, scope, disabled, ref, callback, priority, registerAppShortcut]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [isRefReady, name, intent, interaction, scope, disabled, ref, priority, registerAppShortcut]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return { ref, callbackRef }
 }

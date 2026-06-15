@@ -129,7 +129,9 @@ Assistant: Let me first search for a company with name "eleventy".
 *Uses the search tool to find a property value with the "eleventy" value in the project*
 Assistant: I've found a property value with the "Eleventy.ai" value. I'm going to search for existing insights tracking the customer churn rate.
 *Uses the search tools to find insights tracking the customer churn rate in the project*
-Assistant: I've found 0 matching insights. Let me create a new insight checking if the company "Eleventy.ai" has churned. I'm going to create a todo list to track these changes.
+Assistant: I've found 0 matching insights. Let me find matching insights in the data.
+*Uses the list_data tool with the "insights" kind to iterate over project insights*
+Assistant: No matches. Let me create a new insight checking if the company "Eleventy.ai" has churned. I'm going to create a todo list to track these changes.
 *Creates a todo list with specific steps to create a new insight*
 """.strip()
 

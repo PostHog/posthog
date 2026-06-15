@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { EventIngestionRestrictionManager, Restriction } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, RestrictionType } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { SessionRecordingIngesterMetrics } from './metrics'
@@ -39,7 +39,7 @@ export class SessionRecordingRestrictionHandler {
             const restrictions = this.restrictionManager.getAppliedRestrictions(token, headers)
 
             // Check if this message should be dropped
-            if (restrictions.has(Restriction.DROP_EVENT)) {
+            if (restrictions.has(RestrictionType.DROP_EVENT)) {
                 logger.info('🚫', 'session_recording_dropped_by_restriction', {
                     token,
                     distinct_id,
@@ -52,7 +52,7 @@ export class SessionRecordingRestrictionHandler {
             }
 
             // Check if this message should be forced to overflow
-            if (!this.consumeOverflow && restrictions.has(Restriction.FORCE_OVERFLOW)) {
+            if (!this.consumeOverflow && restrictions.has(RestrictionType.FORCE_OVERFLOW)) {
                 overflowMessages.push(message)
                 continue
             }

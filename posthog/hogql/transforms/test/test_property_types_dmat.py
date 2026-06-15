@@ -11,20 +11,19 @@ from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _creat
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
-from posthog.models.property_definition import PropertyType
-from posthog.temporal.backfill_materialized_property.activities import (
-    PROPERTY_TYPE_TO_COLUMN_NAME,
-    _generate_property_extraction_sql,
-)
+from posthog.temporal.backfill_materialized_property.activities import _generate_property_extraction_sql
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestDmatIntegration(BaseTest):
     """Test that HogQL queries use dmat columns when available."""
 
-    def test_uses_dmat_column_when_slot_ready(self):
+    def test_uses_dmat_string_column_when_slot_ready_for_numeric_property(self):
         """Test that property access uses dmat column when slot is READY."""
         prop_def = PropertyDefinition.objects.create(
             team=self.team,
@@ -36,7 +35,6 @@ class TestDmatIntegration(BaseTest):
         MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.Numeric,
             slot_index=3,
             state=MaterializedColumnSlotState.READY,
         )
@@ -49,8 +47,11 @@ class TestDmatIntegration(BaseTest):
         )
 
         # Should use dmat column
-        assert "dmat_numeric_3" in query, f"Expected dmat_numeric_3 in query but got: {query}"
+        assert "dmat_string_3" in query, f"Expected dmat_string_3 in query but got: {query}"
         assert "JSONExtractRaw" not in query
+        assert "accurateCastOrNull(events.dmat_string_3" in query, (
+            f"Expected accurateCastOrNull wrapper around dmat_string_3 but got: {query}"
+        )
 
     def test_falls_back_to_json_when_no_slot(self):
         """Test that property access falls back to JSON extraction when no slot exists."""
@@ -83,7 +84,6 @@ class TestDmatIntegration(BaseTest):
         MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.Numeric,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,
         )
@@ -96,7 +96,7 @@ class TestDmatIntegration(BaseTest):
         )
 
         # Should NOT use dmat (slot is in BACKFILL state)
-        assert "dmat_numeric_0" not in query
+        assert "dmat_string_0" not in query
         # Should use JSON extraction or properties access
         assert "properties" in query or "JSONExtractRaw" in query
 
@@ -110,27 +110,23 @@ class PropertyTestCase:
     input_value: Any  # Value stored in JSON properties
 
 
+# Capped at 10 to fit the dmat slot pool (slot_index range 0..9 per the
+# valid_slot_index check constraint). Picked to cover one representative case
+# per type plus the trickier coercion paths for each.
 TEST_CASES = [
     # String edge cases
     PropertyTestCase(name="str_normal", type=PropertyType.String, input_value="hello world"),
     PropertyTestCase(name="str_empty", type=PropertyType.String, input_value=""),
-    PropertyTestCase(name="str_whitespace", type=PropertyType.String, input_value="   "),
     # Numeric edge cases
     PropertyTestCase(name="num_int", type=PropertyType.Numeric, input_value=42),
-    PropertyTestCase(name="num_zero", type=PropertyType.Numeric, input_value=0),
     PropertyTestCase(name="num_negative", type=PropertyType.Numeric, input_value=-100),
-    PropertyTestCase(name="num_float", type=PropertyType.Numeric, input_value=3.14159),
     PropertyTestCase(name="num_invalid", type=PropertyType.Numeric, input_value="not a number"),
-    PropertyTestCase(name="num_whitespace", type=PropertyType.Numeric, input_value="  123  "),
     # Boolean edge cases
     PropertyTestCase(name="bool_true_str", type=PropertyType.Boolean, input_value="true"),
-    PropertyTestCase(name="bool_false_str", type=PropertyType.Boolean, input_value="false"),
-    PropertyTestCase(name="bool_true_int", type=PropertyType.Boolean, input_value="1"),
     PropertyTestCase(name="bool_false_int", type=PropertyType.Boolean, input_value="0"),
     PropertyTestCase(name="bool_invalid", type=PropertyType.Boolean, input_value="maybe"),
     # DateTime edge cases
     PropertyTestCase(name="dt_iso_full", type=PropertyType.Datetime, input_value="2024-01-15T10:30:00Z"),
-    PropertyTestCase(name="dt_date_only", type=PropertyType.Datetime, input_value="2024-01-15"),
     PropertyTestCase(name="dt_invalid", type=PropertyType.Datetime, input_value="not a date"),
 ]
 
@@ -138,32 +134,8 @@ TEST_CASES = [
 class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
     """Test that dmat column extraction matches JSON extraction behavior."""
 
-    def _build_slot_mapping(self):
-        """Build mapping of test cases to dmat column names and slot indices.
-
-        Returns dict: {test_case_name: {"col_name": str, "slot_idx": int}}
-        """
-        slot_counters = {
-            PropertyType.String: 0,
-            PropertyType.Numeric: 0,
-            PropertyType.Boolean: 0,
-            PropertyType.Datetime: 0,
-        }
-
-        mapping = {}
-        for tc in TEST_CASES:
-            slot_idx = slot_counters[tc.type]
-            slot_counters[tc.type] += 1
-
-            mapping[tc.name] = {
-                "col_name": f"dmat_{PROPERTY_TYPE_TO_COLUMN_NAME[tc.type]}_{slot_idx}",
-                "slot_idx": slot_idx,
-            }
-
-        return mapping
-
     @pytest.mark.django_db(transaction=True)
-    def test_dmat_extraction_matches_json_for_all_property_types(self):
+    def test_dmat_string_extraction_matches_json_for_all_property_types(self):
         """
         Verify dmat columns produce identical results to JSON extraction.
 
@@ -177,11 +149,9 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         This ensures _generate_property_extraction_sql() produces the same output
         as HogQL's property type wrappers (toFloat, toBool, toDateTime).
         """
-        from posthog.hogql.query import execute_hogql_query
-
         # Build test data
         event_properties = {tc.name: tc.input_value for tc in TEST_CASES}
-        slot_mapping = self._build_slot_mapping()
+        slot_indexes = {tc.name: i for i, tc in enumerate(TEST_CASES)}
 
         # Create PropertyDefinitions (needed for MaterializedColumnSlot foreign key)
         prop_defs = {}
@@ -211,21 +181,18 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Verify no dmat columns used (sanity check)
-        assert (
-            result_json.clickhouse is not None and "dmat_" not in result_json.clickhouse
-        ), "Should use JSON extraction, not dmat"
+        assert result_json.clickhouse is not None and "dmat_" not in result_json.clickhouse, (
+            "Should use JSON extraction, not dmat"
+        )
         json_results = result_json.results[0]
 
         # ============================================================
         # PHASE 2: Insert event with pre-filled dmat columns
         # ============================================================
         # Build INSERT statement with dmat columns computed via extraction SQL
-        dmat_columns = []
-        dmat_values = []
-        for tc in TEST_CASES:
-            dmat_columns.append(slot_mapping[tc.name]["col_name"])
-            extraction_sql = _generate_property_extraction_sql(tc.type).replace("%(property_name)s", f"'{tc.name}'")
-            dmat_values.append(extraction_sql)
+        extraction_sql = _generate_property_extraction_sql()
+        dmat_columns = [f"dmat_string_{slot_indexes[tc.name]}" for tc in TEST_CASES]
+        dmat_values = [extraction_sql.replace("%(property_name)s", f"'{tc.name}'") for tc in TEST_CASES]
 
         sync_execute(
             f"""
@@ -259,8 +226,7 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
             MaterializedColumnSlot.objects.create(
                 team=self.team,
                 property_definition=prop_defs[tc.name],
-                property_type=tc.type,
-                slot_index=slot_mapping[tc.name]["slot_idx"],
+                slot_index=slot_indexes[tc.name],
                 state=MaterializedColumnSlotState.READY,
             )
 
@@ -270,9 +236,9 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Verify dmat columns ARE used
-        assert (
-            result_dmat.clickhouse is not None and "dmat_" in result_dmat.clickhouse
-        ), f"Should use dmat columns. SQL: {result_dmat.clickhouse}"
+        assert result_dmat.clickhouse is not None and "dmat_" in result_dmat.clickhouse, (
+            f"Should use dmat columns. SQL: {result_dmat.clickhouse}"
+        )
         dmat_results = result_dmat.results[0]
 
         # ============================================================
@@ -290,9 +256,9 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
                         f"    Input:       {tc.input_value!r}\n"
                         f"    JSON result: {json_val!r}\n"
                         f"    dmat result: {dmat_val!r}\n"
-                        f"    dmat column: {slot_mapping[tc.name]['col_name']}"
+                        f"    dmat column: dmat_string_{slot_indexes[tc.name]}"
                     )
 
             raise AssertionError(
-                f"dmat extraction differs from JSON extraction!\n\n" f"Mismatches:\n" + "\n".join(failures)
+                f"dmat extraction differs from JSON extraction!\n\nMismatches:\n" + "\n".join(failures)
             )

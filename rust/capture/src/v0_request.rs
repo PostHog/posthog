@@ -4,10 +4,11 @@ use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{error, instrument, warn, Span};
+use tracing::{instrument, Span};
 
 use crate::{
     api::CaptureError,
+    event_restrictions::Pipeline,
     payload::{decompress_payload, Compression},
 };
 
@@ -40,10 +41,10 @@ impl RawRequest {
     /// Instead of trusting the parameter, we peek at the payload's first three bytes to
     /// detect gzip, fallback to uncompressed utf8 otherwise.
     #[instrument(skip_all, fields(request_id, compression, is_mirror_deploy))]
-    pub fn from_bytes<'a>(
+    pub fn from_bytes(
         bytes: Bytes,
         cmp_hint: Compression,
-        request_id: &'a str,
+        request_id: &str,
         limit: usize,
         path: String,
     ) -> Result<RawRequest, CaptureError> {
@@ -83,9 +84,9 @@ impl RawRequest {
                         properties: engage_event.properties,
                     }])
                 } else {
-                    let err_msg = String::from("non-engage request missing event name attribute");
-                    error!("event hydration from request failed: {}", &err_msg);
-                    Err(CaptureError::RequestHydrationError(err_msg))
+                    Err(CaptureError::RequestHydrationError(String::from(
+                        "non-engage request missing event name attribute",
+                    )))
                 }
             }
         };
@@ -94,7 +95,6 @@ impl RawRequest {
         match result {
             Ok(mut events) => {
                 if events.is_empty() {
-                    warn!("rejected empty batch");
                     return Err(CaptureError::EmptyBatch);
                 }
 
@@ -164,8 +164,39 @@ pub enum DataType {
     AnalyticsHistorical,
     ClientIngestionWarning,
     HeatmapMain,
-    ExceptionMain,
+    ExceptionErrorTracking,
     SnapshotMain,
+}
+
+impl DataType {
+    /// Classify an event by its name (and historical-migration flag) into a
+    /// `DataType`. Used by both v0's `process_single_event` and v1's
+    /// `apply_restrictions` so the analytics → exception → heatmap →
+    /// ingestion-warning split stays in one place.
+    ///
+    /// `SnapshotMain` is not produced here — replay events arrive on a
+    /// separate endpoint and never flow through analytics processing.
+    pub fn from_event_name(event_name: &str, historical_migration: bool) -> Self {
+        match (event_name, historical_migration) {
+            ("$$client_ingestion_warning", _) => Self::ClientIngestionWarning,
+            ("$exception", _) => Self::ExceptionErrorTracking,
+            ("$$heatmap", _) => Self::HeatmapMain,
+            (_, true) => Self::AnalyticsHistorical,
+            (_, false) => Self::AnalyticsMain,
+        }
+    }
+
+    /// Pipeline this event flows to, if any. Heatmaps, ingestion warnings,
+    /// and snapshots have their own dedicated topics and consumers; they
+    /// don't share Redis-backed restriction config with any other pipeline,
+    /// so they're not subject to `EventRestrictionService` lookups.
+    pub fn pipeline(self) -> Option<Pipeline> {
+        match self {
+            Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
+            Self::ExceptionErrorTracking => Some(Pipeline::ErrorTracking),
+            Self::ClientIngestionWarning | Self::HeatmapMain | Self::SnapshotMain => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -174,12 +205,60 @@ pub struct ProcessedEvent {
     pub event: CapturedEvent,
 }
 
+/// Reason the pipeline has decided to reroute an event to an overflow topic.
+///
+/// Set by every handler that emits events to the kafka sink, via the shared
+/// `events::overflow_stamping::stamp_overflow_reason` helper for the
+/// in-process `OverflowLimiter` (governor-backed) paths and a separate inline
+/// check for the replay `RedisLimiter` (session-scoped, redis-backed). Call
+/// sites:
+/// * `events::analytics::process_events` — `/e/`, `/batch/`, `/capture`, etc.
+/// * `events::recordings::process_replay_events` — `/s/` (stamps `ReplayLimited`)
+/// * `ai_endpoint::ai_handler` — `/i/v0/ai`
+/// * `otel::otel_handler` — `/i/v0/ai/otel`
+///
+/// Consumed by `sinks::kafka::KafkaSinkBase::prepare_record`, which is pure
+/// mechanism: it reads this reason and maps to the overflow topic and
+/// partition key. The sink does not make routing policy decisions of its own
+/// for overflow beyond this mapping.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverflowReason {
+    /// Governor matched a configured `keys_to_reroute` entry for this event's
+    /// key. Events in this state always have `skip_person_processing = true`
+    /// and are routed to the overflow topic with a null partition key.
+    ForceLimited,
+    /// Per-key rate exceeded the configured governor quota. Routed to the
+    /// overflow topic. `preserve_locality` mirrors the
+    /// `overflow_preserve_partition_locality` config and determines whether
+    /// the original partition key is preserved on the overflow topic.
+    RateLimited { preserve_locality: bool },
+    /// Session-level replay overflow signalled by the redis-backed limiter.
+    /// Routed to the replay overflow topic, keyed on session_id.
+    ReplayLimited,
+}
+
 #[derive(Debug, Clone)]
 pub struct ProcessedEventMetadata {
     pub data_type: DataType,
     pub session_id: Option<String>,
     pub computed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub event_name: String,
+    /// Force this event to overflow topic (set by event restrictions)
+    pub force_overflow: bool,
+    /// Skip person processing for this event (set by event restrictions)
+    pub skip_person_processing: bool,
+    /// Redirect this event to DLQ topic (set by event restrictions)
+    pub redirect_to_dlq: bool,
+    /// Redirect this event to a custom topic (set by event restrictions)
+    pub redirect_to_topic: Option<String>,
+    /// Heatmap data on this event was redirected to the heatmaps topic and
+    /// must not be extracted again by the events pipeline.
+    pub skip_heatmap_processing: bool,
+    /// Overflow routing decision stamped by the pipeline. `None` means the
+    /// event stays on its default topic for its `data_type`. See
+    /// [`OverflowReason`] for who sets this and what each variant maps to in
+    /// the kafka sink.
+    pub overflow_reason: Option<OverflowReason>,
 }
 
 #[cfg(test)]

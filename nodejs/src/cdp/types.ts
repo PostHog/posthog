@@ -66,6 +66,10 @@ export type CyclotronPerson = {
     properties: Record<string, any>
     name: string
     url: string
+    // Populated whenever the manager could resolve a distinct_id for this person.
+    // Always present when looked up by distinct_id; for person_id lookups, present
+    // when the person has at least one distinct_id in the persondistinctid table.
+    distinct_id?: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -105,6 +109,7 @@ export type HogFunctionInvocationGlobals = {
     }
 
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
+    unsubscribe_url_one_click?: string // For email actions, the one-click unsubscribe URL to use
 
     actions?: HogFunctionInvocationActionVariables
     variables?: Record<string, any> // For HogFlows, workflow-level variables
@@ -115,7 +120,7 @@ export type HogFunctionInvocationGlobals = {
  * These variables can be used to store loop state or pass data between actions
  *
  * Action's can read and write to these variables. Any value stored in the variables
- * map must be JSON serializable, and limited to 1KB in size.
+ * map must be JSON serializable, and limited to 5KB in size.
  *
  * After execution, every action will have a corresponding entry in the map with
  * the key `$action/{actionId}` containing the result of the action.
@@ -181,7 +186,7 @@ export type HogFunctionFilterGlobals = {
     variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
 }
 
-export type MetricLogSource = 'hog_function' | 'hog_flow'
+export type MetricLogSource = 'hog_function' | 'hog_flow' | 'legacy_plugin'
 
 export type LogEntryLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -224,7 +229,9 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'email_queued'
         | 'email_sent'
+        | 'email_delivered'
         | 'email_failed'
         | 'email_opened'
         | 'email_link_clicked'
@@ -247,18 +254,10 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
-    'hog',
-    'hogoverflow',
-    'hogflow',
-    'delay10m',
-    'delay60m',
-    'delay24h',
-    'datawarehouse_table',
-] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email'] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
-export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'kafka', 'delay'] as const
+export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
 
 // Agnostic job invocation type
@@ -266,6 +265,8 @@ export type CyclotronJobInvocation = {
     id: string
     teamId: Team['id']
     functionId: string
+    // Optional parent run ID, e.g. if this invocation is part of a batch workflow run
+    parentRunId?: string | null
     state: Record<string, any> | null
     // The queue that the invocation is on
     queue: CyclotronJobQueueKind
@@ -289,6 +290,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
+    warehouseWebhookPayloads: WarehouseWebhookPayload[]
     execResult?: unknown
 }
 
@@ -297,6 +299,18 @@ export type CyclotronJobInvocationHogFunctionContext = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     attempts: number // Indicates the number of times this invocation has been attempted (for example if it gets scheduled for retries)
+    // Distinct from `attempts` (fetch-retry counter, reset between runs).
+    // `rerunAttempts` is incremented when an invocation is rehydrated by the
+    // rerun paginator and stays sticky across the entire rerun run. The
+    // lifecycle row producer reads this to drive the `attempts` + `is_retry`
+    // columns in `hog_invocation_results`.
+    rerunAttempts?: number
+    // ISO timestamp of the *original* cyclotron-scheduled time. Carried through
+    // reruns so the lifecycle row producer can populate `first_scheduled_at`
+    // verbatim — ReplacingMergeTree would otherwise collapse retries to the
+    // latest version and lose the original.
+    firstScheduledAt?: string
+    actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
 }
 
 export type CyclotronJobInvocationHogFunction = CyclotronJobInvocation & {
@@ -313,13 +327,36 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
+    personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
     actionStepCount: number
     currentAction?: {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
+        // Set by the subscription matcher consumer when it wakes a wait_until_condition
+        // job because a matching event arrived (as opposed to a scheduled timeout firing).
+        eventMatched?: boolean
+        // Name of the event that triggered the wake, so the executor can surface
+        // "woken by event: X" in logs instead of echoing the trigger event.
+        eventMatchedEvent?: string
+        // UUID of the exact event that triggered the wake, so the logs view can link to
+        // it precisely (the name alone is ambiguous when a person fires it repeatedly).
+        eventMatchedEventUuid?: string
+        // Paired with the UUID to build the event link in the logs view; never displayed.
+        eventMatchedEventTimestamp?: string
     }
+    // Set by the subscription matcher consumer when an incoming event matched the
+    // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
+    conversionMatched?: boolean
     variables?: Record<string, any>
+    // Sticky counter incremented by the rerun paginator on rehydration. Lets
+    // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
+    // the same way it does for hog functions, so the `max_attempts` guard on
+    // the rerun filter actually applies to flows.
+    rerunAttempts?: number
+    // Carried verbatim through retries so `first_scheduled_at` survives the
+    // ReplacingMergeTree collapse on the hog_invocation_results table.
+    firstScheduledAt?: string
 }
 
 // Mostly copied from frontend types
@@ -335,9 +372,15 @@ export type HogFunctionInputSchemaType = {
         | 'integration_field'
         | 'email'
         | 'native_email'
+        | 'posthog_assignee'
+        | 'posthog_ticket_tags'
+        | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean
@@ -360,6 +403,7 @@ export type HogFunctionTypeType =
     | 'transformation'
     | 'internal_destination'
     | 'source_webhook'
+    | 'warehouse_source_webhook'
     | 'site_destination'
 
 export interface HogFunctionMappingType {
@@ -387,11 +431,14 @@ export type HogFunctionType = {
     execution_order?: number
     created_at: string
     updated_at: string
+    metadata?: Record<string, any>
+    batch_export_id?: string | null
 }
 
 export type HogFunctionMappingTemplate = HogFunctionMappingType & {
     name: string
     include_by_default?: boolean
+    use_all_events_by_default?: boolean
 }
 
 export type HogFunctionTemplate = {
@@ -442,6 +489,12 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type WarehouseWebhookPayload = {
+    team_id: number
+    schema_id: string
+    payload: Record<string, any>
 }
 
 export type Response = {

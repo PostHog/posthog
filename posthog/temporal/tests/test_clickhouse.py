@@ -1,17 +1,23 @@
 import uuid
 import asyncio
 import datetime as dt
+import contextlib
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
+    ClickHouseAllReplicasAreStaleError,
+    ClickHouseCheckQueryStatusError,
     ClickHouseClient,
     ClickHouseError,
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
+    ClickHouseQueryTimeoutError,
+    ClickHouseTooManyBytesError,
+    ClickHouseTooManySimultaneousQueriesError,
     add_log_comment_param,
     encode_clickhouse_data,
 )
@@ -140,20 +146,96 @@ def test_add_log_comment_param(params, qt, want):
     assert params == want
 
 
-def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
-    """Simulate a ClickHouse memory limit exceeded error and verify that the correct error is raised."""
-    with patch(
-        "posthog.temporal.common.clickhouse.requests.Session.post",
-        return_value=(
-            MagicMock(
-                status_code=500,
-                text="Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 25.8.12.129 (official build))",
-            )
+def _mock_internal_session_post(return_value):
+    """Return a patch context manager that mocks internal_requests_session().post()."""
+    mock_session = MagicMock()
+    mock_session.post.return_value = return_value
+    mock_session.__enter__ = MagicMock(return_value=mock_session)
+    mock_session.__exit__ = MagicMock(return_value=False)
+    mock_factory = MagicMock(return_value=mock_session)
+    return patch("posthog.temporal.common.clickhouse.internal_requests_session", mock_factory)
+
+
+@pytest.mark.parametrize(
+    "error_text,expected_exception",
+    [
+        (
+            "Code: 241. DB::Exception: (total) memory limit exceeded: would use 99.97 GiB (attempt to allocate chunk of 12.26 MiB bytes), current RSS: 111.22 GiB, maximum: 111.19 GiB. OvercommitTracker decision: Query was selected to stop by OvercommitTracker: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseMemoryLimitExceededError,
         ),
-    ):
-        with pytest.raises(ClickHouseMemoryLimitExceededError):
+        (
+            "Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 50.00 TiB, current bytes: 50.00 TiB: While executing MergeTreeSelect(pool: ReadPool, algorithm: Thread). (TOO_MANY_BYTES) (version x.x.x.x (official build))",
+            ClickHouseTooManyBytesError,
+        ),
+        (
+            "Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 100, maximum: 100. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))",
+            ClickHouseTooManySimultaneousQueriesError,
+        ),
+        (
+            "Code: 159. DB::Exception: Estimated query execution time (300.5 seconds) is too long. Maximum: 300. (TIMEOUT_EXCEEDED) (version x.x.x.x (official build))",
+            ClickHouseQueryTimeoutError,
+        ),
+        (
+            "Code: 279. DB::Exception: All replicas are stale: While executing Remote. (ALL_REPLICAS_ARE_STALE) (version x.x.x.x (official build))",
+            ClickHouseAllReplicasAreStaleError,
+        ),
+    ],
+    ids=[
+        "MEMORY_LIMIT_EXCEEDED",
+        "TOO_MANY_BYTES",
+        "TOO_MANY_SIMULTANEOUS_QUERIES",
+        "TIMEOUT_EXCEEDED",
+        "ALL_REPLICAS_ARE_STALE",
+    ],
+)
+def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, expected_exception):
+    """Server-side ClickHouse error codes map to the matching client exception class."""
+    mock_response = MagicMock(status_code=500, text=error_text)
+    with _mock_internal_session_post(mock_response):
+        with pytest.raises(expected_exception):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
+
+
+def test_post_query_disables_http_compression(clickhouse_client):
+    mock_response = MagicMock(status_code=200)
+    with _mock_internal_session_post(mock_response) as mock_factory:
+        with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+            pass
+
+    call_kwargs = mock_factory.return_value.post.call_args.kwargs
+    assert call_kwargs["params"]["enable_http_compression"] == "0"
+
+
+@pytest.mark.parametrize(
+    "query,query_parameters,expected",
+    [
+        (
+            "select * from events where event = {event}",
+            {"event": "hello"},
+            "select * from events where event = 'hello'",
+        ),
+        (
+            "select * from events where event = %(event)s",
+            {"event": "world"},
+            "select * from events where event = 'world'",
+        ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{1}", "another": "event"},
+            "select * from events where event = 'index_{1}' and event != 'event'",
+        ),
+        (
+            "select * from events where event = %(event)s and event != {another}",
+            {"event": "index_{something}", "another": "event"},
+            "select * from events where event = 'index_{something}' and event != 'event'",
+        ),
+    ],
+)
+def test_prepare_query(clickhouse_client, query, query_parameters, expected):
+    """Test data is encoded as expected."""
+    result = clickhouse_client.prepare_query(query, query_parameters)
+    assert result == expected
 
 
 async def test_acancel_query(clickhouse_client, django_db_setup):
@@ -234,6 +316,36 @@ async def test_acheck_query_in_query_log_not_found(clickhouse_client, django_db_
         await clickhouse_client.acheck_query_in_query_log(non_existent_query_id)
 
 
+async def test_acheck_query_in_query_log_error(clickhouse_client, django_db_setup):
+    """Test that acheck_query_in_query_log raises ClickHouseCheckQueryStatusError for errors."""
+    # Simulate an exception from the ClickHouse client
+    # (this is an example of a response we've seen in production, where a 200 is returned but it is actually an error)
+    # because we use Format JSONEachRow we get the exception returned inside a JSON object
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    async def mock_read():
+        return b'{"exception": "Code: 202. DB::Exception: Received from dummy-ch-node.internal. DB::Exception: Too many simultaneous queries for all users. Current: 10, maximum: 10. (TOO_MANY_SIMULTANEOUS_QUERIES) (version x.x.x.x (official build))"}'
+
+    mock_response.content.read = mock_read
+
+    @contextlib.asynccontextmanager
+    async def mock_get(*args, **kwargs):
+        yield mock_response
+
+    mock_session = MagicMock()
+    mock_session.get = mock_get
+
+    with patch.object(
+        clickhouse_client,
+        "session",
+        mock_session,
+    ):
+        query_id = f"test-error-query-{uuid.uuid4()}"
+        with pytest.raises(ClickHouseCheckQueryStatusError):
+            await clickhouse_client.acheck_query_in_query_log(query_id)
+
+
 async def test_acheck_query_found(clickhouse_client, django_db_setup):
     query_id = f"test-acheck-query-{uuid.uuid4()}"
     await clickhouse_client.execute_query("SELECT 1", query_id=query_id)
@@ -251,3 +363,97 @@ async def test_acheck_query_not_found_anywhere(clickhouse_client, django_db_setu
     non_existent_query_id = f"test-acheck-query-not-found-{uuid.uuid4()}"
     with pytest.raises(ClickHouseQueryNotFound):
         await clickhouse_client.acheck_query(non_existent_query_id)
+
+
+async def test_stream_query_as_jsonl_handles_split_chunks(clickhouse_client):
+    """Test that stream_query_as_jsonl correctly handles chunks that split mid-JSON."""
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    chunks = [
+        b'{"status": "ent',
+        b'ered", "id": 1}\n{"status": "co',
+        b'mpleted", "id": 2}\n',
+    ]
+
+    async def mock_iter_any():
+        for chunk in chunks:
+            yield chunk
+
+    mock_response.content.iter_any = mock_iter_any
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        results = []
+        async for result in clickhouse_client.stream_query_as_jsonl("SELECT 1"):
+            results.append(result)
+
+    assert len(results) == 2
+    assert results[0] == {"status": "entered", "id": 1}
+    assert results[1] == {"status": "completed", "id": 2}
+
+
+async def test_stream_query_as_jsonl_handles_final_line_without_separator(clickhouse_client):
+    """Test that stream_query_as_jsonl correctly handles the final line without a trailing separator."""
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    chunks = [
+        b'{"id": 1}\n{"id": 2}\n{"id": 3}',
+    ]
+
+    async def mock_iter_any():
+        for chunk in chunks:
+            yield chunk
+
+    mock_response.content.iter_any = mock_iter_any
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        results = []
+        async for result in clickhouse_client.stream_query_as_jsonl("SELECT 1"):
+            results.append(result)
+
+    assert len(results) == 3
+    assert results[0] == {"id": 1}
+    assert results[1] == {"id": 2}
+    assert results[2] == {"id": 3}
+
+
+async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_client):
+    """Test that stream_query_as_jsonl correctly handles whitespace-only lines between valid JSON."""
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+
+    chunks = [
+        b'{"id": 1}\n  \n{"id": 2}\n\t\n{"id": 3}\n',
+    ]
+
+    async def mock_iter_any():
+        for chunk in chunks:
+            yield chunk
+
+    mock_response.content.iter_any = mock_iter_any
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        results = []
+        async for result in clickhouse_client.stream_query_as_jsonl("SELECT 1"):
+            results.append(result)
+
+    assert len(results) == 3
+    assert results[0] == {"id": 1}
+    assert results[1] == {"id": 2}
+    assert results[2] == {"id": 3}

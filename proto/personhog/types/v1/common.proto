@@ -1,0 +1,51 @@
+syntax = "proto3";
+package personhog.types.v1;
+
+// ConsistencyLevel specifies the consistency guarantee for read operations.
+// EVENTUAL: Read from replica (may have replication lag)
+// STRONG: Read from primary (guaranteed latest data)
+enum ConsistencyLevel {
+  CONSISTENCY_LEVEL_UNSPECIFIED = 0;
+  CONSISTENCY_LEVEL_EVENTUAL = 1;
+  CONSISTENCY_LEVEL_STRONG = 2;
+}
+
+// ReadOptions configures read operation behavior.
+message ReadOptions {
+  ConsistencyLevel consistency = 1;
+  // Top-level proto field names to include in response entities (Person, Group).
+  // Empty means all fields are returned (backward-compatible default).
+  // Unknown field names are silently ignored.
+  //
+  // Honored by batch/list RPCs only: GetPersons, GetPersonsByUuids,
+  // GetPersonsByDistinctIdsInTeam, GetPersonsByDistinctIds, GetGroups,
+  // GetGroupsBatch, ListGroups.
+  // Single-entity RPCs (GetPerson, GetPersonByUuid, GetPersonByDistinctId,
+  // GetGroup) always return all fields regardless of this mask.
+  //
+  // When the properties-related fields ("properties"/"group_properties",
+  // "properties_last_updated_at", "properties_last_operation") are all excluded,
+  // the server skips fetching them in SELECT clauses. Note: ListGroups with a
+  // non-empty `search` still reads group_properties in the WHERE filter even
+  // when these fields are excluded from the mask.
+  repeated string field_mask = 2;
+}
+
+// TeamDistinctId is a cross-team lookup key for person resolution
+message TeamDistinctId {
+  int64 team_id = 1;
+  string distinct_id = 2;
+}
+
+// GroupKey is a cross-team lookup key for group resolution
+message GroupKey {
+  int64 team_id = 1;
+  int32 group_type_index = 2;
+  string group_key = 3;
+}
+
+// GroupIdentifier is a within-team group lookup key
+message GroupIdentifier {
+  int32 group_type_index = 1;
+  string group_key = 2;
+}

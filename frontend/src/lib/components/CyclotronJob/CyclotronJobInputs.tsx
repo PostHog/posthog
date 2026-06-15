@@ -3,9 +3,18 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconGear, IconLock, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconGear,
+    IconLock,
+    IconPlus,
+    IconToggleOff,
+    IconTrash,
+    IconWarning,
+    IconX,
+} from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
@@ -24,14 +33,16 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
 import { capitalizeFirstLetter, objectsEqual, uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
-import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
+import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
+import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputConfiguration } from './types'
@@ -48,12 +59,37 @@ const INPUT_TYPE_LIST = [
     'integration',
     'email',
     'native_email',
+    'non_failure_status_codes',
 ] as const
+
+// Keyed by the full CyclotronJobInputSchemaType['type'] union — the schema editor's LemonSelect
+// receives `value={value.type}` which widens the inferred T past INPUT_TYPE_LIST, so the map's
+// indexer needs to accept any of the schema types.
+const INPUT_TYPE_LABELS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
+    native_email: 'Native email',
+    non_failure_status_codes: 'Non-failure codes',
+}
+
+const INPUT_TYPE_DEFAULT_DESCRIPTIONS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
+    non_failure_status_codes:
+        'HTTP response codes that should NOT mark the invocation as failed. Accepts specific codes (e.g. 409, 422) or the wildcards 4xx and 5xx. Useful when an API returns 4xx for expected non-error states.',
+}
+
+const NON_FAILURE_STATUS_CODE_SUGGESTIONS = ['4xx', '5xx', '400', '401', '403', '404', '409', '422', '429']
+
+function isValidNonFailureStatusCode(entry: string): boolean {
+    if (/^[4-5]xx$/i.test(entry)) {
+        return true
+    }
+    const n = Number(entry)
+    return Number.isInteger(n) && n >= 400 && n <= 599
+}
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
     configuration: CyclotronJobInputConfiguration
     errors?: Record<string, string>
+    warnings?: Record<string, string>
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
@@ -66,6 +102,7 @@ export function CyclotronJobInputs({
     onInputSchemaChange,
     onInputChange,
     errors,
+    warnings,
     showSource,
     sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
@@ -104,6 +141,7 @@ export function CyclotronJobInputs({
                                     showSource={showSource}
                                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     errors={errors}
+                                    warnings={warnings}
                                 />
                             )
                         })}
@@ -123,6 +161,7 @@ function JsonConfigField(props: {
 }): JSX.Element {
     const key = useMemo(() => `json_field_${uuid()}`, [])
     const templatingKind = props.input.templating ?? 'hog'
+    const [isExpanded, setIsExpanded] = useState(true)
 
     // Set up validation logic for this JSON field
     const logic = cyclotronJobInputLogic({
@@ -140,7 +179,7 @@ function JsonConfigField(props: {
     const panels = [
         {
             key: 1,
-            header: 'Click to edit',
+            header: isExpanded ? 'Click to collapse' : 'Click to expand',
             content: (
                 <LemonField.Pure error={error}>
                     <span className={clsx('group relative', props.className)}>
@@ -183,7 +222,15 @@ function JsonConfigField(props: {
         },
     ]
 
-    return <LemonCollapse embedded={false} panels={panels} size="xsmall" />
+    return (
+        <LemonCollapse
+            embedded={false}
+            panels={panels}
+            size="xsmall"
+            activeKey={isExpanded ? 1 : undefined}
+            onChange={(key) => setIsExpanded(key === 1)}
+        />
+    )
 }
 
 function EmailTemplateField({
@@ -215,6 +262,7 @@ function CyclotronJobTemplateInput(props: {
     onChange?: (value: CyclotronJobInputType) => void
     input: CyclotronJobInputType
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    placeholder?: string
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
 
@@ -222,8 +270,10 @@ function CyclotronJobTemplateInput(props: {
         return (
             <LemonInput
                 type="text"
+                className={props.className}
                 value={props.input.value}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val })}
+                placeholder={props.placeholder}
             />
         )
     }
@@ -263,12 +313,14 @@ function DictionaryField({
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }): JSX.Element {
     const value = input.value ?? {}
-    const [entries, setEntries] = useState<[string, string][]>(Object.entries(value))
-    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
+    const [entries, setEntries] = useState<[string, any][]>(() => Object.entries(value))
+    const prevFilteredEntriesRef = useRef<[string, any][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+        const filteredEntries = entries.filter(
+            ([key, val]) => key.trim() !== '' || typeof val !== 'string' || val.trim() !== ''
+        )
 
         // Compare with previous filtered entries to avoid unnecessary updates
         if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
@@ -283,12 +335,12 @@ function DictionaryField({
     }, [entries, onChange])
 
     const handleEnableIncludeObject = (): void => {
-        setEntries([[EXTEND_OBJECT_KEY, '{event.properties}'], ...entries])
+        setEntries((prev) => [[EXTEND_OBJECT_KEY, '{event.properties}'], ...prev])
     }
 
     return (
         <div className="deprecated-space-y-2">
-            {!entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
+            {templating && !entries.some(([key]) => key === EXTEND_OBJECT_KEY) ? (
                 <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={handleEnableIncludeObject}>
                     Include properties from an entire object
                 </LemonButton>
@@ -301,9 +353,11 @@ function DictionaryField({
                             disabled={key === EXTEND_OBJECT_KEY}
                             className="flex-1 min-w-60"
                             onChange={(key) => {
-                                const newEntries = [...entries]
-                                newEntries[index] = [key, newEntries[index][1]]
-                                setEntries(newEntries)
+                                setEntries((prev) => {
+                                    const newEntries = [...prev]
+                                    newEntries[index] = [key, newEntries[index][1]]
+                                    return newEntries
+                                })
                             }}
                             placeholder="Key"
                         />
@@ -311,14 +365,18 @@ function DictionaryField({
 
                     <CyclotronJobTemplateInput
                         className="overflow-hidden flex-2"
+                        placeholder="Value"
                         input={{ ...input, value: val }}
                         onChange={(val) => {
-                            const newEntries = [...entries]
-                            newEntries[index] = [newEntries[index][0], val.value ?? '']
                             if (val.templating) {
                                 onChange?.({ ...input, templating: val.templating })
                             }
-                            setEntries(newEntries)
+
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries[index] = [newEntries[index][0], val.value ?? '']
+                                return newEntries
+                            })
                         }}
                         templating={templating}
                         sampleGlobalsWithInputs={sampleGlobalsWithInputs}
@@ -328,9 +386,11 @@ function DictionaryField({
                         icon={<IconX />}
                         size="small"
                         onClick={() => {
-                            const newEntries = [...entries]
-                            newEntries.splice(index, 1)
-                            setEntries(newEntries)
+                            setEntries((prev) => {
+                                const newEntries = [...prev]
+                                newEntries.splice(index, 1)
+                                return newEntries
+                            })
                         }}
                     />
                 </div>
@@ -340,12 +400,105 @@ function DictionaryField({
                 size="small"
                 type="secondary"
                 onClick={() => {
-                    setEntries([...entries, ['', '']])
+                    setEntries((prev) => [...prev, ['', '']])
                 }}
             >
                 Add entry
             </LemonButton>
         </div>
+    )
+}
+
+function BooleanField({
+    input,
+    onChange,
+    disabled,
+    templating,
+    sampleGlobalsWithInputs,
+}: {
+    input: CyclotronJobInputType
+    onChange?: (value: CyclotronJobInputType) => void
+    disabled?: boolean
+    templating: boolean
+    sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+}): JSX.Element {
+    const isTemplateMode = typeof input.value === 'string'
+
+    if (isTemplateMode) {
+        // Boolean fields only support Hog templating - Liquid renders as strings
+        // which bypasses boolean type guarantees
+        const hogInput = input.templating === 'liquid' ? { ...input, templating: 'hog' as const } : input
+        return (
+            <CyclotronJobTemplateInput
+                input={hogInput}
+                onChange={(val) => onChange?.({ ...val, templating: 'hog' })}
+                templating={templating}
+                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+            />
+        )
+    }
+
+    return (
+        <LemonSwitch
+            checked={!!input.value}
+            onChange={(checked) => onChange?.({ ...input, value: checked })}
+            disabled={disabled}
+        />
+    )
+}
+
+type SearchableChoice = { value: any; label: string }
+
+function SearchableChoiceCombobox({
+    value,
+    onChange,
+    choices,
+    disabled,
+}: {
+    value: any
+    onChange: (value: any) => void
+    choices: SearchableChoice[]
+    disabled?: boolean
+}): JSX.Element {
+    // Mirrors quill's `InputInsidePopup` combobox story: LemonButton as the trigger,
+    // ComboboxInput rendered inside ComboboxContent so the search field stays visible on
+    // open. Combobox primitive auto-scrolls the active item into view but the input lives
+    // outside the scrolling list, so it doesn't get pushed offscreen.
+    const [open, setOpen] = useState(false)
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const selectedLabel = choices.find((choice) => choice.value === value)?.label ?? null
+
+    return (
+        <Combobox
+            items={choices}
+            itemToStringValue={(choice: SearchableChoice) => choice.label}
+            open={open}
+            onOpenChange={setOpen}
+            value={choices.find((choice) => choice.value === value) ?? null}
+            onValueChange={(choice: SearchableChoice | null) => onChange(choice ? choice.value : null)}
+        >
+            <LemonButton
+                ref={triggerRef}
+                type="secondary"
+                fullWidth
+                disabled={disabled}
+                onClick={() => setOpen((prev) => !prev)}
+                className="ph-no-capture"
+            >
+                {selectedLabel ?? <span className="text-secondary">Select a value</span>}
+            </LemonButton>
+            <ComboboxContent anchor={triggerRef}>
+                <ComboboxInput placeholder="Search" showTrigger={false} />
+                <ComboboxEmpty>No items found</ComboboxEmpty>
+                <ComboboxList>
+                    {(choice: SearchableChoice) => (
+                        <ComboboxItem key={String(choice.value)} value={choice}>
+                            {choice.label}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
     )
 }
 
@@ -358,6 +511,46 @@ type CyclotronJobInputProps = {
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+}
+
+function NonFailureStatusCodesField({
+    value,
+    onChange,
+    disabled,
+}: {
+    value: unknown
+    onChange: (value: Array<number | string>) => void
+    disabled?: boolean
+}): JSX.Element {
+    const current: string[] = Array.isArray(value) ? value.map((v) => String(v)) : []
+    const invalid = current.filter((v) => !isValidNonFailureStatusCode(v))
+
+    return (
+        <div className="deprecated-space-y-1">
+            <LemonInputSelect
+                mode="multiple"
+                allowCustomValues
+                value={current}
+                onChange={(next) => {
+                    const normalized: Array<number | string> = next.map((entry) => {
+                        const trimmed = entry.trim()
+                        const n = Number(trimmed)
+                        return /^[1-5]xx$/i.test(trimmed) ? trimmed.toLowerCase() : Number.isInteger(n) ? n : trimmed
+                    })
+                    onChange(normalized)
+                }}
+                options={NON_FAILURE_STATUS_CODE_SUGGESTIONS.map((v) => ({ key: v, label: v }))}
+                placeholder="e.g. 4xx, 400, 429"
+                disabled={disabled}
+            />
+            {invalid.length > 0 && (
+                <div className="text-xs text-danger">
+                    Invalid {invalid.length === 1 ? 'entry' : 'entries'}: {invalid.join(', ')}. Use a number between 400
+                    and 599, <code>4xx</code>, or <code>5xx</code>.
+                </div>
+            )}
+        </div>
+    )
 }
 
 function CyclotronJobInputRenderer({
@@ -397,6 +590,16 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'choice':
+            if (schema.searchable) {
+                return (
+                    <SearchableChoiceCombobox
+                        value={input.value}
+                        onChange={onValueChange}
+                        choices={schema.choices ?? []}
+                        disabled={disabled}
+                    />
+                )
+            }
             return (
                 <LemonSelect
                     fullWidth
@@ -418,7 +621,13 @@ function CyclotronJobInputRenderer({
             )
         case 'boolean':
             return (
-                <LemonSwitch checked={input.value} onChange={(checked) => onValueChange(checked)} disabled={disabled} />
+                <BooleanField
+                    input={input}
+                    onChange={onChange}
+                    disabled={disabled}
+                    templating={templating}
+                    sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                />
             )
         case 'integration':
             return (
@@ -459,12 +668,23 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
-        default:
+        case 'non_failure_status_codes':
+            return <NonFailureStatusCodesField value={input.value} onChange={onValueChange} disabled={disabled} />
+        default: {
+            const CustomRenderer = CUSTOM_INPUT_RENDERERS[schema.type]
+            if (CustomRenderer) {
+                return (
+                    <Suspense>
+                        <CustomRenderer schema={schema} value={input.value} onChange={onValueChange} />
+                    </Suspense>
+                )
+            }
             return (
                 <strong className="text-danger">
                     Unknown field type "<code>{schema.type}</code>".
                 </strong>
             )
+        }
     }
 }
 
@@ -502,12 +722,20 @@ function CyclotronJobInputSchemaControls({
                 <LemonSelect
                     size="small"
                     options={INPUT_TYPE_LIST.map((type) => ({
-                        label: capitalizeFirstLetter(type),
+                        label: INPUT_TYPE_LABELS[type] ?? capitalizeFirstLetter(type),
                         value: type,
                     }))}
                     value={value.type}
-                    className="w-30"
-                    onChange={(type) => _onChange({ type })}
+                    className="min-w-40"
+                    onChange={(type) => {
+                        const defaultDescription = INPUT_TYPE_DEFAULT_DESCRIPTIONS[type]
+                        // Seed the description from the type's default if the author hasn't written one
+                        if (defaultDescription && !value.description) {
+                            _onChange({ type, description: defaultDescription })
+                        } else {
+                            _onChange({ type })
+                        }
+                    }}
                 />
                 <LemonCheckbox
                     size="small"
@@ -617,11 +845,13 @@ function CyclotronJobInputWithSchema({
     showSource,
     sampleGlobalsWithInputs,
     errors,
+    warnings,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
     const value = configuration.inputs?.[schema.key] ?? { value: null }
     const error = errors?.[schema.key]
+    const warning = warnings?.[schema.key]
 
     const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
         let inputsSchema = configuration.inputs_schema || []
@@ -638,8 +868,17 @@ function CyclotronJobInputWithSchema({
             onInputChange?.(newSchema.key, value)
         }
 
+        const isEmptyValue = (v: unknown): boolean =>
+            v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)
+
         if (newSchema?.type && newSchema.type !== schema.type) {
-            onInputChange?.(schema.key, { value: null })
+            // Reset on type change; seed from schema default when one is declared
+            onInputChange?.(schema.key, {
+                value: newSchema.default !== undefined ? newSchema.default : null,
+            })
+        } else if (newSchema?.default !== undefined && isEmptyValue(value.value)) {
+            // Seed an empty input value from the schema's default so save succeeds without a separate edit
+            onInputChange?.(newSchema.key ?? schema.key, { ...value, value: newSchema.default })
         }
         onInputSchemaChange?.(inputsSchema)
     }
@@ -693,6 +932,28 @@ function CyclotronJobInputWithSchema({
                                     </Tooltip>
                                 ) : undefined}
                             </LemonLabel>
+                            {schema.type === 'boolean' && (schema.templating ?? true) && (
+                                <LemonSelect
+                                    size="xsmall"
+                                    type="tertiary"
+                                    value={typeof value?.value === 'string' ? 'conditional' : 'toggle'}
+                                    options={[
+                                        { value: 'toggle', label: 'Toggle', icon: <IconToggleOff /> },
+                                        { value: 'conditional', label: 'Conditional', icon: <IconBrackets /> },
+                                    ]}
+                                    onChange={(mode) => {
+                                        if (mode === 'toggle') {
+                                            onChange({ ...value, value: false })
+                                        } else {
+                                            onChange({
+                                                ...value,
+                                                value: `{event.property.foo = 'bar'}`,
+                                                templating: 'hog',
+                                            })
+                                        }
+                                    }}
+                                />
+                            )}
                             {showSource && (
                                 <LemonTag type="muted" className="font-mono">
                                     inputs.{schema.key}
@@ -735,6 +996,12 @@ function CyclotronJobInputWithSchema({
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                             />
                         )}
+                        {warning && !value?.secret ? (
+                            <div className="flex gap-1 items-start mt-1 text-xs text-warning">
+                                <IconWarning className="mt-0.5 shrink-0 text-base" />
+                                <span>{warning}</span>
+                            </div>
+                        ) : null}
                     </>
                 </LemonField.Pure>
             ) : (

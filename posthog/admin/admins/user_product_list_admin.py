@@ -1,6 +1,9 @@
 from django.contrib import admin
 
+from posthog.models.file_system.user_product_list import UserProductList
 
+
+@admin.register(UserProductList)
 class UserProductListAdmin(admin.ModelAdmin):
     list_display = ("id", "user", "team", "product_path", "reason", "enabled", "updated_at")
     list_display_links = ("id",)
@@ -51,7 +54,4 @@ class UserProductListAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
         return False

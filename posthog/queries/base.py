@@ -12,7 +12,6 @@ from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import Property, PropertyGroup
@@ -20,6 +19,8 @@ from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
+
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 
 FilterType = TypeVar("FilterType", Filter, PathFilter)
 
@@ -278,12 +279,16 @@ def empty_or_null_with_value_q(
             # and do a numeric comparison. Otherwise, do a string comparison.
             sanitized_key = sanitize_property_key(key)
             target_filter = Q(
+                # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
                 Q(**{f"{column}__{key}__{operator}": str(value), f"{column}_{sanitized_key}_type": Value("string")})
+                # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
                 | Q(**{f"{column}__{key}__{operator}": parsed_value, f"{column}_{sanitized_key}_type": Value("number")})
             )
         else:
+            # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
             target_filter = Q(**{f"{column}__{key}__{operator}": value})
 
+    # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
     query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
 
     if negated:
@@ -294,6 +299,7 @@ def empty_or_null_with_value_q(
 def lookup_q(key: str, value: Any) -> Q:
     # exact and is_not operators can pass lists as arguments. Handle those lookups!
     if isinstance(value, list):
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{key}__in": value})
     return Q(**{key: value})
 
@@ -304,6 +310,9 @@ def property_to_Q(
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
+    *,
+    person_id: Optional[int] = None,
+    team_id: Optional[int] = None,
 ) -> Q:
     if override_property_values is None:
         override_property_values = {}
@@ -337,9 +346,33 @@ def property_to_Q(
             return Q(pk__isnull=True)
 
         if cohort.is_static:
+            # When a concrete person is in scope, short-circuit the Exists subquery
+            # with a direct membership check — routes through personhog when enabled,
+            # falling back to the persons-DB ORM otherwise. Mirrors the override
+            # short-circuit below (returning Q(pk__isnull=False|True)).
+            if person_id is not None and team_id is not None:
+                from products.cohorts.backend.models.util import is_person_in_cohort
+
+                if is_person_in_cohort(team_id=team_id, person_id=person_id, cohort_id=cohort_id):
+                    return Q(pk__isnull=False)
+                return Q(pk__isnull=True)
+
+            # When team_id is available, list all member IDs and filter with
+            # Q(id__in=…) — routes through personhog when the gate is on,
+            # falling back to the CohortPeople table otherwise. This avoids
+            # the Exists(CohortPeople) subquery so the persons DB is not
+            # required on the personhog path.
+            if team_id is not None:
+                from products.cohorts.backend.models.util import list_cohort_member_ids
+
+                member_ids = list_cohort_member_ids(team_id=team_id, cohort_id=cohort_id)
+                if not member_ids:
+                    return Q(pk__isnull=True)
+                return Q(id__in=member_ids)
+
             return Q(
                 Exists(
-                    CohortPeople.objects.db_manager(using_database)
+                    CohortPeople.objects.db_manager(using_database)  # nosemgrep: no-direct-persons-db-orm
                     .filter(
                         cohort_id=cohort_id,
                         person_id=OuterRef("id"),
@@ -357,6 +390,8 @@ def property_to_Q(
                 override_property_values,
                 cohorts_cache,
                 using_database,
+                person_id=person_id,
+                team_id=team_id,
             )
 
     # short circuit query if key exists in override_property_values
@@ -378,8 +413,10 @@ def property_to_Q(
     column = "group_properties" if property.type == "group" else "properties"
 
     if property.operator == "is_set":
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{column}__{property.key}__isnull": False})
     if property.operator == "is_not_set":
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{column}__{property.key}__isnull": True})
     if property.operator in ("regex", "not_regex") and not is_valid_regex(str(value)):
         # Return no data for invalid regexes
@@ -408,6 +445,7 @@ def property_to_Q(
             if parsed_date:
                 effective_value = parsed_date.isoformat()
 
+        # nosemgrep: orm-field-injection -- key prefixed by JSONField column; __ is JSON key traversal, not FK
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 
     if property.operator == "is_not":
@@ -424,6 +462,9 @@ def property_group_to_Q(
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
+    *,
+    person_id: Optional[int] = None,
+    team_id: Optional[int] = None,
 ) -> Q:
     if override_property_values is None:
         override_property_values = {}
@@ -440,6 +481,8 @@ def property_group_to_Q(
                 override_property_values,
                 cohorts_cache,
                 using_database,
+                person_id=person_id,
+                team_id=team_id,
             )
             if property_group.type == PropertyOperatorType.OR:
                 filters |= group_filter
@@ -449,7 +492,13 @@ def property_group_to_Q(
         for property in property_group.values:
             property = cast(Property, property)
             property_filter = property_to_Q(
-                project_id, property, override_property_values, cohorts_cache, using_database
+                project_id,
+                property,
+                override_property_values,
+                cohorts_cache,
+                using_database,
+                person_id=person_id,
+                team_id=team_id,
             )
             if property_group.type == PropertyOperatorType.OR:
                 if property.negation:
@@ -471,10 +520,18 @@ def properties_to_Q(
     override_property_values: Optional[dict[str, Any]] = None,
     cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
     using_database: str = "default",
+    *,
+    person_id: Optional[int] = None,
+    team_id: Optional[int] = None,
 ) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
     If you're filtering a Person/Group QuerySet, use is_direct_query to avoid doing an unnecessary nested loop
+
+    When ``person_id`` and ``team_id`` are both provided, static-cohort
+    membership checks short-circuit through ``is_person_in_cohort`` (routed via
+    personhog when enabled) instead of emitting an ``Exists(CohortPeople)``
+    subquery — useful for per-person evaluation paths.
     """
     if override_property_values is None:
         override_property_values = {}
@@ -489,6 +546,8 @@ def properties_to_Q(
         override_property_values,
         cohorts_cache,
         using_database,
+        person_id=person_id,
+        team_id=team_id,
     )
 
 

@@ -21,7 +21,9 @@ from posthog.schema import (
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
+    GroupNode,
     InsightActorsQuery,
     InsightVizNode,
     LifecycleQuery,
@@ -35,8 +37,10 @@ from posthog.schema import (
 )
 
 from posthog.cache_utils import cache_for
-from posthog.models import Action, Team
+from posthog.models import Team
 from posthog.utils import get_from_dict_or_attr
+
+from products.actions.backend.models.action import Action
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -127,10 +131,6 @@ class QueryEventsExtractor:
         elif kind == "EventsNode":
             events = self._get_series_events(self._ensure_model_instance(query, EventsNode))
 
-        elif kind == "WebTrendsQuery":
-            # WebTrendsQuery works on pre-aggregated page view data, so no specific events to extract
-            events = []
-
         return list(set(events))
 
     def _extract_events_from_series(self, series: list) -> list[str]:
@@ -213,11 +213,15 @@ class QueryEventsExtractor:
 
         return []
 
-    def _get_series_events(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> list[str]:
+    def _get_series_events(
+        self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, FunnelsDataWarehouseNode, GroupNode]
+    ) -> list[str]:
         if isinstance(series, EventsNode):
             return [series.event] if series.event else []
         if isinstance(series, ActionsNode):
             return self._get_action_events(action_id=int(series.id), project_id=self.team.project_id)
+        if isinstance(series, GroupNode):
+            return [event for value in series.nodes for event in self._get_series_events(value)]
 
         return []
 

@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { hogqlQuery } from '~/queries/query'
@@ -11,9 +12,10 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
-import { ViewLinkKeyLabel } from './ViewLinkModal'
-import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+
 import type { viewLinkLogicType } from './viewLinkLogicType'
+import { ViewLinkKeyLabel } from './ViewLinkModal'
 
 const NEW_VIEW_LINK: DataWarehouseViewLink = {
     id: 'new',
@@ -46,7 +48,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect(() => ({
         values: [databaseTableListLogic, ['allTables']],
-        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
+        actions: [databaseTableListLogic, ['loadDatabase'], joinsLogic, ['loadJoins']],
     })),
     actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
@@ -60,15 +62,13 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
-        setExperimentsOptimized: (experimentsOptimized: boolean) => ({ experimentsOptimized }),
-        selectExperimentsTimestampKey: (experimentsTimestampKey: string | null) => ({ experimentsTimestampKey }),
         clearModalFields: true,
         loadSourceTablePreview: (tableName: string) => ({ tableName }),
         loadJoiningTablePreview: (tableName: string) => ({ tableName }),
         setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setIsJoinValid: (isValid: boolean) => ({ isValid }),
-        setValidationError: (errorMessage: string) => ({ errorMessage }),
+        setValidationError: (errorMessage: string | null) => ({ errorMessage }),
         setValidationWarning: (validationWarning: string | null) => ({ validationWarning }),
         validateJoin: () => {},
         checkKeyTypeMismatch: () => {},
@@ -154,24 +154,6 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 toggleNewJoinModal: (_, { join }) => join?.field_name ?? '',
                 toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
                 clearModalFields: () => '',
-            },
-        ],
-        experimentsOptimized: [
-            false as boolean,
-            {
-                setExperimentsOptimized: (_, { experimentsOptimized }) => experimentsOptimized,
-                toggleNewJoinModal: (_, { join }) => join?.configuration?.experiments_optimized ?? false,
-                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_optimized ?? false,
-                clearModalFields: () => false,
-            },
-        ],
-        experimentsTimestampKey: [
-            null as string | null,
-            {
-                selectExperimentsTimestampKey: (_, { experimentsTimestampKey }) => experimentsTimestampKey,
-                toggleNewJoinModal: (_, { join }) => join?.configuration?.experiments_timestamp_key ?? null,
-                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_key ?? null,
-                clearModalFields: () => null,
             },
         ],
         isJoinTableModalOpen: [
@@ -261,10 +243,6 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             joining_table_name,
                             joining_table_key,
                             field_name: values.fieldName,
-                            configuration: {
-                                experiments_optimized: values.experimentsOptimized,
-                                experiments_timestamp_key: values.experimentsTimestampKey ?? undefined,
-                            },
                         })
 
                         actions.toggleJoinTableModal()
@@ -285,10 +263,6 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             joining_table_name,
                             joining_table_key,
                             field_name: values.fieldName,
-                            configuration: {
-                                experiments_optimized: values.experimentsOptimized,
-                                experiments_timestamp_key: values.experimentsTimestampKey ?? undefined,
-                            },
                         })
 
                         actions.toggleJoinTableModal()
@@ -297,6 +271,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                         actions.loadDatabase()
 
                         posthog.capture('join created')
+                        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.JoinExternalData)
                     } catch (error: any) {
                         actions.setError(error.detail)
                     }
@@ -307,6 +282,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
+            if (join?.source_table_name) {
+                actions.loadSourceTablePreview(join.source_table_name)
+            }
+            if (join?.joining_table_name) {
+                actions.loadJoiningTablePreview(join.joining_table_name)
+            }
         },
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
@@ -317,14 +298,12 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 actions.loadJoiningTablePreview(join.joining_table_name)
             }
         },
-        setExperimentsOptimized: ({ experimentsOptimized }) => {
-            if (!experimentsOptimized) {
-                actions.selectExperimentsTimestampKey(null)
-            }
-        },
-        selectExperimentsTimestampKey: ({ experimentsTimestampKey }) => {
-            if (experimentsTimestampKey) {
-                actions.setExperimentsOptimized(true)
+        setViewLinkValue: ({ name }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'joining_table_key' || fieldName === 'source_table_key') {
+                actions.setIsJoinValid(false)
+                actions.setValidationError(null)
+                actions.setValidationWarning(null)
             }
         },
         selectSourceTable: async ({ selectedTableName }) => {

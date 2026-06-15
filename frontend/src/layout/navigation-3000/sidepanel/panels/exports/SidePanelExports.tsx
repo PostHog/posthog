@@ -4,10 +4,12 @@ import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/ico
 import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
+import { getExportDisabledReason, getExportPendingLabel } from 'lib/components/ExportButton/exportStatus'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { humanFriendlyNumber } from 'lib/utils'
 
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
@@ -77,12 +79,8 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
 
     const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
     const stillCalculating = !asset.has_content && !asset.exception
-    let disabledReason: string | undefined = undefined
-    if (asset.exception) {
-        disabledReason = asset.exception
-    } else if (!asset.has_content) {
-        disabledReason = 'Export not ready yet'
-    }
+    const disabledReason = getExportDisabledReason(asset)
+    const pendingLabel = getExportPendingLabel(asset)
 
     return (
         <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
@@ -98,7 +96,18 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                     )}
                     {isNotDownloaded && <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>}
                     {asset.export_format === ExporterFormat.CSV && (
-                        <span className="text-xs text-secondary mt-1"> · {ROW_LIMIT_IN_THOUSANDS}k row limit</span>
+                        <span className="text-xs text-secondary mt-1">
+                            {` · `}
+                            {asset.export_context?.row_limit
+                                ? humanFriendlyNumber(asset.export_context.row_limit)
+                                : `${ROW_LIMIT_IN_THOUSANDS}k`}{' '}
+                            row limit
+                        </span>
+                    )}
+                    {stillCalculating && pendingLabel && (
+                        <span className="text-xs text-secondary mt-1 block" data-attr="export-pending-label">
+                            {pendingLabel}
+                        </span>
                     )}
                 </div>
             </div>
@@ -184,7 +193,7 @@ const ExportsContent = (): JSX.Element => {
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-2    ">
+            <div className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-2">
                 <ExportPanelHeader />
 
                 <ScreenShotEditor screenshotKey="exports" />

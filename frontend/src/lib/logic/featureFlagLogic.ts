@@ -11,6 +11,7 @@ import type { featureFlagLogicType } from './featureFlagLogicType'
 export type FeatureFlagsSet = {
     [flag in FeatureFlagKey]?: boolean | string
 }
+
 const eventsNotified: Record<string, boolean> = {}
 function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefined): void {
     if (!eventsNotified[flag]) {
@@ -24,14 +25,18 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    const flags = Object.fromEntries(
-        persistedFeatureFlags.map((f) => {
-            return [f, true]
-        })
-    )
-
-    return flags
+    // The server sends a list of enabled flag keys (each maps to `true`). Storybook can
+    // instead supply a record so a story can pin a multivariate variant (e.g. an
+    // experiment arm) — those values ride this always-merged baseline and survive the
+    // empty `onFeatureFlags` callback that posthog-js fires on load.
+    if (!Array.isArray(persistedFeatureFlags)) {
+        return { ...persistedFeatureFlags }
+    }
+    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
 }
+
+let cachedFlagsSerialized: string | null = null
+let cachedFlagsProxy: FeatureFlagsSet | null = null
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     const appContext = getAppContext()
@@ -41,8 +46,14 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 
+    const serialized = JSON.stringify(availableFlags)
+    if (serialized === cachedFlagsSerialized && cachedFlagsProxy) {
+        return cachedFlagsProxy
+    }
+    cachedFlagsSerialized = serialized
+
     if (typeof window.Proxy !== 'undefined') {
-        return new Proxy(
+        cachedFlagsProxy = new Proxy(
             {},
             {
                 get(_, flag) {
@@ -56,6 +67,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
                 },
             }
         )
+        return cachedFlagsProxy
     }
     // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
     const flags: FeatureFlagsSet = {}
@@ -70,6 +82,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             },
         })
     }
+    cachedFlagsProxy = flags
     return flags
 }
 

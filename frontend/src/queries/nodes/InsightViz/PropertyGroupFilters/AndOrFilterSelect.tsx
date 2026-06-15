@@ -2,7 +2,7 @@ import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 
 import { FilterLogicalOperator } from '~/types'
 
-interface AndOrFilterSelectProps {
+export interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
     value: FilterLogicalOperator
     topLevelFilter?: boolean
@@ -23,7 +23,7 @@ export function AndOrFilterSelect({
 }: AndOrFilterSelectProps): JSX.Element {
     return (
         <div className="flex items-center font-medium">
-            <span className="ml-2">{prefix}</span>
+            <span className="ml-2 @max-[410px]/editor-panel:ml-0">{prefix}</span>
             <LemonSelect
                 className="mx-2"
                 size={size}
@@ -64,14 +64,19 @@ export function AndOrFilterSelect({
     )
 }
 
-type SelectOptionProps<T> = {
+type SelectOptionProps<T extends React.ReactNode> = {
     title: string
     description: string
     value: T
     selectedValue: T
 }
 
-export const SelectOption = <T,>({ title, description, value, selectedValue }: SelectOptionProps<T>): JSX.Element => (
+export const SelectOption = <T extends React.ReactNode>({
+    title,
+    description,
+    value,
+    selectedValue,
+}: SelectOptionProps<T>): JSX.Element => (
     <div className="flex p-1 items-center">
         <div
             className={`flex shrink-0 font-bold w-10 h-10 mr-3 justify-center items-center rounded text-xs ${

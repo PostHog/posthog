@@ -21,6 +21,19 @@ import { fetch } from '~/utils/request'
 
 import { logger } from '../../src/utils/logger'
 import { delay, escapeClickHouseString } from '../../src/utils/utils'
+import { assertTestDatabaseName } from './database-guard'
+
+// Extracts the topic(s) a ClickHouse Kafka engine table consumes from its `engine_full` string.
+// Handles both the keyword form (`kafka_topic_list = 'a,b'`) and the positional form
+// (`Kafka('broker', 'topic', 'group', 'format')`, where the topic is the second quoted argument).
+function extractKafkaTopicList(engineFull: string): string[] {
+    const keyword = engineFull.match(/kafka_topic_list\s*=\s*'([^']+)'/)
+    const raw = keyword ? keyword[1] : ([...engineFull.matchAll(/'([^']*)'/g)].map((m) => m[1])[1] ?? '')
+    return raw
+        .split(',')
+        .map((topic) => topic.trim())
+        .filter(Boolean)
+}
 
 export class Clickhouse {
     private client: ClickHouseClient
@@ -63,12 +76,34 @@ export class Clickhouse {
         this.client.close()
     }
 
+    // Memoized so repeated truncates don't re-query the database name. The
+    // onRejected handler resets the cache when the `query` itself fails (a
+    // transient connection error), so it isn't cached as a permanently rejected
+    // promise. An assertTestDatabaseName failure throws from onFulfilled and
+    // stays cached on purpose: it's a deterministic verdict on a fixed database
+    // name, so re-querying would only reach the same conclusion.
+    private databaseGuard?: Promise<void>
+    private ensureTestDatabase(): Promise<void> {
+        this.databaseGuard ??= this.query<{ name: string }>('SELECT currentDatabase() AS name').then(
+            (rows) => assertTestDatabaseName(rows[0].name, 'ClickHouse'),
+            (error) => {
+                this.databaseGuard = undefined
+                throw error
+            }
+        )
+        return this.databaseGuard
+    }
+
     async truncate(table: string) {
+        await this.ensureTestDatabase()
         await this.exec(`TRUNCATE ${table}`)
     }
 
     async resetTestDatabase(): Promise<void> {
         await this.waitForHealthy()
+        // Guard before the truncates: Promise.allSettled below would swallow
+        // the guard error if it only surfaced inside truncate().
+        await this.ensureTestDatabase()
         // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
         await Promise.allSettled([
             this.truncate('sharded_events'),
@@ -80,7 +115,7 @@ export class Clickhouse {
 
         await Promise.allSettled([
             this.truncate('person_static_cohort'),
-            this.truncate('sharded_session_recording_events'),
+            this.truncate('sharded_session_replay_events'),
             this.truncate('events_dead_letter_queue'),
             this.truncate('groups'),
             this.truncate('ingestion_warnings'),
@@ -89,7 +124,18 @@ export class Clickhouse {
         await Promise.allSettled([this.truncate('sharded_ingestion_warnings'), this.truncate('sharded_app_metrics')])
     }
 
-    async waitForHealthy(delayMs = 100, maxDelayCount = 100): Promise<void> {
+    // Topics that this database's Kafka engine tables consume from. Tests pre-create every
+    // subscribed topic so no consumer is left retrying "Can't get assignment" against a missing
+    // topic — those retries saturate ClickHouse's background scheduler and intermittently starve
+    // the consumers the tests depend on (e.g. the ingestion_warnings warmup probe).
+    async getKafkaEngineTopics(): Promise<string[]> {
+        const rows = await this.query<{ engine_full: string }>(
+            `SELECT engine_full FROM system.tables WHERE database = currentDatabase() AND engine = 'Kafka'`
+        )
+        return [...new Set(rows.flatMap((row) => extractKafkaTopicList(row.engine_full)))]
+    }
+
+    async waitForHealthy(delayMs = 100, maxDelayCount = 300): Promise<void> {
         const timer = performance.now()
 
         for (let i = 0; i < maxDelayCount; i++) {
@@ -122,7 +168,7 @@ export class Clickhouse {
         fetchData: () => T | Promise<T>,
         minLength = 1,
         delayMs = 100,
-        maxDelayCount = 1000
+        maxDelayCount = 300
     ): Promise<T> {
         const timer = performance.now()
         let data: T | null = null
@@ -166,6 +212,10 @@ export class Clickhouse {
                 const queryResult = await this.client.query({
                     query,
                     format: 'JSON',
+                    clickhouse_settings: {
+                        output_format_json_quote_64bit_integers: 0,
+                        output_format_json_quote_denormals: 0,
+                    },
                 })
 
                 const jsonData = (await queryResult.json()).data as T[]

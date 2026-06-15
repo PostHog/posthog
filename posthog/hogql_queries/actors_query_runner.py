@@ -1,7 +1,12 @@
 import re
 import itertools
-from collections.abc import Iterator, Sequence
-from typing import Any, Optional
+from collections.abc import Iterable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
+
+from posthoganalytics import feature_enabled
 
 from posthog.schema import (
     ActorsQuery,
@@ -13,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.printer import prepare_and_print_ast
@@ -21,11 +26,13 @@ from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy, SessionStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
+from posthog.models import User
 
 
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
@@ -40,7 +47,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+            self.source_query_runner = get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, user=self.user
+            )
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only
@@ -56,6 +65,28 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         self.strategy = self.determine_strategy()
         self.calculating = False
+        self.user = None
+
+    def run(
+        self,
+        execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        user: Optional[User] = None,
+        query_id: Optional[str] = None,
+        insight_id: Optional[int] = None,
+        dashboard_id: Optional[int] = None,
+        cache_age_seconds: Optional[int] = None,
+        analytics_props: Optional["AnalyticsProps"] = None,
+    ):
+        self.user = user
+        return super().run(
+            execution_mode,
+            user,
+            query_id,
+            insight_id,
+            dashboard_id,
+            cache_age_seconds,
+            analytics_props=analytics_props,
+        )
 
     @property
     def group_type_index(self) -> int | None:
@@ -64,10 +95,27 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return self.source_query_runner.group_type_index
 
+    @property
+    def is_session_aggregation(self) -> bool:
+        if not self.source_query_runner or not isinstance(self.source_query_runner, InsightActorsQueryRunner):
+            return False
+
+        return self.source_query_runner.is_session_aggregation
+
     def determine_strategy(self) -> ActorStrategy:
         if self.group_type_index is not None:
-            return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
-        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+            return GroupStrategy(
+                self.group_type_index,
+                team=self.team,
+                query=self.query,
+                paginator=self.paginator,
+                user=self.user,
+            )
+
+        if self.is_session_aggregation:
+            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
+
+        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 
     @staticmethod
     def _get_recordings(event_results: list, recordings_lookup: dict) -> list[dict]:
@@ -98,8 +146,16 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 actor_data: dict[str, Any] = {"id": actor_id}
                 if self.group_type_index is not None:
                     actor_data["group_type_index"] = self.group_type_index
+                else:
+                    # Person stubs occur when the actor_id from ClickHouse can't be
+                    # hydrated from Postgres — typically because the person was merged
+                    # into another or deleted. Flag the row so CSV consumers can tell
+                    # these apart from fully hydrated persons.
+                    actor_data["is_unresolved"] = True
                 if events_distinct_id_lookup is not None:
-                    actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
+                    # Default to [] to keep the stub shape consistent — downstream CSV
+                    # flattening calls len() on this and would crash on None.
+                    actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id) or []
                 new_row[actor_column_index] = actor_data
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
@@ -110,10 +166,27 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
         return enriched
 
+    def _enrich_session_actors_with_person_identity(self, results: Iterable[list], person_id_col_index: int) -> list:
+        # Materialise so we can iterate twice (results may be an iterator)
+        results_list = list(results)
+
+        person_uuids = {str(row[person_id_col_index]) for row in results_list if row[person_id_col_index]}
+        person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
+        persons_lookup = person_strategy.get_actors(iter(person_uuids)) if person_uuids else {}
+
+        enriched = []
+        for row in results_list:
+            result_row = list(row)
+            person_uuid = str(result_row[person_id_col_index]) if result_row[person_id_col_index] else None
+            result_row[person_id_col_index] = persons_lookup.get(person_uuid) if person_uuid else {}
+            enriched.append(result_row)
+
+        return enriched
+
     def prepare_recordings(
         self, column_name: str, input_columns: list[str]
     ) -> tuple[int | None, dict[str, list[dict]] | None]:
-        if (column_name != "person" and column_name != "actor") or "matched_recordings" not in input_columns:
+        if column_name not in ("person", "actor", "session") or "matched_recordings" not in input_columns:
             return None, None
 
         column_index_events = input_columns.index("matched_recordings")
@@ -121,27 +194,19 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         return column_index_events, self.strategy.get_recordings(matching_events_list)
 
     def _calculate_internal(self) -> ActorsQueryResponse:
-        # Funnel queries require the experimental analyzer to run correctly
-        # Can remove once clickhouse moves to version 24.3 or above
-        settings = None
-        if isinstance(self.source_query_runner, InsightActorsQueryRunner) and isinstance(
-            self.source_query_runner.source_runner, FunnelsQueryRunner
-        ):
-            settings = HogQLGlobalSettings(allow_experimental_analyzer=True)
-
         response = self.paginator.execute_hogql_query(
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
-            settings=settings,
         )
         input_columns = self.input_columns()
         missing_actors_count = None
         results: Sequence[list] | Iterator[list] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        enrich_columns = filter(lambda column: column in ("person", "group", "actor", "session"), input_columns)
         for column_name in enrich_columns:
             actor_column_index = input_columns.index(column_name)
             actor_ids = (row[actor_column_index] for row in self.paginator.results)
@@ -166,6 +231,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 person_uuid_to_event_distinct_ids,
             )
 
+        if self.is_session_aggregation and "person_id" in input_columns:
+            person_id_col_index = input_columns.index("person_id")
+            results = self._enrich_session_actors_with_person_identity(results, person_id_col_index)
+            input_columns[person_id_col_index] = "person"
+
         for column_index, col in enumerate(input_columns):
             # convert tuple that gets returned into a dict
             if col.split("--")[0].strip() == "person_display_name":
@@ -189,22 +259,38 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         )
 
     def _calculate(self) -> ActorsQueryResponse:
+        # `ActorsQuery.select` and `ActorsQuery.orderBy` are user-supplied HogQL strings,
+        # parsed by `to_query()`. Tag here so platform sub-query callers (e.g.
+        # `hogql_cohort_query._actors_query_from_source`) that invoke `to_query()` with
+        # platform-constant select lists are not mis-attributed.
+        tag_contains_user_hogql()
         try:
             self.calculating = True
             return self._calculate_internal()
         finally:
             self.calculating = False
 
+    def validate(self) -> None:
+        super().validate()
+        if self.source_query_runner is not None:
+            self.source_query_runner.validate()
+
     def input_columns(self) -> list[str]:
         strategy_input_cols = self.strategy.input_columns()
         if self.query.select:
+            selected_columns = list(self.query.select)
+
             if (
                 self.calculating
                 and "event_distinct_ids" in strategy_input_cols
-                and "event_distinct_ids" not in self.query.select
+                and "event_distinct_ids" not in selected_columns
             ):
-                return [*self.query.select, "event_distinct_ids"]
-            return self.query.select
+                selected_columns.append("event_distinct_ids")
+
+            if self.calculating and self.is_session_aggregation and "person_id" not in selected_columns:
+                selected_columns.append("person_id")
+
+            return selected_columns
 
         return self.strategy.input_columns()
 
@@ -285,10 +371,6 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                     # like `groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events`
                     # we look up valid session ids and match them against the session ids in matching events
                     column = ast.Field(chain=["matching_events"])
-                elif expr == "last_seen" and isinstance(self.strategy, PersonStrategy) and not self.query.source:
-                    # For direct person queries (no source), we'll handle this by adding a LEFT JOIN in the query
-                    # The column will be resolved later when we modify the FROM clause
-                    column = ast.Field(chain=["last_seen_data", "max_timestamp"])
 
                 columns.append(column)
                 if has_aggregation(column):
@@ -339,7 +421,20 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             elif len(aggregations) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(aggregations[0]), order="DESC")]
             elif "created_at" in self.input_columns():
-                order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
+                if (
+                    self.strategy.field == "person"
+                    and self.user
+                    and feature_enabled(
+                        "drop-person-list-order-by",
+                        distinct_id=str(self.user.distinct_id),
+                        groups={"organization": str(self.user.organization.id)}
+                        if self.user.organization and self.user.organization.id
+                        else None,
+                    )
+                ):
+                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["id"]))]
+                else:
+                    order_by = [ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")]
             elif len(columns) > 0:
                 order_by = [ast.OrderExpr(expr=self._remove_aliases(columns[0]), order="ASC")]
             else:
@@ -355,41 +450,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 settings=HogQLQuerySettings(join_algorithm="auto", optimize_aggregation_in_order=True),
             )
             if not self.query.source:
-                base_join = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
-
-                # Add LEFT JOIN for last_seen if selected
-                if "last_seen" in self.input_columns() and isinstance(self.strategy, PersonStrategy):
-                    # Create subquery for last_seen data
-                    last_seen_subquery = ast.SelectQuery(
-                        select=[
-                            ast.Field(chain=["person_id"]),
-                            ast.Alias(alias="max_timestamp", expr=parse_expr("max(timestamp)")),
-                        ],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                        where=ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["team_id"]),
-                            right=ast.Constant(value=self.team.id),
-                        ),
-                        group_by=[ast.Field(chain=["person_id"])],
-                    )
-
-                    # Add LEFT JOIN with the subquery
-                    base_join.next_join = ast.JoinExpr(
-                        table=last_seen_subquery,
-                        alias="last_seen_data",
-                        join_type="LEFT JOIN",
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=[self.strategy.origin, "id"]),
-                                right=ast.Field(chain=["last_seen_data", "person_id"]),
-                            ),
-                            constraint_type="ON",
-                        ),
-                    )
-
-                select_query.select_from = base_join
+                select_query.select_from = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
             else:
                 assert self.source_query_runner is not None  # For type checking
                 source_query = self.source_query_runner.to_actors_query()
@@ -505,6 +566,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 props.append(f"toString(properties.{key})")
             else:
                 props.append(f"toString(properties.`{key}`)")
+        # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
         return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
 
     @staticmethod

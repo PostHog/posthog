@@ -1,0 +1,11 @@
+id,name,status,objective_type,daily_spend_cap,lifetime_spend_cap,start_time,end_time,tracking_urls,order_line_id,campaign_format,ad_account_id,created_time,updated_time
+2001,Test Pinterest Campaign - Home Decor,ACTIVE,AWARENESS,5000,,,2024-12-31,,,,test_pinterest_account,2024-01-10T08:00:00.000000+00:00,2024-01-10T08:00:00.000000+00:00
+2002,Test Pinterest Campaign - Fashion Spring,PAUSED,CONSIDERATION,3000,90000,2024-02-01,2024-04-30,,,,test_pinterest_account,2024-02-01T09:00:00.000000+00:00,2024-02-15T09:00:00.000000+00:00
+2003,Test Pinterest Campaign - Kitchen Ideas,ACTIVE,CONVERSIONS,8000,,,,,,,test_pinterest_account,2024-03-05T10:00:00.000000+00:00,2024-03-05T10:00:00.000000+00:00
+2004,Test Pinterest Campaign - Travel Summer,ACTIVE,AWARENESS,4000,120000,2024-04-01,2024-08-31,,,,test_pinterest_account,2024-03-20T11:00:00.000000+00:00,2024-04-01T11:00:00.000000+00:00
+2005,Test Pinterest Campaign - DIY Projects,PAUSED,CONSIDERATION,2500,,,,,,,test_pinterest_account,2024-04-10T12:00:00.000000+00:00,2024-04-10T12:00:00.000000+00:00
+2006,Test Pinterest Campaign - Wedding Planning,ACTIVE,CONVERSIONS,10000,300000,2024-01-01,2024-12-31,,,,test_pinterest_account,2024-01-01T08:00:00.000000+00:00,2024-03-01T08:00:00.000000+00:00
+2007,Test Pinterest Campaign - Fitness Goals,PAUSED,AWARENESS,3500,,,,,,,test_pinterest_account,2024-04-15T13:00:00.000000+00:00,2024-04-20T13:00:00.000000+00:00
+2008,Test Pinterest Campaign - Garden Season,ACTIVE,CONSIDERATION,6000,180000,2024-03-01,2024-09-30,,,,test_pinterest_account,2024-02-20T14:00:00.000000+00:00,2024-03-01T14:00:00.000000+00:00
+2009,Test Pinterest Campaign - Back to School,PAUSED,CONVERSIONS,7000,210000,2024-07-01,2024-09-15,,,,test_pinterest_account,2024-06-15T15:00:00.000000+00:00,2024-07-01T15:00:00.000000+00:00
+2010,Test Pinterest Campaign - Holiday Gifts,ACTIVE,AWARENESS,12000,500000,2024-10-01,2024-12-31,,,,test_pinterest_account,2024-09-15T16:00:00.000000+00:00,2024-10-01T16:00:00.000000+00:00

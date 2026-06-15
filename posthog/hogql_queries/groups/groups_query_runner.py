@@ -3,7 +3,7 @@ from posthog.schema import CachedGroupsQueryResponse, GroupsQuery, GroupsQueryRe
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import has_aggregation, property_to_expr
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -19,16 +19,24 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         if self.query.group_type_index is None:
             raise ValueError("group_type_index is required")
 
-        # IMPORTANT: group_name and key MUST always be the first two columns
-        # The frontend (crm/utils.tsx) depends on this ordering, specifically
-        # hardcoding that 'key' is at index 1 in the results array.
-        # See test_column_ordering_consistency for regression tests.
-        self.columns = [
-            "group_name",
-            "key",
-        ]
+        # Detect if this is a count/aggregation query
+        self.is_aggregation_query = False
         if self.query.select:
-            self.columns.extend([col for col in self.query.select if col not in self.columns])
+            self.is_aggregation_query = any(has_aggregation(parse_expr(col)) for col in self.query.select)
+
+        # Handle column logic differently for aggregation queries
+        if self.is_aggregation_query:
+            # For aggregation queries, use select as-is (e.g., ['count(*)'])
+            self.columns = self.query.select or []
+        elif self.query.select:
+            seen: set[str] = set()
+            self.columns = []
+            for col in self.query.select:
+                if col not in seen:
+                    seen.add(col)
+                    self.columns.append(col)
+        else:
+            self.columns = ["group_name"]
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
@@ -48,8 +56,7 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
         if self.query.properties:
             where_exprs.append(property_to_expr(self.query.properties, self.team, scope="group"))
 
-        order_by: list[ast.OrderExpr] = []
-        similarity_order = None
+        # Search logic for both aggregation and regular queries
         if self.query.search is not None and self.query.search != "":
             where_exprs.append(
                 ast.Or(
@@ -67,53 +74,90 @@ class GroupsQueryRunner(AnalyticsQueryRunner[GroupsQueryResponse]):
                     ]
                 )
             )
-            similarity_order = self._get_similarity_order_for_search()
 
         where = ast.And(exprs=list(where_exprs)) if where_exprs else None
 
-        order_by_exprs = self.query.orderBy if self.query.orderBy else ["created_at DESC"]
-        has_user_ordering = self.query.orderBy is not None and len(self.query.orderBy) > 0
+        order_by: list[ast.OrderExpr] = []
 
-        # Add user-specified ordering first
-        for col in order_by_exprs:
-            # group_name isn't actually a field
-            if col.startswith("group_name"):
-                order_by.append(
-                    ast.OrderExpr(
-                        expr=ast.Call(
-                            name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]
-                        ),
-                        order="DESC" if "DESC" in col else "ASC",
+        if self.is_aggregation_query:
+            select_exprs = [parse_expr(col) for col in self.columns]
+
+            return ast.SelectQuery(
+                select=select_exprs,
+                select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
+                where=where,
+                order_by=order_by,
+            )
+        else:
+            similarity_order = None
+
+            if self.query.search is not None and self.query.search != "":
+                similarity_order = self._get_similarity_order_for_search()
+
+            order_by_exprs = self.query.orderBy if self.query.orderBy else ["created_at DESC"]
+            has_user_ordering = self.query.orderBy is not None and len(self.query.orderBy) > 0
+
+            # Add user-specified ordering first
+            for col in order_by_exprs:
+                # group_name isn't actually a field
+                if col.startswith("group_name"):
+                    order_by.append(
+                        ast.OrderExpr(
+                            expr=ast.Call(
+                                name="coalesce",
+                                args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])],
+                            ),
+                            order="DESC" if "DESC" in col else "ASC",
+                        )
                     )
-                )
-            else:
-                order_by.append(parse_order_expr(col, timings=self.timings))
+                else:
+                    order_by.append(parse_order_expr(col, timings=self.timings))
 
-        if similarity_order is not None:
-            # Add similarity ordering after user ordering (but not after default created_at DESC)
-            order_by.append(similarity_order) if has_user_ordering else order_by.insert(0, similarity_order)
+            if similarity_order is not None:
+                # Add similarity ordering after user ordering (but not after default created_at DESC)
+                order_by.append(similarity_order) if has_user_ordering else order_by.insert(0, similarity_order)
 
-        return ast.SelectQuery(
-            select=[
-                ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
-                *[parse_expr(col) for col in self.columns[1:]],
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
-            where=where,
-            order_by=order_by,
-        )
+            return ast.SelectQuery(
+                select=[self._column_to_expr(col) for col in self.columns],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
+                where=where,
+                order_by=order_by,
+            )
+
+    def _column_to_expr(self, col: str) -> ast.Expr:
+        if col == "group_name":
+            return ast.Call(
+                name="tuple",
+                args=[
+                    ast.Call(name="coalesce", args=[ast.Field(chain=["properties", "name"]), ast.Field(chain=["key"])]),
+                    ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
+                ],
+            )
+        return parse_expr(col)
 
     def _calculate(self) -> GroupsQueryResponse:
         response = self.paginator.execute_hogql_query(
             query_type="GroupsQuery",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             # :HACKY: posthog/hogql/transforms/property_types.py needs access to the group_id in order to know the property type
             context=HogQLContext(team_id=self.team.pk, globals={"group_id": self.query.group_type_index}),
         )
         results = response.results[: self.paginator.limit] if self.paginator.limit is not None else response.results
+
+        if "group_name" in self.columns:
+            column_index = self.columns.index("group_name")
+            results = [
+                [
+                    {"display_name": col[0], "key": str(col[1])} if index == column_index else col
+                    for index, col in enumerate(row)
+                ]
+                for row in results
+            ]
+
         return GroupsQueryResponse(
             kind="GroupsQuery",
             types=[t for _, t in response.types] if response.types else None,

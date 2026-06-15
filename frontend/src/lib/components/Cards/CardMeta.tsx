@@ -1,25 +1,25 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
-import { Transition } from 'react-transition-group'
+import React, { useEffect, useState } from 'react'
 
 import { IconPieChart } from '@posthog/icons'
 
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { InsightColor } from '~/types'
 
 export interface Resizeable {
     showResizeHandles?: boolean
-    canResizeWidth?: boolean
 }
 
-export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
+export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className' | 'onMouseDown'> {
+    compact?: boolean
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     ribbonColor?: InsightColor | null
@@ -39,9 +39,20 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     samplingFactor?: number | null
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
+    /** Description shown in the compact popover. */
+    metaDescription?: JSX.Element | null
+    /** Heading always shown in the popover (e.g. insight type + date range). Falls back to topHeading. */
+    popoverTopHeading?: JSX.Element | null
+    /** Insight title shown in the compact popover. */
+    metaTitle?: string
+    /** Raw description text for editing. */
+    metaDescriptionText?: string
+    /** When provided, makes title/description editable in the compact popover. */
+    onMetaSave?: (updates: { name?: string; description?: string }) => void
 }
 
 export function CardMeta({
+    compact,
     ribbonColor,
     showEditingControls,
     showDetailsControls,
@@ -54,83 +65,146 @@ export function CardMeta({
     setAreDetailsShown,
     detailsTooltip,
     className,
+    onMouseDown,
     samplingFactor,
     extraControls,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
+    const { ref: topRef, width: topWidth } = useResizeObserver()
+    const { ref: headingRef, width: headingWidth } = useResizeObserver()
 
-    const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
+    // Keep the details content mounted during the 200 ms collapse animation
+    // so the outer `.CardMeta__details` height transition plays over real
+    // content rather than an empty container.
+    const [shouldRenderDetails, setShouldRenderDetails] = useState(areDetailsShown)
+    useEffect(() => {
+        if (areDetailsShown) {
+            setShouldRenderDetails(true)
+            return
+        }
+        const t = window.setTimeout(() => setShouldRenderDetails(false), 200)
+        return () => clearTimeout(t)
+    }, [areDetailsShown])
+
+    // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
+    const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
+
+    // Estimate space needed for controls with labels
+    // These are approximate widths based on current button styles
+    const buttonsWithLabels = (!compact && showDetailsControls ? 1 : 0) + (extraControls ? 1 : 0)
+    const neededWidth = buttonsWithLabels * 140 // 140px per button
+
+    // Show labels if card is wide enough AND there's room for labeled buttons
+    // But also when in storybook to make it neater
+    const showControlsLabels =
+        inStorybook() ||
+        inStorybookTestRunner() ||
+        (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
     return (
-        <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
-            <div className="CardMeta__primary" ref={primaryRef}>
+        <div
+            className={clsx(
+                'CardMeta',
+                className,
+                compact && 'CardMeta--compact',
+                areDetailsShown && 'CardMeta--details-shown',
+                onMouseDown && 'cursor-grab'
+            )}
+            onMouseDown={onMouseDown}
+        >
+            <div className="CardMeta__primary" ref={compact ? undefined : primaryRef}>
                 {ribbonColor &&
                     ribbonColor !==
                         InsightColor.White /* White has historically meant no color synonymously to null */ && (
                         <div className={clsx('CardMeta__ribbon', ribbonColor)} />
                     )}
                 <div className="CardMeta__main">
-                    <div className="CardMeta__top">
-                        <h5>
-                            {topHeading}
-                            {samplingFactor && samplingFactor < 1 && (
-                                <Tooltip
-                                    title={`Results calculated from ${100 * samplingFactor}% of users`}
-                                    placement="right"
-                                >
-                                    <IconPieChart
-                                        className="ml-1.5 text-base align-[-0.25em]"
-                                        style={{ color: 'var(--primary-3000-hover)' }}
-                                    />
-                                </Tooltip>
-                            )}
-                        </h5>
-                        <div className="CardMeta__controls">
-                            {extraControls &&
-                                React.cloneElement(extraControls, { ...extraControls.props, _cardWidth: primaryWidth })}
-                            {showDetailsControls && setAreDetailsShown && (
-                                <Tooltip title={detailsTooltip}>
-                                    <LemonButton
-                                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
-                                        onClick={() => setAreDetailsShown((state) => !state)}
-                                        size="small"
-                                        active={areDetailsShown}
-                                    >
-                                        {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {showEditingControls &&
-                                (moreTooltip ? (
-                                    <Tooltip title={moreTooltip}>
-                                        <More overlay={moreButtons} />
-                                    </Tooltip>
-                                ) : (
-                                    <More overlay={moreButtons} />
-                                ))}
-                        </div>
-                    </div>
-                    {meta}
+                    {compact ? (
+                        <>
+                            <div className="CardMeta__top">
+                                <div className="CardMeta__heading">{topHeading}</div>
+                                <div className="CardMeta__controls">
+                                    {showEditingControls &&
+                                        (moreTooltip ? (
+                                            <Tooltip title={moreTooltip}>
+                                                <More overlay={moreButtons} />
+                                            </Tooltip>
+                                        ) : (
+                                            <More overlay={moreButtons} />
+                                        ))}
+                                </div>
+                            </div>
+                            {meta}
+                        </>
+                    ) : (
+                        <>
+                            <div className="CardMeta__top" ref={topRef}>
+                                <h5 ref={headingRef}>
+                                    {topHeading}
+                                    {samplingFactor && samplingFactor < 1 && (
+                                        <Tooltip
+                                            title={`Results calculated from ${100 * samplingFactor}% of users`}
+                                            placement="right"
+                                        >
+                                            <IconPieChart
+                                                className="ml-1.5 text-base align-[-0.25em]"
+                                                style={{ color: 'var(--primary-3000-hover)' }}
+                                            />
+                                        </Tooltip>
+                                    )}
+                                </h5>
+                                <div className="CardMeta__controls">
+                                    {extraControls &&
+                                        React.cloneElement(extraControls, {
+                                            ...extraControls.props,
+                                            showLabel: showControlsLabels,
+                                        })}
+                                    {showDetailsControls && setAreDetailsShown && (
+                                        <Tooltip title={detailsTooltip}>
+                                            <LemonButton
+                                                icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                                                onClick={() => setAreDetailsShown((state) => !state)}
+                                                size="small"
+                                                active={areDetailsShown}
+                                            >
+                                                {showControlsLabels && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                            </LemonButton>
+                                        </Tooltip>
+                                    )}
+                                    {showEditingControls &&
+                                        (moreTooltip ? (
+                                            <Tooltip title={moreTooltip}>
+                                                <More overlay={moreButtons} />
+                                            </Tooltip>
+                                        ) : (
+                                            <More overlay={moreButtons} />
+                                        ))}
+                                </div>
+                            </div>
+                            {meta}
+                        </>
+                    )}
                 </div>
             </div>
 
             <div className="CardMeta__divider" />
-            <div
-                className="CardMeta__details"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
-                }}
-            >
-                {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
-                <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
-                    <div className="CardMeta__details__content" ref={detailsRef}>
-                        {/* Stops the padding getting in the height calc  */}
-                        <div className="p-4">{metaDetails}</div>
-                    </div>
-                </Transition>
-            </div>
+            {!compact && (
+                <div
+                    className="CardMeta__details"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
+                    }}
+                >
+                    {shouldRenderDetails && (
+                        <div className="CardMeta__details__content" ref={detailsRef}>
+                            {/* Stops the padding getting in the height calc  */}
+                            <div className="p-4">{metaDetails}</div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

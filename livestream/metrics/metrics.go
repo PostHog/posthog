@@ -25,6 +25,17 @@ var (
 		Name: "livestream_ph_events_total",
 		Help: "The total number of handled PostHog events, less than or equal to consumed",
 	})
+	EventsDroppedNoToken = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_events_dropped_no_token_total",
+		Help: "Events dropped after parsing because no token could be extracted",
+	})
+	NotificationErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_errors_total",
+			Help: "Notification consumer errors by reason",
+		},
+		[]string{"reason"},
+	)
 
 	IncomingQueue = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_incoming_queue_use_ratio",
@@ -49,6 +60,17 @@ var (
 	SubTotal = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "livestream_active_event_subscriptions_total",
 		Help: "How many active event subscriptions we have",
+	})
+	DroppedEvents = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_dropped_events_total",
+			Help: "Events dropped due to full subscriber channel",
+		},
+		[]string{"channel"},
+	)
+	GeoIPLookupFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_geoip_lookup_failures_total",
+		Help: "The total number of failed GeoIP lookups",
 	})
 
 	SessionRecordingMsgConsumed = promauto.NewCounterVec(
@@ -92,4 +114,93 @@ var (
 		Name: "livestream_session_recording_token_count",
 		Help: "Number of unique tokens being tracked",
 	})
+
+	EventLagHistogram = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "livestream_event_lag_seconds",
+		Help:    "Distribution of event lag in seconds",
+		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
+	})
+
+	RedisFlushBatchSize = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "livestream_redis_flush_batch_size",
+			Help:    "Number of Redis keys per flush",
+			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+		[]string{"operation"},
+	)
+	RedisFlushTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_redis_flush_total",
+			Help: "Total number of Redis batch flushes",
+		},
+		[]string{"operation"},
+	)
+
+	RedisErrors = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_redis_errors_total",
+			Help: "Total number of Redis operation errors",
+		},
+		[]string{"operation"},
+	)
+	RedisLatency = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "livestream_redis_latency_seconds",
+			Help:    "Redis operation latency in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"operation"},
+	)
+
+	// Redis pub/sub metrics
+	RedisPublishTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_total",
+		Help: "Total number of events published to Redis pub/sub",
+	})
+	RedisPublishErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_errors_total",
+		Help: "Total number of Redis pub/sub publish errors",
+	})
+	RedisSubscribeTotal = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_redis_subscribe_total",
+		Help: "Current number of active Redis channel subscriptions",
+	})
+	RedisMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_messages_received_total",
+		Help: "Total number of messages received from Redis pub/sub",
+	})
+	RedisReceiveDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_receive_drops_total",
+		Help: "Messages dropped at the Redis receive layer due to full message channel",
+	})
+	RedisPublishDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_drops_total",
+		Help: "Events dropped at the publish buffer due to full channel",
+	})
+	RedisPublishQueue = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_redis_publish_queue_use_ratio",
+		Help: "How much of the Redis publish buffer is used",
+	})
+
+	// /notifications handler metrics
+	NotificationSubs = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_active_notification_subscriptions",
+		Help: "Current number of active SSE connections on /notifications",
+	})
+	NotificationMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_notification_messages_received_total",
+		Help: "Total notification messages received from Redis pub/sub by /notifications handlers",
+	})
+	NotificationMessagesDeliveredTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_notification_messages_delivered_total",
+		Help: "Total notification messages written to an SSE client",
+	})
+	NotificationMessagesDroppedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_notification_messages_dropped_total",
+			Help: "Notification messages not delivered, labeled by reason",
+		},
+		[]string{"reason"},
+	)
 )

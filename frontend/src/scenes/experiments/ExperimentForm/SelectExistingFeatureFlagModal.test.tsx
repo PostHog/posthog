@@ -1,10 +1,20 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import {
+    AccessControlLevel,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+} from '~/types'
 
 import { SelectExistingFeatureFlagModal } from './SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from './selectExistingFeatureFlagModalLogic'
@@ -31,12 +41,11 @@ describe('SelectExistingFeatureFlagModal', () => {
         created_at: '2021-01-01',
         updated_at: '2021-01-01',
         created_by: null,
-        is_simple_flag: false,
         is_remote_configuration: false,
         deleted: false,
         active: true,
-        rollout_percentage: null,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -48,7 +57,8 @@ describe('SelectExistingFeatureFlagModal', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
+        evaluation_contexts: [],
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
 
     const mockFeatureFlags: FeatureFlagType[] = [
@@ -74,7 +84,7 @@ describe('SelectExistingFeatureFlagModal', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/@current/experiments/eligible_feature_flags/': () => [
+                [`/api/projects/${MOCK_TEAM_ID}/experiments/eligible_feature_flags/`]: () => [
                     200,
                     {
                         results: mockFeatureFlags,
@@ -86,9 +96,19 @@ describe('SelectExistingFeatureFlagModal', () => {
         initKeaTests()
         logic = selectExistingFeatureFlagModalLogic()
         logic.mount()
+
+        // Wait for teamLogic to have currentProjectId ready before opening modal
+        await waitFor(() => {
+            expect(teamLogic.values.currentProjectId).toBe(MOCK_TEAM_ID)
+        })
+
         logic.actions.openSelectExistingFeatureFlagModal()
 
+        // Wait for the feature flags data to be populated rather than just checking loading state.
+        // This avoids a race where `loadCurrentTeamSuccess` fires after the modal opens and
+        // triggers a second `loadFeatureFlags` call, briefly resetting loading back to true.
         await waitFor(() => {
+            expect(logic.values.featureFlags.results.length).toBeGreaterThan(0)
             expect(logic.values.featureFlagsLoading).toBe(false)
         })
 

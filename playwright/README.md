@@ -1,37 +1,85 @@
 # End-to-End Testing
 
-## `/e2e/` directory contains all the end-to-end tests
+## Where tests live
 
-to run the new playwright tests, run the following command:
+Playwright tests are discovered from two locations (configured in `playwright.config.ts`):
 
-```bash
-./bin/e2e-test-runner
+- `playwright/e2e/**/*.spec.ts` — cross-cutting and platform-level tests (auth, signup, shared dashboards, etc.) and any tests that don't have an obvious single-product owner.
+- `products/<product>/frontend/e2e/**/*.spec.ts` — tests owned by a specific product, co-located with that product's code.
+
+Shared fixtures, page models, and helpers live under `playwright/utils/`, `playwright/page-models/`, and `playwright/mocks/`. Import them from anywhere via TypeScript path aliases:
+
+```ts
+import { expect, test } from '@playwright-utils/workspace-test-base'
+import { randomString } from '@playwright-utils'
+import { InsightPage } from '@playwright-pages/insightPage'
 ```
 
-to run the new playwright tests against an already locally running PostHog instance
+When you add a new test for a feature owned by a specific product, prefer co-locating it under `products/<product>/frontend/e2e/` rather than adding it to `playwright/e2e/`.
+
+## Running tests
+
+Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):
+
+```bash
+hogli test:e2e
+```
+
+This uses `bin/mprocs-e2e.yaml` under the hood. If you need to reset the E2E database, trigger the `reset-db` process in the phrocs UI.
+
+To run tests against an already-running PostHog instance:
 
 ```bash
 LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test --ui
 ```
 
-### For all of these
+You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
-you might need to install playwright with `pnpm --filter=@posthog/playwright exec playwright install`
+## Writing tests with Claude Code
+
+Use the `/playwright-test` skill to have Claude Code write and validate end-to-end tests for you.
+It will explore the UI with Playwright MCP tools, plan the tests, implement them, and run them in a loop until they pass reliably (including a flakiness check with `--repeat-each 10`).
 
 ## Writing tests
 
-### Flaky tests are almost always due to not waiting for the right thing
+### What belongs in this suite
 
-Consider adding a better selector, an intermediate step like waiting for URL or page title to change, or waiting for a critical network request to complete.
+This suite is expensive as it runs the full stack and a real browser, and every spec costs PR runtime, runner credits, and a slice of the team's flake budget. Use these principles to decide whether a test is worth that cost.
 
-### Useful output from playwright
+### Test what only a browser can prove
 
-If you write a selector that is too loose and matches multiple elements, playwright will output all the matches. With a better selector for each
+E2E is uniquely suited to multi-step journeys where the frontend, network, backend, and datastores all have to agree at once. If a regression would surface in a Jest + kea test, a Storybook story, an API integration test, or a ClickHouse unit test, write it there instead — cheaper to run, easier to debug, no 8-vCPU runner tied up.
+
+### Prefer the cheapest layer that can catch the bug
+
+- "Page renders", "button is present", "heading reads X", "tab is active"
+  - Those are smoke checks, not e2e, and they belong in Jest or Storybook.
+- Visual regressions belong in Storybook visual review.
+- If a failure can be diagnosed without reading a backend log, the test probably didn't need the backend.
+
+### Each test should earn its slot
+
+The suite stays small on purpose; the bigger it gets, the noisier the flake signal becomes, and we drift back into "ignore the red, it's probably flake". You should treat adding a spec like adding a CI job. Justify it in the PR description (which cross-stack flow, why won't a lower layer catch it, how it sits next to the existing specs, etc.). Reviewers should push back when that justification is thin. "Nice to have coverage" isn't enough, but "this flow has broken in prod and nothing below this layer would have caught it" is.
+
+### Best practices
+
+- Don't use CSS selectors — prefer accessibility roles (`getByRole`) or `getByTestId()` which maps to `data-attr` in our config. Add `data-attr` to components if needed.
+- Write fewer, longer tests that do multiple things. Split logical steps with `test.step()`.
+- Use page object models for common tasks and accessing common elements (see `page-models/`).
+- After UI interactions, assert on UI changes — don't assert on network requests resolving.
+- Never put conditional logic (`if`) in a test.
+
+### Gotchas
+
+**Flaky tests are almost always due to not waiting for the right thing.**
+Consider adding a better selector, an intermediate step like waiting for URL or page title to change,
+or waiting for a critical network request to complete.
+
+**Loose selectors cause strict mode violations.**
+If a selector matches multiple elements, Playwright will show all matches — use the output to narrow down:
 
 ```text
 Error: locator.click: Error: strict mode violation: locator('text=Set a billing limit') resolved to 2 elements:
 1) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-product_analytics').getByRole('button', { name: 'Set a billing limit' })
 2) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-session_replay').getByRole('button', { name: 'Set a billing limit' })
 ```
-
-<!-- Test 4-core runner performance -->

@@ -3,30 +3,66 @@
 
 {% block after_field_sets %}
     {{ block.super }}
-    {% if show_migration %}
-        {% if shared_metrics_status %}
-            <div class="submit-row" style="margin-top: 20px; padding: 10px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">
-                <ul style="margin: 10px 0;">
-                {% for metric in shared_metrics_status %}
-                    <li>
-                        <a href="{{ metric.migrate_url }}" target="_blank">{{ metric.name }}</a>
-                        {% if metric.is_legacy %}
-                            {% if metric.migrated %}
-                                <span style="color: green;">&#10003;</span>
-                            {% else %}
-                                <span style="color: red;">&#10007;</span>
-                            {% endif %}
-                        {% endif %}
-                    </li>
-                {% endfor %}
-                </ul>
-            </div>
-        {% endif %}
-        <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">
-            <div class="info">This experiment uses the legacy engine and can be migrated.</div>
-            <a class="button" style="padding:10px 15px;" href="{% url 'admin:experiment_migrate' object_id=original.pk %}">
-                Migrate Experiment
+    {% if show_fix_properties %}
+        <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #dc3545; color: #dc3545; display: flex; align-items: center; gap: 10px;">
+            <div class="info">This experiment has malformed metric properties (dict instead of list format).</div>
+            <a class="button" style="padding:10px 15px; background-color: #dc3545; color: white;" href="{% url 'admin:experiment_fix_properties' object_id=original.pk %}">
+                Fix Properties
             </a>
+        </div>
+    {% endif %}
+    {% if shared_metrics_status %}
+        <div class="module" style="margin-top: 20px;">
+            <h2>Shared metrics</h2>
+            <table style="width: 100%;">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Engine</th>
+                        <th scope="col">Migrated to</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for metric in shared_metrics_status %}
+                    <tr class="{% cycle 'row1' 'row2' %}">
+                        <td><a href="{{ metric.migrate_url }}" target="_blank">{{ metric.name }}</a></td>
+                        <td>
+                            {% if metric.is_legacy %}
+                                <span style="padding: 2px 6px; border-radius: 3px; background-color: #f7a501; color: white; font-size: 11px;">Legacy</span>
+                            {% else %}
+                                <span style="color: #6c757d;">Current</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if metric.is_legacy %}
+                                {% if metric.migrated %}
+                                    <a href="{{ metric.migrated_to_url }}" target="_blank">#{{ metric.migrated_to_id }}</a>
+                                {% else %}
+                                    <span style="color: #dc3545;">Not migrated</span>
+                                {% endif %}
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+    {% if show_migration %}
+        <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">
+            {% if can_migrate %}
+                <div class="info">This experiment uses the legacy engine and can be migrated.</div>
+                <a class="button" style="padding:10px 15px;" href="{% url 'admin:experiment_migrate' object_id=original.pk %}">
+                    Migrate Experiment
+                </a>
+            {% else %}
+                <div class="info">This experiment cannot be migrated yet. Migrate all legacy shared metrics first.</div>
+                <span class="button" style="padding:10px 15px; opacity: 0.5; cursor: not-allowed;" aria-disabled="true">
+                    Migrate Experiment
+                </span>
+            {% endif %}
         </div>
     {% endif %}
 {% endblock %}

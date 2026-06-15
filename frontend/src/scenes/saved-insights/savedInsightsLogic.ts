@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
@@ -8,9 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -24,14 +22,18 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { Breadcrumb, InsightModel, LayoutView, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
-export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsightModel> {
+export interface SavedInsightListItem extends QueryBasedInsightModel {
+    search_match_type?: 'exact' | 'similar' | null
+}
+
+export interface InsightsResult extends CountedPaginatedResponse<SavedInsightListItem> {
     /* not in the API response */
     filters?: SavedInsightFilters | null
     /* not in the API response */
@@ -39,40 +41,49 @@ export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsig
 }
 
 export interface SavedInsightFilters {
-    layoutView: LayoutView
     order: string
     tab: SavedInsightsTabs
     search: string
     insightType: string
-    createdBy: number | 'All users'
+    createdBy: number[] | 'All users'
+    tags: string[] | undefined | null
     dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
+    createdDateFrom: string | dayjs.Dayjs | undefined | null
+    createdDateTo: string | dayjs.Dayjs | undefined | null
+    lastViewedDateFrom: string | dayjs.Dayjs | undefined | null
+    lastViewedDateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
     hideFeatureFlagInsights: boolean | undefined | null
+    favorited: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
-        layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
         tab: values.tab || SavedInsightsTabs.All,
         search: String(values.search || ''),
         insightType: values.insightType || 'All types',
-        createdBy: (values.tab !== SavedInsightsTabs.Yours && values.createdBy) || 'All users',
+        createdBy: values.createdBy || 'All users',
+        tags: values.tags || undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
+        createdDateFrom: values.createdDateFrom || undefined,
+        createdDateTo: values.createdDateTo || undefined,
+        lastViewedDateFrom: values.lastViewedDateFrom || undefined,
+        lastViewedDateTo: values.lastViewedDateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
         hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
+        favorited: values.favorited || false,
     }
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
-    tabAwareScene(),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
         logic: [eventUsageLogic],
@@ -113,6 +124,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
+
+                // Cancel if a newer request came in while this one was in flight
+                await breakpoint()
+
                 const response = {
                     ...legacyResponse,
                     results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
@@ -121,13 +136,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
                         const insight = await insightsApi.getByNumericId(Number(filters.search))
+                        await breakpoint()
                         return {
                             ...response,
                             count: response.count + 1,
                             results: [insight, ...response.results],
                             filters,
                             offset: params.offset,
-                        } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
+                        } as InsightsResult
                     } catch {
                         // no insight with this ID found, discard
                     }
@@ -146,7 +162,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     ...response,
                     filters,
                     offset: params.offset,
-                } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
+                } as InsightsResult
             },
             updateFavoritedInsight: async ({ insight, favorited }) => {
                 const response = await insightsApi.update(insight.id, {
@@ -178,8 +194,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     cleanFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        // Reset page on filter change EXCEPT if it's page or view that's being updated
-                        ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
+                        // Reset page on filter change EXCEPT if it's page that's being updated
+                        ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
@@ -234,17 +250,31 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 limit: INSIGHTS_PER_PAGE,
                 offset: Math.max(0, (filters.page - 1) * INSIGHTS_PER_PAGE),
                 saved: true,
-                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
-                ...(filters.tab === SavedInsightsTabs.Favorites && { favorited: true }),
+                ...(filters.favorited && { favorited: true }),
                 ...(filters.search && { search: filters.search }),
                 ...(filters.insightType?.toLowerCase() !== 'all types' && {
                     insight: filters.insightType?.toUpperCase(),
                 }),
-                ...(filters.createdBy !== 'All users' && { created_by: filters.createdBy }),
+                ...(filters.tab === SavedInsightsTabs.Yours && { user: true }),
+                ...(filters.tab !== SavedInsightsTabs.Yours &&
+                    filters.createdBy !== 'All users' && {
+                        created_by: JSON.stringify(filters.createdBy),
+                    }),
+                ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
                 ...(filters.dateFrom &&
                     filters.dateFrom !== 'all' && {
                         date_from: filters.dateFrom,
                         date_to: filters.dateTo,
+                    }),
+                ...(filters.createdDateFrom &&
+                    filters.createdDateFrom !== 'all' && {
+                        created_date_from: filters.createdDateFrom,
+                        created_date_to: filters.createdDateTo,
+                    }),
+                ...(filters.lastViewedDateFrom &&
+                    filters.lastViewedDateFrom !== 'all' && {
+                        last_viewed_date_from: filters.lastViewedDateFrom,
+                        last_viewed_date_to: filters.lastViewedDateTo,
                     }),
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],
@@ -308,10 +338,6 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     keys = keys.filter((k) => k !== 'tab')
                     eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
                 }
-                if (keys.includes('layoutView')) {
-                    keys = keys.filter((k) => k !== 'layoutView')
-                    eventUsageLogic.actions.reportSavedInsightLayoutChanged(filters.layoutView)
-                }
                 if (keys.length > 0) {
                     eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
                 }
@@ -331,7 +357,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.updateInsight(item)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, sourceDashboardId }) => {
+            if (sourceDashboardId != null) {
+                // That payload is only valid on the dashboard that refreshed it (date range, etc. are baked into
+                // `query`). The saved list should show the saved insight definition, not the merged view.
+                return
+            }
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
                 actions.updateInsight(insight)
@@ -350,7 +381,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             }
         },
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -377,10 +408,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         }
         return {
             loadInsights: changeUrl,
-            setLayoutView: changeUrl,
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (
             _,
             { alert_id, ...searchParams }, // search params,

@@ -1,14 +1,15 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -16,8 +17,10 @@ import { urls } from 'scenes/urls'
 
 import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+
 import { asDisplay } from './person-utils'
-import { personsLogic } from './personsLogic'
+import { personLogic } from './personLogic'
 
 export type PersonPreviewProps = {
     distinctId?: string
@@ -26,20 +29,16 @@ export type PersonPreviewProps = {
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
-    const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
-    const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
-
-    useEffect(() => {
-        if (props.distinctId) {
-            loadPerson(props.distinctId)
-        } else if (props.personId) {
-            loadPersonUUID(props.personId)
-        }
-    }, [loadPerson, loadPersonUUID, props.distinctId, props.personId])
-
     if (!props.distinctId && !props.personId) {
         return null
     }
+    return <PersonPreviewInner {...props} />
+}
+
+function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
+    const logicProps = { id: props.personId, distinctId: props.distinctId }
+    const { person, personLoading } = useValues(personLogic(logicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (personLoading) {
         return <Spinner />
@@ -96,6 +95,16 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"
                 />
+                {featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_CREATE_TICKET] && (
+                    <ComposeTicketButton
+                        size="small"
+                        type="tertiary"
+                        iconOnly
+                        distinctId={person?.distinct_ids?.[0]}
+                        email={typeof person?.properties?.email === 'string' ? person.properties.email : undefined}
+                        onCompose={() => props.onClose?.()}
+                    />
+                )}
                 <LemonButton size="small" icon={<IconOpenInNew />} to={url} />
             </div>
 

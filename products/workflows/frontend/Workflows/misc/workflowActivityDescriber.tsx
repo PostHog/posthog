@@ -104,7 +104,8 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                 case 'name': {
                     changes.push(
                         <>
-                            renamed from <strong>{change.before}</strong> to <strong>{change.after}</strong>
+                            renamed from <strong>{String(change.before)}</strong> to{' '}
+                            <strong>{String(change.after)}</strong>
                         </>
                     )
                     break

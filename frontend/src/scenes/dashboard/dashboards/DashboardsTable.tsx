@@ -1,52 +1,51 @@
 import { useActions, useValues } from 'kea'
 
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
     AccessControlResourceType,
-    AvailableFeature,
     DashboardBasicType,
     DashboardMode,
     DashboardType,
 } from '~/types'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
+import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
-    const { dashboards, filters } = useValues(dashboardsLogic)
+    const { dashboards } = useValues(dashboardsLogic)
 
-    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} filters={filters} />
+    return <DashboardsTable dashboards={dashboards} dashboardsLoading={dashboardsLoading} />
 }
 
 interface DashboardsTableProps {
     dashboards: DashboardBasicType[]
-    filters: DashboardsFilters
     dashboardsLoading: boolean
     extraActions?: JSX.Element | JSX.Element[]
     hideActions?: boolean
@@ -55,17 +54,21 @@ interface DashboardsTableProps {
 export function DashboardsTable({
     dashboards,
     dashboardsLoading,
-    filters,
     extraActions,
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { setFilters, tableSortingChanged } = useActions(dashboardsLogic)
-    const { tableSorting, currentTab } = useValues(dashboardsLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { tableSortingChanged } = useActions(dashboardsLogic)
+    const { tableSorting, filters } = useValues(dashboardsLogic)
+    // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
+    // would push the exact match below partial matches. Suppress the persisted column sort
+    // while the user has an active search term.
+    const effectiveTableSorting = filters.search ? null : tableSorting
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { openMoveToModal } = useActions(moveToLogic)
+    const { itemsByRef } = useValues(projectTreeDataLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -128,17 +131,13 @@ export function DashboardsTable({
             },
             sorter: nameCompareFunction,
         },
-        ...(hasAvailableFeature(AvailableFeature.TAGGING)
-            ? [
-                  {
-                      title: 'Tags',
-                      dataIndex: 'tags' as keyof DashboardType,
-                      render: function Render(tags: DashboardType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
-                      },
-                  } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-              ]
-            : []),
+        {
+            title: 'Tags',
+            dataIndex: 'tags' as keyof DashboardType,
+            render: function Render(tags: DashboardType['tags']) {
+                return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
+            },
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
@@ -197,9 +196,32 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
 
+                                      {itemsByRef[`dashboard::${id}`] && (
+                                          <AccessControlAction
+                                              resourceType={AccessControlResourceType.Dashboard}
+                                              minAccessLevel={AccessControlLevel.Editor}
+                                              userAccessLevel={user_access_level}
+                                          >
+                                              <LemonButton
+                                                  onClick={() => {
+                                                      const entry = itemsByRef[`dashboard::${id}`]
+                                                      openMoveToModal([entry as any])
+                                                  }}
+                                                  fullWidth
+                                                  data-attr="dashboard-move-to-folder"
+                                              >
+                                                  Move to another folder
+                                              </LemonButton>
+                                          </AccessControlAction>
+                                      )}
+
                                       <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
+                                      <LemonRow
+                                          icon={<IconHome className="size-4 text-warning" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
                                           <span className="text-secondary">
                                               Change the default dashboard
                                               <br />
@@ -232,53 +254,7 @@ export function DashboardsTable({
 
     return (
         <>
-            <div className="flex justify-between gap-2 flex-wrap mb-4">
-                <LemonInput
-                    type="search"
-                    placeholder="Search for dashboards"
-                    onChange={(x) => setFilters({ search: x })}
-                    value={filters.search}
-                />
-                <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                        <span>Filter to:</span>
-                        {currentTab !== DashboardsTab.Pinned && (
-                            <div className="flex items-center gap-2">
-                                <LemonButton
-                                    active={filters.pinned}
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => setFilters({ pinned: !filters.pinned })}
-                                    icon={<IconPin />}
-                                >
-                                    Pinned
-                                </LemonButton>
-                            </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                active={filters.shared}
-                                type="secondary"
-                                size="small"
-                                onClick={() => setFilters({ shared: !filters.shared })}
-                                icon={<IconShare />}
-                            >
-                                Shared
-                            </LemonButton>
-                        </div>
-                    </div>
-                    {currentTab !== DashboardsTab.Yours && (
-                        <div className="flex items-center gap-2">
-                            <span>Created by:</span>
-                            <MemberSelect
-                                value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                                onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                            />
-                        </div>
-                    )}
-                    {extraActions}
-                </div>
-            </div>
+            <DashboardsFiltersBar extraActions={extraActions} />
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
@@ -287,10 +263,33 @@ export function DashboardsTable({
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
                 loading={dashboardsLoading}
-                defaultSorting={tableSorting}
+                defaultSorting={effectiveTableSorting}
                 onSort={tableSortingChanged}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
+                bulkSelection={{
+                    getKey: (dashboard: DashboardType): number => dashboard.id,
+                    isRowSelectable: (dashboard: DashboardType) =>
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Dashboard,
+                            dashboard.user_access_level,
+                            AccessControlLevel.Editor
+                        )
+                            ? true
+                            : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
+                    rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
+                    headerAriaLabel: 'Select all dashboards on this page',
+                    renderActions: (ctx) => (
+                        <BulkUpdateTagsButton
+                            resource="dashboards"
+                            selectedIds={ctx.selectedKeys}
+                            onSuccess={() => {
+                                ctx.clearSelection()
+                                dashboardsModel.actions.loadDashboards()
+                            }}
+                        />
+                    ),
+                }}
             />
         </>
     )

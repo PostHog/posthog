@@ -7,12 +7,20 @@ export const addInsightToDashboardLogic = kea<addInsightToDashboardLogicType>([
     actions({
         showAddInsightToDashboardModal: true,
         hideAddInsightToDashboardModal: true,
+        toggleShowMoreInsightTypes: true,
     }),
     reducers({
         addInsightToDashboardModalVisible: [
             false,
             {
                 showAddInsightToDashboardModal: () => true,
+                hideAddInsightToDashboardModal: () => false,
+            },
+        ],
+        showMoreInsightTypes: [
+            false,
+            {
+                toggleShowMoreInsightTypes: (state) => !state,
                 hideAddInsightToDashboardModal: () => false,
             },
         ],

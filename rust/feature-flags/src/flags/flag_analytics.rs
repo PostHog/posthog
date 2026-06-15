@@ -1,45 +1,48 @@
 use crate::flags::flag_request::FlagRequestType;
-use anyhow::Result;
-use common_redis::{Client as RedisClient, CustomRedisError};
-use std::sync::Arc;
+use crate::handler::types::Library;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SURVEY_TARGETING_FLAG_PREFIX: &str = "survey-targeting-";
 pub const PRODUCT_TOUR_TARGETING_FLAG_PREFIX: &str = "product-tour-targeting-";
 
-const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
+pub fn is_billable_flag_key(key: &str) -> bool {
+    !key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+        && !key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+}
+
+pub const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
+
+/// Current 2-minute bucket, expressed as `unix_seconds / CACHE_BUCKET_SIZE`.
+pub fn current_bucket() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() / CACHE_BUCKET_SIZE)
+        .unwrap_or(0)
+}
 
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {
     match request_type {
         FlagRequestType::Decide => format!("posthog:decide_requests:{team_id}"),
-        FlagRequestType::FlagDefinitions => {
-            format!("posthog:local_evaluation_requests:{team_id}")
-        }
+        FlagRequestType::FlagDefinitions => format!("posthog:local_evaluation_requests:{team_id}"),
     }
 }
 
-pub async fn increment_request_count(
-    redis_client: Arc<dyn RedisClient + Send + Sync>,
+pub fn get_team_request_library_key(
     team_id: i32,
-    count: i32,
     request_type: FlagRequestType,
-) -> Result<(), CustomRedisError> {
-    let time_bucket = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        / CACHE_BUCKET_SIZE;
-    let key_name = get_team_request_key(team_id, request_type);
-    redis_client
-        .hincrby(key_name, time_bucket.to_string(), Some(count))
-        .await?;
-    Ok(())
+    library: Library,
+) -> String {
+    match request_type {
+        FlagRequestType::Decide => format!("posthog:decide_requests:sdk:{team_id}:{library}"),
+        FlagRequestType::FlagDefinitions => {
+            format!("posthog:local_evaluation_requests:sdk:{team_id}:{library}")
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::setup_redis_client;
 
     #[tokio::test]
     async fn test_get_team_request_key() {
@@ -54,68 +57,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_increment_request_count() {
-        let redis_client = setup_redis_client(None).await;
-
-        let team_id = 789;
-        let count = 5;
-
-        let decide_key = get_team_request_key(team_id, FlagRequestType::Decide);
-        let flag_definitions_key = get_team_request_key(team_id, FlagRequestType::FlagDefinitions);
-
-        // Clean up Redis before the test to ensure no leftover data
-        redis_client.del(decide_key.clone()).await.unwrap();
-        redis_client
-            .del(flag_definitions_key.clone())
-            .await
-            .unwrap();
-
-        // Test for Decide request type
-        increment_request_count(
-            redis_client.clone(),
-            team_id,
-            count,
-            FlagRequestType::Decide,
-        )
-        .await
-        .unwrap();
-
-        // Test for FlagDefinitions request type
-        increment_request_count(
-            redis_client.clone(),
-            team_id,
-            count,
-            FlagRequestType::FlagDefinitions,
-        )
-        .await
-        .unwrap();
-
-        // Get the current time bucket
-        let time_bucket = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            / CACHE_BUCKET_SIZE;
-
-        // Verify the counts in Redis
-        let decide_count: i32 = redis_client
-            .hget(decide_key.clone(), time_bucket.to_string())
-            .await
-            .unwrap()
-            .parse()
-            .unwrap();
-        let flag_definitions_count: i32 = redis_client
-            .hget(flag_definitions_key.clone(), time_bucket.to_string())
-            .await
-            .unwrap()
-            .parse()
-            .unwrap();
-
-        assert_eq!(decide_count, count);
-        assert_eq!(flag_definitions_count, count);
-
-        // Clean up Redis after the test
-        redis_client.del(decide_key).await.unwrap();
-        redis_client.del(flag_definitions_key).await.unwrap();
+    async fn test_get_team_request_library_key() {
+        assert_eq!(
+            get_team_request_library_key(123, FlagRequestType::Decide, Library::PosthogNode),
+            "posthog:decide_requests:sdk:123:posthog-node"
+        );
+        assert_eq!(
+            get_team_request_library_key(456, FlagRequestType::FlagDefinitions, Library::PosthogJs),
+            "posthog:local_evaluation_requests:sdk:456:posthog-js"
+        );
+        assert_eq!(
+            get_team_request_library_key(789, FlagRequestType::Decide, Library::PosthogAndroid),
+            "posthog:decide_requests:sdk:789:posthog-android"
+        );
+        // Test new SDK variants
+        assert_eq!(
+            get_team_request_library_key(100, FlagRequestType::Decide, Library::PosthogDotnet),
+            "posthog:decide_requests:sdk:100:posthog-dotnet"
+        );
+        assert_eq!(
+            get_team_request_library_key(
+                101,
+                FlagRequestType::FlagDefinitions,
+                Library::PosthogElixir
+            ),
+            "posthog:local_evaluation_requests:sdk:101:posthog-elixir"
+        );
+        // Test Other variant
+        assert_eq!(
+            get_team_request_library_key(102, FlagRequestType::Decide, Library::Other),
+            "posthog:decide_requests:sdk:102:other"
+        );
     }
 }

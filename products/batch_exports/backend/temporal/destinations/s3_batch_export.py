@@ -2,7 +2,6 @@ import json
 import typing
 import asyncio
 import datetime as dt
-import posixpath
 import dataclasses
 
 import pyarrow as pa
@@ -21,16 +20,16 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     S3BatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -38,6 +37,10 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.destinations.constants import (
+    S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
+)
+from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
@@ -65,6 +68,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidS3EndpointError",
     # Invalid file_format input
     "UnsupportedFileFormatError",
+    # Invalid compression input
+    "UnsupportedCompressionError",
+    # Invalid S3 credentials
+    "InvalidCredentialsError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -80,11 +87,6 @@ COMPRESSION_EXTENSIONS = {
     "lz4": "lz4",
 }
 
-SUPPORTED_COMPRESSIONS = {
-    "Parquet": ["zstd", "lz4", "snappy", "gzip", "brotli"],
-    "JSONLines": ["gzip", "brotli"],
-}
-
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
@@ -94,6 +96,13 @@ class UnsupportedFileFormatError(Exception):
 
     def __init__(self, file_format: str):
         super().__init__(f"'{file_format}' is not a supported format for S3 batch exports.")
+
+
+class UnsupportedCompressionError(Exception):
+    """Raised when an unsupported compression is requested."""
+
+    def __init__(self, compression: str):
+        super().__init__(f"'{compression}' is not a supported compression for S3 batch exports.")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -109,6 +118,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     prefix: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -119,94 +129,17 @@ class S3InsertInputs(BatchExportInsertInputs):
     use_virtual_style_addressing: bool = False
 
 
-def get_allowed_template_variables(
-    data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
-) -> dict[str, str]:
-    """Derive from inputs a dictionary of supported template variables for the S3 key prefix."""
-    export_datetime = dt.datetime.fromisoformat(data_interval_end)
-
-    return {
-        "second": f"{export_datetime:%S}",
-        "minute": f"{export_datetime:%M}",
-        "hour": f"{export_datetime:%H}",
-        "day": f"{export_datetime:%d}",
-        "month": f"{export_datetime:%m}",
-        "year": f"{export_datetime:%Y}",
-        "data_interval_start": data_interval_start or "START",
-        "data_interval_end": data_interval_end,
-        "table": batch_export_model.name if batch_export_model is not None else "events",
-    }
-
-
-def get_s3_key_prefix(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
-) -> str:
-    template_variables = get_allowed_template_variables(data_interval_start, data_interval_end, batch_export_model)
-
-    try:
-        return prefix.format(**template_variables)
-    except (KeyError, ValueError) as e:
-        EXTERNAL_LOGGER.warning(
-            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
-        )
-        return prefix
-
-
-def get_s3_key(
-    prefix: str,
-    data_interval_start: str | None,
-    data_interval_end: str,
-    batch_export_model: BatchExportModel | None,
-    file_format: str,
-    compression: str | None = None,
-    file_number: int = 0,
-    use_new_file_naming_scheme: bool = True,
-) -> str:
-    """Return an S3 key given S3InsertInputs."""
-    key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
-
-    try:
-        file_extension = FILE_FORMAT_EXTENSIONS[file_format]
-    except KeyError:
-        raise UnsupportedFileFormatError(file_format)
-
-    base_file_name = f"{data_interval_start}-{data_interval_end}"
-
-    if use_new_file_naming_scheme:
-        base_file_name = f"{base_file_name}-{file_number}"
-
-    if compression is not None:
-        file_name = base_file_name + f".{file_extension}.{COMPRESSION_EXTENSIONS[compression]}"
-    else:
-        file_name = base_file_name + f".{file_extension}"
-
-    key = posixpath.join(key_prefix, file_name)
-
-    if posixpath.isabs(key):
-        # Keys are relative to root dir, so this would add an extra "/"
-        key = posixpath.relpath(key, "/")
-
-    return key
-
-
 def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
-    return get_s3_key(
-        inputs.prefix,
-        inputs.data_interval_start,
-        inputs.data_interval_end,
-        inputs.batch_export_model,
-        inputs.file_format,
-        inputs.compression,
-        file_number,
-        use_new_file_naming_scheme=inputs.max_file_size_mb is not None,
+    return get_object_key(
+        prefix=inputs.prefix,
+        data_interval_start=inputs.data_interval_start,
+        data_interval_end=inputs.data_interval_end,
+        batch_export_model=inputs.batch_export_model,
+        file_extension=FILE_FORMAT_EXTENSIONS[inputs.file_format],
+        compression_extension=COMPRESSION_EXTENSIONS[inputs.compression] if inputs.compression is not None else None,
+        file_number=file_number,
+        include_file_number=bool(inputs.max_file_size_mb),
     )
-
-
-def get_manifest_key(
-    prefix: str, data_interval_start: str | None, data_interval_end: str, batch_export_model: BatchExportModel | None
-) -> str:
-    key_prefix = get_s3_key_prefix(prefix, data_interval_start, data_interval_end, batch_export_model)
-    return posixpath.join(key_prefix, f"{data_interval_start}-{data_interval_end}_manifest.json")
 
 
 class InvalidS3Key(Exception):
@@ -249,6 +182,13 @@ class InvalidS3EndpointError(Exception):
         super().__init__(message)
 
 
+class InvalidCredentialsError(Exception):
+    """Exception raised when the S3 credentials are invalid."""
+
+    def __init__(self, message: str = "Credentials are invalid."):
+        super().__init__(message)
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -268,7 +208,13 @@ def s3_default_fields() -> list[BatchExportField]:
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
 class S3BatchExportWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to export ClickHouse data into S3.
+    """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
+
+    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
+    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
+    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
+    serializes them to JSON, and on deserialization fields not present on the narrower
+    input class fall through to their `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
@@ -286,7 +232,9 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to S3 bucket."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
@@ -349,9 +297,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         return
 
 
+@dataclasses.dataclass
+class S3BatchExportResult(BatchExportResult):
+    files_uploaded: list[str] = dataclasses.field(default_factory=list)
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
+async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
     """Activity to batch export data to a customer's S3.
 
     This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
@@ -371,6 +324,12 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
+
+    if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
+        raise UnsupportedFileFormatError(inputs.file_format)
+    if inputs.compression is not None and inputs.compression not in SUPPORTED_COMPRESSIONS[inputs.file_format]:
+        raise UnsupportedCompressionError(inputs.compression)
+
     external_logger = EXTERNAL_LOGGER.bind()
 
     external_logger.info(
@@ -405,7 +364,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 inputs.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0)
+            return S3BatchExportResult(records_completed=0, bytes_exported=0)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -436,12 +395,19 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        return await run_consumer_from_stage(
+        result = await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+        )
+        return S3BatchExportResult(
+            bytes_exported=result.bytes_exported,
+            records_completed=result.records_completed,
+            records_failed=result.records_failed,
+            error=result.error,
+            files_uploaded=consumer.files_uploaded,
         )
 
 
@@ -466,8 +432,9 @@ class ConcurrentS3Consumer(Consumer):
         data_interval_end: str,
         batch_export_model: BatchExportModel | None,
         file_format: str,
-        aws_access_key_id: str | None,
-        aws_secret_access_key: str | None,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        aws_session_token: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
@@ -477,7 +444,12 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,  # 50MB parts
         max_concurrent_uploads: int = 5,
     ):
-        super().__init__()
+        super().__init__(model=batch_export_model.name if batch_export_model else "events")
+
+        if (isinstance(aws_access_key_id, str) and aws_access_key_id.strip() == "") or (
+            isinstance(aws_secret_access_key, str) and aws_secret_access_key.strip() == ""
+        ):
+            raise InvalidCredentialsError("AWS access key ID and secret access key cannot be empty")
 
         self.bucket = bucket
         self.region_name = region_name
@@ -497,6 +469,7 @@ class ConcurrentS3Consumer(Consumer):
 
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.aws_session_token = aws_session_token
         self.kms_key_id = kms_key_id
         self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
@@ -529,6 +502,9 @@ class ConcurrentS3Consumer(Consumer):
         part_size: int = 50 * 1024 * 1024,
         max_concurrent_uploads: int = 5,
     ):
+        if not s3_inputs.aws_access_key_id or not s3_inputs.aws_secret_access_key:
+            raise InvalidCredentialsError()
+
         return cls(
             bucket=s3_inputs.bucket_name,
             region_name=s3_inputs.region,
@@ -542,6 +518,7 @@ class ConcurrentS3Consumer(Consumer):
             max_file_size_mb=s3_inputs.max_file_size_mb,
             aws_access_key_id=s3_inputs.aws_access_key_id,
             aws_secret_access_key=s3_inputs.aws_secret_access_key,
+            aws_session_token=s3_inputs.aws_session_token,
             kms_key_id=s3_inputs.kms_key_id,
             endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
@@ -573,6 +550,7 @@ class ConcurrentS3Consumer(Consumer):
                     region_name=self.region_name,
                     aws_access_key_id=self.aws_access_key_id,
                     aws_secret_access_key=self.aws_secret_access_key,
+                    aws_session_token=self.aws_session_token,
                     endpoint_url=self.endpoint_url,
                     config=boto_config,
                 )
@@ -656,6 +634,10 @@ class ConcurrentS3Consumer(Consumer):
         if not self.upload_id:
             raise NoUploadInProgressError()
 
+        optional_kwargs = {}
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         try:
             self.logger.debug(
                 "Uploading file number %s part %s with upload id %s",
@@ -696,6 +678,7 @@ class ConcurrentS3Consumer(Consumer):
                             PartNumber=part_number,
                             UploadId=self.upload_id,
                             Body=data,
+                            **optional_kwargs,  # type: ignore
                         )
 
                     except botocore.exceptions.ClientError as err:
@@ -725,7 +708,13 @@ class ConcurrentS3Consumer(Consumer):
                         else:
                             raise
 
-            part_info: CompletedPartTypeDef = {"ETag": response["ETag"], "PartNumber": part_number}
+            part_info: CompletedPartTypeDef = {
+                "ETag": response["ETag"],
+                "PartNumber": part_number,
+            }
+
+            if "ChecksumCRC64NVME" in response:
+                part_info["ChecksumCRC64NVME"] = response["ChecksumCRC64NVME"]
 
             # Store completed part info
             self.completed_parts[part_number] = part_info
@@ -743,15 +732,15 @@ class ConcurrentS3Consumer(Consumer):
 
     def _get_current_key(self) -> str:
         """Generate the key for the current file"""
-        return get_s3_key(
-            self.prefix,
-            self.data_interval_start,
-            self.data_interval_end,
-            self.batch_export_model,
-            self.file_format,
-            self.compression,
-            self.current_file_index,
-            use_new_file_naming_scheme=self.max_file_size_mb is not None,
+        return get_object_key(
+            prefix=self.prefix,
+            data_interval_start=self.data_interval_start,
+            data_interval_end=self.data_interval_end,
+            batch_export_model=self.batch_export_model,
+            file_extension=FILE_FORMAT_EXTENSIONS[self.file_format],
+            compression_extension=COMPRESSION_EXTENSIONS[self.compression] if self.compression is not None else None,
+            file_number=self.current_file_index,
+            include_file_number=bool(self.max_file_size_mb),
         )
 
     async def _start_new_file(self):
@@ -804,6 +793,11 @@ class ConcurrentS3Consumer(Consumer):
         # Remove from pending uploads immediately
         self.pending_uploads.pop(part_number, None)
 
+        # Ignore cancellations product of an aborted multi part upload
+        if task.cancelled():
+            self.logger.warning("Upload cancelled for file number %s part %s", self.current_file_index, part_number)
+            return
+
         # Handle any exceptions
         if task.exception() is not None:
             # Log the error - the exception will be re-raised when the task is awaited
@@ -819,6 +813,8 @@ class ConcurrentS3Consumer(Consumer):
             optional_kwargs["ServerSideEncryption"] = self.encryption
         if self.kms_key_id:
             optional_kwargs["SSEKMSKeyId"] = self.kms_key_id
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
 
         current_key = self._get_current_key()
         client = await self._get_s3_client()
@@ -873,10 +869,15 @@ class ConcurrentS3Consumer(Consumer):
     ):
         client = await self._get_s3_client()
 
+        optional_kwargs = {}
+        if self.endpoint_url is None:
+            optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
+
         await client.put_object(
             Bucket=self.bucket,
             Key=manifest_key,
             Body=json.dumps({"files": files_uploaded}),
+            **optional_kwargs,  # type: ignore
         )
 
         if self._s3_client is not None and self._s3_client_ctx is not None:
@@ -912,12 +913,19 @@ class ConcurrentS3Consumer(Consumer):
         )
 
     async def _abort(self):
-        """Abort this S3 multi-part upload."""
+        """Abort this S3 multi-part upload and cancel any in-flight part uploads."""
+        if self.pending_uploads:
+            for task in self.pending_uploads.values():
+                task.cancel()
+            await asyncio.gather(*self.pending_uploads.values(), return_exceptions=True)
+            self.pending_uploads.clear()
+
         if self.upload_id:
+            upload_id = self.upload_id
             try:
                 client = await self._get_s3_client()
-                await client.abort_multipart_upload(
-                    Bucket=self.bucket, Key=self._get_current_key(), UploadId=self.upload_id
-                )
+                await client.abort_multipart_upload(Bucket=self.bucket, Key=self._get_current_key(), UploadId=upload_id)
             except Exception:
-                pass  # Best effort cleanup
+                self.logger.exception("Best-effort abort of multipart upload %s failed", upload_id)
+            finally:
+                self.upload_id = None

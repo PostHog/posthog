@@ -68,6 +68,18 @@ export class FixtureHogFlowBuilder {
             logger.error('[HogFlowBuilder] No trigger action found. Indicates a faulty built workflow')
         }
 
+        // Compute billable_action_types based on actions
+        const billableTypes = new Set(['function', 'function_email', 'function_sms', 'function_push'])
+        const uniqueBillableTypes = new Set<string>()
+
+        for (const action of this.hogFlow.actions) {
+            if (billableTypes.has(action.type)) {
+                uniqueBillableTypes.add(action.type)
+            }
+        }
+
+        this.hogFlow.billable_action_types = Array.from(uniqueBillableTypes).sort()
+
         return this.hogFlow
     }
 

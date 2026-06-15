@@ -6,9 +6,9 @@ import pytest
 import pyarrow as pa
 import pytest_asyncio
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     make_retryable_with_exponential_backoff,
@@ -87,7 +87,7 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts():
         raise ValueError("I failed")
 
     with pytest.raises(ValueError):
-        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=1)()
+        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=1, max_delay_jitter=0)()
 
     assert counter == 5
 
@@ -102,7 +102,9 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_ti
         await asyncio.sleep(10)
 
     with pytest.raises(TimeoutError):
-        await make_retryable_with_exponential_backoff(raise_value_error, max_retry_delay=1, timeout=1)()
+        await make_retryable_with_exponential_backoff(
+            raise_value_error, max_retry_delay=1, timeout=1, max_delay_jitter=0
+        )()
 
     assert counter == 5
 
@@ -122,7 +124,7 @@ async def test_make_retryable_with_exponential_backoff_called_max_attempts_if_fu
 
     with pytest.raises(ValueError):
         await make_retryable_with_exponential_backoff(
-            raise_value_error, is_exception_retryable=is_exception_retryable, max_retry_delay=1
+            raise_value_error, is_exception_retryable=is_exception_retryable, max_retry_delay=1, max_delay_jitter=0
         )()
 
     assert counter == 5

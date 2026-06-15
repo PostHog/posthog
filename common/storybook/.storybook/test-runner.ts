@@ -8,6 +8,14 @@ import type { Mocks } from '~/mocks/utils'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
+const VIEWPORT_WIDTHS = {
+    narrow: { width: 568, height: 720 },
+    medium: { width: 960, height: 720 },
+    wide: { width: 1300, height: 720 },
+    superwide: { width: 1920, height: 720 },
+} as const
+type ViewportWidthName = keyof typeof VIEWPORT_WIDTHS
+
 // 'firefox' is technically supported too, but as of June 2023 it has memory usage issues that make is unusable
 type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
@@ -44,15 +52,22 @@ declare module '@storybook/types' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
-            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
+            /** Narrow the snapshot to a specific element. Only works for component (non-fullscreen) snapshots — throws an error if used with `layout: 'fullscreen'`. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
+            /** take snapshots at multiple preset widths, producing one snapshot per width */
+            viewportWidths?: ViewportWidthName[]
             /**
              * Skip waiting for iframes to load. Useful for stories with external iframes that fail in CI.
+             * Also skips waiting for networkidle, which is useful for stories with background network activity.
              * @default false
              */
             skipIframeWait?: boolean
+            /**
+             * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
+             */
+            skipDarkMode?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -68,6 +83,7 @@ declare module '@storybook/types' {
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
     '.Spinner',
+    '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
     '.LemonSkeleton',
     '.LemonTableLoader',
     '.Toastify__toast',
@@ -81,10 +97,19 @@ const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshot
 // eslint-disable-next-line no-console
 console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
-const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
+const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
+const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
 const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
+
+// Sharing/embed stories render a preview iframe pointing at the shared/embedded URL, which Storybook
+// can't serve, so it 404s to a browser error page whose rendering is browser-version-dependent (and so
+// produces noisy, non-deterministic snapshots). Stub those navigations with a fixed page.
+// Yellow background with default black text keeps the stub legible and obviously intentional in both
+// light and dark snapshot themes; color-scheme:light stops the browser dark-inverting the page.
+const EMBED_STUB_HTML =
+    '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
 
 module.exports = {
     setup() {
@@ -94,15 +119,25 @@ module.exports = {
     },
 
     async preVisit(page, context) {
+        await page.route(/\/(embedded|shared)\//, (route) =>
+            route.fulfill({ status: 200, contentType: 'text/html', body: EMBED_STUB_HTML })
+        )
         const storyContext = await getStoryContext(page, context)
-        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
-        await page.setViewportSize(viewport)
+        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        applyStoryTimeouts(page, viewportWidths)
+        const effectiveViewport = viewportWidths?.length
+            ? VIEWPORT_WIDTHS[viewportWidths[0]]
+            : viewport || DEFAULT_VIEWPORT
+        await resizeViewportAndWait(page, effectiveViewport)
     },
 
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
-        const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
+        const { viewport, viewportWidths } = storyContext.parameters?.testOptions ?? {}
+        const effectiveViewport = viewportWidths?.length
+            ? VIEWPORT_WIDTHS[viewportWidths[0]]
+            : viewport || DEFAULT_VIEWPORT
 
         await page.evaluate(
             // eslint-disable-next-line no-console
@@ -113,17 +148,27 @@ module.exports = {
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
-            await page.setViewportSize({ width: 1920, height: 1080 })
-            await page.setViewportSize(viewport)
+            await resizeViewportAndWait(page, { width: 1920, height: 1080 })
+            await resizeViewportAndWait(page, effectiveViewport)
         }
 
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
+        // Keep timeouts scaled in postVisit too, as retries can run through this path multiple times.
+        applyStoryTimeouts(page, viewportWidths)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
-            await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
+            if (viewportWidths?.length) {
+                for (const widthName of viewportWidths) {
+                    await resizeViewportAndWait(page, VIEWPORT_WIDTHS[widthName])
+
+                    const contextForWidth = { ...context, id: `${context.id}--${widthName}` }
+                    await expectStoryToMatchSnapshot(page, contextForWidth, storyContext, currentBrowser)
+                }
+            } else {
+                await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
+            }
         }
     },
     tags: {
@@ -137,7 +182,8 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    await waitForPageReady(page)
+    const { skipIframeWait = false, skipDarkMode = false } = storyContext.parameters?.testOptions ?? {}
+    await waitForPageReady(page, skipIframeWait)
 
     // set up iframe load tracking early, before they start loading
     await page.evaluate(() => {
@@ -179,15 +225,44 @@ async function expectStoryToMatchSnapshot(
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
         document.body.classList.add(`storybook-test-runner--${layout}`)
+
+        // Force all content-visibility:auto elements to render fully for deterministic snapshots.
+        // content-visibility:auto skips rendering offscreen content, which causes non-deterministic
+        // page heights depending on timing. We override it and trigger a synchronous reflow.
+        document.querySelectorAll('*').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                const style = getComputedStyle(el)
+                if (style.contentVisibility === 'auto') {
+                    el.style.contentVisibility = 'visible'
+                }
+            }
+        })
+        // Force synchronous reflow so the browser recalculates layout
+        void document.body.offsetHeight
     }, storyContext.parameters?.layout || 'padded')
+
+    // Trigger ResizeObserver callbacks to ensure layout-dependent state (e.g. CardMeta's
+    // showControlsLabels) has settled before taking snapshots. ResizeObserver fires
+    // asynchronously after render, so without this nudge the observer may not have reported
+    // dimensions yet, causing non-deterministic button labels in dashboard stories.
+    await page.evaluate(() => {
+        // Force a reflow so ResizeObserver has up-to-date geometry to report
+        void document.body.offsetHeight
+        // Dispatch a resize event to trigger any observers that key off window size
+        window.dispatchEvent(new Event('resize'))
+    })
+    // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
+    await page.waitForTimeout(300)
 
     const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
         // Use 'hidden' instead of 'detached' because some elements (like toasts) may remain in DOM but be invisible
-        // Timeout is 5000ms to account for slower CI environments while still catching stuck elements
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout: 5000 })
+        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
+        // to account for slower CI environments while still catching stuck elements
+        const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'hidden', timeout })
     }
 
     if (typeof waitForSelector === 'string') {
@@ -198,7 +273,9 @@ async function expectStoryToMatchSnapshot(
 
     // Snapshot both light and dark themes
     await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
-    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    if (!skipDarkMode) {
+        await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+    }
 }
 
 async function takeSnapshotWithTheme(
@@ -214,7 +291,8 @@ async function takeSnapshotWithTheme(
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
     // Wait until we're sure we've finished loading everything
-    await waitForPageReady(page)
+    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
+    await waitForPageReady(page, skipIframeWait)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         await page.waitForFunction(() => {
@@ -237,7 +315,6 @@ async function takeSnapshotWithTheme(
     }
 
     // wait for iframes to load their content
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     if (!skipIframeWait) {
         const iframeCount = await page.locator('iframe').count()
         if (iframeCount > 0) {
@@ -261,6 +338,11 @@ async function takeSnapshotWithTheme(
     await page.evaluate(() => {
         // scroll main viewport to top
         window.scrollTo(0, 0)
+        // scroll the app's main content viewport (Navigation.tsx uses <main id="main-content"> as the scroll container)
+        const mainContent = document.querySelector('#main-content')
+        if (mainContent instanceof HTMLElement) {
+            mainContent.scrollTop = 0
+        }
         // scroll all overflow containers to top
         document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
             if (el instanceof HTMLElement) {
@@ -332,6 +414,13 @@ async function doTakeSnapshotWithTheme(
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
+        if (snapshotTargetSelector) {
+            throw new Error(
+                `snapshotTargetSelector is not supported with layout: 'fullscreen'. ` +
+                    `Fullscreen stories always snapshot body/main. ` +
+                    `Remove snapshotTargetSelector from testOptions or change the layout.`
+            )
+        }
         if (includeNavigationInSnapshot) {
             check = expectStoryToMatchViewportSnapshot
         } else {
@@ -430,14 +519,99 @@ async function expectLocatorToMatchStorySnapshot(
 /**
  * Just like the `waitForPageReady` helper offered by Playwright - except we only wait for `networkidle` in CI,
  * as it doesn't work with local Storybook (the live reload feature keeps up a long-running request, so we aren't idle).
+ *
+ * @param skipNetworkIdle - Skip waiting for network idle. Useful for stories with iframes that cause ongoing network activity.
  */
-async function waitForPageReady(page: Page): Promise<void> {
+async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<void> {
     await page.waitForLoadState('domcontentloaded')
     await page.waitForLoadState('load')
 
-    if (process.env.CI) {
-        await page.waitForLoadState('networkidle')
+    if (process.env.CI && !skipNetworkIdle) {
+        // networkidle can be flaky in CI due to background requests - don't fail on timeout
+        await page.waitForLoadState('networkidle').catch(() => undefined)
     }
 
     await page.evaluate(() => document.fonts.ready)
+}
+
+function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[]): void {
+    // Multi-width stories effectively run several snapshots inside one smoke test.
+    const timeoutMultiplier = viewportWidths?.length || 1
+    jest.setTimeout(JEST_TIMEOUT_MS * timeoutMultiplier)
+    page.context().setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS * timeoutMultiplier)
+}
+
+async function waitForInnerViewport(
+    page: Page,
+    viewport: { width: number; height: number },
+    timeout: number = VIEWPORT_SETTLE_TIMEOUT_MS
+): Promise<void> {
+    await page.waitForFunction(
+        ([expectedWidth, expectedHeight]) => {
+            return window.innerWidth === expectedWidth && window.innerHeight === expectedHeight
+        },
+        [viewport.width, viewport.height],
+        { timeout }
+    )
+}
+
+async function resizeViewportAndWait(page: Page, viewport: { width: number; height: number }): Promise<void> {
+    const currentViewport = page.viewportSize()
+    if (currentViewport?.width === viewport.width && currentViewport.height === viewport.height) {
+        // Force an actual geometry change so ResizeObserver subscribers always re-run.
+        const nudgedWidth = viewport.width > 320 ? viewport.width - 1 : viewport.width + 1
+        await page.setViewportSize({ width: nudgedWidth, height: viewport.height })
+    }
+
+    await page.setViewportSize(viewport)
+    await waitForInnerViewport(page, viewport).catch(async () => {
+        // Under heavy CI load, the first viewport resize can occasionally lag. Retry once.
+        const nudgedWidth = viewport.width > 320 ? viewport.width - 1 : viewport.width + 1
+        await page.setViewportSize({ width: nudgedWidth, height: viewport.height })
+        await page.setViewportSize(viewport)
+        await waitForInnerViewport(page, viewport, VIEWPORT_SETTLE_TIMEOUT_MS * 2).catch(() => undefined)
+    })
+
+    await page.evaluate(async () => {
+        void document.body.offsetHeight
+        window.dispatchEvent(new Event('resize'))
+        await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    })
+
+    await page
+        .waitForFunction(
+            () => {
+                return new Promise<boolean>((resolve) => {
+                    let lastSignature = ''
+                    let stableCount = 0
+                    const checkStability = (): void => {
+                        const signature = [
+                            document.documentElement.clientWidth,
+                            document.documentElement.clientHeight,
+                            document.body.scrollWidth,
+                            document.body.scrollHeight,
+                        ].join(':')
+
+                        if (signature === lastSignature) {
+                            stableCount++
+                            if (stableCount >= 3) {
+                                resolve(true)
+                                return
+                            }
+                        } else {
+                            stableCount = 0
+                            lastSignature = signature
+                        }
+
+                        setTimeout(checkStability, 50)
+                    }
+
+                    checkStability()
+                })
+            },
+            { timeout: VIEWPORT_SETTLE_TIMEOUT_MS }
+        )
+        .catch(() => {
+            // Some stories keep changing dimensions forever (charts/animations). Keep going.
+        })
 }

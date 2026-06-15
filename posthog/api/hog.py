@@ -1,5 +1,4 @@
 import structlog
-from hogql_parser import parse_program
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
@@ -7,7 +6,9 @@ from posthog.schema import HogCompileResponse
 
 from posthog.hogql.compiler.bytecode import Local, create_bytecode
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.parser import parse_program
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
@@ -16,6 +17,7 @@ logger = structlog.get_logger(__name__)
 
 class HogViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
 
     def create(self, request, *args, **kwargs) -> Response:
         hog = request.data.get("hog")

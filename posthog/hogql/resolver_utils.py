@@ -1,12 +1,32 @@
+from __future__ import annotations
+
+import difflib
 from collections.abc import Generator
 from typing import Optional
 
+from pydantic import BaseModel
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import ResolutionError, SyntaxError
-from posthog.hogql.visitor import clone_expr
-
-from posthog import schema
+from posthog.hogql.database.models import (
+    BooleanDatabaseField,
+    DatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    DecimalDatabaseField,
+    ExpressionField,
+    FieldOrTable,
+    FieldTraverser,
+    FloatDatabaseField,
+    IntegerDatabaseField,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
+    Table,
+    UnknownDatabaseField,
+    UUIDDatabaseField,
+)
+from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
 
 
 def lookup_field_by_name(
@@ -16,23 +36,31 @@ def lookup_field_by_name(
 
     if isinstance(scope, ast.SelectSetQueryType):
         field: Optional[ast.Type] = None
-        for type in scope.types:
-            new_field = lookup_field_by_name(type, name, context)
+        field_sources: list[str] = []
+        for index, select_type in enumerate(scope.types, start=1):
+            new_field = lookup_field_by_name(select_type, name, context)
             if new_field:
                 if field:
-                    raise ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
+                    field_sources.append(_select_set_type_source_name(index))
+                    raise _ambiguous_field_resolution_error(name, field_sources)
+                field_sources.append(_select_set_type_source_name(index))
                 field = new_field
         return field
 
     if name in scope.aliases:
         return scope.aliases[name]
     else:
-        named_tables = [table for table in scope.tables.values() if table.has_child(name, context)]
+        named_tables = [
+            (table_alias, table) for table_alias, table in scope.tables.items() if table.has_child(name, context)
+        ]
         anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name, context)]
-        tables_with_field = named_tables + anonymous_tables
+        tables_with_field = [table for _, table in named_tables] + anonymous_tables
 
         if len(tables_with_field) > 1:
-            raise ResolutionError(f"Ambiguous query. Found multiple sources for field: {name}")
+            field_sources = [
+                _table_source_name(table, context, alias=table_alias) for table_alias, table in named_tables
+            ] + [_anonymous_table_source_name(table, index) for index, table in enumerate(anonymous_tables, start=1)]
+            raise _ambiguous_field_resolution_error(name, field_sources)
         elif len(tables_with_field) == 1:
             return tables_with_field[0].get_child(name, context)
 
@@ -42,15 +70,119 @@ def lookup_field_by_name(
         return None
 
 
-def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> Optional[ast.TableOrSelectType]:
+def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> ResolutionError:
+    source_names = ", ".join(f"{source}.{name}" for source in field_sources)
+    return ResolutionError(
+        f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
+    )
+
+
+def _table_source_name(table: ast.TableOrSelectType, context: HogQLContext, *, alias: str | None = None) -> str:
+    if alias:
+        return alias
+
+    if isinstance(
+        table,
+        ast.TableAliasType
+        | ast.ColumnAliasedTableType
+        | ast.SelectViewType
+        | ast.CTETableAliasType
+        | ast.SelectQueryAliasType,
+    ):
+        return table.alias
+    if isinstance(table, ast.CTETableType):
+        return table.name
+
+    if isinstance(table, ast.TableType | ast.LazyTableType):
+        try:
+            return table.resolve_database_table(context).to_printed_hogql()
+        except Exception:
+            return "source"
+
+    return "source"
+
+
+def _anonymous_table_source_name(_table: ast.SelectQueryType | ast.SelectSetQueryType, index: int) -> str:
+    return f"anonymous source {index}"
+
+
+def _select_set_type_source_name(index: int) -> str:
+    return f"query source {index}"
+
+
+def _names_on_table_type(table_type: ast.Type, context: HogQLContext) -> set[str]:
+    if isinstance(table_type, ast.BaseTableType):
+        try:
+            table = table_type.resolve_database_table(context)
+        except Exception:
+            return set()
+        return set(table.fields.keys())
+    if isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+        return set(getattr(table_type, "columns", {}).keys())
+    return set()
+
+
+def collect_available_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext
+) -> set[str]:
+    """Gather field names visible in a scope (aliases + joined-table fields)
+    for use in 'did you mean' suggestions when resolution fails.
+
+    Returns a flat set — callers don't need to know whether a name comes from
+    an alias, a named table, or an anonymous subquery.
+    """
+    names: set[str] = set()
+
+    if isinstance(scope, ast.SelectSetQueryType):
+        for inner in scope.types:
+            names.update(collect_available_field_names(inner, context))
+        return names
+
+    names.update(scope.aliases.keys())
+    for table_type in scope.tables.values():
+        names.update(_names_on_table_type(table_type, context))
+    for anon in scope.anonymous_tables:
+        names.update(_names_on_table_type(anon, context))
+
+    if scope.parent is not None:
+        names.update(collect_available_field_names(scope.parent, context))
+
+    return names
+
+
+def suggest_field_names(
+    scope: ast.SelectQueryType | ast.SelectSetQueryType,
+    name: str,
+    context: HogQLContext,
+    *,
+    limit: int = 3,
+) -> list[str]:
+    """Return up to `limit` field names from `scope` that are close matches
+    to `name` (difflib ratio >= 0.6). Returns an empty list when no scope
+    is available or no plausible matches are found.
+    """
+    candidates = collect_available_field_names(scope, context)
+    if not candidates:
+        return []
+    return difflib.get_close_matches(name, candidates, n=limit, cutoff=0.6)
+
+
+def lookup_table_by_name(
+    scope: ast.SelectQueryType, ctes: dict[str, ast.CTE], node: ast.Field
+) -> Optional[ast.TableOrSelectType]:
     if len(node.chain) > 1 and str(node.chain[0]) in scope.tables:
         return scope.tables[str(node.chain[0])]
+
+    if len(node.chain) > 1 and str(node.chain[0]) in ctes:
+        cte = ctes[str(node.chain[0])]
+        if isinstance(cte.type, ast.CTETableType):
+            return cte.type.select_query_type
 
     return None
 
 
-def lookup_cte_by_name(scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
-    for scope in reversed(scopes):
+def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:
+    for scope in global_scopes:
         if scope and scope.ctes and name in scope.ctes:
             return scope.ctes[name]
     return None
@@ -61,11 +193,15 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
         return select.get_alias_for_table_type(type) or ""
     elif isinstance(type, ast.LazyTableType):
         return type.table.to_printed_hogql()
-    elif isinstance(type, ast.TableAliasType):
+    elif isinstance(type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         return type.alias
     elif isinstance(type, ast.SelectQueryAliasType):
         return type.alias
     elif isinstance(type, ast.SelectViewType):
+        return type.alias
+    elif isinstance(type, ast.CTETableType):
+        return type.name
+    elif isinstance(type, ast.CTETableAliasType):
         return type.alias
     elif isinstance(type, ast.LazyJoinType):
         return f"{get_long_table_name(select, type.table_type)}__{type.field}"
@@ -83,8 +219,12 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
     elif isinstance(expr, ast.Tuple):
         return tuple(ast_to_query_node(e) for e in expr.exprs)
     elif isinstance(expr, ast.HogQLXTag):
+        # Deferred: posthog.schema stays off django.setup(); this module loads there via
+        # hogql.ast, which the warehouse/data-modeling models import.
+        from posthog import schema  # noqa: PLC0415
+
         for klass in schema.__dict__.values():
-            if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
+            if isinstance(klass, type) and issubclass(klass, BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
                 attributes.pop("kind")
                 # Query runners use "source" instead of "children" for their source query
@@ -98,6 +238,8 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
 
 
 def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
+    from posthog.hogql.visitor import clone_expr
+
     from posthog.hogql_queries.query_runner import get_query_runner
     from posthog.models import Team
 
@@ -113,10 +255,144 @@ def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)
 
 
-def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery, None, None]:
+def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Generator[ast.SelectQuery]:
     if isinstance(select, ast.SelectQuery):
         yield select
     else:
         yield from extract_select_queries(select.initial_select_query)
         for select_query in select.subsequent_select_queries:
             yield from extract_select_queries(select_query.select_query)
+
+
+def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> list[ast.TableType]:
+    table_types: list[ast.TableType] = []
+
+    def visit_query(query_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
+        if isinstance(query_type, ast.SelectSetQueryType):
+            for sub_type in query_type.types:
+                visit_query(sub_type)
+            return
+
+        for table_type in query_type.tables.values():
+            visit_table_type(table_type)
+
+        for anonymous_table in query_type.anonymous_tables:
+            visit_query(anonymous_table)
+
+    def visit_table_type(table_type: ast.TableOrSelectType) -> None:
+        if isinstance(table_type, ast.TableType):
+            table_types.append(table_type)
+        elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+            visit_table_type(table_type.table_type)
+        elif isinstance(table_type, ast.CTETableType):
+            visit_query(table_type.select_query_type)
+        elif isinstance(table_type, ast.CTETableAliasType):
+            visit_table_type(table_type.cte_table_type)
+        elif isinstance(table_type, ast.SelectQueryAliasType):
+            visit_query(table_type.select_query_type)
+        elif isinstance(table_type, ast.SelectViewType):
+            visit_query(table_type.select_query_type)
+
+    visit_query(select_type)
+
+    return table_types
+
+
+def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) -> DatabaseField:
+    nullable = const_type.nullable
+
+    if isinstance(const_type, ast.IntegerType):
+        return IntegerDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.FloatType):
+        return FloatDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.DecimalType):
+        return DecimalDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringType):
+        return StringDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.BooleanType):
+        return BooleanDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.DateType):
+        return DateDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.DateTimeType):
+        return DateTimeDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.UUIDType):
+        return UUIDDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringJSONType):
+        return StringJSONDatabaseField(name=name, nullable=nullable)
+    elif isinstance(const_type, ast.StringArrayType):
+        return StringArrayDatabaseField(name=name, nullable=nullable)
+    else:
+        return UnknownDatabaseField(name=name, nullable=nullable)
+
+
+def _recursively_resolve_column(
+    name: str,
+    column: ast.Type,
+    fields: dict[str, FieldOrTable],
+    context: HogQLContext,
+) -> None:
+    if isinstance(column, ast.FieldAliasType):
+        return _recursively_resolve_column(name, column.type, fields, context)
+    elif isinstance(column, ast.FieldType):
+        db_field = column.resolve_database_field(context)
+        if db_field:
+            fields[name] = db_field
+        else:
+            const_type = column.resolve_constant_type(context)
+            fields[name] = _constant_type_to_database_field(name, const_type)
+    elif isinstance(column, ast.ExpressionFieldType):
+        fields[name] = ExpressionField(name=column.name, expr=column.expr, isolate_scope=column.isolate_scope)
+    elif isinstance(column, ast.FieldTraverserType):
+        fields[name] = FieldTraverser(chain=column.chain)
+    elif isinstance(column, ast.PropertyType):
+        if column.joined_subquery and column.joined_subquery_field_name:
+            select_type = column.joined_subquery.select_query_type
+            if isinstance(select_type, ast.SelectSetQueryType):
+                for t in select_type.types:
+                    if isinstance(t, ast.SelectQueryType):
+                        subquery_column = t.columns.get(column.joined_subquery_field_name)
+                        if subquery_column:
+                            return _recursively_resolve_column(name, subquery_column, fields, context)
+            else:
+                subquery_column = select_type.columns.get(column.joined_subquery_field_name)
+                if subquery_column:
+                    return _recursively_resolve_column(name, subquery_column, fields, context)
+
+        return _recursively_resolve_column(name, column.field_type, fields, context)
+    elif isinstance(column, ast.CallType):
+        fields[name] = _constant_type_to_database_field(name, column.return_type)
+    elif isinstance(column, ast.ConstantType):
+        fields[name] = _constant_type_to_database_field(name, column)
+    elif isinstance(column, ast.SelectQueryType):
+        first_col = next(iter(column.columns.values()))
+        return _recursively_resolve_column(name, first_col, fields, context)
+    else:
+        raise QueryError(f"{column.__class__.__name__} is not supported in CTETableType")
+
+
+def resolve_cte_database_table(
+    select_query_type: ast.SelectQueryType | ast.SelectSetQueryType,
+    context: HogQLContext,
+) -> Table:
+    if isinstance(select_query_type, ast.SelectQueryType):
+        columns = select_query_type.columns
+    else:
+
+        def recursively_get_columns(
+            query_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
+        ) -> dict[str, ast.Type]:
+            for t in query_types:
+                if isinstance(t, ast.SelectQueryType):
+                    return t.columns
+                else:
+                    return recursively_get_columns(t.types)
+            raise QueryError("No select query type available")
+
+        columns = recursively_get_columns(select_query_type.types)
+
+    fields: dict[str, FieldOrTable] = {}
+
+    for name, column in columns.items():
+        _recursively_resolve_column(name, column, fields, context)
+
+    return Table(fields=fields)

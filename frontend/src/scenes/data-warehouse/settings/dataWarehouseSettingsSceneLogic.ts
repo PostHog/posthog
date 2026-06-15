@@ -1,7 +1,7 @@
-import { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import type { Monaco } from '@monaco-editor/react'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import { editor } from 'monaco-editor'
+import type { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -215,7 +215,7 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.sqlEditor(undefined, payload.id))
+                router.actions.push(urls.sqlEditor({ view_id: payload.id }))
             }
         },
         saveSchema: async () => {
@@ -302,4 +302,9 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.setEditingView(null)
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (!values.database && !values.databaseLoading) {
+            actions.loadDatabase()
+        }
+    }),
 ])

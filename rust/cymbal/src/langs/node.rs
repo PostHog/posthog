@@ -1,8 +1,7 @@
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::{Context, ContextLine, Frame},
+    frames::{record_frame_resolution_failure, Context, ContextLine, Frame},
     langs::CommonFrameMetadata,
-    metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
@@ -11,6 +10,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
+use tracing::warn;
 
 use super::{
     js::FrameLocation,
@@ -51,8 +51,8 @@ impl RawNodeFrame {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
             Err(ResolveError::ResolutionError(e)) => {
-                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
-                unreachable!("Should not have received error {:?}", e)
+                warn!("Unexpected Node.js symbol resolution error: {:?}", e);
+                Ok((self, JsResolveErr::InvalidSourceMap(e.to_string())).into())
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -130,6 +130,7 @@ impl RawNodeFrame {
         let before = self
             .pre_context
             .iter()
+            .rev()
             .enumerate()
             .map(|(i, line)| ContextLine::new_rel(lineno, -(i as i32) - 1, line.clone()))
             .collect();
@@ -160,6 +161,7 @@ impl From<&RawNodeFrame> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             context: raw.get_context(),
             release: None,
@@ -173,8 +175,6 @@ impl From<&RawNodeFrame> for Frame {
 
 impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
     fn from((raw_frame, location): (&RawNodeFrame, SourceLocation)) -> Self {
-        metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
-
         let resolved_name = match location.scope() {
             ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
@@ -204,6 +204,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&location),
@@ -221,19 +222,32 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
 
 impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
     fn from((raw_frame, resolve_err): (&RawNodeFrame, JsResolveErr)) -> Self {
-        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "javascript").increment(1);
-
         let was_minified = raw_frame
             .get_context()
             .as_ref()
             .map(context_likely_minified)
             .unwrap_or_default();
 
+        let resolved = !was_minified;
+
+        // Only record a frame-resolution-failure when the frame is actually unresolved —
+        // when context heuristics say "not minified", the dispatcher emits `FRAME_RESOLVED`
+        // and firing here too would double-count.
+        if !resolved {
+            record_frame_resolution_failure(
+                "javascript",
+                resolve_err.metric_reason(),
+                &resolve_err,
+            );
+        }
+
         let resolved_name = if was_minified {
             None
         } else {
             Some(raw_frame.function.clone())
         };
+
+        let resolve_failure = Some(resolve_err.to_string());
 
         let mut res = Self {
             frame_id: FrameId::placeholder(),
@@ -244,11 +258,11 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
-            resolved: !was_minified,
+            resolved,
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(resolve_err.to_string()),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             context: raw_frame.get_context(),

@@ -1,27 +1,43 @@
 {
     "compilerOptions": {
-        "baseUrl": "frontend/",
         "paths": {
-            "lib/*": ["src/lib/*"],
-            "scenes/*": ["src/scenes/*"],
-            "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
-            "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
-            "@posthog/icons": ["node_modules/@posthog/icons"],
-            "@posthog/shared-onboarding/*": ["../docs/onboarding/*"],
-            "storybook/*": ["../.storybook/*"],
-            "~/*": ["src/*"],
-            "public/*": ["public/*"],
-            "products/*": ["../products/*"]
+            "lib/*": ["./frontend/src/lib/*"],
+            "scenes/*": ["./frontend/src/scenes/*"],
+            "@posthog/lemon-ui": ["./frontend/@posthog/lemon-ui/src/index"],
+            "@posthog/lemon-ui/*": ["./frontend/@posthog/lemon-ui/src/*"],
+            "@posthog/icons": ["./frontend/node_modules/@posthog/icons"],
+            "@posthog/shared-onboarding/*": ["./docs/onboarding/*"],
+            "storybook/*": ["./.storybook/*"],
+            "~/*": ["./frontend/src/*"],
+            "public/*": ["./frontend/public/*"],
+            "products/*": ["./products/*"],
+            "@playwright-utils": ["./playwright/utils/index"],
+            "@playwright-utils/*": ["./playwright/utils/*"],
+            "@playwright-pages/*": ["./playwright/page-models/*"],
+            "@playwright-mocks/*": ["./playwright/mocks/*"],
+            "@common/*": ["./common/*"],
+            "@posthog/mcp-ui": ["./services/mcp/src/ui-apps/lib/index.ts"],
+            "@posthog/mcp-ui/*": ["./services/mcp/src/ui-apps/lib/*"],
+            "@posthog/replay-shared": ["./common/replay-shared/src/index.ts"],
+            "@posthog/replay-shared/*": ["./common/replay-shared/src/*"],
+            "@posthog/quill-charts": ["./packages/quill/packages/charts/src/index.ts"],
+            "@posthog/quill-charts/*": ["./packages/quill/packages/charts/src/*"],
+            // Needed to access the subpath since torph didn't set up types properly
+            "torph/react": ["./frontend/node_modules/torph/dist/react/index"],
+            // use-debounce@9.0.3 only exposes types under `node`/`browser` conditions,
+            // which TS bundler resolution doesn't activate. Point at the .d.ts directly.
+            "use-debounce": ["./frontend/node_modules/use-debounce/dist/index"],
+            "*": ["./frontend/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
         "skipLibCheck": true, // Skip type checking of all declaration files
-        "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS/AMD/UMD style imports (import fs from "fs")
+        "esModuleInterop": true, // Disables namespace imports (import * as fs from "fs") and enables CJS style imports (import fs from "fs")
         "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
         "strict": true, // Enable all strict type checking options
         "forceConsistentCasingInFileNames": true, // Disallow inconsistently-cased references to the same file.
         "module": "esnext", // Specify module code generation
-        "moduleResolution": "node", // Resolve modules using Node.js style
+        "moduleResolution": "bundler", // Frontend is bundled (esbuild); pairs with module: esnext
         "isolatedModules": true,
         "incremental": true,
         "resolveJsonModule": true, // Include modules imported with .json extension
@@ -32,11 +48,11 @@
         "declaration": true, // Generate corresponding .d.ts file
         "noUnusedLocals": true, // Report errors on unused locals
         "noUnusedParameters": true, // Report errors on unused parameters
+        "noImplicitOverride": true, // Require the `override` modifier when overriding a base class member
+        "allowUnreachableCode": false, // Raise errors on unreachable code
+        "allowUnusedLabels": false, // Raise errors on unused labels
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
-        // FIXME: suppressImplicitAnyIndexErrors is deprecated and will be removed in TS 5.5, but we have MANY of these
-        "suppressImplicitAnyIndexErrors": true, // Index objects by number
-        "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2023"]
     },
     "include": [
@@ -46,8 +62,10 @@
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
         "common/esbuilder/*",
+        "common/replay-shared/src/**/*",
         "common/storybook/*",
-        "docs/onboarding/**/*"
+        "docs/onboarding/**/*",
+        "packages/quill/packages/charts/src/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {

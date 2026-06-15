@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonCalendarSelectInput,
@@ -8,11 +9,12 @@ import {
     LemonModalProps,
     LemonSelect,
     LemonSelectOptions,
-    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
 
+import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -37,6 +39,7 @@ export function AnnotationModal({
         isModalOpen,
         existingModalAnnotation,
         annotationModal,
+        annotationModalChanged,
         isAnnotationModalSubmitting,
         onSavedInsight,
         timezone,
@@ -103,6 +106,7 @@ export function AnnotationModal({
             contentRef={contentRef}
             isOpen={isModalOpen}
             onClose={closeModal}
+            hasUnsavedInput={annotationModalChanged}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
             description="Use annotations to comment on insights, dashboards"
             footer={
@@ -154,7 +158,7 @@ export function AnnotationModal({
                         label={
                             <span>
                                 Date and time (
-                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
+                                <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
                                     {shortTimeZone(timezone)}
                                 </Link>
                                 )
@@ -175,6 +179,35 @@ export function AnnotationModal({
                         data-attr="create-annotation-input"
                         maxLength={400}
                     />
+                </LemonField>
+                <LemonField
+                    name="emoji"
+                    label="Emoji"
+                    showOptional
+                    info="Shown in place of the default badge when this annotation appears on a chart."
+                >
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <EmojiPickerPopover
+                                onSelect={(emoji) => onChange(emoji)}
+                                data-attr="annotation-emoji-picker"
+                            />
+                            {value ? (
+                                <div className="flex items-center gap-1">
+                                    <span className="text-2xl leading-none">{value}</span>
+                                    <LemonButton
+                                        size="small"
+                                        icon={<IconX />}
+                                        tooltip="Remove emoji"
+                                        onClick={() => onChange(null)}
+                                        data-attr="annotation-emoji-clear"
+                                    />
+                                </div>
+                            ) : (
+                                <span className="text-secondary text-sm">No emoji selected</span>
+                            )}
+                        </div>
+                    )}
                 </LemonField>
             </Form>
         </LemonModal>

@@ -3,39 +3,31 @@ import './Link.scss'
 import { router } from 'kea-router'
 import React from 'react'
 
-import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
+import { IconExternal, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuTrigger,
-} from 'lib/ui/ContextMenu/ContextMenu'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { urlToResource } from 'scenes/urls'
-
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
 
 type RoutePart = string | Record<string, any>
 
-export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'className' | 'children' | 'title'> & {
+/**
+ * Behavior-only props — the routing surface shared by `LinkPrimitive` and `Link`.
+ */
+export type LinkPrimitiveProps = Pick<
+    React.HTMLProps<HTMLAnchorElement>,
+    'target' | 'className' | 'children' | 'title'
+> & {
     /** The location to go to. This can be a kea-location or a "href"-like string */
     to?: string | [string, RoutePart?, RoutePart?]
     /** If true, in-app navigation will not be used and the link will navigate with a page load */
     disableClientSideRouting?: boolean
-    /** If true, docs links will not be opened in the docs panel */
-    disableDocsPanel?: boolean
     preventClick?: boolean
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
     onAuxClick?: (event: React.MouseEvent<HTMLElement>) => void
@@ -45,8 +37,17 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     onMouseLeave?: (event: React.MouseEvent<HTMLElement>) => void
     onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void
     onFocus?: (event: React.FocusEvent<HTMLElement>) => void
-    /** @deprecated Links should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
+    /** Disables the rendered control. Only meaningful with no `to` (renders a `<button>`). */
     disabled?: boolean
+    /** Accessibility role of the link. */
+    role?: string
+    /** Accessibility tab index of the link. */
+    tabIndex?: number
+}
+
+export type LinkProps = LinkPrimitiveProps & {
+    /** If true, docs links will not be opened in the docs panel */
+    disableDocsPanel?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     /**
@@ -58,28 +59,20 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     subtle?: boolean
 
     /**
-     * Accessibility role of the link.
-     */
-    role?: string
-
-    /**
-     * Accessibility tab index of the link.
-     */
-    tabIndex?: number
-
-    /**
      * Button props to pass to the button primitive.
      * If provided, the link will be rendered as the "new" button primitive.
+     *
+     * @deprecated `buttonProps` renders via the legacy button primitive, which is being
+     * phased out. For a link styled as a quill button, render a `LinkPrimitive` as the
+     * `render` target of quill's `Button`: `<Button render={<LinkPrimitive to="…" />}>`.
      */
     buttonProps?: Omit<ButtonPrimitiveProps, 'tooltip' | 'tooltipDocLink' | 'tooltipPlacement' | 'children'>
 
+    /** @deprecated WARNING, tooltip prop on Link breaks the auto-show of subsequent tooltips. Use Tooltip component instead for long lists that require tooltips. */
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
-
-    /** Skip the context menu */
-    skipContext?: boolean
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -101,18 +94,131 @@ const isDirectLink = (url: string): boolean => {
     return /^(mailto:|https?:\/\/|:\/\/)/.test(url)
 }
 
-const isPostHogComDocs = (url: string): url is PostHogComDocsURL => {
-    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+/** Resolve a `to` target into a concrete href string. */
+function resolveHref(to: LinkPrimitiveProps['to'], disableClientSideRouting?: boolean): string | undefined {
+    if (!to) {
+        return undefined
+    }
+    if (typeof to !== 'string') {
+        return '#'
+    }
+    return isDirectLink(to) || disableClientSideRouting ? to : addProjectIdIfMissing(to)
 }
 
 export type PostHogComDocsURL = `https://${'www.' | ''}posthog.com/docs/${string}`
 
 /**
+ * LinkPrimitive — styling-neutral routing core.
+ *
+ * Owns only href resolution and kea-router navigation, and renders a bare `<a>`
+ * (or a bare `<button>` when there's no `to`). It adds NO cosmetic styling, no
+ * external-link icon, and no Tooltip / ContextMenu wrappers.
+ *
+ * Use it as the `render` target of a styled control so the two concerns compose
+ * cleanly — e.g. `<Button render={<LinkPrimitive to="…" />}>`: quill's `Button`
+ * supplies styling (and `data-quill`), `LinkPrimitive` supplies navigation.
+ *
+ * For a standalone, cosmetically-styled text link, use `Link` instead.
+ */
+export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HTMLElement>> = React.forwardRef(
+    (
+        {
+            to,
+            target,
+            disableClientSideRouting,
+            preventClick = false,
+            onClick: onClickRaw,
+            onAuxClick,
+            className,
+            children,
+            disabled,
+            role,
+            tabIndex,
+            ...props
+        },
+        ref
+    ) => {
+        const externalLink = isExternalLink(to)
+        const { elementProps: draggableProps } = useNotebookDrag({
+            href: typeof to === 'string' ? to : undefined,
+        })
+
+        const onClick = (event: React.MouseEvent<HTMLElement>): void => {
+            if (event.metaKey || event.ctrlKey) {
+                event.stopPropagation()
+                return
+            }
+
+            onClickRaw?.(event)
+
+            if (event.isDefaultPrevented()) {
+                event.preventDefault()
+                return
+            }
+
+            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
+                event.preventDefault()
+                if (to && to !== '#' && !preventClick) {
+                    if (Array.isArray(to)) {
+                        router.actions.push(...to)
+                    } else {
+                        router.actions.push(to)
+                    }
+                }
+            }
+        }
+
+        if (!to) {
+            return (
+                <button
+                    ref={ref as any}
+                    className={className}
+                    onClick={onClick}
+                    type="button"
+                    disabled={disabled}
+                    {...props}
+                >
+                    {children}
+                </button>
+            )
+        }
+
+        const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+        const href = resolveHref(to, disableClientSideRouting)
+        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
+
+        return (
+            // eslint-disable-next-line react/forbid-elements
+            <a
+                ref={ref as any}
+                className={className}
+                onClick={onClick}
+                onAuxClick={onAuxClick}
+                href={href}
+                target={target}
+                rel={target === '_blank' ? rel : undefined}
+                role={role}
+                tabIndex={tabIndex}
+                {...props}
+                {...draggableProps}
+                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
+            >
+                {children}
+            </a>
+        )
+    }
+)
+LinkPrimitive.displayName = 'LinkPrimitive'
+
+/**
  * Link
  *
- * This component wraps an <a> element to ensure that proper tags are added related to target="_blank"
- * as well deciding when a given "to" link should be opened as a standard navigation (i.e. a standard href)
- * or whether to be routed internally via kea-router
+ * A standalone, cosmetically-styled text link. Layers the `.Link` look (and the
+ * external-link icon, auto Tooltip, and right-click ContextMenu) on top of
+ * `LinkPrimitive`, which does the actual href resolution and routing.
+ *
+ * For a link that should look like a button, do NOT use `Link` — render a
+ * `LinkPrimitive` inside quill's `Button` (see `LinkPrimitive` docs).
  */
 export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = React.forwardRef(
     (
@@ -121,7 +227,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             target,
             subtle,
             disableClientSideRouting,
-            disableDocsPanel = false,
+            disableDocsPanel: _disableDocsPanel,
             preventClick = false,
             onClick: onClickRaw,
             onAuxClick,
@@ -137,116 +243,42 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltipCloseDelayMs,
             role,
             tabIndex,
-            skipContext,
             ...props
         },
         ref
     ) => {
-        const externalLink = isExternalLink(to)
-        const { elementProps: draggableProps } = useNotebookDrag({
-            href: typeof to === 'string' ? to : undefined,
-        })
-
-        const shouldOpenInDocsPanel = !disableDocsPanel && typeof to === 'string' && isPostHogComDocs(to)
-
-        const onClick = (event: React.MouseEvent<HTMLElement>): void => {
-            if (event.metaKey || event.ctrlKey) {
-                event.stopPropagation()
-                return
-            }
-
-            onClickRaw?.(event)
-
-            if (event.isDefaultPrevented()) {
-                event.preventDefault()
-                return
-            }
-
-            const mountedSidePanelLogic = sidePanelStateLogic.findMounted()
-
-            if (shouldOpenInDocsPanel && mountedSidePanelLogic) {
-                // TRICKY: We do this instead of hooks as there is some weird cyclic issue in tests
-                const { sidePanelOpen } = mountedSidePanelLogic.values
-                const { openSidePanel } = mountedSidePanelLogic.actions
-
-                event.preventDefault()
-
-                const target = event.currentTarget
-                const container = document.getElementsByTagName('main')[0]
-                const topBar = document.getElementsByClassName('TopBar3000')[0]
-                if (!sidePanelOpen && container.contains(target)) {
-                    setTimeout(() => {
-                        // Little delay to allow the rendering of the side panel
-                        const y = container.scrollTop + target.getBoundingClientRect().top - topBar.clientHeight
-                        container.scrollTo({ top: y })
-                    }, 50)
-                }
-
-                openSidePanel(SidePanelTab.Docs, to)
-                return
-            }
-
-            if (!target && to && !externalLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
-                event.preventDefault()
-                if (to && to !== '#' && !preventClick) {
-                    if (Array.isArray(to)) {
-                        router.actions.push(...to)
-                    } else {
-                        router.actions.push(to)
-                    }
-                }
-            } else if (target === '_blank' && !externalLink && to && typeof to === 'string') {
-                // For internal links, open in new PostHog tab
-                event.preventDefault()
-                event.stopPropagation()
-                newInternalTab(to)
-            }
-        }
-
-        const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
-        const href = to
-            ? typeof to === 'string'
-                ? isDirectLink(to) || disableClientSideRouting
-                    ? to
-                    : addProjectIdIfMissing(to)
-                : '#'
-            : undefined
-
-        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
+        const href = resolveHref(to, disableClientSideRouting)
 
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)
             : `Link ${subtle ? 'Link--subtle' : ''}`
 
         let element = (
-            // eslint-disable-next-line react/forbid-elements
-            <a
-                ref={ref as any}
-                className={cn(elementClasses, className)}
-                onClick={onClick}
-                onAuxClick={onAuxClick}
-                href={href}
+            <LinkPrimitive
+                ref={ref}
+                to={to}
                 target={target}
-                rel={target === '_blank' ? rel : undefined}
+                disableClientSideRouting={disableClientSideRouting}
+                preventClick={preventClick}
+                onClick={onClickRaw}
+                onAuxClick={onAuxClick}
+                className={cn(elementClasses, className)}
+                disabled={disabled || !!disabledReason}
                 role={role}
                 tabIndex={tabIndex}
                 {...props}
-                {...draggableProps}
-                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
                 {children}
                 {targetBlankIcon &&
-                    (shouldOpenInDocsPanel && sidePanelStateLogic.isMounted() ? (
-                        <IconOpenSidebar />
-                    ) : href?.startsWith('mailto:') ? (
+                    (href?.startsWith('mailto:') ? (
                         <IconSend />
                     ) : target === '_blank' ? (
                         <IconExternal className={buttonProps ? 'size-3' : ''} />
                     ) : null)}
-            </a>
+            </LinkPrimitive>
         )
 
-        // Wrap with tooltip first (before context menu) so trigger props can be applied to the <a> element
+        // Wrap with tooltip first (before context menu) so trigger props can be applied to the element
         if ((tooltip && to) || tooltipDocLink) {
             element = (
                 <Tooltip
@@ -260,19 +292,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             )
         }
 
-        if (href && !externalLink && !skipContext) {
-            element = (
-                <ContextMenu key={props.key}>
-                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px]">
-                        <ContextMenuGroup>
-                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
-                        </ContextMenuGroup>
-                    </ContextMenuContent>
-                </ContextMenu>
-            )
-        }
-
         if (!to) {
             element = (
                 <Tooltip
@@ -280,18 +299,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     placement={tooltipPlacement}
                     closeDelayMs={tooltipCloseDelayMs}
                 >
-                    <span>
-                        <button
-                            ref={ref as any}
-                            className={cn(elementClasses, className)}
-                            onClick={onClick}
-                            type="button"
-                            disabled={disabled || !!disabledReason}
-                            {...props}
-                        >
-                            {children}
-                        </button>
-                    </span>
+                    <span>{element}</span>
                 </Tooltip>
             )
         }

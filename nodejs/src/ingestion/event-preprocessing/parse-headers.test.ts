@@ -27,6 +27,7 @@ describe('createParseHeadersStep', () => {
                     distinct_id: 'test-user',
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -49,6 +50,7 @@ describe('createParseHeadersStep', () => {
                     token: 'test-token',
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -68,6 +70,7 @@ describe('createParseHeadersStep', () => {
                 headers: {
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -87,6 +90,7 @@ describe('createParseHeadersStep', () => {
                 headers: {
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -113,6 +117,7 @@ describe('createParseHeadersStep', () => {
                     distinct_id: 'second-user',
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -141,6 +146,7 @@ describe('createParseHeadersStep', () => {
                     now: new Date('2023-01-01T12:00:00Z'),
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -167,6 +173,7 @@ describe('createParseHeadersStep', () => {
                     timestamp: '2023-01-01T00:00:00Z',
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -193,6 +200,7 @@ describe('createParseHeadersStep', () => {
                     timestamp: '2023-01-01T00:00:00Z',
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -221,6 +229,7 @@ describe('createParseHeadersStep', () => {
                     distinct_id: 'test-user',
                     force_disable_person_processing: false,
                     historical_migration: false,
+                    skip_heatmap_processing: false,
                 },
             })
         )
@@ -248,6 +257,7 @@ describe('createParseHeadersStep', () => {
                         session_id: 'test-session-123',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -268,6 +278,49 @@ describe('createParseHeadersStep', () => {
                         session_id: 'string-session-456',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should lowercase UUID session_id from header', async () => {
+            const input = {
+                message: {
+                    headers: [{ session_id: Buffer.from('0192E72A-1DD2-7714-8000-8B3E4C123456') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        session_id: '0192e72a-1dd2-7714-8000-8b3e4c123456',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                        skip_heatmap_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should not lowercase non-UUID session_id from header', async () => {
+            const input = {
+                message: {
+                    headers: [{ session_id: Buffer.from('Custom-Session-ID') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        session_id: 'Custom-Session-ID',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -289,6 +342,7 @@ describe('createParseHeadersStep', () => {
                         distinct_id: 'test-user',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -310,6 +364,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: true,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -329,6 +384,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -348,6 +404,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -368,6 +425,7 @@ describe('createParseHeadersStep', () => {
                         token: 'test-token',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -387,6 +445,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: true,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -406,6 +465,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -431,6 +491,7 @@ describe('createParseHeadersStep', () => {
                         distinct_id: 'test-user',
                         force_disable_person_processing: true,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -453,6 +514,7 @@ describe('createParseHeadersStep', () => {
                         now: new Date('2023-01-01T12:00:00Z'),
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -473,6 +535,7 @@ describe('createParseHeadersStep', () => {
                         now: new Date('2023-01-01T12:00:00Z'),
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -499,6 +562,7 @@ describe('createParseHeadersStep', () => {
                         now: new Date('2023-01-01T12:00:00Z'),
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -520,6 +584,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: true,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -539,6 +604,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -558,6 +624,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -578,6 +645,7 @@ describe('createParseHeadersStep', () => {
                         token: 'test-token',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -597,6 +665,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         force_disable_person_processing: false,
                         historical_migration: true,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -623,6 +692,7 @@ describe('createParseHeadersStep', () => {
                         distinct_id: 'test-user',
                         force_disable_person_processing: false,
                         historical_migration: true,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -645,6 +715,7 @@ describe('createParseHeadersStep', () => {
                         distinct_id: 'user\uFFFD123',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )
@@ -665,6 +736,50 @@ describe('createParseHeadersStep', () => {
                         token: 'test\uFFFDtoken',
                         force_disable_person_processing: false,
                         historical_migration: false,
+                        skip_heatmap_processing: false,
+                    },
+                })
+            )
+        })
+    })
+
+    describe('skip_heatmap_processing header', () => {
+        it('should parse skip_heatmap_processing as true when value is "true"', async () => {
+            const input = {
+                message: {
+                    headers: [{ skip_heatmap_processing: Buffer.from('true') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                        skip_heatmap_processing: true,
+                    },
+                })
+            )
+        })
+
+        it('should parse skip_heatmap_processing as false when missing', async () => {
+            const input = {
+                message: {
+                    headers: [{ token: Buffer.from('test-token') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        force_disable_person_processing: false,
+                        historical_migration: false,
+                        skip_heatmap_processing: false,
                     },
                 })
             )

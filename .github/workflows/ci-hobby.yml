@@ -15,8 +15,8 @@ on:
         types: [opened, synchronize, labeled, unlabeled]
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
@@ -33,26 +33,54 @@ jobs:
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}
+            installer_changed: ${{ steps.filter.outputs.installer }}
             label_removed: ${{ steps.check-label.outputs.label_removed }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       hobby:
                         - Dockerfile
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
-                        - 'bin/*'
-                        - 'docker/*'
+                        # Hobby-specific scripts
+                        - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci.py'
+                        - 'bin/upgrade-hobby'
+                        - 'bin/migrate-*-hobby'
+                        # Docker runtime (Dockerfile CMD chain)
+                        - 'bin/docker'
+                        - 'bin/docker-worker'
+                        - 'bin/docker-worker-beat'
+                        - 'bin/docker-worker-celery'
+                        - 'bin/docker-server'
+                        - 'bin/docker-server-unit'
+                        - 'bin/celery-queues.env'
+                        - 'bin/migrate'
+                        - 'bin/migrate-check'
+                        - 'bin/posthog-node'
+                        - 'bin/hobby-installer/**'
+                        - 'docker/**'
                         - uv.lock
                         - .github/workflows/ci-hobby.yml
+                      installer:
+                        - 'bin/hobby-installer/**'
 
             - name: Check for preview label
               id: check-label
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  HOBBY_CHANGED: ${{ steps.filter.outputs.hobby }}
               with:
                   script: |
                       const labels = context.payload.pull_request.labels || [];
@@ -62,7 +90,7 @@ jobs:
                       const labelRemoved = context.payload.action === 'unlabeled' &&
                           context.payload.label?.name?.toLowerCase() === 'hobby-preview';
 
-                      console.log(`hobby-preview label: ${hasLabel}, label removed: ${labelRemoved}, hobby files changed: ${{ steps.filter.outputs.hobby }}`);
+                      console.log(`hobby-preview label: ${hasLabel}, label removed: ${labelRemoved}, hobby files changed: ${process.env.HOBBY_CHANGED}`);
                       core.setOutput('has_label', hasLabel.toString());
                       core.setOutput('label_removed', labelRemoved.toString());
 
@@ -70,16 +98,17 @@ jobs:
         name: Wait for Docker image build
         needs: changes
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 90
         if: github.event_name == 'pull_request' && needs.changes.outputs.should_run == 'true'
         outputs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
             comment-id: ${{ steps.post-comment.outputs.comment-id }}
             deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
+            conclusion: ${{ steps.wait-for-image.outputs.conclusion }}
         steps:
             - name: 'Check for preview mode'
               id: check-preview
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require('fs');
@@ -115,11 +144,13 @@ jobs:
             - name: Post initial PR comment
               id: post-comment
               if: steps.check-preview.outputs.preview == 'true'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
-                      const previewMode = '${{ steps.check-preview.outputs.preview }}' === 'true';
+                      const previewMode = process.env.PREVIEW_MODE === 'true';
 
                       // Find existing comment to update (in case of workflow retry)
                       const { data: comments } = await github.rest.issues.listComments({
@@ -176,7 +207,7 @@ jobs:
             - name: Create GitHub deployment
               id: create-deployment
               if: steps.check-preview.outputs.preview == 'true'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require('fs');
@@ -208,23 +239,30 @@ jobs:
                       });
 
                       fs.appendFileSync(process.env.GITHUB_OUTPUT, `deployment-id=${deployment.id}\n`);
+            - name: Check out .github for local actions
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github
             - name: Wait for container image build to complete
-              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
+              uses: ./.github/actions/wait-for-check
               id: wait-for-image
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   checkName: Build Docker image
                   ref: ${{ github.event.pull_request.head.sha }}
-                  timeoutSeconds: 3600
-                  intervalSeconds: 30
+                  timeoutSeconds: '3600'
+                  intervalSeconds: '30'
             - name: Update comment - Docker build failed
               if: always() && steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion != 'success'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  COMMENT_ID: ${{ steps.post-comment.outputs.comment-id }}
+                  BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = '${{ steps.post-comment.outputs.comment-id }}';
-                      const buildConclusion = '${{ steps.wait-for-image.outputs.conclusion }}';
+                      const commentId = process.env.COMMENT_ID;
+                      const buildConclusion = process.env.BUILD_CONCLUSION;
 
                       const errorBody = `${commentMarker}
                       ## 🦔 Preview instance
@@ -249,19 +287,29 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: errorBody,
                       });
-            - name: Fail if Docker build failed
-              if: steps.wait-for-image.outputs.conclusion != 'success'
+            - name: Check Docker image build result
+              env:
+                  BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
               run: |
-                  echo "Docker image build failed with conclusion: ${{ steps.wait-for-image.outputs.conclusion }}"
-                  exit 1
+                  conclusion="$BUILD_CONCLUSION"
+                  if [ "$conclusion" = "skipped" ]; then
+                    echo "Docker image build skipped"
+                    exit 0
+                  elif [ "$conclusion" != "success" ]; then
+                    echo "Docker image build failed with conclusion: $conclusion"
+                    exit 1
+                  fi
             - name: Update comment - Docker image ready
               if: steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion == 'success'
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  COMMENT_ID: ${{ steps.post-comment.outputs.comment-id }}
+                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = '${{ steps.post-comment.outputs.comment-id }}';
-                      const previewMode = '${{ steps.check-preview.outputs.preview }}' === 'true';
+                      const commentId = process.env.COMMENT_ID;
+                      const previewMode = process.env.PREVIEW_MODE === 'true';
 
                       const updatedBody = `${commentMarker}
                       ## 🦔 Preview instance
@@ -283,12 +331,12 @@ jobs:
 
     hobby-test:
         runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        timeout-minutes: 90
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
-        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.result == 'success') || github.event_name == 'push')
+        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
             - name: Clean up data directories with container permissions
@@ -297,20 +345,24 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
             - name: Install uv
-              uses: astral-sh/setup-uv@681c641aba71e4a1c380be3ab5e12ad51f415867
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Set environment variables from previous job
               run: |
                   echo "PREVIEW_MODE=${{ github.event_name == 'pull_request' && needs.wait-for-docker-image.outputs.preview-mode || 'false' }}" >> $GITHUB_ENV
                   echo "HOBBY_COMMENT_ID=${{ needs.wait-for-docker-image.outputs.comment-id }}" >> $GITHUB_ENV
                   echo "HOBBY_DEPLOYMENT_ID=${{ needs.wait-for-docker-image.outputs.deployment-id }}" >> $GITHUB_ENV
             - name: Setup DO Hobby Instance
-              run: uv run bin/hobby-ci.py create "${{ github.head_ref || github.ref_name }}" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
+              run: uv run bin/hobby-ci.py create "$BRANCH_NAME" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}" 2>&1 | tee /tmp/hobby-ci-output.txt
               env:
+                  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  INSTALLER_CHANGED: ${{ needs.changes.outputs.installer_changed || 'false' }}
             - name: Update comment - Instance created
               if: env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require('fs');
@@ -349,7 +401,7 @@ jobs:
                       });
             - name: Update GitHub deployment - instance created
               if: env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require('fs');
@@ -375,12 +427,12 @@ jobs:
                       });
 
                       console.log(`Updated deployment ${deploymentId} to in_progress`);
-            - name: Run smoke tests on DO
-              id: test
-              timeout-minutes: 45
+            - name: Wait for cloud-init
+              id: cloud-init
+              timeout-minutes: 40
               run: |
                   set +e
-                  uv run bin/hobby-ci.py test
+                  uv run bin/hobby-ci.py wait-for-cloud-init
                   echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
                   exit 0
               env:
@@ -390,6 +442,29 @@ jobs:
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   RUN_ID: ${{ github.run_id }}
                   RUN_ATTEMPT: ${{ github.run_attempt }}
+            - name: Wait for health check
+              if: env.TEST_EXIT_CODE == '0'
+              id: health-check
+              timeout-minutes: 40
+              run: |
+                  set +e
+                  uv run bin/hobby-ci.py wait-for-health
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RUN_ID: ${{ github.run_id }}
+                  RUN_ATTEMPT: ${{ github.run_attempt }}
+            - name: Smoke test event ingestion
+              if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'false'
+              timeout-minutes: 5
+              run: uv run bin/hobby-ci.py smoke-test-ingestion
+              env:
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+                  DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Generate demo data
               if: env.TEST_EXIT_CODE == '0' && env.PREVIEW_MODE == 'true' && env.HOBBY_DROPLET_NEW == 'true'
               timeout-minutes: 15
@@ -399,7 +474,7 @@ jobs:
                   DIGITALOCEAN_SSH_PRIVATE_KEY: ${{ secrets.DO_DEPLOY_SSH_PRIVATE_KEY }}
             - name: Update PR comment with final status
               if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_COMMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require('fs');
@@ -527,7 +602,7 @@ jobs:
                       });
             - name: Update GitHub deployment status
               if: always() && env.PREVIEW_MODE == 'true' && env.HOBBY_DEPLOYMENT_ID
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const fs = require('fs');
@@ -560,7 +635,8 @@ jobs:
 
                       console.log(`Updated deployment ${deploymentId} to ${state}`);
             - name: Fetch logs after test
-              if: always()
+              if: env.TEST_EXIT_CODE != '0'
+              timeout-minutes: 5
               run: uv run bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
@@ -570,7 +646,7 @@ jobs:
               run: cat /tmp/droplet_info.txt 2>/dev/null || echo "No droplet info available"
             - name: Upload logs as artifact
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: hobby-ci-logs
                   path: |
@@ -597,8 +673,8 @@ jobs:
         name: Cleanup preview on label removal
         needs: changes
         if: needs.changes.outputs.label_removed == 'true'
-        uses: ./.github/workflows/cleanup-hobby-preview.yml
-        # these permissions are required by cleanup-hobby-preview.yml
+        uses: ./.github/workflows/pr-cleanup.yml
+        # these permissions are required by pr-cleanup.yml
         permissions:
             deployments: write
         with:

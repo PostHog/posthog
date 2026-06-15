@@ -17,10 +17,16 @@ from parameterized import parameterized
 from posthog.schema import (
     DateRange,
     ErrorTrackingIssue as ErrorTrackingIssueSchema,
+    ErrorTrackingOrderBy,
     ErrorTrackingQuery,
+    MaxErrorTrackingSearchResponse,
 )
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
+)
 from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
 
 from ee.hogai.context.context import AssistantContextManager
@@ -82,6 +88,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
     def create_issue(self, issue_id, fingerprint, name=None, status=ErrorTrackingIssue.Status.ACTIVE):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team, status=status, name=name)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        # the query reads the denormalized ClickHouse table, so mirror the issue state there
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
     def create_events_and_issue(
@@ -133,7 +141,7 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         date_to=None,
         status=None,
         search_query=None,
-        order_by="last_seen",
+        order_by=ErrorTrackingOrderBy.LAST_SEEN,
         limit=25,
     ) -> ErrorTrackingQuery:
         return ErrorTrackingQuery(
@@ -154,7 +162,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(query=query)
 
         self.assertIn("No issues found", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(artifact.issues, [])
 
     async def test_returns_active_issues_by_default(self):
         tool = await self._create_tool()
@@ -166,7 +175,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("TypeError", result_text)
         self.assertIn("ReferenceError", result_text)
         self.assertNotIn("SyntaxError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 2)
 
     async def test_returns_resolved_issues_when_filtered(self):
         tool = await self._create_tool()
@@ -177,7 +187,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Found 1 issue", result_text)
         self.assertIn("SyntaxError", result_text)
         self.assertNotIn("TypeError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 1)
 
     async def test_returns_all_issues_when_status_all(self):
         tool = await self._create_tool()
@@ -189,7 +200,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("TypeError", result_text)
         self.assertIn("ReferenceError", result_text)
         self.assertIn("SyntaxError", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 3)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_search_query_filters_by_text(self, mock_process_query):
@@ -213,8 +225,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("Found 1 issue", result_text)
         self.assertIn("TypeError", result_text)
-        self.assertIsNone(artifact)
-        # Verify search query was passed
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 1)
+        self.assertEqual(artifact.search_query, "TypeError")
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["searchQuery"], "TypeError")
@@ -248,8 +261,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(query=query)
 
         self.assertIn("Found 2 issues", result_text)
-        self.assertIsNone(artifact)
-        # Verify limit was passed to the query
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 2)
+        self.assertEqual(artifact.limit, 2)
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
         self.assertEqual(query_dict["limit"], 2)
@@ -264,7 +278,8 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Occurrences:", result_text)
         self.assertIn("Users:", result_text)
         self.assertIn("Sessions:", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(len(artifact.issues), 2)
 
     async def test_limits_excessive_limit_to_100(self):
         tool = await self._create_tool()
@@ -272,20 +287,20 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        # Should cap at 100, but since we only have 3 issues, should return 3
         self.assertIn("Found 3 issues", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(artifact.limit, 100)
 
-    async def test_defaults_to_25_when_no_limit(self):
+    async def test_defaults_to_50_when_no_limit(self):
         tool = await self._create_tool()
         query = self._create_query(status="all")
-        query.limit = None  # Explicitly set to None
+        query.limit = None
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        # Should default to 25, but since we only have 3 issues, should return 3
         self.assertIn("Found 3 issues", result_text)
-        self.assertIsNone(artifact)
+        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
+        self.assertEqual(artifact.limit, 50)
 
 
 class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
@@ -306,7 +321,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
         issue = ErrorTrackingIssueSchema.model_validate(
             {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
+                "id": "01234567-89ab-cdef-0123-456789abcdef",
                 "name": "TypeError: Cannot read 'undefined'",
                 "status": "active",
                 "first_seen": "2025-01-10T10:00:00Z",
@@ -323,6 +338,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         result = tool._format_issue(1, issue)
 
         self.assertIn("1. TypeError: Cannot read 'undefined'", result)
+        self.assertIn("ID: 01234567-89ab-cdef-0123-456789abcdef", result)
         self.assertIn("Status: active", result)
         self.assertIn("Occurrences: 150", result)
         self.assertIn("Users: 25", result)
@@ -334,7 +350,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         tool = await self._create_tool()
         issue = ErrorTrackingIssueSchema.model_validate(
             {
-                "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
+                "id": "abcd1234-5678-90ab-cdef-1234567890ab",
                 "status": "active",
                 "first_seen": "2025-01-10T10:00:00Z",
                 "last_seen": "2025-01-15T11:00:00Z",
@@ -344,20 +360,21 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
         result = tool._format_issue(1, issue)
 
         self.assertIn("1. Unnamed issue", result)
+        self.assertIn("ID: abcd1234-5678-90ab-cdef-1234567890ab", result)
         self.assertIn("Status: active", result)
 
     async def test_format_results_empty(self):
         tool = await self._create_tool()
 
-        result = tool._format_results({"results": []})
+        result = tool._format_results([])
 
         self.assertIn("No issues found", result)
 
     async def test_format_results_single(self):
         tool = await self._create_tool()
 
-        response = {
-            "results": [
+        issues = [
+            ErrorTrackingIssueSchema.model_validate(
                 {
                     "id": "01936e7f-d7ff-7314-b2d4-7627981e34f0",
                     "name": "Error",
@@ -366,18 +383,18 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
                     "last_seen": "2025-01-15T11:00:00Z",
                     "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
                 }
-            ]
-        }
+            )
+        ]
 
-        result = tool._format_results(response)
+        result = tool._format_results(issues)
 
         self.assertIn("Found 1 issue", result)
 
     async def test_format_results_multiple(self):
         tool = await self._create_tool()
 
-        response = {
-            "results": [
+        issues = [
+            ErrorTrackingIssueSchema.model_validate(
                 {
                     "id": "01936e7f-d7ff-7314-b2d4-7627981e34f1",
                     "name": "Error 1",
@@ -385,7 +402,9 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
                     "first_seen": "2025-01-10T10:00:00Z",
                     "last_seen": "2025-01-15T11:00:00Z",
                     "aggregations": {"occurrences": 1, "users": 1, "sessions": 0, "volume_buckets": []},
-                },
+                }
+            ),
+            ErrorTrackingIssueSchema.model_validate(
                 {
                     "id": "01936e7f-d7ff-7314-b2d4-7627981e34f2",
                     "name": "Error 2",
@@ -393,11 +412,11 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
                     "first_seen": "2025-01-10T10:00:00Z",
                     "last_seen": "2025-01-15T11:00:00Z",
                     "aggregations": {"occurrences": 2, "users": 2, "sessions": 1, "volume_buckets": []},
-                },
-            ]
-        }
+                }
+            ),
+        ]
 
-        result = tool._format_results(response)
+        result = tool._format_results(issues)
 
         self.assertIn("Found 2 issues", result)
         self.assertIn("1. Error 1", result)
@@ -406,8 +425,8 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
     async def test_format_results_limits_to_10(self):
         tool = await self._create_tool()
 
-        response = {
-            "results": [
+        issues = [
+            ErrorTrackingIssueSchema.model_validate(
                 {
                     "id": f"01936e7f-d7ff-7314-b2d4-7627981e34{i:02d}",
                     "name": f"Error {i}",
@@ -416,11 +435,11 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
                     "last_seen": "2025-01-15T11:00:00Z",
                     "aggregations": {"occurrences": i, "users": i, "sessions": 0, "volume_buckets": []},
                 }
-                for i in range(15)
-            ]
-        }
+            )
+            for i in range(15)
+        ]
 
-        result = tool._format_results(response)
+        result = tool._format_results(issues)
 
         self.assertIn("Found 15 issues", result)
         self.assertIn("...and 5 more issues", result)

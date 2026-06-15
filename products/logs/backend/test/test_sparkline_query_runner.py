@@ -15,12 +15,6 @@ class TestSparklineQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        with open(os.path.join(os.path.dirname(__file__), "test_logs_schema.sql")) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
         with open(os.path.join(os.path.dirname(__file__), "test_logs.jsonnd")) as f:
             sql = ""
             for line in f:

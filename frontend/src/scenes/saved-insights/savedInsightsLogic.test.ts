@@ -191,6 +191,38 @@ describe('savedInsightsLogic', () => {
             })
     })
 
+    it('carries per-row search_match_type through to the results', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => {
+                    const base = createSavedInsights('hello', 0)
+                    return [
+                        200,
+                        {
+                            ...base,
+                            results: base.results.map((r, i) => ({
+                                ...r,
+                                search_match_type: i === 0 ? 'exact' : 'similar',
+                            })),
+                        },
+                    ]
+                },
+            },
+        })
+
+        logic.actions.setSavedInsightsFilters({ search: 'hello' })
+        await expectLogic(logic)
+            .toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            .toMatchValues({
+                insights: partial({
+                    results: partial([
+                        partial({ name: 'hello 1', search_match_type: 'exact' }),
+                        partial({ name: 'hello 2', search_match_type: 'similar' }),
+                    ]),
+                }),
+            })
+    })
+
     it('can duplicate and does not use derived name for name', async () => {
         const sourceInsight = createInsight(123, 'hello')
         sourceInsight.name = ''
@@ -213,6 +245,54 @@ describe('savedInsightsLogic', () => {
             expect.objectContaining({ name: 'should be copied (copy)' }),
             expect.objectContaining({})
         )
+    })
+
+    it('discards stale API responses when a newer request is in flight', async () => {
+        const pendingRequests: Array<{
+            resolve: (value: [number, any]) => void
+            search: string
+        }> = []
+        let onRequestArrived: (() => void) | null = null
+        const waitForNextRequest = (): Promise<void> =>
+            new Promise<void>((r) => {
+                onRequestArrived = r
+            })
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/insights/': (req) => {
+                    const search = req.url.searchParams.get('search') ?? ''
+                    return new Promise<[number, any]>((resolve) => {
+                        pendingRequests.push({ resolve, search })
+                        onRequestArrived?.()
+                        onRequestArrived = null
+                    })
+                },
+            },
+        })
+
+        // Fire two loads — both go in-flight concurrently
+        const req1 = waitForNextRequest()
+        logic.actions.loadInsights(false)
+        await req1
+
+        const req2 = waitForNextRequest()
+        logic.actions.loadInsights(false)
+        await req2
+
+        expect(pendingRequests).toHaveLength(2)
+
+        // Resolve out of order: second (fresh) first, then first (stale)
+        pendingRequests[1].resolve([200, createSavedInsights('fresh', 0)])
+        pendingRequests[0].resolve([200, createSavedInsights('stale', 0)])
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The stale response that arrived last must NOT overwrite the fresh one
+        await expectLogic(logic).toMatchValues({
+            insights: partial({
+                results: partial([partial({ name: 'fresh 1' })]),
+            }),
+        })
     })
 
     describe('reacts to external updates', () => {

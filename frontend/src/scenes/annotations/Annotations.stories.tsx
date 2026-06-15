@@ -30,5 +30,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
+// The table renders the emoji next to the content for annotations that have one (see the fixture),
+// giving visual-regression coverage of the emoji display.
 export const Annotations: Story = {}

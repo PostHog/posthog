@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
-import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
+import { PersonMessage } from './person-message'
 import { PersonsStore } from './persons-store'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
@@ -28,7 +28,8 @@ export class PersonsStoreTransaction {
         isIdentified: boolean,
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
-        extraDistinctIds?: { distinctId: string; version?: number }[]
+        extraDistinctIds: { distinctId: string; version?: number }[] | undefined,
+        batchId: number
     ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
@@ -41,16 +42,18 @@ export class PersonsStoreTransaction {
             uuid,
             primaryDistinctId,
             extraDistinctIds,
-            this.tx
+            this.tx,
+            batchId
         )
     }
 
     async updatePersonForMerge(
         person: InternalPerson,
         update: Partial<InternalPerson>,
-        distinctId: string
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        return await this.store.updatePersonForMerge(person, update, distinctId, this.tx)
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
+        return await this.store.updatePersonForMerge(person, update, distinctId, batchId, this.tx)
     }
 
     async updatePersonWithPropertiesDiffForUpdate(
@@ -59,34 +62,42 @@ export class PersonsStoreTransaction {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        batchId: number,
         forceUpdate?: boolean
-    ): Promise<[InternalPerson, TopicMessage[], boolean]> {
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return await this.store.updatePersonWithPropertiesDiffForUpdate(
             person,
             propertiesToSet,
             propertiesToUnset,
             otherUpdates,
             distinctId,
+            batchId,
             forceUpdate,
             this.tx
         )
     }
 
-    async deletePerson(person: InternalPerson, distinctId: string): Promise<TopicMessage[]> {
+    async deletePerson(person: InternalPerson, distinctId: string): Promise<PersonMessage[]> {
         return await this.store.deletePerson(person, distinctId, this.tx)
     }
 
-    async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<TopicMessage[]> {
-        return await this.store.addDistinctId(person, distinctId, version, this.tx)
+    async addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        batchId: number
+    ): Promise<PersonMessage[]> {
+        return await this.store.addDistinctId(person, distinctId, version, this.tx, batchId)
     }
 
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        limit?: number
+        limit: number | undefined,
+        batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx)
+        return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx, batchId)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(
@@ -104,8 +115,8 @@ export class PersonsStoreTransaction {
         )
     }
 
-    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string): Promise<boolean> {
-        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx)
+    async addPersonlessDistinctIdForMerge(teamId: number, distinctId: string, batchId: number): Promise<boolean> {
+        return await this.store.addPersonlessDistinctIdForMerge(teamId, distinctId, this.tx, batchId)
     }
 
     async fetchPersonDistinctIds(person: InternalPerson, distinctId: string, limit?: number): Promise<string[]> {

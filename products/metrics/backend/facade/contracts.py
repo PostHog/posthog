@@ -1,0 +1,115 @@
+"""
+Contract types for metrics.
+
+Stable, framework-free frozen dataclasses that define what this
+product exposes to the rest of the codebase.
+
+Characteristics:
+- No Django imports
+- Immutable (frozen=True)
+- Used by facade as inputs/outputs
+
+Do NOT depend on Django models, DRF serializers, or request objects.
+
+These define the query wire shape used by the viewer, the dashboard
+widget, and (later) alerting. The response is always a list of
+`MetricSeries` — a single ungrouped query returns one series with empty
+labels, so consumers never branch on "single vs multi series".
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import dataclass
+
+from .enums import AttributeScope, FilterOp, MetricAggregation
+
+
+@dataclass(frozen=True, slots=True)
+class MetricFilter:
+    """A single label predicate on a clause."""
+
+    key: str
+    op: FilterOp
+    value: str
+    scope: AttributeScope = AttributeScope.AUTO
+
+
+@dataclass(frozen=True, slots=True)
+class MetricGroupBy:
+    """One label to split a clause's result into separate series by."""
+
+    key: str
+    scope: AttributeScope = AttributeScope.AUTO
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryClause:
+    """One metric selection: a name, an aggregation, and optional
+    filters / group-by. `name` is the alias a formula refers to (e.g. "a").
+    """
+
+    name: str
+    metric_name: str
+    aggregation: MetricAggregation
+    filters: tuple[MetricFilter, ...] = ()
+    group_by: tuple[MetricGroupBy, ...] = ()
+    # Required for QUANTILE / HISTOGRAM_QUANTILE; ignored otherwise.
+    quantile: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.aggregation.needs_quantile:
+            if self.quantile is None:
+                raise ValueError(f"{self.aggregation} requires a quantile")
+            if not 0.0 < self.quantile < 1.0:
+                raise ValueError("quantile must be in (0, 1)")
+        if not self.name:
+            raise ValueError("clause name must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryRequest:
+    """A whole metric query: one or more clauses over a shared time grid,
+    with an optional formula combining them by clause name.
+
+    `interval` is on the request (not per clause) so every series in the
+    response shares one bucket grid — required for a formula like "a / b"
+    to align, and the right default anyway. None means auto-pick from the
+    range.
+    """
+
+    clauses: tuple[MetricQueryClause, ...]
+    date_from: dt.datetime
+    date_to: dt.datetime
+    interval: str | None = None
+    formula: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.clauses:
+            raise ValueError("at least one clause is required")
+        if self.date_to <= self.date_from:
+            raise ValueError("date_to must be after date_from")
+        names = [c.name for c in self.clauses]
+        if len(names) != len(set(names)):
+            raise ValueError("clause names must be unique")
+
+
+@dataclass(frozen=True, slots=True)
+class MetricPoint:
+    """One bucketed datapoint. `time` is the bucket start, ISO 8601."""
+
+    time: str
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class MetricSeries:
+    """One line on a chart: the label values that identify it plus its
+    points. `labels` is empty for an ungrouped query. `clause` records
+    which clause produced it (the formula result uses `clause="formula"`).
+    """
+
+    labels: dict[str, str]
+    points: tuple[MetricPoint, ...]
+    metric_name: str | None = None
+    clause: str | None = None

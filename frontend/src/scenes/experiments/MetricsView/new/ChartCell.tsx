@@ -1,8 +1,8 @@
 import { useState } from 'react'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
+import { generateViolinPath } from '~/scenes/experiments/MetricsView/violinUtils'
 
-import { generateViolinPath } from '../legacy/violinUtils'
 import { useChartColors } from '../shared/colors'
 import {
     type ExperimentVariantResult,
@@ -15,7 +15,6 @@ import {
     isSignificant,
 } from '../shared/utils'
 import { ChartGradients } from './ChartGradients'
-import { GridLines } from './GridLines'
 import {
     CELL_HEIGHT,
     CHART_BAR_OPACITY,
@@ -25,7 +24,13 @@ import {
     SVG_EDGE_MARGIN,
     VIEW_BOX_WIDTH,
 } from './constants'
+import { GridLines } from './GridLines'
 import { useAxisScale } from './useAxisScale'
+
+const CHART_CELL_HEIGHT_STYLE = {
+    height: `${CELL_HEIGHT}px`,
+    maxHeight: `${CELL_HEIGHT}px`,
+}
 
 interface ChartCellProps {
     variantResult: ExperimentVariantResult
@@ -37,6 +42,8 @@ interface ChartCellProps {
     isLastRow?: boolean
     isSecondary?: boolean
     onTimeseriesClick?: () => void
+    /** Extra suffix to disambiguate SVG gradient IDs (e.g. breakdown value) */
+    gradientSuffix?: string
 }
 
 export function ChartCell({
@@ -49,6 +56,7 @@ export function ChartCell({
     isLastRow = false,
     isSecondary = false,
     onTimeseriesClick,
+    gradientSuffix,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -60,13 +68,23 @@ export function ChartCell({
     const hasEnoughData = !!interval
     const validationFailureType = getValidationFailureType(variantResult)
 
+    // Sanitize all dynamic parts to produce valid SVG IDs (no spaces or special chars that break url() references)
+    const sanitize = (s: string): string => encodeURIComponent(s).replace(/[^a-zA-Z0-9_-]/g, '_')
+    const gradientId = `gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${sanitize(variantResult.key)}${gradientSuffix ? `-${sanitize(gradientSuffix)}` : ''}`
+
     // Position calculations
     const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT
     const barHeightPercent = CHART_CELL_BAR_HEIGHT_PERCENT
     const y = (viewBoxHeight - barHeightPercent) / 2 // Center the bar vertically
-    const x1 = scale(lower)
-    const x2 = scale(upper)
-    const deltaX = scale(delta)
+
+    // Cap positions to valid SVG range so bars extending beyond ±MAX_AXIS_RANGE are cut off at edges
+    const minX = SVG_EDGE_MARGIN
+    const maxX = VIEW_BOX_WIDTH - SVG_EDGE_MARGIN
+    const capToChartBounds = (value: number): number => Math.max(minX, Math.min(maxX, value))
+
+    const x1 = capToChartBounds(scale(lower))
+    const x2 = capToChartBounds(scale(upper))
+    const deltaX = capToChartBounds(scale(delta))
 
     const isClickable = !!onTimeseriesClick
 
@@ -76,7 +94,7 @@ export function ChartCell({
             className={`p-0 align-top text-center relative overflow-hidden ${
                 isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
             } ${isLastRow ? 'border-b' : ''}`}
-            style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
+            style={CHART_CELL_HEIGHT_STYLE}
         >
             <div className="relative h-full">
                 <svg
@@ -110,9 +128,7 @@ export function ChartCell({
                                 metric={metric}
                                 isSignificant={isSignificant(variantResult)}
                                 isBayesian={isBayesianResult(variantResult)}
-                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                    variantResult.key
-                                }`}
+                                gradientId={gradientId}
                             />
 
                             {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
@@ -120,9 +136,7 @@ export function ChartCell({
                                 <>
                                     <path
                                         d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                            variantResult.key
-                                        })`}
+                                        fill={`url(#${gradientId})`}
                                         opacity={CHART_BAR_OPACITY}
                                         style={{
                                             cursor: isClickable ? 'pointer' : 'default',
@@ -151,9 +165,7 @@ export function ChartCell({
                                         y={y}
                                         width={x2 - x1}
                                         height={barHeightPercent}
-                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                            variantResult.key
-                                        })`}
+                                        fill={`url(#${gradientId})`}
                                         opacity={CHART_BAR_OPACITY}
                                         rx={3}
                                         ry={3}

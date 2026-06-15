@@ -9,8 +9,11 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.models import FeatureFlag, Organization, Survey, Team, User
+from posthog.models import Organization, Team, User
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.surveys.backend.models import Survey
 
 
 class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
@@ -26,7 +29,6 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             key="flag_name",
             filters={},
-            rollout_percentage=100,
         )
 
     def _create_event_for_survey(
@@ -93,6 +95,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
 
         for survey in surveys:
             survey.refresh_from_db()
+            assert survey.end_date is not None
             assert now() - survey.end_date < timedelta(seconds=1)
             assert not survey.responses_limit
 
@@ -183,6 +186,7 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
         stop_surveys_reached_target()
 
         survey.refresh_from_db()
+        assert survey.end_date is not None
         assert now() - relativedelta(hours=1) - survey.end_date < timedelta(seconds=1)
         assert survey.responses_limit == 1
 

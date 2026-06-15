@@ -1,6 +1,7 @@
 import { kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
+import { isNumber } from 'lib/utils'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
 
 import type { asyncMigrationParameterFormLogicType } from './asyncMigrationParameterFormLogicType'
@@ -29,13 +30,14 @@ export const asyncMigrationParameterFormLogic = kea<asyncMigrationParameterFormL
 ])
 
 function defaultParameters(props: AsyncMigrationModalProps): Record<string, number> {
-    const result = {}
-    Object.keys(props.migration.parameter_definitions).forEach((key) => {
-        if (props.migration.parameters[key]) {
-            result[key] = props.migration.parameters[key]
-        } else {
-            result[key] = props.migration.parameter_definitions[key][0]
+    return Object.keys(props.migration.parameter_definitions).reduce<Record<string, number>>((acc, key) => {
+        const parameter = props.migration.parameters[key]
+        const parameterDefinition = props.migration.parameter_definitions[key][0]
+        if (parameter) {
+            acc[key] = parameter
+        } else if (isNumber(parameterDefinition)) {
+            acc[key] = parameterDefinition
         }
-    })
-    return result
+        return acc
+    }, {})
 }

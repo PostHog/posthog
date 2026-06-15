@@ -1,11 +1,13 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo } from 'react'
 
-import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { IconCheckCircle, IconEllipsis, IconInfo, IconWarning, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonDialog,
     LemonInput,
     LemonMenu,
@@ -17,16 +19,18 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
+import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Link } from 'lib/lemon-ui/Link'
+import { isKeyOf } from 'lib/utils'
+import { useMaxTool } from 'scenes/max/useMaxTool'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { AvailableFeature } from '~/types'
-
-import { ProxyRecord, proxyLogic } from './proxyLogic'
+import { DiagnosticCheckResult, DiagnosticCheckStatus, DiagnosticReport, ProxyRecord, proxyLogic } from './proxyLogic'
+import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
     valid: 'live',
@@ -34,19 +38,55 @@ const statusText = {
 }
 
 export function ManagedReverseProxy(): JSX.Element {
-    const { formState, proxyRecords, proxyRecordsLoading } = useValues(proxyLogic)
-    const { showForm, deleteRecord } = useActions(proxyLogic)
+    const {
+        shouldShowCloudflareOptIn,
+        formState,
+        proxyRecords,
+        proxyRecordsLoading,
+        maxProxyRecords,
+        diagnoseLoadingIds,
+        expandedRecordIds,
+    } = useValues(proxyLogic)
+    const { acknowledgeCloudflareOptIn, deleteRecord, retryRecord, diagnose, setRecordExpanded, showForm } =
+        useActions(proxyLogic)
+    const { preflight } = useValues(preflightLogic)
+
+    const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
-    const { featureAvailableOnOrg } = useValues(payGateMiniLogic({ feature: AvailableFeature.MANAGED_REVERSE_PROXY }))
-
-    const maxRecordsReached = proxyRecords.length >= (featureAvailableOnOrg?.limit || 0)
+    const maxRecordsReached = proxyRecords.length >= maxProxyRecords
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
+    const validProxyRecords = proxyRecords.filter((record) => record.status === 'valid')
+
+    // Surface the diagnose_proxy MaxTool while this scene is mounted, with the visible
+    // records as context so Max can resolve "diagnose e.foo.com" to a record id.
+    useMaxTool({
+        identifier: 'diagnose_proxy',
+        active: proxyRecords.length > 0 && !restrictionReason,
+        context: useMemo(
+            () => ({
+                proxy_records: proxyRecords.map((r) => ({
+                    id: r.id,
+                    domain: r.domain,
+                    status: r.status,
+                    message: r.message,
+                })),
+            }),
+            [proxyRecords]
+        ),
+        suggestions: useMemo(() => {
+            const erroring = proxyRecords.find((r) => r.status === 'erroring' || r.status === 'timed_out')
+            if (erroring) {
+                return [`Why is ${erroring.domain} erroring?`]
+            }
+            return proxyRecords.length > 0 ? [`Diagnose ${proxyRecords[0].domain}`] : []
+        }, [proxyRecords]),
+    })
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -73,7 +113,7 @@ export function ManagedReverseProxy(): JSX.Element {
                         )}
                     >
                         {status === 'issuing' && <Spinner />}
-                        <span className="capitalize">{statusText[status] || status}</span>
+                        <span className="capitalize">{isKeyOf(status, statusText) ? statusText[status] : status}</span>
                         {status === 'waiting' && (
                             <Tooltip title="Waiting for DNS records to be created">
                                 <IconInfo className="cursor-pointer" />
@@ -93,14 +133,28 @@ export function ManagedReverseProxy(): JSX.Element {
             width: 20,
             className: 'flex justify-center',
             render: function Render(_, { id, status }) {
+                const isDiagnosing = diagnoseLoadingIds.includes(id)
                 return (
                     status != 'deleting' &&
                     !restrictionReason && (
                         <LemonMenu
                             items={[
                                 {
+                                    label: isDiagnosing ? 'Running diagnostics…' : 'Diagnose',
+                                    onClick: () => diagnose(id),
+                                    disabledReason: isDiagnosing ? 'A diagnostic is already running' : undefined,
+                                },
+                                ...(status === 'erroring' || status === 'timed_out'
+                                    ? [
+                                          {
+                                              label: 'Retry',
+                                              onClick: () => retryRecord(id),
+                                          },
+                                      ]
+                                    : []),
+                                {
                                     label: 'Delete',
-                                    status: 'danger',
+                                    status: 'danger' as const,
                                     onClick: () => {
                                         LemonDialog.open({
                                             title: 'Delete managed proxy',
@@ -128,83 +182,213 @@ export function ManagedReverseProxy(): JSX.Element {
         },
     ]
 
+    // Show opt-in banner if Cloudflare proxy is enabled but not yet acknowledged
+    if (cloudflareProxyEnabled && shouldShowCloudflareOptIn) {
+        return (
+            <CloudflareOptInBanner onAcknowledge={acknowledgeCloudflareOptIn} restrictionReason={restrictionReason} />
+        )
+    }
+
     return (
-        <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
-            <div className="deprecated-space-y-2">
-                {recordsWithMessages.map((r) => (
-                    <LemonBanner type="warning" key={r.id}>
-                        <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+        <div className="flex flex-col gap-2">
+            {recordsWithMessages.map((r) => (
+                <LemonBanner type="warning" key={r.id}>
+                    <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
+                </LemonBanner>
+            ))}
+            <LemonTable
+                loading={proxyRecords.length === 0 && proxyRecordsLoading}
+                columns={columns}
+                dataSource={proxyRecords}
+                expandable={{
+                    expandedRowRender: (record) => <ExpandedRow record={record} />,
+                    isRowExpanded: (record) => (expandedRecordIds.includes(record.id) ? true : -1),
+                    onRowExpand: (record) => setRecordExpanded(record.id, true),
+                    onRowCollapse: (record) => setRecordExpanded(record.id, false),
+                }}
+            />
+
+            <WaitingRecords />
+
+            {validProxyRecords.length > 0 && (
+                <div className="flex flex-col gap-2 bg-surface-primary rounded border my-4 px-5 py-4">
+                    <div className="text-xl font-semibold leading-tight">Update your SDK configuration</div>
+                    <p className="text-secondary">
+                        Now that your proxy is live, update your SDK initialization to send data through your custom
+                        domain.
+                    </p>
+                    <ProxySDKSetup />
+                </div>
+            )}
+
+            {formState === 'collapsed' ? (
+                maxRecordsReached ? (
+                    <LemonBanner type="info">
+                        There is a maximum of {maxProxyRecords} proxy records allowed per organization.
                     </LemonBanner>
-                ))}
-                <LemonTable
-                    loading={proxyRecords.length === 0 && proxyRecordsLoading}
-                    columns={columns}
-                    dataSource={proxyRecords}
-                    expandable={{
-                        expandedRowRender: (record) => <ExpandedRow record={record} />,
-                    }}
-                />
-                {formState === 'collapsed' ? (
-                    maxRecordsReached ? (
-                        <LemonBanner type="info">
-                            There is a maximum of {featureAvailableOnOrg?.limit || 0} records allowed per organization.
-                        </LemonBanner>
-                    ) : (
-                        <div className="flex">
-                            <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
-                                Add managed proxy
-                            </LemonButton>
-                        </div>
-                    )
                 ) : (
-                    <CreateRecordForm />
-                )}
+                    <div className="flex">
+                        <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
+                            Add managed proxy
+                        </LemonButton>
+                    </div>
+                )
+            ) : (
+                <CreateRecordForm />
+            )}
+        </div>
+    )
+}
+
+function CloudflareOptInBanner({
+    onAcknowledge,
+    restrictionReason,
+}: {
+    onAcknowledge: () => void
+    restrictionReason: string | false | undefined | null
+}): JSX.Element {
+    const { cloudflareOptInChecked } = useValues(proxyLogic)
+    const { setCloudflareOptInChecked } = useActions(proxyLogic)
+
+    return (
+        <div className="bg-surface-primary rounded border px-5 py-4 space-y-4">
+            <div className="text-xl font-semibold leading-tight">Enable Managed Proxy (Beta)</div>
+            <p className="text-secondary">
+                This feature is disabled by default and has no effect unless you explicitly enable it.
+            </p>
+            <p>
+                By enabling this beta feature, you explicitly instruct us to route applicable traffic via{' '}
+                <Link to="https://www.cloudflare.com" target="_blank">
+                    Cloudflare
+                </Link>
+                , and understand that data processed as part of this feature will be transmitted to and processed by
+                Cloudflare.
+            </p>
+            <div className="border rounded p-4 space-y-3 bg-surface-secondary">
+                <div className="font-semibold">Third-party processing (Cloudflare)</div>
+                <p className="text-sm">
+                    This beta feature routes certain customer and customer end-user traffic through Cloudflare, a
+                    third-party infrastructure provider, for the purpose of delivering the managed proxy functionality.
+                </p>
+                <p className="text-sm">By enabling this feature, you:</p>
+                <ul className="text-sm list-disc pl-5 space-y-1">
+                    <li>Explicitly instruct us to route applicable data through Cloudflare for this service;</li>
+                    <li>
+                        Acknowledge and agree that data processed as part of this feature will be transmitted to and
+                        processed by Cloudflare; and
+                    </li>
+                    <li>Understand that this feature is experimental (beta) and may change or be discontinued.</li>
+                </ul>
+                <p className="text-sm">
+                    Cloudflare is not currently listed as a PostHog subprocessor for this feature, and you choose to
+                    enable this feature notwithstanding the foregoing. If we decide to make this functionality generally
+                    available, we will update our Data Processing Agreement and provide notice in accordance with its
+                    terms.
+                </p>
             </div>
-        </PayGateMini>
+            <div className="space-y-3">
+                <LemonCheckbox
+                    checked={cloudflareOptInChecked}
+                    onChange={setCloudflareOptInChecked}
+                    label="I have read and agree to the above terms"
+                />
+                <LemonButton
+                    type="primary"
+                    onClick={onAcknowledge}
+                    disabled={!cloudflareOptInChecked}
+                    disabledReason={
+                        restrictionReason || (!cloudflareOptInChecked ? 'You must agree to the terms' : undefined)
+                    }
+                >
+                    Enable Managed Proxy
+                </LemonButton>
+            </div>
+        </div>
     )
 }
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
+    const { diagnosticReports, recordActiveTabs } = useValues(proxyLogic)
+    const { setRecordActiveTab } = useActions(proxyLogic)
+
+    const report = diagnosticReports[record.id]
+    const activeKey = recordActiveTabs[record.id] ?? 'cname'
+
+    const tabs = [
+        {
+            label: 'CNAME',
+            key: 'cname',
+            content: (
+                <CodeSnippet key={record.id} language={Language.HTTP}>
+                    {record.target_cname}
+                </CodeSnippet>
+            ),
+        },
+        ...(report
+            ? [
+                  {
+                      label: 'Diagnosis',
+                      key: 'diagnosis',
+                      content: <DiagnosticReportContent report={report} />,
+                  },
+              ]
+            : []),
+    ]
+
     return (
-        <div className="pb-4 pr-4">
+        <div className="pb-4 pr-4 space-y-2">
             <LemonTabs
                 size="small"
-                activeKey="cname"
-                tabs={[
-                    {
-                        label: 'CNAME',
-                        key: 'cname',
-                        content: (
-                            <CodeSnippet key={record.id} language={Language.HTTP}>
-                                {record.target_cname}
-                            </CodeSnippet>
-                        ),
-                    },
-                ]}
+                activeKey={activeKey}
+                onChange={(key) => setRecordActiveTab(record.id, key)}
+                tabs={tabs}
             />
+            {record.status === 'waiting' && (
+                <DomainConnectBanner
+                    logicKey={`proxy-${record.id}`}
+                    domain={record.domain}
+                    context="proxy"
+                    proxyRecordId={record.id}
+                />
+            )}
         </div>
     )
 }
 
 function CreateRecordForm(): JSX.Element {
-    const { formState, proxyRecordsLoading, proxyRecords } = useValues(proxyLogic)
+    const { formState, proxyRecordsLoading } = useValues(proxyLogic)
     const { collapseForm } = useActions(proxyLogic)
-
-    const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
         <div className="bg-surface-primary rounded border px-5 py-4 deprecated-space-y-2">
-            {formState == 'active' ? (
+            {formState == 'active' && (
                 <Form
                     logic={proxyLogic}
                     formKey="createRecord"
                     enableFormOnSubmit
                     className="w-full deprecated-space-y-2"
                 >
-                    <LemonField name="domain">
+                    <LemonBanner type="warning">
+                        <p className="font-semibold mb-1">
+                            Avoid domains that ad-blockers may flag as analytics or advertising related.
+                        </p>
+                        <ul className="list-disc pl-5 space-y-0.5 mb-1">
+                            <li>
+                                <strong>Do not use</strong> subdomains containing words related to tracking, analytics,
+                                advertising, or PostHog (e.g. <code>analytics.mydomain.com</code>,{' '}
+                                <code>posthog.mydomain.com</code>, or <code>ph.mydomain.com</code>). These are commonly
+                                blocked by ad-blockers and will cause data loss. The proxy will <strong>NOT</strong>{' '}
+                                achieve the intended effect if ad-blockers are blocking the domain.
+                            </li>
+                            <li>
+                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> instead.
+                            </li>
+                        </ul>
+                    </LemonBanner>
+                    <LemonField name="domain" label="Domain">
                         <LemonInput
                             autoFocus
-                            placeholder="Enter a domain (e.g. ph.mydomain.com)"
+                            placeholder="Enter a domain (e.g. t.mydomain.com)"
                             data-attr="domain-input"
                         />
                     </LemonField>
@@ -226,26 +410,101 @@ function CreateRecordForm(): JSX.Element {
                         </LemonButton>
                     </div>
                 </Form>
-            ) : (
-                <>
-                    <div className="text-xl font-semibold leading-tight">Almost there</div>
-                    <div>
-                        You need to set the following <b>CNAME</b> records in your DNS provider:
+            )}
+        </div>
+    )
+}
+
+const WaitingRecords = (): JSX.Element | null => {
+    const { proxyRecords } = useValues(proxyLogic)
+
+    const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
+
+    if (waitingRecords.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex flex-col gap-2 bg-surface-primary rounded border px-5 py-4">
+            <div className="text-xl font-semibold leading-tight">Almost there</div>
+            <div>
+                You need to set the following <b>CNAME</b> records in your DNS provider:
+            </div>
+            <div className="flex flex-col gap-1">
+                {waitingRecords.map((r) => (
+                    <div key={r.id}>
+                        <span className="font-semibold">{r.domain}</span>
+                        <CodeSnippet key={r.id} language={Language.HTTP}>
+                            {r.target_cname}
+                        </CodeSnippet>
+
+                        <DomainConnectBanner
+                            logicKey={`proxy-${r.id}`}
+                            domain={r.domain}
+                            context="proxy"
+                            proxyRecordId={r.id}
+                            className="mt-2"
+                        />
                     </div>
-                    {waitingRecords.map((r) => (
-                        <div key={r.id} className="deprecated-space-y-1">
-                            <span className="font-semibold">{r.domain}</span>
-                            <CodeSnippet key={r.id} language={Language.HTTP}>
-                                {r.target_cname}
-                            </CodeSnippet>
+                ))}
+            </div>
+            <div className="text-sm">
+                <strong>Important:</strong> If you are using a DNS provider like Cloudflare that offers proxy options
+                (orange cloud), make sure the proxy is <strong>disabled</strong> (gray cloud) for this domain. Enabling
+                the proxy at your DNS provider may interfere with the managed reverse proxy functionality.
+            </div>
+        </div>
+    )
+}
+
+const checkStatusIcon = (status: DiagnosticCheckStatus): JSX.Element => {
+    switch (status) {
+        case 'passed':
+            return <IconCheckCircle className="text-success" />
+        case 'warned':
+            return <IconWarning className="text-warning-dark" />
+        case 'failed':
+            return <IconX className="text-danger" />
+        case 'skipped':
+            return <IconInfo className="text-secondary" />
+    }
+}
+
+function DiagnosticReportContent({ report }: { report: DiagnosticReport }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3">
+            <div className="text-xs text-secondary">Ran {new Date(report.ran_at).toLocaleString()}</div>
+            <div className="flex flex-col gap-2">
+                {report.checks.map((check) => (
+                    <DiagnosticCheckRow key={check.id} check={check} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function DiagnosticCheckRow({ check }: { check: DiagnosticCheckResult }): JSX.Element {
+    return (
+        <div className="border rounded p-3 flex flex-col gap-2 bg-surface-secondary">
+            <div className="flex items-center gap-2">
+                {checkStatusIcon(check.status)}
+                <span className="font-semibold">{check.name}</span>
+                <span className="text-xs text-secondary capitalize">({check.status})</span>
+            </div>
+            <LemonMarkdown className="text-sm">{check.detail}</LemonMarkdown>
+            {check.remediation && (
+                <div className="border-t pt-2 mt-1 flex flex-col gap-2">
+                    <LemonMarkdown className="text-sm font-semibold">{check.remediation.summary}</LemonMarkdown>
+                    {check.remediation.records.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                            {check.remediation.records.map((dnsRecord, i) => (
+                                <CodeSnippet key={i} language={Language.HTTP}>
+                                    {`${dnsRecord.name}\t${dnsRecord.type}\t${dnsRecord.value}`}
+                                </CodeSnippet>
+                            ))}
                         </div>
-                    ))}
-                    <div className="flex justify-end">
-                        <LemonButton onClick={collapseForm} type="primary">
-                            Done
-                        </LemonButton>
-                    </div>
-                </>
+                    )}
+                </div>
             )}
         </div>
     )

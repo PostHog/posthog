@@ -1,27 +1,31 @@
 {
     "name": "@posthog/products-tasks",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services backend/stream/tests backend/code_workstreams -v --tb=short"
+    },
+    "dependencies": {
+        "fast-deep-equal": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "torph": "^0.0.9"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
-        "kea": "*",
-        "kea-forms": "*",
-        "kea-loaders": "*",
-        "kea-router": "*",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
         "react": "*",
         "react-dom": "*"
-    },
-    "devDependencies": {
-        "kea-test-utils": "*"
-    },
-    "dependencies": {
-        "fast-deep-equal": "^3.1.3",
-        "kea-subscriptions": "^3.0.1"
     }
 }

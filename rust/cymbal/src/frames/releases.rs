@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Executor;
 use uuid::Uuid;
@@ -18,7 +18,7 @@ pub struct ReleaseRecord {
 }
 
 // The info, as written to clickhouse at the exception level.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReleaseInfo {
     version: String,
     project: String,

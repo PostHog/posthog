@@ -1,6 +1,8 @@
+import os
 import json
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -8,32 +10,43 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import call, patch
 
+from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping
+from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
 from posthog.settings.utils import get_from_env
 from posthog.utils import (
     PotentialSecurityProblemException,
+    _build_flag_provider,
     absolute_uri,
     base64_decode,
+    filters_override_requested_by_client,
     flatten,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
     get_compare_period_dates,
+    get_default_event_info,
     get_default_event_name,
+    get_dogfood_flags_team_id,
     get_ip_address,
+    get_js_url,
+    get_self_capture_team_id,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    resolve_dogfood_flags_team,
+    resolve_self_capture_team,
     str_to_int_set,
+    tile_filters_override_requested_by_client,
+    variables_override_requested_by_client,
 )
 
 
@@ -114,6 +127,19 @@ class TestAbsoluteUrls(TestCase):
             with pytest.raises(PotentialSecurityProblemException):
                 (absolute_uri("https://an.external.domain.com/something-outside-posthog"),)
 
+    @parameterized.expand(
+        [
+            # `urlparse` returns hostname='app.posthog.com' so the SITE_URL host check
+            # passes, but HTTP clients/browsers route to attacker.example.
+            ("raw_backslash", "https://attacker.example\\@app.posthog.com/path"),
+            ("percent_encoded_backslash", "https://attacker.example%5C@app.posthog.com/path"),
+        ]
+    )
+    def test_absolute_uri_rejects_backslash_authority_bypass(self, _name: str, url: str) -> None:
+        with self.settings(SITE_URL="https://app.posthog.com"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri(url)
+
 
 class TestFormatUrls(TestCase):
     factory = RequestFactory()
@@ -155,14 +181,101 @@ class TestFormatUrls(TestCase):
                 "HTTP_HOST": "www.testserver",
                 "HTTP_X_FORWARDED_PROTO": "https",
             }
-            request: Request = Request(build_req)
+            request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
+
+
+class TestGetJsUrl(TestCase):
+    factory = RequestFactory()
+
+    @parameterized.expand(
+        [
+            (
+                "http_rewrites_host",
+                True,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://dev-container:8234",
+            ),
+            (
+                "https_keeps_localhost",
+                True,
+                "http://localhost:8234",
+                "my-tunnel.ngrok-free.dev",
+                True,
+                "http://localhost:8234",
+            ),
+            (
+                "non_localhost_unchanged",
+                True,
+                "https://cdn.example.com/static",
+                "dev-container:8000",
+                False,
+                "https://cdn.example.com/static",
+            ),
+            (
+                "non_debug_unchanged",
+                False,
+                "http://localhost:8234",
+                "dev-container:8000",
+                False,
+                "http://localhost:8234",
+            ),
+            (
+                "http_rewrites_ipv6_host",
+                True,
+                "http://localhost:8234",
+                "[::1]:8000",
+                False,
+                "http://[::1]:8234",
+            ),
+            (
+                "http_rewrites_host_without_port",
+                True,
+                "http://localhost:8234",
+                "dev-container",
+                False,
+                "http://dev-container:8234",
+            ),
+        ]
+    )
+    def test_get_js_url(
+        self, _name: str, debug: bool, js_url: str, http_host: str, is_https: bool, expected: str
+    ) -> None:
+        settings_kwargs: dict = {"DEBUG": debug, "JS_URL": js_url}
+        if is_https:
+            settings_kwargs["SECURE_PROXY_SSL_HEADER"] = ("HTTP_X_FORWARDED_PROTO", "https")
+        with self.settings(**settings_kwargs):
+            if is_https:
+                request = self.factory.get("/", HTTP_HOST=http_host, HTTP_X_FORWARDED_PROTO="https")
+            else:
+                request = self.factory.get("/", HTTP_HOST=http_host)
+            self.assertEqual(expected, get_js_url(request))
 
 
 class TestGeneralUtils(TestCase):
     def test_available_timezones(self):
         timezones = get_available_timezones_with_offsets()
         self.assertEqual(timezones.get("Europe/Moscow"), 3)
+
+    def test_available_timezones_buckets_by_hour(self):
+        from posthog.utils import _timezone_offsets_for_hour
+
+        _timezone_offsets_for_hour.cache_clear()
+
+        with patch("posthog.utils.dt") as mock_dt:
+            mock_dt.datetime.now.return_value = datetime(2026, 5, 3, 10, 30)
+            mock_dt.datetime.side_effect = lambda *args, **kw: datetime(*args, **kw)
+            mock_dt.timedelta = timedelta
+
+            first = get_available_timezones_with_offsets()
+            second = get_available_timezones_with_offsets()
+            assert first is second  # same hour -> single inner-cache entry
+
+            mock_dt.datetime.now.return_value = datetime(2026, 5, 3, 11, 0)
+            third = get_available_timezones_with_offsets()
+            assert third is not first  # crossed an hour boundary -> recomputed
 
     @patch("os.getenv")
     def test_fetching_env_var_parsed_as_int(self, mock_env):
@@ -279,6 +392,22 @@ class TestRelativeDateParse(TestCase):
             "2019-01-01",
         )
 
+    @parameterized.expand(
+        [
+            # 2020-01-31 is a Friday
+            # Sunday week start (default): week started on Sunday Jan 26
+            ("sunday_start", 0, "2020-01-26"),
+            # Monday week start: week started on Monday Jan 27
+            ("monday_start", 1, "2020-01-27"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_week_start(self, _name, week_start_day, expected_date):
+        self.assertEqual(
+            relative_date_parse("wStart", ZoneInfo("UTC"), team_week_start_day=week_start_day).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
     @freeze_time("2020-01-31")
     def test_normal_date(self):
         self.assertEqual(
@@ -288,17 +417,146 @@ class TestRelativeDateParse(TestCase):
 
 
 class TestDefaultEventName(BaseTest):
-    def test_no_events(self):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_no_events_returns_pageview_default(self):
+        # When team has no events at all, default to $pageview (most common for new teams)
         self.assertEqual(get_default_event_name(self.team), "$pageview")
+
+    def test_other_events_but_no_pageview_or_screen_returns_none(self):
+        # When team has events but no $pageview or $screen, return None for "all events"
+        EventDefinition.objects.create(name="custom_event", team=self.team)
+        self.assertIsNone(get_default_event_name(self.team))
 
     def test_take_screen(self):
         EventDefinition.objects.create(name="$screen", team=self.team)
         self.assertEqual(get_default_event_name(self.team), "$screen")
 
-    def test_prefer_pageview(self):
+    @parameterized.expand(
+        [
+            (
+                "no_events",
+                False,
+                False,
+                {"default_event_name": "$pageview", "has_pageview": False, "has_screen": False},
+            ),
+            ("only_screen", False, True, {"default_event_name": "$screen", "has_pageview": False, "has_screen": True}),
+            (
+                "only_pageview",
+                True,
+                False,
+                {"default_event_name": "$pageview", "has_pageview": True, "has_screen": False},
+            ),
+            ("both", True, True, {"default_event_name": "$pageview", "has_pageview": True, "has_screen": True}),
+        ]
+    )
+    def test_get_default_event_info(self, _name, create_pageview, create_screen, expected):
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_info(self.team), expected)
+
+    @parameterized.expand(
+        [
+            ("no_events", False, False, "$pageview"),
+            ("only_screen", False, True, "$screen"),
+            ("only_pageview", True, False, "$pageview"),
+            ("both", True, True, "$pageview"),
+        ]
+    )
+    def test_get_default_event_name(self, _name, create_pageview, create_screen, expected):
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+        self.assertEqual(get_default_event_name(self.team), expected)
+
+    def test_negative_result_is_not_cached(self):
+        # Empty teams may simply not have ingested events yet — caching the
+        # negative would block them from ever updating to the positive answer.
+        with self.assertNumQueries(2):
+            get_default_event_info(self.team)
+        with self.assertNumQueries(2):
+            get_default_event_info(self.team)
+
+    def test_positive_result_is_cached(self):
+        EventDefinition.objects.create(name="$pageview", team=self.team)
+        with self.assertNumQueries(1):
+            get_default_event_info(self.team)
+        with self.assertNumQueries(0):
+            get_default_event_info(self.team)
+
+    @parameterized.expand(
+        [
+            ("only_pageview", True, False, 30 * 60),
+            ("only_screen", False, True, 30 * 60),
+            ("both", True, True, 24 * 60 * 60),
+        ]
+    )
+    def test_cache_ttl_depends_on_completeness(
+        self, _name: str, create_pageview: bool, create_screen: bool, expected_ttl: int
+    ):
+        from posthog.utils import _default_event_info_cache_key
+
+        if create_pageview:
+            EventDefinition.objects.create(name="$pageview", team=self.team)
+        if create_screen:
+            EventDefinition.objects.create(name="$screen", team=self.team)
+
+        with patch("posthog.utils.safe_cache_set") as mock_set:
+            get_default_event_info(self.team)
+
+        mock_set.assert_called_once()
+        args, kwargs = mock_set.call_args
+        assert args[0] == _default_event_info_cache_key(self.team.id)
+        assert kwargs["timeout"] == expected_ttl
+
+    def test_cache_invalidated_when_default_event_definition_deleted(self):
+        ed = EventDefinition.objects.create(name="$pageview", team=self.team)
+        # warm the cache
+        assert get_default_event_info(self.team)["has_pageview"] is True
+        with self.assertNumQueries(0):
+            assert get_default_event_info(self.team)["has_pageview"] is True
+
+        ed.delete()
+        # cache should now be cold and reflect the new ground truth
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+    def test_cache_invalidated_when_default_event_definition_renamed_away(self):
+        ed = EventDefinition.objects.create(name="$pageview", team=self.team)
+        assert get_default_event_info(self.team)["has_pageview"] is True
+
+        ed.name = "pageview_legacy"
+        ed.save()
+        # rename of the cached default event must bust the cache
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+    def test_cache_invalidated_when_default_event_definition_renamed_in(self):
+        ed = EventDefinition.objects.create(name="legacy_event", team=self.team)
+        assert get_default_event_info(self.team)["has_pageview"] is False
+
+        ed.name = "$pageview"
+        ed.save()
+        # renaming an event into one of the defaults must bust the cache
+        assert get_default_event_info(self.team)["has_pageview"] is True
+
+    def test_cache_not_invalidated_when_unrelated_event_definition_changed(self):
         EventDefinition.objects.create(name="$pageview", team=self.team)
         EventDefinition.objects.create(name="$screen", team=self.team)
-        self.assertEqual(get_default_event_name(self.team), "$pageview")
+        # warm the both-present cache
+        assert get_default_event_info(self.team) == {
+            "default_event_name": "$pageview",
+            "has_pageview": True,
+            "has_screen": True,
+        }
+
+        # creating an unrelated event definition should NOT bust the cache
+        EventDefinition.objects.create(name="custom_event", team=self.team)
+        with self.assertNumQueries(0):
+            get_default_event_info(self.team)
 
 
 class TestLoadDataFromRequest(TestCase):
@@ -306,8 +564,14 @@ class TestLoadDataFromRequest(TestCase):
         rf = RequestFactory()
         # the server presents any http headers in upper case with http_ as a prefix
         # see https://docs.djangoproject.com/en/4.0/ref/request-response/#django.http.HttpRequest.META
-        headers = {"HTTP_ORIGIN": origin, "HTTP_REFERER": referer}
-        post_request = rf.post("/e/?ver=1.20.0", "content", "text/plain", False, **headers)
+        post_request = rf.post(
+            "/e/?ver=1.20.0",
+            data="content",
+            content_type="text/plain",
+            secure=False,
+            HTTP_ORIGIN=origin,
+            HTTP_REFERER=referer,
+        )
         return post_request
 
     @patch("posthoganalytics.tag")
@@ -648,3 +912,291 @@ class TestGetIpAddress(TestCase):
         if x_forwarded_for is not None:
             request.META["HTTP_X_FORWARDED_FOR"] = x_forwarded_for
         assert get_ip_address(request) == expected
+
+
+class TestSharingOverrideProtection(TestCase):
+    """Sharing token authenticators must block query param overrides on shared dashboards."""
+
+    def _make_request(self, authenticator, query_params=None):
+        factory = RequestFactory()
+        django_request = factory.get("/", data=query_params or {})
+        request = Request(django_request)
+        cast(Any, request)._authenticator = authenticator
+        return request
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    def test_filters_override_blocked_for_sharing_authenticators(self, auth_type):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(authenticator, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result == {"date_from": "-30d"}
+
+    def test_filters_override_allowed_for_normal_auth(self):
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result == {"date_from": "-7d"}
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
+    def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(
+            authenticator, query_params={"variables_override": json.dumps({"injected": {"value": "evil"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "safe"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[])
+
+        assert result == {"var1": {"value": "safe"}}
+
+    @patch(
+        "products.product_analytics.backend.api.insight_variable.map_stale_to_latest",
+        side_effect=lambda variables, _: variables,
+    )
+    def test_variables_override_allowed_for_normal_auth(self, _mock):
+        request = self._make_request(
+            None, query_params={"variables_override": json.dumps({"var1": {"value": "custom"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "default"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[])
+
+        assert result == {"var1": {"value": "custom"}}
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    def test_tile_filters_override_blocked_for_sharing_authenticators(self, auth_type):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(
+            authenticator, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})}
+        )
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile)
+
+        assert result == {"breakdown": "country"}
+
+    def test_tile_filters_override_allowed_for_normal_auth(self):
+        request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile)
+
+        assert result == {"breakdown": "region"}
+
+
+class TestTemplateContextHistogram(TestCase):
+    @staticmethod
+    def _count_for_labels(template_name: str, authenticated: str) -> int:
+        from posthog.utils import TEMPLATE_CONTEXT_DURATION_HISTOGRAM
+
+        for metric in TEMPLATE_CONTEXT_DURATION_HISTOGRAM.collect():
+            for sample in metric.samples:
+                if (
+                    sample.name.endswith("_count")
+                    and sample.labels.get("template_name") == template_name
+                    and sample.labels.get("authenticated") == authenticated
+                ):
+                    return int(sample.value)
+        return 0
+
+    @parameterized.expand(
+        [
+            ("authenticated", True, "true"),
+            ("anonymous", False, "false"),
+        ]
+    )
+    def test_template_context_duration_histogram_uses_correct_authenticated_label(
+        self, _name: str, authenticated: bool, expected_label: str
+    ):
+        request = RequestFactory().get("/")
+        # Stash the is_authenticated value via a simple attribute on the request
+        # itself; the wrapper reads it via getattr() so it tolerates any user shape.
+        request.user = cast(Any, type("FakeUser", (), {"is_authenticated": authenticated})())
+
+        before = self._count_for_labels("index.html", expected_label)
+
+        # Drive only the label-selection wrapper; bypass the heavy inner body so this
+        # stays a fast, hermetic unit test of the metric plumbing itself.
+        with patch("posthog.utils._build_template_context", return_value={}):
+            from posthog.utils import get_context_for_template
+
+            get_context_for_template("index.html", request)
+
+        assert self._count_for_labels("index.html", expected_label) == before + 1
+
+
+class TestResolveSelfCaptureTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_self_capture_team() reads the whole users/teams tables, so each test must
+        # control global state. Clear any rows left in the reused test DB; deleting an
+        # organization cascades to its projects and teams, and these deletes roll back with
+        # the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_prefers_most_recently_logged_in_users_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        older_user = User.objects.create_and_join(organization, "older@posthog.com", self.PASSWORD)
+        older_user.current_team = first_team
+        older_user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        older_user.save()
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_self_capture_team() == recent_team
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_falls_back_to_first_team_when_no_qualifying_user(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        second_team = Team.objects.create(organization=organization, name="Second")
+
+        # A user that has never logged in (last_login is None) must not qualify,
+        # even though its current_team points at the second team.
+        never_logged_in = User.objects.create_and_join(organization, "never@posthog.com", self.PASSWORD)
+        never_logged_in.current_team = second_team
+        never_logged_in.last_login = None
+        never_logged_in.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_falls_back_to_first_team_when_logged_in_user_has_no_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        Team.objects.create(organization=organization, name="Second")
+
+        # A logged-in user whose current_team is None still falls back to the first team.
+        user = User.objects.create_and_join(organization, "user@posthog.com", self.PASSWORD)
+        user.current_team = None
+        user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        user.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_self_capture_team() is None
+        assert get_self_capture_team_id() is None
+
+
+class TestResolveDogfoodFlagsTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_dogfood_flags_team() reads the whole teams table, so each test must control
+        # global state. Deleting an organization cascades to its projects and teams, and these
+        # deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_returns_first_team_not_current_team(self):
+        # The dogfood-flags team is the first/oldest team (the sync write target), even when the
+        # most-recently-logged-in user's current_team is a different team. The two resolvers
+        # intentionally diverge: self-capture follows current_team, dogfood-flags follows first team.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_dogfood_flags_team() == first_team
+        assert get_dogfood_flags_team_id() == first_team.id
+        # Same instance state, the two resolvers point at different teams.
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_dogfood_flags_team() is None
+        assert get_dogfood_flags_team_id() is None
+
+
+class TestBuildFlagProvider(TestCase):
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we
+        # create is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_explicit_env_team_id_wins_over_self_capture(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_self_capture_routes_to_dogfood_first_team(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+
+        assert _build_flag_provider()._resolve_team_id() == first_team.id
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
+    def test_falls_back_to_team_2_off_self_capture(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
+    def test_e2e_overrides_self_capture_to_team_2(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2

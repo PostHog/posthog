@@ -120,14 +120,15 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/environments/:team_id/query/:kind': recordingEventsJson,
+                '/api/environments/:team_id/session_recordings/:id/capture_diagnostics': { properties: null },
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const NotFound: Story = {
     parameters: {
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },

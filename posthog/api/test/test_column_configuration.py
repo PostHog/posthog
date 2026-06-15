@@ -1,11 +1,16 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import ColumnConfiguration
+from posthog.models import ColumnConfiguration, User
 
 
 class TestColumnConfigurationAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.another_user = User.objects.create_and_join(self.organization, email="foo@bar.com", password="top-secret")
+
     def test_create_column_configuration(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",
@@ -13,24 +18,144 @@ class TestColumnConfigurationAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["context_key"] == "survey:123"
-        assert response.json()["columns"] == ["*", "person", "timestamp"]
+        data = response.json()
+        assert data["context_key"] == "survey:123"
+        assert data["columns"] == ["*", "person", "timestamp"]
+        assert data["name"] == "Column configuration", "Should have default name"
+        assert data["visibility"] == ColumnConfiguration.Visibility.SHARED, "Should have default visibility"
+        assert data["filters"] == []
+        assert data["order_by"] is None, "order_by defaults to null when not supplied"
 
-    def test_create_duplicate_returns_409(self):
-        self.client.post(
+    def test_create_column_configuration_empty_objects_filters(self):
+        response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",
-            {"context_key": "survey:123", "columns": ["*", "person"]},
+            {"context_key": "survey:123", "columns": ["*", "person", "timestamp"], "filters": {}},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["filters"] == [], "Should store filters as empty array"
+
+    def test_unique_user_view_name_constraint(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            name="Dupe",
+            context_key="dupe-key",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
         )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/column_configurations/",
-            {"context_key": "survey:123", "columns": ["*", "timestamp"]},
+            {
+                "name": "Dupe",
+                "context_key": "dupe-key",
+                "columns": ["*", "person"],
+                "visibility": ColumnConfiguration.Visibility.PRIVATE,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, (
+            "Different users may have views with the same name and context key"
+        )
+        data = response.json()
+        assert data["context_key"] == "dupe-key"
+        assert data["columns"] == ["*", "person"], "New config should have columns passed in the request"
+        config.refresh_from_db()
+        assert config.columns == ["*", "person", "timestamp"], "Old config should not change columns"
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "name": "Dupe",
+                "context_key": "dupe-key",
+                "columns": ["*"],
+                "visibility": ColumnConfiguration.Visibility.PRIVATE,
+            },
         )
 
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert "already exists" in response.json()["error"]
-        config = ColumnConfiguration.objects.get(team=self.team, context_key="survey:123")
-        assert config.columns == ["*", "person"]
+        assert response.json()["detail"] == "A private view with this name already exists"
+
+    def test_unique_team_view_name_constraint(self):
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.SHARED,
+            name="Dupe",
+            context_key="dupe-key",
+            columns=["*", "person", "timestamp"],
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "name": "Dupe",
+                "context_key": "dupe-key",
+                "columns": ["*", "person"],
+                "visibility": ColumnConfiguration.Visibility.SHARED,
+            },
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == "A shared view with this name already exists"
+
+    def test_user_can_only_access_their_private_views(self):
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*", "person", "timestamp"],
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "context-key"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["id"] == str(config.id)
+
+    def test_user_can_only_edit_their_views(self):
+        another_config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}", {"name": "New name"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have permission to change this view"
+
+    def test_user_can_only_delete_their_views(self):
+        another_config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*", "person", "timestamp"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have permission to change this view"
 
     def test_update_via_patch(self):
         create_response = self.client.post(
@@ -45,14 +170,15 @@ class TestColumnConfigurationAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["columns"] == ["*", "timestamp"]
+        data = response.json()
+        assert data["columns"] == ["*", "timestamp"]
+        assert data["filters"] == []
         assert ColumnConfiguration.objects.filter(team=self.team, context_key="survey:123").count() == 1
 
     def test_get_by_context_key(self):
-        self.client.post(
-            f"/api/environments/{self.team.id}/column_configurations/",
-            {"context_key": "survey:123", "columns": ["*", "person"]},
-        )
+        context_keys = ["survey:123", "people-list"]
+        for context in context_keys:
+            ColumnConfiguration.objects.create(team=self.team, context_key=context, columns=["*", "person"])
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "survey:123"}
@@ -61,6 +187,21 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["context_key"] == "survey:123"
+
+    def test_get_empty_filters(self):
+        column_config = ColumnConfiguration.objects.create(
+            team=self.team, context_key="people-list", columns=["*", "person"]
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/", {"context_key": "people-list"}
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["results"]) == 1
+        assert column_config.filters == {}, "Empty configs are stored as empty object"
+        assert data["results"][0]["filters"] == [], "Empty filters should be serialized as empty list"
 
     def test_missing_context_key(self):
         response = self.client.post(
@@ -106,6 +247,78 @@ class TestColumnConfigurationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "cannot configure more than 100 columns" in response.json()["error"]
+
+    @parameterized.expand(
+        [
+            ("populated", ["timestamp DESC"]),
+            ("empty list (distinct from null)", []),
+        ]
+    )
+    def test_create_with_order_by(self, _name: str, order_by: list[str]):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "people-list",
+                "columns": ["*", "person", "timestamp"],
+                "order_by": order_by,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["order_by"] == order_by
+
+    @parameterized.expand(
+        [
+            ("non-list", "timestamp DESC", "order_by must be a list"),
+            ("non-string entry", ["timestamp DESC", 5], "all order_by entries must be strings"),
+            ("too many entries", [f"col_{i}" for i in range(101)], "cannot order by more than 100 expressions"),
+        ]
+    )
+    def test_invalid_order_by_is_rejected(self, _name: str, order_by, expected_error: str):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "people-list",
+                "columns": ["*", "person", "timestamp"],
+                "order_by": order_by,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["error"]
+
+    def test_legacy_row_serializes_order_by_as_null(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            context_key="people-list",
+            columns=["*", "person", "timestamp"],
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["order_by"] is None
+
+    def test_update_order_by(self):
+        create_response = self.client.post(
+            f"/api/environments/{self.team.id}/column_configurations/",
+            {
+                "context_key": "people-list",
+                "columns": ["*", "person", "timestamp"],
+                "order_by": ["timestamp DESC"],
+            },
+        )
+        config_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{config_id}/",
+            {"order_by": ["person.created_at ASC"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["order_by"] == ["person.created_at ASC"]
 
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")

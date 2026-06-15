@@ -5,8 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionTypeType } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES } from '../sub-templates/sub-templates'
-import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 import { HogFunctionList } from './HogFunctionsList'
+import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
     type: HogFunctionTypeType
@@ -14,9 +14,11 @@ export type LinkedHogFunctionsProps = {
     subTemplateIds?: HogFunctionSubTemplateIdType[]
     newDisabledReason?: string
     hideFeedback?: boolean
+    emptyText?: string
+    queryParams?: Record<string, string>
 }
 
-const getFiltersFromSubTemplateId = (
+export const getFiltersFromSubTemplateId = (
     subTemplateId: HogFunctionSubTemplateIdType
 ): CyclotronJobFiltersType | undefined => {
     const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
@@ -29,6 +31,8 @@ export function LinkedHogFunctions({
     subTemplateIds,
     newDisabledReason,
     hideFeedback,
+    emptyText,
+    queryParams,
 }: LinkedHogFunctionsProps): JSX.Element | null {
     const [showNewDestination, setShowNewDestination] = useState(false)
     const logicKey = useMemo(() => {
@@ -40,13 +44,14 @@ export function LinkedHogFunctions({
     const templateType = type === 'internal_destination' ? 'destination' : type
 
     const getConfigurationOverrides = (
-        subTemplateId?: HogFunctionSubTemplateIdType
-    ): CyclotronJobFiltersType | undefined => {
+        subTemplateId: HogFunctionSubTemplateIdType | undefined
+    ): { filters: CyclotronJobFiltersType } | undefined => {
         if (forceFilterGroups && forceFilterGroups.length > 0) {
-            return forceFilterGroups[0]
+            return { filters: forceFilterGroups[0] }
         }
         if (subTemplateId) {
-            return getFiltersFromSubTemplateId(subTemplateId)
+            const filters = getFiltersFromSubTemplateId(subTemplateId)
+            return filters ? { filters } : undefined
         }
         return undefined
     }
@@ -62,6 +67,7 @@ export function LinkedHogFunctions({
             type={templateType}
             subTemplateIds={subTemplateIds}
             getConfigurationOverrides={getConfigurationOverrides}
+            queryParams={queryParams}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
@@ -76,6 +82,7 @@ export function LinkedHogFunctions({
             forceFilterGroups={hogFunctionFilterList}
             type={type}
             hideFeedback={hideFeedback}
+            emptyText={emptyText}
             extraControls={
                 <>
                     <LemonButton

@@ -31,17 +31,13 @@ operations = [
         DROP_PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]
     ),
     # Step 4: Drop distributed table
-    run_sql_with_exceptions(
-        DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(DROP_PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     # Step 5: Alter the sharded table to add person_id column
     run_sql_with_exceptions(
         ADD_PERSON_ID_TO_SHARDED_TABLE(), node_roles=[NodeRole.DATA], sharded=True, is_alter_on_replicated_table=True
     ),
     # Step 6: Recreate distributed table
-    run_sql_with_exceptions(
-        PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
-    ),
+    run_sql_with_exceptions(PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(), node_roles=[NodeRole.DATA]),
     # Step 7: Recreate writable table
     run_sql_with_exceptions(
         PRECALCULATED_PERSON_PROPERTIES_WRITABLE_TABLE_SQL(), node_roles=[NodeRole.INGESTION_MEDIUM]

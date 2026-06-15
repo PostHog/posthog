@@ -2,24 +2,13 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
+
+from parameterized import parameterized
 from rest_framework import status
 
 
 class TestUrls(APIBaseTest):
-    def test_logout_temporary_token_reset(self):
-        # update temporary token
-        self.user.temporary_token = "token123"
-        self.user.save()
-
-        # logout
-        with self.settings(TEST=False):
-            response = self.client.post("/logout", follow=True)
-            self.assertRedirects(response, "/login")
-
-        # no more token
-        self.user.refresh_from_db()
-        self.assertEqual(self.user.temporary_token, None)
-
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
@@ -57,6 +46,33 @@ class TestUrls(APIBaseTest):
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @parameterized.expand(
+        [
+            ("no_slash_no_qs", "/sign-up", "/signup"),
+            ("trailing_slash_no_qs", "/sign-up/", "/signup"),
+            ("no_slash_with_qs", "/sign-up?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
+            ("trailing_slash_with_qs", "/sign-up/?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
+        ]
+    )
+    def test_sign_up_redirects_to_signup(self, _name, request_path, expected_location):
+        self.client.logout()
+        response = self.client.get(request_path, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], expected_location)
+
+    @parameterized.expand(
+        [
+            ("no_query_string", "/admin", "/admin/"),
+            ("with_query_string", "/admin?foo=bar&baz=qux", "/admin/?foo=bar&baz=qux"),
+        ]
+    )
+    @override_settings(ADMIN_PORTAL_ENABLED=True)
+    def test_admin_without_trailing_slash_redirects(self, _name, request_path, expected_location):
+        # APPEND_SLASH is disabled globally, so /admin needs an explicit redirect
+        response = self.client.get(request_path, follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], expected_location)
+
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
         self.team.save()
@@ -66,7 +82,10 @@ class TestUrls(APIBaseTest):
             headers={"referer": "https://not-permitted.com"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue("Can only redirect to a permitted domain." in str(response.content))
+        content = response.content.decode()
+        self.assertIn("Domain not authorized", content)
+        self.assertIn("not-permitted.com", content)
+        self.assertIn("/settings/project-toolbar#authorized-urls", content)
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}

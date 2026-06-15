@@ -4,11 +4,15 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+test-utils = []
+
 [lints]
 workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+async-compression = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
@@ -16,7 +20,9 @@ base64 = { workspace = true }
 bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
-health = { path = "../common/health" }
+hex = "0.4"
+http-body-util = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }
@@ -28,7 +34,9 @@ metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
+opentelemetry-proto = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+prost = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 redis = { workspace = true }
@@ -38,6 +46,7 @@ serde_urlencoded = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { version = "0.7.16", features = ["rt"] }
 tower-http = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
@@ -48,19 +57,25 @@ aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
 lz-str = { workspace = true }
+lz4 = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+capture = { path = ".", features = ["test-utils"] }
 assert-json-diff = { workspace = true }
+brotli = "8"
+zstd = "0.13"
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
 axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
 httparse = "1.8"
+metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
+rstest = "0.26"
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }

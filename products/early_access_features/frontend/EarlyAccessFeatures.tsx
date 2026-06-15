@@ -7,8 +7,8 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,7 +21,7 @@ import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 export const scene: SceneExport = {
     component: EarlyAccessFeatures,
     logic: earlyAccessFeaturesLogic,
-    settingSectionId: 'environment-feature-flags',
+    productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
 const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
@@ -59,6 +59,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                             type="primary"
                             to={urls.earlyAccessFeature('new')}
                             tooltip="New feature"
+                            data-attr="create-feature"
                         >
                             New feature
                         </LemonButton>
@@ -75,6 +76,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                 docsURL="https://posthog.com/docs/feature-flags/early-access-feature-management"
                 action={() => router.actions.push(urls.earlyAccessFeature('new'))}
                 className="my-0"
+                mcpSurfaceKey="early_access_features.create"
             />
             {!shouldShowEmptyState && (
                 <>
@@ -118,6 +120,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                                                       : 'default'
                                             }
                                             className="uppercase cursor-default"
+                                            data-attr="feature-stage"
                                         >
                                             {stage}
                                         </LemonTag>

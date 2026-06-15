@@ -82,11 +82,6 @@ describe('Toolbar flag loading', () => {
         // Should not throw
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-            '[Toolbar Flags] Error fetching toolbar feature flags:',
-            expect.any(Error)
-        )
-
         // Should not have called overrideFeatureFlags
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
@@ -94,7 +89,7 @@ describe('Toolbar flag loading', () => {
     })
 
     it('should handle non-ok responses gracefully', async () => {
-        const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
 
         await import('./index')
 
@@ -110,21 +105,18 @@ describe('Toolbar flag loading', () => {
             token: 'test-token',
         }
 
+        const error = { ok: false, statusText: 'Not Found' }
         mockFetch.mockResolvedValueOnce({
-            ok: false,
-            statusText: 'Not Found',
+            json() {
+                return Promise.resolve(error)
+            },
         })
 
         await (window as any).ph_load_toolbar(toolbarParams, mockPostHog)
 
-        expect(consoleWarnSpy).toHaveBeenCalledWith(
-            '[Toolbar Flags] Failed to fetch toolbar feature flags:',
-            'Not Found'
-        )
-
         expect(mockPostHog.featureFlags.overrideFeatureFlags).not.toHaveBeenCalled()
 
-        consoleWarnSpy.mockRestore()
+        consoleErrorSpy.mockRestore()
     })
 
     it('should not fetch flags when toolbarFlagsKey is not present', async () => {

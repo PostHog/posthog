@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { EventIngestionRestrictionManager, Restriction } from '../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, RestrictionType } from '../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../utils/promise-scheduler'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'
@@ -82,12 +82,9 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
                 token: 'token-1',
                 distinct_id: 'user-1',
-                session_id: undefined,
-                timestamp: undefined,
-                event: undefined,
-                uuid: undefined,
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
             expect(SessionRecordingIngesterMetrics.observeDroppedByRestrictions).not.toHaveBeenCalled()
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
@@ -108,7 +105,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             ]
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((token) =>
-                token === 'drop-token' ? new Set([Restriction.DROP_EVENT]) : new Set()
+                token === 'drop-token' ? new Set([RestrictionType.DROP_EVENT]) : new Set()
             )
 
             const result = handler.applyRestrictions(messages)
@@ -127,7 +124,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             ]
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new Set([RestrictionType.FORCE_OVERFLOW])
             )
 
             const result = handler.applyRestrictions(messages)
@@ -164,10 +161,10 @@ describe('SessionRecordingRestrictionHandler', () => {
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((token) => {
                 if (token === 'drop-token') {
-                    return new Set([Restriction.DROP_EVENT])
+                    return new Set([RestrictionType.DROP_EVENT])
                 }
                 if (token === 'overflow-token') {
-                    return new Set([Restriction.FORCE_OVERFLOW])
+                    return new Set([RestrictionType.FORCE_OVERFLOW])
                 }
                 return new Set()
             })
@@ -190,7 +187,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             ]
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new Set([RestrictionType.FORCE_OVERFLOW])
             )
 
             handler.applyRestrictions(messages)
@@ -266,7 +263,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             ]
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new Set([RestrictionType.FORCE_OVERFLOW])
             )
 
             handler.applyRestrictions(messages)
@@ -299,11 +296,9 @@ describe('SessionRecordingRestrictionHandler', () => {
                 token: 'token-1',
                 distinct_id: 'user-1',
                 session_id: 'session-123',
-                timestamp: undefined,
-                event: undefined,
-                uuid: undefined,
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
         })
 
@@ -321,8 +316,8 @@ describe('SessionRecordingRestrictionHandler', () => {
                 }),
             ]
 
-            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((_token, lookup) =>
-                lookup?.session_id === 'drop-session' ? new Set([Restriction.DROP_EVENT]) : new Set()
+            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((_token, headers) =>
+                headers?.session_id === 'drop-session' ? new Set([RestrictionType.DROP_EVENT]) : new Set()
             )
 
             const result = handler.applyRestrictions(messages)
@@ -339,8 +334,8 @@ describe('SessionRecordingRestrictionHandler', () => {
                 }),
             ]
 
-            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((_token, lookup) =>
-                lookup?.session_id === 'overflow-session' ? new Set([Restriction.FORCE_OVERFLOW]) : new Set()
+            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((_token, headers) =>
+                headers?.session_id === 'overflow-session' ? new Set([RestrictionType.FORCE_OVERFLOW]) : new Set()
             )
 
             const result = handler.applyRestrictions(messages)
@@ -362,13 +357,10 @@ describe('SessionRecordingRestrictionHandler', () => {
             expect(result).toEqual(messages)
             expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
                 token: 'token-1',
-                distinct_id: undefined,
                 session_id: 'session-123',
-                timestamp: undefined,
-                event: undefined,
-                uuid: undefined,
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
         })
 
@@ -392,11 +384,11 @@ describe('SessionRecordingRestrictionHandler', () => {
                 token: 'token-1',
                 distinct_id: 'user-1',
                 session_id: 'session-123',
-                timestamp: undefined,
                 event: '$snapshot',
                 uuid: 'event-uuid-456',
                 force_disable_person_processing: false,
                 historical_migration: false,
+                skip_heatmap_processing: false,
             })
         })
 
@@ -416,7 +408,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             ]
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new Set([RestrictionType.FORCE_OVERFLOW])
             )
 
             expect(() => handlerWithoutProducer.applyRestrictions(messages)).toThrow(
@@ -444,7 +436,7 @@ describe('SessionRecordingRestrictionHandler', () => {
             ]
 
             jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(
-                new Set([Restriction.FORCE_OVERFLOW])
+                new Set([RestrictionType.FORCE_OVERFLOW])
             )
 
             const result = handler.applyRestrictions(messages)
@@ -461,7 +453,9 @@ describe('SessionRecordingRestrictionHandler', () => {
                 }),
             ]
 
-            jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(new Set([Restriction.DROP_EVENT]))
+            jest.mocked(restrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([RestrictionType.DROP_EVENT])
+            )
 
             const result = handler.applyRestrictions(messages)
 

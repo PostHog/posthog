@@ -5,7 +5,6 @@ from posthog.test.base import ClickhouseTestMixin
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
@@ -13,6 +12,7 @@ from posthog.schema import (
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
@@ -44,6 +44,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="switch_group",
@@ -59,6 +60,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                                 SourceFieldInputConfig(
                                     name="input_field_2",
@@ -66,6 +68,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                             ],
                         ),
@@ -75,7 +78,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         label="select label",
                         required=True,
                         defaultValue="1",
-                        options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="1"),
+                            SourceFieldSelectConfigOption(label="No", value="0"),
+                        ],
                     ),
                     SourceFieldSelectConfig(
                         name="select_with_fields",
@@ -83,7 +89,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         required=True,
                         defaultValue="1",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 1",
                                 value="option_1",
                                 fields=cast(
@@ -95,11 +101,12 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_1 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 2",
                                 value="option_2",
                                 fields=cast(
@@ -111,6 +118,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_2 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
@@ -146,6 +154,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                 ],
             ),
@@ -168,6 +177,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                 ],
             ),
@@ -189,6 +199,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                 ],
             ),
@@ -218,6 +229,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                             ],
                         ),
@@ -313,7 +325,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         required=True,
                         defaultValue="option_1",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 1",
                                 value="option_1",
                                 fields=cast(
@@ -325,11 +337,12 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_1 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="option 2",
                                 value="option_2",
                                 fields=cast(
@@ -341,6 +354,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_2 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
@@ -370,7 +384,10 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         label="select label",
                         required=True,
                         defaultValue="1",
-                        options=[Option(label="Yes", value="1"), Option(label="No", value="0")],
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="1"),
+                            SourceFieldSelectConfigOption(label="No", value="0"),
+                        ],
                     ),
                 ],
             ),
@@ -394,7 +411,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSourceType.STRIPE: config})
-        assert "from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig" in output
+        assert "from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig" in output
         assert "ssh_tunnel: SSHTunnelConfig" in output
 
     def test_source_config_type_conversion(self):
@@ -410,6 +427,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="12345",
+                        secret=False,
                     ),
                 ],
             ),
@@ -432,6 +450,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
+                        secret=False,
                     ),
                 ],
             ),
@@ -441,6 +460,39 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         assert (
             "optional_int_value: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)"
             in output
+        )
+
+    def test_optional_fields_are_sorted_after_required_fields(self):
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.STRIPE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="optional_value",
+                        label="optional value",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="optional",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="required_value",
+                        label="required value",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="123",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.STRIPE: config})
+
+        assert output.index("required_value: int = config.value(converter=int)") < output.index(
+            "optional_value: str | None = None"
         )
 
     def test_source_config_nested_class(self):
@@ -464,6 +516,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                                 SourceFieldInputConfig(
                                     name="input_field_2",
@@ -471,6 +524,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                             ],
                         ),

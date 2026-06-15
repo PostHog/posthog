@@ -1,9 +1,12 @@
+import sys
+import time
 import types
 import logging
 import threading
 import traceback
 from collections.abc import Sequence
 from contextlib import contextmanager
+from enum import StrEnum
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
@@ -11,6 +14,7 @@ from typing import Any, Optional, Union
 from django.conf import settings as app_settings
 
 import sqlparse
+import structlog
 from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -24,16 +28,17 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
-    AccessMethod,
     Feature,
     Product,
     QueryTags,
+    add_fallback_query_tags,
+    get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
 )
-from posthog.errors import ch_error_type, wrap_query_error
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
+from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -74,6 +79,133 @@ CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
 is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
 
 
+class UntaggedQueryError(Exception):
+    """Raised in DEBUG mode when a ClickHouse query is executed without product or feature tags."""
+
+
+class KillSwitchLevel(StrEnum):
+    OFF = "off"
+    LIGHT = "light"
+    FULL = "full"
+
+
+_KILL_SWITCH_EXEMPT_USERS = frozenset(
+    {
+        ClickHouseUser.BATCH_EXPORT,
+        ClickHouseUser.MIGRATIONS,
+        ClickHouseUser.OPS,
+        ClickHouseUser.BILLING,
+    }
+)
+
+_KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
+    KillSwitchLevel.LIGHT: {
+        "max_execution_time": 30,
+        "max_threads": 45,
+        "max_bytes_to_read": 5_000_000_000_000,  # 5TB
+    },
+    KillSwitchLevel.FULL: {
+        "max_execution_time": 15,
+        "max_memory_usage": 30_000_000_000,  # 30GB
+        "max_threads": 30,
+        "max_bytes_to_read": 1_000_000_000_000,  # 1TB
+    },
+}
+
+_KILL_SWITCH_SEVERITY: dict[KillSwitchLevel, int] = {
+    KillSwitchLevel.OFF: 0,
+    KillSwitchLevel.LIGHT: 1,
+    KillSwitchLevel.FULL: 2,
+}
+
+
+def get_kill_switch_level() -> KillSwitchLevel:
+    return _get_kill_switch_level(round(time.time() / 60))
+
+
+def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
+    """
+    Per-team kill switch override.
+
+    Returns FULL or LIGHT if `team_id` is in the corresponding admin-managed list,
+    else OFF. This is independent of the global `CLICKHOUSE_KILL_SWITCH` — callers
+    that want the combined effect should take the more severe of the two levels.
+    """
+    full_teams, light_teams = _get_kill_switch_team_sets(round(time.time() / 60))
+    if team_id in full_teams:
+        return KillSwitchLevel.FULL
+    if team_id in light_teams:
+        return KillSwitchLevel.LIGHT
+    return KillSwitchLevel.OFF
+
+
+def get_hedged_app_queries_enabled() -> bool:
+    return _get_hedged_app_queries_enabled(round(time.time() / 60))
+
+
+@lru_cache(maxsize=1)
+def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    except Exception:
+        return False
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
+        return KillSwitchLevel(value)
+    except Exception:
+        # posthog_instancesetting may not exist yet during initial Postgres migrations
+        return KillSwitchLevel.OFF
+
+
+@lru_cache(maxsize=1)
+def _get_kill_switch_team_sets(_ttl: int) -> tuple[frozenset[int], frozenset[int]]:
+    from posthog.models.instance_setting import get_instance_setting
+
+    try:
+        raw = get_instance_setting("CLICKHOUSE_KILL_SWITCH_FULL_TEAMS")
+        full_teams = frozenset(raw if isinstance(raw, list) else [])
+    except Exception:
+        # During an incident, silently falling back to "no override" would hide why the
+        # per-team kill switch isn't taking effect. Log so operators can see the failure.
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_FULL_TEAMS; per-team kill switch disabled for full")
+        full_teams = frozenset()
+    try:
+        raw = get_instance_setting("CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS")
+        light_teams = frozenset(raw if isinstance(raw, list) else [])
+    except Exception:
+        logger.exception("Failed to read CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS; per-team kill switch disabled for light")
+        light_teams = frozenset()
+    return full_teams, light_teams
+
+
+def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
+    """
+    Effective kill switch level: the more severe of the global level and any
+    per-team override. If `team_id` is None, returns the global level unchanged.
+
+    Examples:
+        - global=light, team=full -> full
+        - global=full,  team=light -> full
+        - global=off,   team=light -> light
+        - global=light, team=off   -> light
+    """
+    level = get_kill_switch_level()
+    if team_id is None:
+        return level
+    team_level = get_team_kill_switch_level(team_id)
+    if _KILL_SWITCH_SEVERITY[team_level] > _KILL_SWITCH_SEVERITY[level]:
+        return team_level
+    return level
+
+
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
@@ -109,7 +241,8 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @patchable
@@ -127,10 +260,52 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
+    """
+    Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
+
+    IF THE QUERY IS EXECUTED FOR ONE TEAM, YOU SHOULD SPECIFY team_id.
+
+    This function determines the appropriate workload and user for the query execution based on its
+    tags, including whether it is from a personal API key or if it pertains to specific tasks, such as
+    Celery. Depending on the workload, it adjusts query settings and logging attributes before
+    executing the query. A variety of pre- and post-query logic is performed, including metrics
+    tracking, tag updates, and potential error wrapping.
+
+    Attributes added or modified, such as tags and settings, are used to fine-tune query
+    behavior. For offline workloads, certain settings may also be altered to improve performance under
+    high load scenarios.
+
+    Various counters are incremented to monitor the number of queries started, completed, and failed.
+    Execution timings and metrics specific to the workload are tracked for analytics purposes.
+
+    Raises a specific error by wrapping the original exception, which allows for better error
+    management and debugging of failed queries.
+
+    Arguments:
+    query (str): The SQL query string to be executed.
+    args (Optional[Union[Tuple, Dict]]): Arguments referenced in the query, if any.
+    settings (Optional[Dict]): Custom ClickHouse settings for this query.
+    with_column_types (bool): Whether to include column types in the query result.
+    flush (bool): Whether to flush data (like persons and events) in testing environments.
+    workload (Workload): The workload type defining where the query should be executed. Defaults
+        to Workload.DEFAULT.
+    team_id (Optional[int]): Optional team ID used to customize query behavior.
+    readonly (bool): Specifies whether the query intends to modify data. Default is False.
+    sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
+    ch_user (ClickHouseUser): The user context for the query execution. Defaults to
+        ClickHouseUser.DEFAULT.
+
+    Returns:
+    Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
+        tuples. For insert queries, it may return the number of rows written.
+
+    Raises:
+    ClickHouseError: Custom wrapped ClickHouse error generated in case of query execution failure.
+    """
     if not workload:
         workload = Workload.DEFAULT
         # TODO replace this by assert, sorry, no messing with ClickHouse should be possible
-        logging.warning(f"workload is None", traceback.format_stack())
+        logger.warning("workload is None", stacktrace=traceback.format_stack())
     if TEST and flush:
         try:
             from posthog.test.base import flush_persons_and_events
@@ -139,18 +314,21 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
     tags = get_query_tags()
-    is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+    # Any programmatic key auth — personal API key, project secret API key, or legacy team secret
+    # token — routes to the offline cluster as the API ClickHouse user. User-facing session/OAuth
+    # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
+    is_api_key_auth = is_api_key_access_method(tags.access_method)
 
     # When someone uses an API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
+    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
     # Make sure we always have process_query_task on the online cluster
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
@@ -170,10 +348,17 @@ def sync_execute(
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),
         **(settings or {}),
     }
+
+    kill_switch_level = KillSwitchLevel.OFF if TEST else resolve_kill_switch_level(team_id)
+    if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
+        overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
+        core_settings.update({k: min(core_settings.get(k, v), v) for k, v in overrides.items()})
+        tags.kill_switch = kill_switch_level.value
+
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
-        if is_personal_api_key:
+        if is_api_key_auth:
             ch_user = ClickHouseUser.API
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
@@ -181,69 +366,126 @@ def sync_execute(
         elif tags.feature == Feature.CACHE_WARMUP:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
-    # update tags if inside temporal (should not)
-    update_query_tags_with_temporal_info()
+    # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
+    # and being in one implies temporalio is imported — so the gate keeps the helper's module
+    # (aiohttp + pyarrow at module scope) off every other process's startup path.
+    if "temporalio" in sys.modules:
+        from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info  # noqa: PLC0415
+
+        update_query_tags_with_temporal_info()
+
+    add_fallback_query_tags(tags)
 
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
-
-    if tags.product == Product.ENDPOINTS:
+    elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
+    elif tags.product == Product.BILLING:
+        ch_user = ClickHouseUser.BILLING
 
-    while True:
-        settings = {
-            **core_settings,
-            "log_comment": tags.to_json(),
-        }
-        if workload == Workload.OFFLINE:
-            # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-            # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-            # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-            # these disruptions
+    # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
+    # hitting this error. Please don't do this. This error is to let us know about queries
+    # that are untagged. It's much better for it to throw in local dev, so that we know
+    # to tag it correctly, than it is to add an incorrect tag to avoid throwing.
+    # See `tag_queries` and `tags_context` in posthog/clickhouse/query_tagging.py for how to
+    # attach tags.
+    # Please add whichever tags are relevant, in particular use helper functions like
+    # `get_request_analytics_properties` in posthog/event_usage.py for anything that was an
+    # http request.
+    if DEBUG and not TEST and (tags.product is None or tags.feature is None):
+        missing = [name for name, value in (("product", tags.product), ("feature", tags.feature)) if value is None]
+        raise UntaggedQueryError(
+            f"sync_execute called with missing query tags: {', '.join(missing)}. "
+            "Wrap the call site in `with tags_context(product=..., feature=...):` or call "
+            "`tag_queries(product=..., feature=...)` from posthog.clickhouse.query_tagging."
+        )
+    elif (
+        not TEST
+        and ch_user in (ClickHouseUser.APP, ClickHouseUser.DEFAULT)
+        and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
+    ):
+        missing = []
+        if tags.team_id is None:
+            missing.append("team_id")
+        if tags.product is None:
+            missing.append("product")
+        if tags.kind is None:
+            missing.append("kind")
+        if tags.query_type is None:
+            missing.append("query_type")
+
+        logger.warning(
+            "sync_execute called with missing query tags",
+            tags=",".join(missing),
+            stacktrace="".join(traceback.format_stack()),
+        )
+
+    source_file, source_line = get_caller_source()
+    query_log_tags = tags.model_copy(deep=True)
+    query_log_tags.source_file = source_file
+    query_log_tags.source_line = source_line
+
+    settings = {
+        **core_settings,
+        "log_comment": query_log_tags.to_json(),
+    }
+    if workload == Workload.OFFLINE:
+        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+        # these disruptions
+        settings["use_hedged_requests"] = "0"
+    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
+        if kill_switch_level != KillSwitchLevel.OFF:
             settings["use_hedged_requests"] = "0"
-        start_time = perf_counter()
-        try:
-            QUERY_STARTED_COUNTER.labels(
-                team_id=str(team_id or ""),
-                access_method=tags.access_method or "other",
-                chargeable=str(tags.chargeable or "0"),
-            ).inc()
-            with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
-                result = client.execute(
-                    prepared_sql,
-                    params=prepared_args,
-                    settings=settings,
-                    with_column_types=with_column_types,
-                    query_id=query_id,
-                )
-                if "INSERT INTO" in prepared_sql and client.last_query.progress.written_rows > 0:
-                    result = client.last_query.progress.written_rows
-        except Exception as e:
-            exception_type = ch_error_type(e)
-            QUERY_ERROR_COUNTER.labels(
-                exception_type=exception_type,
-                query_type=query_type,
-                workload=workload.value if workload else "None",
-                chargeable=str(tags.chargeable or "0"),
-            ).inc()
-            err = wrap_query_error(e)
-            raise err from e
-        finally:
-            execution_time = perf_counter() - start_time
+        else:
+            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
+    start_time = perf_counter()
 
-            QUERY_FINISHED_COUNTER.labels(
-                team_id=str(team_id or ""),
-                access_method=tags.access_method or "other",
-                chargeable=str(tags.chargeable or "0"),
-            ).inc()
+    try:
+        QUERY_STARTED_COUNTER.labels(
+            team_id=str(team_id or ""),
+            access_method=tags.access_method or "other",
+            chargeable=str(tags.chargeable or "0"),
+        ).inc()
+        with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
+            result = client.execute(
+                prepared_sql,
+                params=prepared_args,
+                settings=settings,
+                with_column_types=with_column_types,
+                query_id=query_id,
+            )
+            if (
+                "INSERT INTO" in prepared_sql
+                and hasattr(client, "last_query")
+                and client.last_query.progress.written_rows > 0
+            ):
+                result = client.last_query.progress.written_rows
+    except Exception as e:
+        exception_type = clickhouse_error_type(e)
+        QUERY_ERROR_COUNTER.labels(
+            exception_type=exception_type,
+            query_type=query_type,
+            workload=workload.value if workload else "None",
+            chargeable=str(tags.chargeable or "0"),
+        ).inc()
+        err = wrap_clickhouse_query_error(e)
+        raise err from e
+    finally:
+        execution_time = perf_counter() - start_time
 
-            if query_counter := getattr(thread_local_storage, "query_counter", None):
-                query_counter.total_query_time += execution_time
+        QUERY_FINISHED_COUNTER.labels(
+            team_id=str(team_id or ""),
+            access_method=tags.access_method or "other",
+            chargeable=str(tags.chargeable or "0"),
+        ).inc()
 
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print("Execution time: %.6fs" % (execution_time,))  # noqa T201
+        if query_counter := getattr(thread_local_storage, "query_counter", None):
+            query_counter.total_query_time += execution_time
 
-        break
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))  # noqa T201
 
     return result
 
@@ -263,7 +505,12 @@ def query_with_columns(
     if columns_to_rename is None:
         columns_to_rename = {}
     metrics, types = sync_execute(
-        query, args, settings=settings, with_column_types=True, workload=workload, team_id=team_id
+        query,
+        args,
+        settings=settings,
+        with_column_types=True,
+        workload=workload,
+        team_id=team_id,
     )
     type_names = [key for key, _type in types]
 

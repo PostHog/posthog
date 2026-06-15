@@ -1,12 +1,12 @@
 import './LemonTabs.scss'
 
-import { IconInfo } from '@posthog/icons'
+import { IconCheckCircle, IconInfo } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { useSliderPositioning } from '../hooks'
 import { Link } from '../Link'
 import { Tooltip } from '../Tooltip'
-import { useSliderPositioning } from '../hooks'
 
 /** A tab that represents one of the options, but doesn't have any content. Render tab-dependent UI yourself. */
 export interface AbstractLemonTab<T extends string | number> {
@@ -16,6 +16,7 @@ export interface AbstractLemonTab<T extends string | number> {
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
     tooltipDocLink?: string
+    completed?: boolean
     /** data-attr to be placed on the tab button, useful for autocapture */
     'data-attr'?: string
 }
@@ -32,7 +33,7 @@ export interface LemonTabsProps<T extends string | number> {
     onChange?: (key: T) => void
     /** List of tabs. Falsy entries are ignored - they're there to make conditional tabs convenient. */
     tabs: (LemonTab<T> | null | false)[]
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
     /** data-attr to be placed on the tab container, useful for autocapture */
     'data-attr'?: string
     barClassName?: string
@@ -40,6 +41,7 @@ export interface LemonTabsProps<T extends string | number> {
     sceneInset?: boolean
     /** Pass in JSX to be sticky to the right of the tabs. */
     rightSlot?: React.ReactNode
+    rightSlotClassName?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -57,6 +59,7 @@ export function LemonTabs<T extends string | number>({
     'data-attr': dataAttr,
     sceneInset = false,
     rightSlot,
+    rightSlotClassName,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -94,11 +97,17 @@ export function LemonTabs<T extends string | number>({
                 >
                     {realTabs.map((tab) => {
                         const content = (
-                            <>
+                            <div className="relative flex items-center gap-1" data-attr={tab['data-attr']}>
                                 {tab.label}
+                                {tab.completed && (
+                                    <div className="absolute left-full -top-2 md:top-auto -ml-[2px] md:ml-1 size-4 shrink-0 flex items-center justify-center">
+                                        <IconCheckCircle className="size-4 text-success" />
+                                    </div>
+                                )}
                                 {tab.tooltip && <IconInfo className="ml-1 text-base shrink-0" />}
-                            </>
+                            </div>
                         )
+
                         return (
                             <Tooltip
                                 key={tab.key}
@@ -123,7 +132,6 @@ export function LemonTabs<T extends string | number>({
                                             : undefined
                                     }
                                     ref={tab.key === activeKey ? selectionRef : undefined}
-                                    data-attr={tab['data-attr']}
                                 >
                                     {tab.link ? (
                                         <Link className="LemonTabs__tab-content" to={tab.link}>
@@ -138,7 +146,12 @@ export function LemonTabs<T extends string | number>({
                     })}
                 </div>
                 {rightSlot && (
-                    <div className="mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4">
+                    <div
+                        className={cn(
+                            'mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-primary pr-4',
+                            rightSlotClassName
+                        )}
+                    >
                         {rightSlot}
                     </div>
                 )}

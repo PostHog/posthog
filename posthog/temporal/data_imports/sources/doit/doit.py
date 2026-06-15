@@ -3,13 +3,14 @@ import datetime
 from typing import Any, Optional
 
 import pyarrow as pa
-import requests
+import structlog
 from dateutil import parser
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_iterator
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
@@ -50,14 +51,32 @@ def build_pyarrow_schema(schema: dict[str, str]) -> pa.Schema:
     return pa.schema(fields)
 
 
-def doit_list_reports(config: DoItSourceConfig) -> list[tuple[str, str]]:
-    res = requests.get(
-        "https://api.doit.com/analytics/v1/reports", headers={"Authorization": f"Bearer {config.api_key}"}
+def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundLogger] = None) -> list[tuple[str, str]]:
+    if logger is None:
+        logger = structlog.get_logger(__name__)
+
+    res = make_tracked_session().get(
+        "https://api.doit.com/analytics/v1/reports",
+        headers={"Authorization": f"Bearer {config.api_key}"},
     )
 
     reports = res.json()["reports"]
 
-    return [(NamingConvention().normalize_identifier(report["reportName"]), report["id"]) for report in reports]
+    result = []
+    for report in reports:
+        report_name = report.get("reportName") or ""
+        report_id = report.get("id", "unknown")
+        if not report_name.strip():
+            logger.warning("Skipping DoIt report with empty name", report_id=report_id)
+            continue
+        try:
+            normalized = NamingConvention.normalize_identifier(report_name)
+            result.append((normalized, report["id"]))
+        except ValueError:
+            logger.warning("Skipping DoIt report with invalid name", report_id=report_id, report_name=report_name)
+            continue
+
+    return result
 
 
 def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
@@ -74,6 +93,16 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "id": hash_key}
 
 
+# NOTE: This source intentionally remains a SimpleSource and is not a candidate for ResumableSource.
+# `doit_source` does a small fixed request flow: it first lists reports to resolve the selected
+# report ID, then fetches that report for the requested date window. The report-fetch step returns
+# the full requested window in a single response — there is no pagination loop, next-URL,
+# continuation token, parent/child fanout, or other multi-batch checkpoint to persist mid-sync.
+# For incremental runs, `db_incremental_field_last_value` already determines `startDate` when
+# `should_use_incremental_field` is enabled. For full-refresh runs, there is no resumable progress
+# marker today; a retry simply restarts the same full request. If DoIt exposes a paginated reports
+# API in the future, or we explicitly chunk the `startDate`/`endDate` window, revisit this
+# decision.
 def doit_source(
     config: DoItSourceConfig,
     report_name: str,
@@ -81,7 +110,7 @@ def doit_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ) -> SourceResponse:
-    all_reports = doit_list_reports(config)
+    all_reports = doit_list_reports(config, logger=logger)
     selected_reports = [id for name, id in all_reports if name == report_name]
     if len(selected_reports) == 0:
         raise Exception("Report no longer exists")
@@ -110,7 +139,7 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = requests.get(
+        res = make_tracked_session().get(
             request_uri,
             headers={"Authorization": f"Bearer {config.api_key}"},
         )
@@ -126,6 +155,9 @@ def doit_source(
         arrow_schema = build_pyarrow_schema(column_types_dict)
 
         rows: list[list[Any]] = result["result"]["rows"]
+
+        if "id" not in arrow_schema.names:
+            arrow_schema = arrow_schema.append(pa.field("id", pa.string(), nullable=False))
 
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 

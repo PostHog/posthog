@@ -5,14 +5,16 @@ import { IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { addProductIntent } from 'lib/utils/product-intents'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -21,24 +23,24 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { Breadcrumb } from '~/types'
 
 import { MessageChannels } from './Channels/MessageChannels'
-import { OptOutScene } from './OptOuts/OptOutScene'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
+import { OptOutScene } from './OptOuts/OptOutScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
+import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
-import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
-import type { workflowSceneLogicType } from './WorkflowsSceneType'
+import type { workflowsSceneLogicType } from './WorkflowsSceneType'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs'] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
 
 export type WorkflowsSceneProps = {
-    tab: WorkflowsSceneTab
+    tab?: WorkflowsSceneTab
 }
 
-export const workflowSceneLogic = kea<workflowSceneLogicType>([
+export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
-    path(() => ['scenes', 'workflows', 'workflowSceneLogic']),
+    path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),
@@ -53,18 +55,21 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props) => props],
         breadcrumbs: [
-            (_, p) => [p.tab],
-            (tab): Breadcrumb[] => {
+            (s) => [s.currentTab],
+            (currentTab): Breadcrumb[] => {
                 return [
                     {
-                        key: [Scene.Workflows, tab],
-                        name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
+                        key: [Scene.Workflows, currentTab],
+                        name: capitalizeFirstLetter(currentTab.replaceAll('_', ' ')),
                         iconType: 'workflows',
                     },
                 ]
             },
         ],
     }),
+    trackedActionToUrl(({ values }) => ({
+        setCurrentTab: () => [urls.workflows(values.currentTab)],
+    })),
     urlToAction(({ actions, values }) => {
         return {
             [urls.workflows()]: () => {
@@ -86,29 +91,20 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
 
 export const scene: SceneExport<WorkflowsSceneProps> = {
     component: WorkflowsScene,
-    logic: workflowSceneLogic,
+    logic: workflowsSceneLogic,
     paramsToProps: ({ params: { tab } }) => ({ tab }),
+    productKey: ProductKey.WORKFLOWS,
 }
 
-export function WorkflowsScene(): JSX.Element {
-    const { currentTab } = useValues(workflowSceneLogic)
+export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
+    const { currentTab } = useValues(workflowsSceneLogic(props))
     const { openSetupModal } = useActions(integrationsLogic)
     const { openNewCategoryModal } = useActions(optOutCategoriesLogic)
-    const { showNewWorkflowModal, createEmptyWorkflow } = useActions(newWorkflowLogic)
-
-    const hasWorkflowsFeatureFlag = useFeatureFlag('WORKFLOWS')
-    const canCreateTemplates = useFeatureFlag('WORKFLOWS_TEMPLATE_CREATION')
-
-    if (!hasWorkflowsFeatureFlag) {
-        return (
-            <div className="flex flex-col justify-center items-center h-full">
-                <h1 className="text-2xl font-bold">Coming soon!</h1>
-                <p className="text-sm text-muted-foreground">
-                    We're working on bringing workflows to PostHog. Stay tuned for updates!
-                </p>
-            </div>
-        )
-    }
+    const { showNewWorkflowModal } = useActions(newWorkflowLogic)
+    const newChannelRestrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const newChannelMenuItems: LemonMenuItems = [
         {
@@ -178,7 +174,9 @@ export function WorkflowsScene(): JSX.Element {
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}
-                resourceType={{ type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type' }}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Workflows].iconType || 'default_icon_type',
+                }}
                 actions={
                     <>
                         {currentTab === 'workflows' && (
@@ -189,11 +187,7 @@ export function WorkflowsScene(): JSX.Element {
                                         product_type: ProductKey.WORKFLOWS,
                                         intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                     })
-                                    if (canCreateTemplates) {
-                                        showNewWorkflowModal()
-                                    } else {
-                                        createEmptyWorkflow()
-                                    }
+                                    showNewWorkflowModal()
                                 }}
                                 type="primary"
                                 size="small"
@@ -218,6 +212,7 @@ export function WorkflowsScene(): JSX.Element {
                                     icon={<IconPlusSmall />}
                                     size="small"
                                     type="primary"
+                                    disabledReason={newChannelRestrictedReason}
                                 >
                                     New channel
                                 </LemonButton>
@@ -237,7 +232,7 @@ export function WorkflowsScene(): JSX.Element {
                     </>
                 }
             />
-            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset />
+            <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>
     )

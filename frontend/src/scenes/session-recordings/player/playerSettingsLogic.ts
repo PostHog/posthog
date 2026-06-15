@@ -1,9 +1,7 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-
-import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'
 
@@ -29,20 +27,17 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         }),
         setAutoplayDirection: (autoplayDirection: AutoplayDirection) => ({ autoplayDirection }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setQuickFilterProperties: (properties: string[]) => ({ properties }),
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPlaylistTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setURLOverrideSidebarOpen: (open: boolean) => ({ open }),
-        setIsCinemaMode: (isCinemaMode: boolean) => ({ isCinemaMode }),
+        setPlaylistCollapsed: (collapsed: boolean) => ({ collapsed }),
         setShowMetadataFooter: (showMetadataFooter: boolean) => ({ showMetadataFooter }),
+        setPlayerControlsOverlay: (playerControlsOverlay: boolean) => ({ playerControlsOverlay }),
     }),
-    connect(() => ({
-        values: [teamLogic, ['currentTeam']],
-    })),
-    reducers(({ values }) => ({
+    reducers(() => ({
         showFilters: [true, { persist: true }, { setShowFilters: (_, { showFilters }) => showFilters }],
         userPreferenceSidebarOpen: [false, { persist: true }, { setSidebarOpen: (_, { open }) => open }],
         urlOverrideSidebarOpen: [
@@ -56,15 +51,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setPreferredSidebarStacking: (_, { stacking }) => stacking,
-            },
-        ],
-        quickFilterProperties: [
-            [...(values.currentTeam?.person_display_name_properties || [])] as string[],
-            {
-                persist: true,
-            },
-            {
-                setQuickFilterProperties: (_, { properties }) => properties,
             },
         ],
         speed: [
@@ -109,11 +95,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 setHideViewedRecordings: (_, { hideViewedRecordings }) => hideViewedRecordings,
             },
         ],
-        isCinemaMode: [
+        isPlaylistCollapsed: [
             false,
             { persist: true },
             {
-                setIsCinemaMode: (_, { isCinemaMode }) => isCinemaMode,
+                setPlaylistCollapsed: (_, { collapsed }) => collapsed,
             },
         ],
         showMetadataFooter: [
@@ -121,6 +107,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             // Don't persist this setting as required for export only
             {
                 setShowMetadataFooter: (_, { showMetadataFooter }) => showMetadataFooter,
+            },
+        ],
+        // Whether the seekbar + transport controls float on top of the recording or sit pinned below it in normal flow.
+        playerControlsOverlay: [
+            true,
+            { persist: true },
+            {
+                setPlayerControlsOverlay: (_, { playerControlsOverlay }) => playerControlsOverlay,
             },
         ],
     })),
@@ -149,7 +143,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                         case 'any-user':
                             return 'Hide all viewed recordings'
                         default:
-                            return 'Show all recordings'
+                            return 'Viewed and unviewed recordings'
                     }
                 }
             },
@@ -162,6 +156,11 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         },
         setSkipInactivitySetting: ({ skipInactivitySetting }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivitySetting })
+        },
+        setPlayerControlsOverlay: ({ playerControlsOverlay }) => {
+            posthog.capture('recording player controls overlay toggled', {
+                player_controls_overlay: playerControlsOverlay,
+            })
         },
     }),
 
@@ -198,6 +197,8 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
             if (values.showMetadataFooter !== showMetadataFooter) {
                 actions.setShowMetadataFooter(showMetadataFooter)
+                // If we display metadata footer (for analysis purposes), we also want to skip inactivity to speed up rendering
+                actions.setSkipInactivitySetting(showMetadataFooter)
             }
         },
         // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive

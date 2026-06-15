@@ -3,22 +3,40 @@ import { useActions, useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { EmailUnavailableForInvitesBanner, InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 import { InvitesTable } from 'scenes/settings/organization/Invites'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
+import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
-import { onboardingLogic } from './onboardingLogic'
 
-export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
+export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
-    const { invitesToSend, canSubmit: canSubmitInvites } = useValues(inviteLogic)
-    const { invites } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel, invites } = useValues(inviteLogic)
+
+    const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
+    const hasInvalidEmail = invitesToSend.some(({ isValid }) => !isValid)
+    const emailServiceAvailable = !!preflight?.email_service_available
+
+    // The continue button is the gate that sends pending invites when email service is available.
+    // Per-row submit buttons handle the case when email service is unavailable, so Continue just
+    // advances. We only block Continue when the user has entered something that we can't submit —
+    // otherwise the click was a silent no-op.
+    const continueDisabledReason: string | undefined =
+        emailServiceAvailable && hasFilledEmail
+            ? hasInvalidEmail
+                ? 'Please enter a valid email address'
+                : inviteContainsOwnerLevel && !canSubmitInvites
+                  ? 'Type "send invites" to confirm owner-level invites'
+                  : !canSubmitInvites
+                    ? 'Please fill out all fields'
+                    : undefined
+            : undefined
 
     const titlePrefix = (): string => {
         switch (productKey) {
@@ -55,13 +73,13 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
     return (
         <OnboardingStep
             title="Invite teammates"
-            stepKey={stepKey}
-            onContinue={() =>
-                preflight?.email_service_available &&
-                invitesToSend[0]?.target_email &&
-                canSubmitInvites &&
-                inviteTeamMembers()
-            }
+            stepKey={OnboardingStepKey.INVITE_TEAMMATES}
+            continueDisabledReason={continueDisabledReason}
+            onContinue={() => {
+                if (emailServiceAvailable && hasFilledEmail && canSubmitInvites) {
+                    inviteTeamMembers()
+                }
+            }}
         >
             <div className="mb-6 mt-6">
                 <p>
@@ -89,3 +107,5 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         </OnboardingStep>
     )
 }
+
+OnboardingInviteTeammates.stepKey = OnboardingStepKey.INVITE_TEAMMATES

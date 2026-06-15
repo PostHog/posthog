@@ -387,10 +387,11 @@ class ConversationCompactionManager(ABC):
     ) -> ContextMessage | None:
         """
         Get mode reminder message with context-aware checking.
-        Checks initial mode message in all_messages, but mode evidence in window_messages.
+        Only injects a reminder if the mode is not evident in the window.
         """
-        # Check if initial mode message exists in full history
-        if self._has_initial_mode_message(all_messages):
+        # Check if initial mode message exists in the window (not full history,
+        # since compaction may have moved it outside the window)
+        if self._has_initial_mode_message(window_messages):
             return None
         # Check if mode is evident in the current window
         if self._is_mode_evident_in_window(window_messages):

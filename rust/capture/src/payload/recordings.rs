@@ -9,7 +9,7 @@ use axum::extract::{MatchedPath, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use metrics::counter;
-use tracing::{instrument, warn, Span};
+use tracing::{info, instrument, Span};
 
 use crate::{
     api::CaptureError,
@@ -18,6 +18,7 @@ use crate::{
     extractors::extract_body_with_timeout,
     payload::{decompress_payload, extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
+    token::validate_token,
     v0_request::ProcessingContext,
 };
 
@@ -98,7 +99,7 @@ pub async fn handle_recording_payload(
     debug_or_info!(chatty_debug_enabled, metadata=?metadata, event_count=?events.len(), "hydrated events");
 
     if events.is_empty() {
-        warn!("rejected empty recording batch");
+        info!(metadata = ?metadata, "rejected empty recording batch");
         return Err(CaptureError::EmptyBatch);
     }
 
@@ -108,6 +109,7 @@ pub async fn handle_recording_payload(
     let token = events[0]
         .extract_token()
         .ok_or(CaptureError::NoTokenError)?;
+    validate_token(&token)?;
     Span::current().record("token", &token);
 
     counter!("capture_events_received_total").increment(events.len() as u64);

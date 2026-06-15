@@ -1,5 +1,9 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
+
+import { posthog } from 'lib/posthog-typed'
+
+import { AvailableFeature } from '~/types'
 
 import { organizationLogic } from '../../scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from '../../scenes/teamLogic'
@@ -59,7 +63,22 @@ export function useRestrictedArea({
             )}s and up. Your level is ${membershipLevelToName.get(scopeAccessLevel)}.`
         }
         return null
-    }, [currentOrganization, currentTeam]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [currentOrganization, currentTeam, minimumAccessLevel]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (!restrictionReason || !currentTeam?.id || !currentOrganization?.id) {
+            return
+        }
+
+        posthog.capture('restricted_area_accessed', {
+            restriction_reason: restrictionReason,
+            scope,
+            minimum_access_level: minimumAccessLevel,
+            team_id: currentTeam?.id,
+            organization_id: currentOrganization?.id,
+            platform_feature: AvailableFeature.ACCESS_CONTROL,
+        })
+    }, [restrictionReason, scope, minimumAccessLevel, currentTeam?.id, currentOrganization?.id])
 
     return restrictionReason
 }

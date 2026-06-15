@@ -1,4 +1,5 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import {
     ErrorEventId,
@@ -15,13 +16,12 @@ import {
     getFingerprintRecords,
     getRecordingStatus,
     getSessionId,
-    stacktraceHasInAppFrames,
 } from 'lib/components/Errors/utils'
 import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
+import { KeyedStackFrameRecords, stackFrameLogic } from './Frame/stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -69,7 +69,6 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
             (properties: ErrorEventProperties) => (properties ? getFingerprintRecords(properties) : []),
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
-        hasInAppFrames: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasInAppFrames(excList)],
         sessionId: [
             (s) => [s.properties],
             (properties: ErrorEventProperties) => (properties ? getSessionId(properties) : undefined),
@@ -91,7 +90,10 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         frames: [
             (s) => [s.exceptionList],
             (exceptionList: ErrorTrackingException[]) => {
-                return exceptionList.flatMap((e) => e.stacktrace?.frames ?? []) as ErrorTrackingStackFrame[]
+                return exceptionList.flatMap((e) => {
+                    const frames = e.stacktrace?.frames
+                    return Array.isArray(frames) ? frames : []
+                }) as ErrorTrackingStackFrame[]
             },
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
@@ -123,16 +125,14 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         ],
     }),
 
-    afterMount(({ values, actions }) => {
-        const rawIds: string[] = values.exceptionList.flatMap((e) => e.stacktrace?.frames).map((frame) => frame.raw_id)
-        actions.loadFromRawIds(rawIds)
-    }),
+    subscriptions(({ actions }) => ({
+        frames: (frames) => {
+            const rawIds: string[] = frames.map((frame: ErrorTrackingStackFrame) => frame.raw_id)
+            actions.loadFromRawIds(rawIds)
+        },
+    })),
 ])
 
-function hasInAppFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some(({ stacktrace }) => stacktraceHasInAppFrames(stacktrace))
-}
-
 function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+    return exceptionList.some((e) => !!e.stacktrace)
 }

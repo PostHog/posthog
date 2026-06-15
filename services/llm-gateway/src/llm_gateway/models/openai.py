@@ -25,3 +25,11 @@ class ResponsesRequest(BaseModel):
     stream: bool = False
     max_output_tokens: int | None = None
     previous_response_id: str | None = None
+
+
+class TranscriptionRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    model: str
+    file: tuple[str, bytes, str]  # (filename, content, content_type)
+    language: str | None = None

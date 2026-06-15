@@ -7,9 +7,9 @@ import pytest
 import pytest_asyncio
 from psycopg import sql
 
-from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     AWSCredentials,
     ConnectionParameters,
@@ -28,8 +28,8 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     MISSING_REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
-    has_valid_credentials,
 )
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
@@ -466,12 +466,12 @@ async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_run
     new_event = new_events[0]
     new_event_properties = new_event["properties"] or {}
     assert len(rows) == 1, "Previous session row still present in Redshift"
-    assert (
-        rows[0]["session_id"] == new_event_properties["$session_id"]
-    ), "Redshift row does not match expected `session_id`"
-    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(
-        tzinfo=dt.UTC
-    ), "Redshift data was not updated with new timestamp"
+    assert rows[0]["session_id"] == new_event_properties["$session_id"], (
+        "Redshift row does not match expected `session_id`"
+    )
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC), (
+        "Redshift data was not updated with new timestamp"
+    )
 
 
 async def test_copy_into_redshift_activity_handles_person_schema_changes(
@@ -730,4 +730,4 @@ async def test_copy_into_redshift_activity_handles_data_over_string_limit(
 
     assert result.error is not None
     assert result.error.type == "StringLimitExceededError"
-    assert "Consider switching this column to 'SUPER' type" in result.error.message
+    assert "'json_parse_truncate_strings' setting can be enabled" in result.error.message

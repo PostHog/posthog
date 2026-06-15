@@ -7,8 +7,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     CompareFilter,
-    DataVisualizationNode,
-    HogQLQuery,
     InsightVizNode,
     NodeKind,
     QuerySchema,
@@ -16,6 +14,7 @@ import {
     WebAnalyticsPropertyFilters,
     WebPageURLSearchQuery,
     WebStatsBreakdown,
+    WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -24,6 +23,7 @@ import {
     InsightLogicProps,
     IntervalType,
     PropertyFilterType,
+    PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
@@ -42,6 +42,7 @@ import {
     WebTileLayout,
     parseWebAnalyticsURL,
 } from './common'
+import { PROPERTY_PATHNAME } from './constants'
 import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -88,55 +89,52 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     ]
 }
 
-const INTERVAL_FUNCTIONS: Record<IntervalType, string> = {
-    second: 'toStartOfSecond',
-    minute: 'toStartOfMinute',
-    hour: 'toStartOfHour',
-    day: 'toStartOfDay',
-    week: 'toStartOfWeek',
-    month: 'toStartOfMonth',
-}
-
-const getIntervalFunction = (interval: IntervalType): string => INTERVAL_FUNCTIONS[interval] ?? INTERVAL_FUNCTIONS.day
-
-const createAvgTimeOnPageHogQLQuery = (
-    host: string,
+const createTimeOnPageTrendsQuery = (
     pathname: string,
     filterTestAccounts: boolean,
     interval: IntervalType,
     dateRange: { date_from: string | null; date_to: string | null }
-): HogQLQuery => {
-    const intervalFn = getIntervalFunction(interval)
+): InsightVizNode<TrendsQuery> => {
     return {
-        kind: NodeKind.HogQLQuery,
-        query: `
-SELECT
-    ${intervalFn}(ts) as period,
-    avg(session_avg_duration) as avg_time_on_page
-FROM (
-    SELECT
-        e.session.session_id as session_id,
-        min(e.timestamp) as ts,
-        avg(toFloat(e.properties.$prev_pageview_duration)) as session_avg_duration
-    FROM events as e
-    ANY LEFT JOIN events as prev
-        ON e.properties.$prev_pageview_id = toString(prev.uuid)
-    WHERE
-        e.event IN ('$pageview', '$pageleave', '$screen')
-        AND e.properties.$prev_pageview_pathname = {pathname}
-        AND prev.properties.$host = {host}
-    GROUP BY e.session.session_id
-)
-GROUP BY period
-ORDER BY period`,
-        filters: {
+        kind: NodeKind.InsightVizNode,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    math: PropertyMathType.P90,
+                    math_property: '$prev_pageview_duration',
+                    properties: [
+                        {
+                            type: PropertyFilterType.EventMetadata,
+                            key: 'event',
+                            operator: PropertyOperator.In,
+                            value: ['$pageview', '$pageleave', '$screen'],
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$prev_pageview_pathname',
+                            operator: PropertyOperator.Exact,
+                            value: pathname,
+                        },
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$prev_pageview_duration',
+                            operator: PropertyOperator.IsSet,
+                            value: PropertyOperator.IsSet,
+                        },
+                    ],
+                },
+            ],
+            interval,
+            dateRange: { date_from: dateRange.date_from, date_to: dateRange.date_to },
             filterTestAccounts,
-            dateRange,
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                aggregationAxisFormat: 'duration',
+            },
         },
-        values: {
-            pathname,
-            host,
-        },
+        embedded: true,
     }
 }
 
@@ -214,16 +212,47 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             {
                 loadPagesUrls: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
                     await breakpoint(100) // debounce the typing
+                    const dateRange = {
+                        date_from: values.dateFilter.dateFrom,
+                        date_to: values.dateFilter.dateTo,
+                    }
+
+                    if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
+                        const response = await api.query<WebStatsTableQuery>(
+                            setLatestVersionsOnQuery({
+                                kind: NodeKind.WebStatsTableQuery,
+                                breakdownBy: WebStatsBreakdown.Page,
+                                includeHost: true,
+                                dateRange,
+                                properties: searchTerm
+                                    ? [
+                                          {
+                                              type: PropertyFilterType.Event,
+                                              key: PROPERTY_PATHNAME,
+                                              operator: PropertyOperator.IContains,
+                                              value: searchTerm,
+                                          },
+                                      ]
+                                    : [],
+                                limit: 100,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            })
+                        )
+                        breakpoint()
+                        return (response.results ?? []).flatMap((row): PageURLSearchResult[] => {
+                            const url = Array.isArray(row) ? row[0] : null
+                            return typeof url === 'string' && url ? [{ url }] : []
+                        })
+                    }
+
                     const response = await api.query<WebPageURLSearchQuery>(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.WebPageURLSearchQuery,
                             searchTerm: searchTerm,
                             stripQueryParams: true,
-                            dateRange: {
-                                date_from: values.dateFilter.dateFrom,
-                                date_to: values.dateFilter.dateTo,
-                            },
+                            dateRange,
                             properties: [],
+                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                         })
                     )
                     breakpoint() // ensure that if more typing has happened since we sent the request, we don't update the state
@@ -367,31 +396,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
 
                 const parsedUrl = parseWebAnalyticsURL(pageUrl)
-                const avgTimeOnPageTrendQuery: DataVisualizationNode | undefined =
+                const avgTimeOnPageTrendQuery: InsightVizNode<TrendsQuery> | undefined =
                     parsedUrl.isValid && parsedUrl.host && parsedUrl.pathname
-                        ? {
-                              kind: NodeKind.DataVisualizationNode,
-                              source: createAvgTimeOnPageHogQLQuery(
-                                  parsedUrl.host,
-                                  parsedUrl.pathname,
-                                  shouldFilterTestAccounts,
-                                  dateFilter.interval,
-                                  dateRange
-                              ),
-                              display: ChartDisplayType.ActionsLineGraph,
-                              chartSettings: {
-                                  xAxis: { column: 'period' },
-                                  yAxis: [
-                                      {
-                                          column: 'avg_time_on_page',
-                                          settings: {
-                                              display: { label: 'Average time' },
-                                              formatting: { suffix: ' seconds', decimalPlaces: 2 },
-                                          },
-                                      },
-                                  ],
-                              },
-                          }
+                        ? createTimeOnPageTrendsQuery(
+                              parsedUrl.pathname,
+                              shouldFilterTestAccounts,
+                              dateFilter.interval,
+                              dateRange
+                          )
                         : undefined
 
                 return {
@@ -431,7 +443,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             () => [],
             () =>
                 (tileId: TileId, tabId?: string): InsightLogicProps => ({
-                    dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
+                    dashboardItemId: `new-AdHoc.${tileId}${tabId ? `-${tabId}` : ''}`,
                     loadPriority: 0,
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                 }),
@@ -521,6 +533,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             description,
                         },
                         canOpenModal: true,
+                        canOpenInsight: true,
                     }
                 }
 
@@ -546,23 +559,25 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                     title: 'Trends over time',
                                     description: 'Key metrics for this page over time',
                                 },
+                                canOpenInsight: true,
                             },
                             queries.avgTimeOnPageTrendQuery &&
                             featureFlags[FEATURE_FLAGS.PAGE_REPORTS_AVERAGE_PAGE_VIEW]
                                 ? {
                                       kind: 'query',
                                       tileId: TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND,
-                                      title: 'Average time on page',
+                                      title: 'Time on page',
                                       query: queries.avgTimeOnPageTrendQuery,
                                       insightProps: createInsightProps(TileId.PAGE_REPORTS_AVG_TIME_ON_PAGE_TREND),
                                       layout: {
                                           className: 'w-full min-h-[300px]',
                                       },
                                       docs: {
-                                          title: 'Average time on page',
-                                          description: 'Average time visitors spend on this page',
+                                          title: 'Time on page',
+                                          description: 'The 90th percentile of time users spent on this page.',
                                       },
                                       canOpenModal: false,
+                                      canOpenInsight: true,
                                   }
                                 : null,
                         ].filter(Boolean) as WebAnalyticsTile[],
@@ -750,7 +765,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         ],
     },
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setPageUrlSearchTerm: ({ searchTerm }) => {
             actions.loadPages(searchTerm)
         },
@@ -759,6 +774,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         },
         loadPages: ({ searchTerm }) => {
             actions.loadPagesUrls({ searchTerm })
+        },
+        setDates: () => {
+            if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
+                actions.loadPages(values.pageUrlSearchTerm)
+            }
         },
     }),
 

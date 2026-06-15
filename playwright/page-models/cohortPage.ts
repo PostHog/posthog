@@ -2,7 +2,7 @@ import { Page } from '@playwright/test'
 
 import { delay } from 'lib/utils'
 
-import { expect } from '../utils/playwright-test-base'
+import { expect } from '../utils/workspace-test-base'
 
 export class CohortPage {
     constructor(private readonly page: Page) {}
@@ -22,6 +22,6 @@ export class CohortPage {
         await this.page.click('[data-attr="save-cohort"]')
 
         await expect(this.page.locator('[data-attr="success-toast"]')).toHaveText(/Cohort saved/)
-        await this.page.locator('[data-attr="toast-close-button"]').click()
+        await this.page.locator('[data-attr="toast-close-button"]').first().click()
     }
 }

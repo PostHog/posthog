@@ -20,7 +20,6 @@ from posthog.constants import (
     FunnelOrderType,
 )
 from posthog.models import Entity, Filter, Team
-from posthog.models.action.util import format_action_filter
 from posthog.models.property import PropertyName
 from posthog.models.property.util import (
     box_value,
@@ -37,6 +36,8 @@ from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
 from posthog.utils import generate_short_id, relative_date_parse
+
+from products.actions.backend.models.util import format_action_filter
 
 
 class ClickhouseFunnelBase(ABC):
@@ -123,9 +124,9 @@ class ClickhouseFunnelBase(ABC):
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
-            name = step.get_action().name
+            name = step.get_action(self._team.pk).name
         else:
-            name = step.id
+            name = str(step.id) if step.id is not None else None
 
         return {
             "action_id": step.id,
@@ -237,7 +238,7 @@ class ClickhouseFunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value)
+                            get_breakdown_cohort_name(breakdown_value, self._team)
                             if self._filter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -289,7 +290,6 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
-            settings={"allow_experimental_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -342,7 +342,7 @@ class ClickhouseFunnelBase(ABC):
         conditions: list[str] = []
         for i in range(1, max_steps):
             conditions.append(
-                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i-1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
+                f"if(isNotNull(latest_{i}) AND latest_{i} <= latest_{i - 1} + INTERVAL {self._filter.funnel_window_interval} {self._filter.funnel_window_interval_unit_ch()}, "
                 f"dateDiff('second', toDateTime(latest_{i - 1}), toDateTime(latest_{i})), NULL) step_{i}_conversion_time"
             )
 
@@ -461,6 +461,8 @@ class ClickhouseFunnelBase(ABC):
             all_step_cols.extend(step_cols)
 
         for exclusion_id, entity in enumerate(self._filter.exclusions):
+            if entity.funnel_from_step is None:
+                continue
             step_cols = self._get_step_col(
                 entity,
                 entity.funnel_from_step,
@@ -509,7 +511,7 @@ class ClickhouseFunnelBase(ABC):
             # so just select that. Except for the empty case, where select the default
 
             if self._query_has_array_breakdown():
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
+                default_breakdown_value = f"""[{",".join(["''" for _ in range(len(self._filter.breakdown or []))])}]"""
                 # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
                 breakdown_selector = (
                     f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
@@ -528,7 +530,7 @@ class ClickhouseFunnelBase(ABC):
             SELECT *, prop
             FROM ({inner_query})
             ARRAY JOIN prop_vals as prop
-            {"WHERE prop != []" if self._query_has_array_breakdown() else ''}
+            {"WHERE prop != []" if self._query_has_array_breakdown() else ""}
         """
 
     def _get_steps_conditions(self, length: int) -> str:
@@ -558,7 +560,7 @@ class ClickhouseFunnelBase(ABC):
     def _build_step_query(self, entity: Entity, index: int, entity_name: str, step_prefix: str) -> str:
         filters = self._build_filters(entity, index, entity_name)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = entity.get_action()
+            action = entity.get_action(self._team.pk)
             for action_step_event in action.get_step_events():
                 if entity_name not in self.params[entity_name]:
                     self.params[entity_name].append(action_step_event)
@@ -667,11 +669,11 @@ class ClickhouseFunnelBase(ABC):
         statement = None
         for i in range(max_steps - 1, -1, -1):
             if i == max_steps - 1:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,step_{i}_matching_event)"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,step_{i}_matching_event)"
             elif i == 0:
                 statement = f"if(isNull(latest_0),(null,null,null,null),{statement})"
             else:
-                statement = f"if(isNull(latest_{i}),step_{i-1}_matching_event,{statement})"
+                statement = f"if(isNull(latest_{i}),step_{i - 1}_matching_event,{statement})"
         return f",{statement} as final_matching_event" if statement else ""
 
     def _get_matching_events(self, max_steps: int):
@@ -792,7 +794,7 @@ class ClickhouseFunnelBase(ABC):
 
             breakdown = self._filter.breakdown
             if isinstance(breakdown, list):
-                expressions = [translate_hogql(exp, self._filter.hogql_context) for exp in breakdown]
+                expressions = [translate_hogql(str(exp), self._filter.hogql_context) for exp in breakdown]
                 expression = f"array({','.join(expressions)})"
             else:
                 expression = translate_hogql(cast(str, breakdown), self._filter.hogql_context)
@@ -817,10 +819,11 @@ class ClickhouseFunnelBase(ABC):
             BreakdownAttributionType.FIRST_TOUCH,
             BreakdownAttributionType.LAST_TOUCH,
         ]:
+            attribution_prop_alias = "prop_attribution"
             prop_conditional = (
-                "notEmpty(arrayFilter(x -> notEmpty(x), prop))"
+                f"notEmpty(arrayFilter(x -> notEmpty(x), {attribution_prop_alias}))"
                 if self._query_has_array_breakdown()
-                else "isNotNull(prop)"
+                else f"isNotNull({attribution_prop_alias})"
             )
 
             aggregate_operation = (
@@ -829,9 +832,13 @@ class ClickhouseFunnelBase(ABC):
                 else "argMaxIf"
             )
 
-            breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            breakdown_window_selector = (
+                f"{aggregate_operation}({attribution_prop_alias}, timestamp, {prop_conditional})"
+            )
             prop_window = f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals"
-            return ",".join([basic_prop_selector, "prop_basic as prop", prop_window]), basic_prop_params
+            return ",".join(
+                [basic_prop_selector, f"prop_basic as {attribution_prop_alias}", prop_window]
+            ), basic_prop_params
         else:
             # ALL_EVENTS
             return ",".join([basic_prop_selector, "prop_basic as prop"]), basic_prop_params

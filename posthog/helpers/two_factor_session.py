@@ -1,5 +1,8 @@
+import json
 import time
 import datetime
+from dataclasses import dataclass
+from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser
@@ -9,15 +12,105 @@ from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
 import structlog
+import posthoganalytics
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available
+from posthog.email import is_email_available, is_http_email_service_available
+from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
 from posthog.models.user import User
+from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
+
+EMAIL_MFA_BYPASS_REDIS_KEY = "email_mfa_bypass_emails"
+
+
+def is_email_mfa_bypass(email: str) -> bool:
+    return bool(get_client().sismember(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower()))
+
+
+def add_email_mfa_bypass(email: str) -> None:
+    get_client().sadd(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
+
+
+def remove_email_mfa_bypass(email: str) -> None:
+    get_client().srem(EMAIL_MFA_BYPASS_REDIS_KEY, email.lower())
+
+
+# Global kill-switch: when this Redis key is present, email MFA verification is skipped for every
+# user (e.g. while transactional email delivery is down and the verification link can't be
+# delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
+# Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
+EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY = "email_mfa_global_disable"
+MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
+
+
+def is_email_mfa_globally_disabled() -> bool:
+    # Fail closed: if Redis is unreachable, keep email MFA enforced (the secure default) rather than
+    # silently dropping the second factor — and never let a Redis hiccup break the login flow.
+    try:
+        return bool(get_client().exists(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY))
+    except Exception:
+        mfa_logger.exception("Failed to read email MFA global disable flag; keeping email MFA enforced")
+        return False
+
+
+def get_email_mfa_global_disable() -> Optional[dict]:
+    try:
+        client = get_client()
+        raw = client.get(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        if not raw:
+            return None
+        data = json.loads(raw)
+        ttl = client.ttl(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+        data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
+        return data
+    except Exception:
+        mfa_logger.exception("Failed to read email MFA global disable state")
+        return None
+
+
+def set_email_mfa_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("A reason is required to disable email MFA.")
+    if not 0 < ttl_seconds <= MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS:
+        raise ValueError(
+            f"TTL must be between 1 second and {MAX_EMAIL_MFA_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
+        )
+    payload = json.dumps(
+        {
+            "reason": reason,
+            "disabled_by": disabled_by,
+            "disabled_at": datetime.datetime.now(datetime.UTC).isoformat(),
+        }
+    )
+    get_client().set(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY, payload, ex=ttl_seconds)
+
+
+def clear_email_mfa_global_disable() -> None:
+    get_client().delete(EMAIL_MFA_GLOBAL_DISABLE_REDIS_KEY)
+
+
+def has_passkeys(user: User) -> bool:
+    """
+    Returns True if the user has any verified passkeys, False otherwise.
+
+    Unlike TOTP devices which have a single default device, users can have multiple passkeys
+    and they're all equivalent. This function simply checks if the user has any verified passkeys.
+
+    Args:
+        user: The user to check for passkeys
+
+    Returns:
+        bool: True if user has verified passkeys, False otherwise
+    """
+    return WebauthnCredential.objects.filter(user=user, verified=True).exists()
+
 
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
@@ -126,7 +219,9 @@ def enforce_two_factor(request, user):
             return
 
         device = default_device(user)
-        if not device:
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+        if not device and not passkeys_enabled_for_2fa:
             raise PermissionDenied(detail="2FA setup required", code="two_factor_setup_required")
 
         if not is_two_factor_verified_in_session(request._request):
@@ -167,7 +262,11 @@ def is_domain_sso_enforced(request: HttpRequest):
 
 def is_sso_authentication_backend(request: HttpRequest):
     SSO_AUTHENTICATION_BACKENDS = []
-    NON_SSO_AUTHENTICATION_BACKENDS = ["axes.backends.AxesBackend", "django.contrib.auth.backends.ModelBackend"]
+    NON_SSO_AUTHENTICATION_BACKENDS = [
+        "axes.backends.AxesBackend",
+        "django.contrib.auth.backends.ModelBackend",
+        "posthog.auth.WebauthnBackend",
+    ]
 
     if not hasattr(request, "session"):
         return False
@@ -259,33 +358,83 @@ class EmailMFATokenGenerator(PasswordResetTokenGenerator):
 email_mfa_token_generator = EmailMFATokenGenerator()
 
 
+@dataclass
+class EmailMFACheckResult:
+    should_send: bool
+    suppression_bypassed: bool = False
+    suppression_reason: Optional[str] = None
+    suppression_cached: bool = False
+
+
 class EmailMFAVerifier:
-    def should_send_email_mfa_verification(self, user: User) -> bool:
+    def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(user.distinct_id),
+                event="email_mfa_bypassed_due_to_suppression",
+                properties={
+                    "reason": reason,
+                    "cached": cached,
+                },
+            )
+        except Exception as e:
+            mfa_logger.warning(
+                "Failed to capture email MFA suppression bypass event",
+                user_id=user.pk,
+                error=str(e),
+            )
+
+    def should_send_email_mfa_verification(self, user: User) -> EmailMFACheckResult:
+        if is_email_mfa_globally_disabled():
+            return EmailMFACheckResult(should_send=False)
+
         if is_dev_mode() and not settings.TEST:
-            return False
+            return EmailMFACheckResult(should_send=False)
 
         if not is_email_available(with_absolute_urls=True):
-            return False
+            return EmailMFACheckResult(should_send=False)
 
-        try:
-            import posthoganalytics
-
-            organization = user.organization
-            if not organization:
-                return False
-
-            return posthoganalytics.feature_enabled(
-                "email-mfa",
-                str(user.distinct_id),
-                groups={"organization": str(organization.id)},
+        if not is_http_email_service_available():
+            mfa_logger.info(
+                "Email MFA bypassed - HTTP email service not configured",
+                user_id=user.pk,
             )
-        except Exception:
-            return False
+            self._capture_suppression_bypass_event(user, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE, False)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE,
+                suppression_cached=False,
+            )
+
+        if is_email_mfa_bypass(user.email):
+            mfa_logger.info("Email MFA bypassed via admin bypass list", user_id=user.pk)
+            return EmailMFACheckResult(should_send=False)
+
+        suppression_result = check_esp_suppression(user.email)
+        if suppression_result.is_suppressed:
+            reason = suppression_result.reason or ""
+            from_cache = suppression_result.from_cache
+            mfa_logger.info(
+                "Email MFA bypassed due to ESP suppression",
+                user_id=user.pk,
+                reason=reason,
+                cached=from_cache,
+            )
+            self._capture_suppression_bypass_event(user, reason, from_cache)
+            return EmailMFACheckResult(
+                should_send=False,
+                suppression_bypassed=True,
+                suppression_reason=reason,
+                suppression_cached=from_cache,
+            )
+
+        return EmailMFACheckResult(should_send=True)
 
     def create_token_and_send_email_mfa_verification(self, request: HttpRequest, user: User) -> bool:
         from posthog.tasks import email
 
-        if not self.should_send_email_mfa_verification(user):
+        if not self.should_send_email_mfa_verification(user).should_send:
             return False
 
         try:

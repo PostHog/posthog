@@ -8,6 +8,7 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
@@ -23,6 +24,9 @@ class VercelTestBase(APIBaseTest):
         self.installation_id = self.TEST_INSTALLATION_ID
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
         self.installation = OrganizationIntegration.objects.create(
             organization=self.organization,

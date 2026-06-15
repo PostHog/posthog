@@ -30,14 +30,16 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.utils import human_list
 
+from products.posthog_ai.backend.models.assistant import CoreMemory
+
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.core.agent_modes import SlashCommandName
+from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
@@ -46,11 +48,11 @@ from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import CoreMemory
 
-from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
+from .parsers import check_memory_collection_completed, compressed_memory_parser
 from .prompts import (
     ENQUIRY_INITIAL_MESSAGE,
+    ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
     INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT,
@@ -105,7 +107,10 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             runner = EventTaxonomyQueryRunner(
                 team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
             )
-            return runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            return runner.run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                analytics_props={"source": EventSource.POSTHOG_AI},
+            )
 
         return await database_sync_to_async(run_query, thread_sensitive=False)()
 
@@ -156,12 +161,13 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
 
         retrieved_prop = await self._aretrieve_context(config=config)
 
-        # No host or app bundle ID found
+        # No host or app bundle ID found - tell the user we couldn't crawl their site
+        # so the silent fallback to question-based onboarding doesn't read as a failure.
         if not retrieved_prop:
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content=ENQUIRY_INITIAL_MESSAGE,
+                        content=ENQUIRY_NO_EVENTS_INITIAL_MESSAGE,
                         id=str(uuid4()),
                     )
                 ]
@@ -411,17 +417,16 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         prompt = ChatPromptTemplate.from_messages(
             [("system", MEMORY_COLLECTOR_PROMPT)], template_format="mustache"
         ) + await self._aconstruct_messages(state)
-        chain = prompt | self._model | raise_memory_updated
+        chain = prompt | self._model | check_memory_collection_completed
 
-        try:
-            response = await chain.ainvoke(
-                {
-                    "core_memory": await self._aget_core_memory_text(),
-                    "date": timezone.now().strftime("%Y-%m-%d"),
-                },
-                config=config,
-            )
-        except MemoryCollectionCompleted:
+        response = await chain.ainvoke(
+            {
+                "core_memory": await self._aget_core_memory_text(force_enabled=True),
+                "date": timezone.now().strftime("%Y-%m-%d"),
+            },
+            config=config,
+        )
+        if response is None:
             return PartialAssistantState(memory_collection_messages=None)
         return PartialAssistantState(memory_collection_messages=[*node_messages, cast(LangchainAIMessage, response)])
 
@@ -524,8 +529,11 @@ class MemoryCollectorToolsNode(AssistantNode):
         new_messages: list[LangchainToolMessage] = []
         for tool_call, schema in zip(last_message.tool_calls, tool_calls):
             if isinstance(schema, core_memory_append):
-                await core_memory.aappend_core_memory(schema.memory_content)
-                new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+                try:
+                    await core_memory.aappend_core_memory(schema.memory_content)
+                    new_messages.append(LangchainToolMessage(content="Memory appended.", tool_call_id=tool_call["id"]))
+                except ValueError as e:
+                    new_messages.append(LangchainToolMessage(content=str(e), tool_call_id=tool_call["id"]))
             if isinstance(schema, core_memory_replace):
                 try:
                     await core_memory.areplace_core_memory(schema.original_fragment, schema.new_fragment)

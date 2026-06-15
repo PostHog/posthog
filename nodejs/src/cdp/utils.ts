@@ -6,8 +6,8 @@ import { sanitizeForUTF8 } from '~/utils/strings'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
-import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
-import { CdpDataWarehouseEvent, CdpInternalEvent } from './schema'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
+import { CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
 // ID of functions that are hidden from normal users and used by us for special testing
@@ -16,15 +16,8 @@ export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 export const MAX_LOG_LENGTH = 10000
 const TRUNCATION_SUFFIX = '... (truncated)'
 
-export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
-    'email',
-    'Email',
-    'name',
-    'Name',
-    'username',
-    'Username',
-    'UserName',
-]
+// Sync with person.py and constants.tsx
+export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = ['email', 'name', 'username']
 
 export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
@@ -94,13 +87,23 @@ export function convertToHogFunctionInvocationGlobals(
     return context
 }
 
-export function convertDataWarehouseEventToHogFunctionInvocationGlobals(
-    event: CdpDataWarehouseEvent,
-    team: Team,
+export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
+    team,
+    personId,
+    siteUrl,
+}: {
+    team: Team
+    personId: string
     siteUrl: string
-): HogFunctionInvocationGlobals {
-    const data = event.properties
+}): HogFunctionInvocationGlobals {
     const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const person: HogFunctionInvocationGlobals['person'] = {
+        id: personId,
+        properties: {},
+        name: '',
+        url: `${projectUrl}/person/${encodeURIComponent(personId)}`,
+    }
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -109,14 +112,15 @@ export function convertDataWarehouseEventToHogFunctionInvocationGlobals(
             url: projectUrl,
         },
         event: {
-            uuid: 'data-warehouse-table-uuid-do-not-use',
-            event: 'data-warehouse-table-event-do-not-use',
-            elements_chain: '', // Not applicable but left here for compatibility
-            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
-            properties: data,
+            event: '$batch_hog_flow_invocation',
+            properties: {},
+            uuid: new UUIDT().toString(),
+            distinct_id: '', // Not applicable for batch processing but left here for compatibility
+            elements_chain: '',
             timestamp: DateTime.now().toISO(),
             url: '',
         },
+        person,
     }
 
     return context

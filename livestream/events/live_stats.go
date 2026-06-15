@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"log"
 	"sync"
 	"time"
@@ -28,6 +29,8 @@ type Stats struct {
 	GlobalStore *expirable.LRU[string, NoSpaceType]
 	// Counter keeps all events count in the last COUNTER_TTL
 	Counter *SlidingWindowCounter
+
+	RedisStore *StatsInRedis
 
 	mu sync.RWMutex // guards store
 }
@@ -61,13 +64,45 @@ func (ts *Stats) GetStoreForToken(token string) *expirable.LRU[string, NoSpaceTy
 	return store
 }
 
-func (ts *Stats) KeepStats(statsChan chan CountEvent) {
-	log.Println("starting stats keeper...")
+func (ts *Stats) KeepStats(statsChan chan CountEvent, flushInterval time.Duration) {
+	log.Printf("starting stats keeper (flush interval: %s)...", flushInterval)
 
-	for event := range statsChan {
-		ts.Counter.Increment()
-		ts.GetStoreForToken(event.Token).Add(event.DistinctID, NoSpaceType{})
-		ts.GlobalStore.Add(event.DistinctID, NoSpaceType{})
-		metrics.HandledEvents.Inc()
+	pending := make(map[string]map[string]float64)
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case event, ok := <-statsChan:
+			if !ok {
+				ts.flushUsersToRedis(pending)
+				return
+			}
+
+			ts.Counter.Increment()
+			ts.GetStoreForToken(event.Token).Add(event.DistinctID, NoSpaceType{})
+			ts.GlobalStore.Add(event.DistinctID, NoSpaceType{})
+			metrics.HandledEvents.Inc()
+
+			if ts.RedisStore != nil {
+				if pending[event.Token] == nil {
+					pending[event.Token] = make(map[string]float64)
+				}
+
+				pending[event.Token][event.DistinctID] = float64(time.Now().Unix())
+			}
+		case <-ticker.C:
+			ts.flushUsersToRedis(pending)
+			pending = make(map[string]map[string]float64)
+		}
 	}
+}
+
+func (ts *Stats) flushUsersToRedis(pending map[string]map[string]float64) {
+	if ts.RedisStore == nil || len(pending) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ts.RedisStore.FlushUsers(ctx, pending)
 }

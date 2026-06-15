@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { Map } from './Map'
+import { Map, MapProps } from './Map'
 
 const coordinates: [number, number] = [0.119167, 52.205276]
 
-const meta: Meta<typeof Map> = {
+const meta: Meta<MapProps> = {
     title: 'Components/Map',
     component: Map,
     tags: ['autodocs', 'test-skip'],
@@ -15,7 +15,7 @@ const meta: Meta<typeof Map> = {
         className: 'h-60',
     },
 }
-type Story = StoryObj<typeof Map>
+type Story = StoryObj<MapProps>
 
 export const Basic: Story = {}
 

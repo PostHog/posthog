@@ -8,18 +8,24 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -33,18 +39,24 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val3'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val3'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val3'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -58,18 +70,24 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'path'), ''), 'null'), '^"|"$', '')), '%/%'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'path'), ''), 'null'), '^"|"$', '')), '%/%'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'path'), ''), 'null'), '^"|"$', '')), '%/%'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -83,13 +101,17 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -108,13 +130,17 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(nullIf(nullIf(events.mat_key, ''), 'null'), 'test_val3'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), equals(events.mat_key, 'test_val3'), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(equals(events.mat_key, 'test_val3'), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -133,13 +159,17 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(nullIf(nullIf(events.mat_path, ''), 'null')), '%/%'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), ilike(events.mat_path, '%/%'), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(ilike(events.mat_path, '%/%'), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -154,18 +184,24 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-12 12:14:05.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2023-01-12 12:14:05.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), less(events.timestamp, toDateTime64('2023-01-12 12:14:05.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -175,18 +211,24 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-12 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2022-01-12 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), less(events.timestamp, toDateTime64('2022-01-12 12:14:00.000000', 6, 'UTC')))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -196,18 +238,24 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2022-01-01 00:00:00.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2019-01-12 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2022-01-01 00:00:00.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2019-01-12 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2022-01-01 00:00:00.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2019-01-12 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -225,13 +273,13 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=600,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -249,11 +297,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=600,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
+                    enable_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
@@ -273,13 +320,13 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -301,13 +348,13 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=600,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    allow_experimental_analyzer=1,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -321,18 +368,24 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -352,12 +405,13 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -371,18 +425,24 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -396,18 +456,24 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val2'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val2'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), 'test_val2'), 0), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -421,13 +487,17 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -452,7 +522,6 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -471,13 +540,17 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -496,13 +569,17 @@
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(nullIf(nullIf(events.mat_key, ''), 'null'), 'test_val2'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), equals(events.mat_key, 'test_val2'), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(equals(events.mat_key, 'test_val2'), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -527,7 +604,7 @@
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
@@ -537,19 +614,40 @@
                                                     FROM person
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
-                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                    HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 LEFT OUTER JOIN
+                                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                    FROM person_distinct_id_overrides
+                                                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                    GROUP BY person_distinct_id_overrides.distinct_id
+                                                    HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                 LEFT JOIN
+                                                   (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+                                                    FROM person
+                                                    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                                                  (SELECT person.id AS id, max(person.version) AS version
+                                                                                                   FROM person
+                                                                                                   WHERE equals(person.team_id, 99999)
+                                                                                                   GROUP BY person.id
+                                                                                                   HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -580,13 +678,32 @@
                                                     WHERE equals(person.team_id, 99999)
                                                     GROUP BY person.id
                                                     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-  WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 LEFT OUTER JOIN
+                                                   (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                    FROM person_distinct_id_overrides
+                                                    WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                    GROUP BY person_distinct_id_overrides.distinct_id
+                                                    HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                 LEFT JOIN
+                                                   (SELECT person.id AS id, nullIf(nullIf(person.pmat_email, ''), 'null') AS properties___email
+                                                    FROM person
+                                                    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                                                  (SELECT person.id AS id, max(person.version) AS version
+                                                                                                   FROM person
+                                                                                                   WHERE equals(person.team_id, 99999)
+                                                                                                   GROUP BY person.id
+                                                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(ifNull(equals(events__person.properties___email, 'tom@posthog.com'), 0), less(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(events.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -602,19 +719,20 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -625,20 +743,21 @@
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')
-  HAVING ifNull(greater(count(), 1), 0)
+  HAVING greater(count(), 1)
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -649,14 +768,13 @@
   SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY nullIf(nullIf(events.mat_key, ''), 'null')
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -672,7 +790,7 @@
   SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY nullIf(nullIf(events.mat_key, ''), 'null')
   HAVING ifNull(greater(count(), 1), 0)
   ORDER BY count() DESC
@@ -680,7 +798,6 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
@@ -697,18 +814,24 @@
          events.distinct_id AS distinct_id,
          events.distinct_id AS distinct_id
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY events.event ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -721,18 +844,24 @@
          events.distinct_id AS distinct_id,
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), '')) AS `concat(event, ' ', properties.key)`
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -743,18 +872,24 @@
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`,
          events.event AS event
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), in(events.uuid,
+                                                (SELECT events.uuid AS uuid
+                                                 FROM events
+                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+                                                 ORDER BY tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) ASC
+                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC'))))
   ORDER BY tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -765,19 +900,20 @@
   SELECT count() AS `count()`,
          events.event AS event
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''
@@ -788,19 +924,20 @@
   SELECT count() AS `count()`,
          events.event AS event
   FROM events
-  WHERE and(equals(events.team_id, 99999), or(equals(events.event, 'sign up'), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), '%val2'), 0)), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  WHERE and(equals(events.team_id, 99999), or(equals(events.event, 'sign up'), ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''), '%val2'), 0)), less(events.timestamp, toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
   GROUP BY events.event
   ORDER BY count() DESC, events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
-                    format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
   '''

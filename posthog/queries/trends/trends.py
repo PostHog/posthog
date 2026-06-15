@@ -18,7 +18,6 @@ from posthog.constants import (
     TRENDS_LIFECYCLE,
     TRENDS_LINEAR,
 )
-from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.team import Team
@@ -28,6 +27,8 @@ from posthog.queries.trends.breakdown import TrendsBreakdown
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.total_volume import TrendsTotalVolume
 from posthog.utils import generate_cache_key, get_safe_cache
+
+from products.actions.backend.models.action import Action
 
 
 class Trends(TrendsTotalVolume, Lifecycle):
@@ -98,7 +99,7 @@ class Trends(TrendsTotalVolume, Lifecycle):
         label_to_payload = {}
         if cached_result:
             for payload in cached_result:
-                label_to_payload[f'{payload["label"]}_{payload["action"]["order"]}'] = payload
+                label_to_payload[f"{payload['label']}_{payload['action']['order']}"] = payload
 
         return new_filter, label_to_payload
 
@@ -114,7 +115,7 @@ class Trends(TrendsTotalVolume, Lifecycle):
             new_res = []
 
             for payload in result:
-                cached_series = cached_result.pop(f'{payload["label"]}_{entity_order}')
+                cached_series = cached_result.pop(f"{payload['label']}_{entity_order}")
                 data = cached_series["data"]
                 data.pop()
                 data.append(payload["data"].pop())

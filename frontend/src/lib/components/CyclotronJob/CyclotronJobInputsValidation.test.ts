@@ -1,6 +1,6 @@
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { CyclotronJobInputsValidation } from './CyclotronJobInputsValidation'
+import { CyclotronJobInputsValidation, TEMPLATING_MISMATCH_WARNINGS } from './CyclotronJobInputsValidation'
 
 describe('CyclotronJobInputsValidation', () => {
     describe('validate', () => {
@@ -10,6 +10,7 @@ describe('CyclotronJobInputsValidation', () => {
             expect(result).toEqual({
                 valid: true,
                 errors: {},
+                warnings: {},
             })
         })
 
@@ -20,6 +21,7 @@ describe('CyclotronJobInputsValidation', () => {
             expect(result).toEqual({
                 valid: true,
                 errors: {},
+                warnings: {},
             })
         })
 
@@ -94,9 +96,31 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors.age).toBe('Value must be a number')
             })
 
-            it('should validate boolean type', () => {
-                const inputs = { active: { value: 'true' } }
+            it('should validate boolean type rejects non-boolean non-string values', () => {
+                const inputs = { active: { value: 123 } }
                 const schema: CyclotronJobInputSchemaType[] = [{ key: 'active', type: 'boolean', label: 'Active' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.active).toBe('Value must be a boolean')
+            })
+
+            it('should accept string value for boolean type when templating is enabled (default)', () => {
+                const inputs = { active: { value: '{true}' } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'active', type: 'boolean', label: 'Active' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
+
+            it('should reject string value for boolean type when templating is disabled', () => {
+                const inputs = { active: { value: '{true}' } }
+                const schema: CyclotronJobInputSchemaType[] = [
+                    { key: 'active', type: 'boolean', label: 'Active', templating: false },
+                ]
 
                 const result = CyclotronJobInputsValidation.validate(inputs, schema)
 
@@ -167,7 +191,7 @@ describe('CyclotronJobInputsValidation', () => {
 
                 expect(result.valid).toBe(false)
                 expect(result.errors.email).toBe(
-                    'HTML is required, Subject is required, From is required, To is required'
+                    'HTML or plain text is required, Subject is required, From is required, To is required'
                 )
             })
 
@@ -303,7 +327,7 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(Object.keys(result.errors)).toHaveLength(3)
                 expect(result.errors.name).toBe('This field is required')
                 expect(result.errors.age).toBe('Value must be a number')
-                expect(result.errors.email).toContain('HTML is required')
+                expect(result.errors.email).toContain('HTML or plain text is required')
             })
 
             it('should handle mixed valid and invalid inputs', () => {
@@ -324,6 +348,144 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors.invalidNumber).toBe('Value must be a number')
                 expect(result.errors.validString).toBeUndefined()
                 expect(result.errors.validObject).toBeUndefined()
+            })
+        })
+
+        describe('templating mismatch warnings', () => {
+            const W = TEMPLATING_MISMATCH_WARNINGS
+            const stringSchema = (templating?: 'hog' | 'liquid'): CyclotronJobInputSchemaType[] => [
+                { key: 'identifier_value', type: 'string', label: 'Identifier value', templating: templating as any },
+            ]
+
+            it.each<{ name: string; value: string; templating?: 'hog' | 'liquid'; expected: string | undefined }>([
+                // Bare global path with no braces — literal in both engines, only the suggested brace style differs.
+                {
+                    name: 'hog field, bare global path → suggests single braces',
+                    value: 'person.properties.email',
+                    templating: 'hog',
+                    expected: W.unbracedExpressionInHogField('person.properties.email'),
+                },
+                {
+                    name: 'templating unset (defaults to hog), bare global path',
+                    value: 'person.properties.email',
+                    templating: undefined,
+                    expected: W.unbracedExpressionInHogField('person.properties.email'),
+                },
+                {
+                    name: 'liquid field, bare global path → suggests double braces',
+                    value: 'person.properties.email',
+                    templating: 'liquid',
+                    expected: W.unbracedExpressionInLiquidField('person.properties.email'),
+                },
+                // Wrong-engine brace syntax.
+                {
+                    name: 'hog field, liquid double-brace syntax',
+                    value: '{{ person.properties.email }}',
+                    templating: 'hog',
+                    expected: W.liquidSyntaxInHogField,
+                },
+                {
+                    name: 'liquid field, hog single-brace syntax referencing a global',
+                    value: '{person.properties.email}',
+                    templating: 'liquid',
+                    expected: W.hogSyntaxInLiquidField,
+                },
+                {
+                    name: 'liquid field, embedded hog template in literal text',
+                    value: 'email: {person.properties.email}',
+                    templating: 'liquid',
+                    expected: W.hogSyntaxInLiquidField,
+                },
+                {
+                    name: 'liquid field, real hog reference inside a JSON-like value',
+                    value: '{"id": {person.properties.email}}',
+                    templating: 'liquid',
+                    expected: W.hogSyntaxInLiquidField,
+                },
+                // Valid values — no warning.
+                {
+                    name: 'hog field, correctly braced expression',
+                    value: '{person.properties.email}',
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'hog field, valid embedded hog template in literal text',
+                    value: 'email: {person.properties.email}',
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'liquid field, valid double braces',
+                    value: '{{ person.properties.email }}',
+                    templating: 'liquid',
+                    expected: undefined,
+                },
+                {
+                    name: 'plain literal / static value',
+                    value: 'example@posthog.com',
+                    templating: 'hog',
+                    expected: undefined,
+                },
+                {
+                    name: 'liquid field, braces that are not a global reference',
+                    value: '{"key": "value"}',
+                    templating: 'liquid',
+                    expected: undefined,
+                },
+                {
+                    name: 'liquid field, JSON key named after a global (not property access)',
+                    value: '{"event": "pageview", "person": "abc"}',
+                    templating: 'liquid',
+                    expected: undefined,
+                },
+            ])('$name', ({ value, templating, expected }) => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value, templating } },
+                    stringSchema(templating)
+                )
+
+                expect(result.warnings.identifier_value).toBe(expected)
+            })
+
+            it('never blocks save — a warning leaves the result valid with no errors', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'person.properties.email' } },
+                    stringSchema()
+                )
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+                expect(result.warnings.identifier_value).not.toBeUndefined()
+            })
+
+            it('does not warn when templating is disabled for the field', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'person.properties.email' } },
+                    [{ key: 'identifier_value', type: 'string', label: 'Identifier value', templating: false }]
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('skips secret inputs', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { identifier_value: { value: 'person.properties.email', secret: true } },
+                    stringSchema()
+                )
+
+                expect(result.warnings.identifier_value).toBeUndefined()
+            })
+
+            it('detects mismatches inside dictionary values', () => {
+                const result = CyclotronJobInputsValidation.validate(
+                    { attributes: { value: { email: 'person.properties.email' } } },
+                    [{ key: 'attributes', type: 'dictionary', label: 'Attributes' }]
+                )
+
+                expect(result.warnings.attributes).toBe(
+                    TEMPLATING_MISMATCH_WARNINGS.unbracedExpressionInHogField('person.properties.email')
+                )
             })
         })
     })

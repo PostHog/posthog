@@ -1,17 +1,23 @@
+use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{routing::get, routing::post, Router};
+use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
 use capture_logs::config::Config;
+use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
-use capture_logs::service::export_logs_http;
+use capture_logs::middleware::translate_compression_query_param;
 use capture_logs::service::Service;
+use capture_logs::service::{
+    export_logs_http, export_metrics_http, export_traces_http, options_handler,
+};
 use common_metrics::setup_metrics_routes;
 use std::future::ready;
 use std::net::SocketAddr;
 
 use health::HealthRegistry;
 use tokio::signal;
+use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::decompression::RequestDecompressionLayer;
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
@@ -77,13 +83,24 @@ async fn main() {
 
     let health_registry = HealthRegistry::new("liveness");
 
-    let sink_liveness = health_registry
+    let logs_sink_liveness = health_registry
         .register("rdkafka".to_string(), Duration::from_secs(30))
         .await;
+    let traces_sink_liveness = health_registry
+        .register("rdkafka_traces".to_string(), Duration::from_secs(30))
+        .await;
+    let metrics_sink_liveness = health_registry
+        .register("rdkafka_metrics".to_string(), Duration::from_secs(30))
+        .await;
 
-    let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_liveness)
-        .await
-        .expect("failed to start Kafka sink");
+    let kafka_sink = KafkaSink::new(
+        config.kafka.clone(),
+        logs_sink_liveness,
+        traces_sink_liveness,
+        metrics_sink_liveness,
+    )
+    .await
+    .expect("failed to start Kafka sink");
 
     let management_router = Router::new()
         .route("/", get(index))
@@ -100,7 +117,8 @@ async fn main() {
         .expect("could not bind management port");
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
-    let logs_service = match Service::new(kafka_sink, token_dropper).await {
+    let token_dropper_arc = Arc::new(token_dropper);
+    let logs_service = match Service::new(kafka_sink, token_dropper_arc).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
@@ -113,12 +131,59 @@ async fn main() {
         .await
         .expect("could not bind http port");
 
+    // Very permissive CORS policy
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers(AllowHeaders::mirror_request())
+        .allow_credentials(true)
+        .allow_origin(AllowOrigin::mirror_request());
+
     let http_router = Router::new()
-        .route("/v1/logs", post(export_logs_http))
-        .route("/i/v1/logs", post(export_logs_http))
+        .route("/v1/logs", post(export_logs_http).options(options_handler))
+        .route(
+            "/i/v1/logs",
+            post(export_logs_http).options(options_handler),
+        )
+        .route(
+            "/v1/traces",
+            post(export_traces_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/traces",
+            post(export_traces_http).options(options_handler),
+        )
+        .route(
+            "/v1/metrics",
+            post(export_metrics_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/metrics",
+            post(export_metrics_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/datadog",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/datadog/api/v2/logs",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
+        // allow setting the token directly in the route path
+        // as the datadog agent allows custom paths but not query strings or headers
+        .route(
+            "/i/v1/logs/datadog/:token",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/logs/datadog/:token/api/v2/logs",
+            post(datadog::export_datadog_logs_http).options(options_handler),
+        )
         .with_state(logs_service)
+        .layer(DefaultBodyLimit::max(config.max_request_body_size_bytes))
         .layer(axum::middleware::from_fn(track_metrics))
-        .layer(RequestDecompressionLayer::new());
+        .layer(RequestDecompressionLayer::new())
+        .layer(axum::middleware::from_fn(translate_compression_query_param))
+        .layer(cors);
 
     let http_server = tokio::spawn(async move {
         if let Err(e) = axum::serve(

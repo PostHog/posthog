@@ -5,8 +5,9 @@ from posthog.test.base import BaseTest
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.validation import InputsSchemaItemSerializer, compile_hog
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import TYPES_WITH_TRANSPILED_FILTERS
 
 
 class TestTemplatesGeneral(BaseTest):
@@ -40,15 +41,15 @@ class TestTemplatesGeneral(BaseTest):
         template_id = template_data.id
         template = sync_template_to_db(template_data)
         assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
-        assert template.sha == "721860af"
+        assert template.sha == "d5b8c94a"
 
         template_data_dict = dataclasses.asdict(template_data)
         template = sync_template_to_db(template_data_dict)  # Test it as a dictionary
-        assert template.sha == "721860af"
+        assert template.sha == "d5b8c94a"
         assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1
 
         template_data_dict["code"] = "return 1"
         template = sync_template_to_db(template_data_dict)
-        assert template.sha == "a7ba7533"
+        assert template.sha == "a6603b31"
         assert template.code == "return 1"
         assert HogFunctionTemplate.objects.filter(template_id=template_id).count() == 1

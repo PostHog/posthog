@@ -22,8 +22,9 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.property_definition import PropertyType
 from posthog.models.utils import uuid7
+
+from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
@@ -32,7 +33,7 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         query,
         bounce_rate_mode=BounceRatePageViewMode.COUNT_PAGEVIEWS,
         bounce_rate_duration=None,
-        sessions_v2_join_mode=SessionsV2JoinMode.STRING,
+        sessions_v2_join_mode=SessionsV2JoinMode.UUID,
     ):
         modifiers = HogQLQueryModifiers(
             sessionTableVersion=SessionTableVersion.V2,
@@ -720,6 +721,37 @@ class TestSessionsV2(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results == [(1,)]
+
+    def test_case_insensitive_session_id(self):
+        session_id = str(uuid7())
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$session_id": session_id.lower(),
+            },
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$session_id": session_id.upper(),
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select countIf(events.session.id = {session_id}) from events
+                """,
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [(2,)]
 
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):

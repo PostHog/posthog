@@ -47,6 +47,40 @@ class TestMaxTool(BaseTest):
         result = tool.format_context_prompt_injection({})
         assert result == "Value: None"
 
+    def test_format_context_prompt_injection_substitutes_provided_key(self):
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template="Value: {expected_key}")
+        result = tool.format_context_prompt_injection({"expected_key": "hello"})
+        assert result == "Value: hello"
+
+    def test_format_context_prompt_injection_ignores_literal_braces_in_code(self):
+        # Templates may contain literal `{...}` code snippets (e.g. Hog/JS examples).
+        # These must not be parsed as placeholders.
+        template = (
+            "Inline example: `fun name(args) { ... }` and the block form\n"
+            "    fun onEvent(event) {\n"
+            "        // ...\n"
+            "        return event\n"
+            "    }\n"
+            "End."
+        )
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template=template)
+        result = tool.format_context_prompt_injection({"current_hog_code": "let x := 1"})
+        assert result == template
+
+    def test_format_context_prompt_injection_mixed_placeholders_and_literal_braces(self):
+        template = "Code: { ... }\nKey: {expected_key}"
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template=template)
+        result = tool.format_context_prompt_injection({"expected_key": "v"})
+        assert result == "Code: { ... }\nKey: v"
+
+    def test_format_context_prompt_injection_supports_brace_escapes(self):
+        # `{{key}}` should render as `{<value>}` to preserve the prior escape behavior
+        # used by some templates (e.g. session-recording filters).
+        template = "filters={{{current_filters}}}"
+        tool = DummyTool(team=self.team, user=self.user, context_prompt_template=template)
+        result = tool.format_context_prompt_injection({"current_filters": "abc"})
+        assert result == "filters={abc}"
+
 
 class TestMaxToolNodePath(BaseTest):
     def test_node_path_uses_context_when_not_passed(self):
@@ -295,7 +329,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=True):
             # Should not raise
-            tool._check_access_control()
+            tool._check_resource_access()
 
     def test_check_access_control_raises_when_user_lacks_access(self):
         """_check_access_control should raise MaxToolAccessDeniedError when user lacks access."""
@@ -303,7 +337,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         with patch.object(tool.user_access_control, "check_access_level_for_resource", return_value=False):
             with self.assertRaises(MaxToolAccessDeniedError) as ctx:
-                tool._check_access_control()
+                tool._check_resource_access()
 
             self.assertEqual(ctx.exception.resource, "feature_flag")
             self.assertEqual(ctx.exception.required_level, "editor")
@@ -314,7 +348,7 @@ class TestMaxToolAccessControl(BaseTest):
 
         # Should not call check_access_level_for_resource at all
         with patch.object(tool.user_access_control, "check_access_level_for_resource") as mock:
-            tool._check_access_control()
+            tool._check_resource_access()
             mock.assert_not_called()
 
 
@@ -337,8 +371,12 @@ class TestToolAccessControlDeclarations(BaseTest):
         "todo_write",
         "switch_mode",
         "session_summarization",
+        "manage_memories",  # Manages per-team/user memories, no protected resources
         # Tools with dynamic/conditional access checks inside _arun_impl
         "read_data",
+        "list_data",  # Lists entities with pagination, no protected resources modified
+        "create_notebook",  # No protected resources modified
+        "finalize_plan",
         # TODO: Add access control to these tools
         "task",
         "create_task",
@@ -356,7 +394,8 @@ class TestToolAccessControlDeclarations(BaseTest):
         "generate_hogql_query",
         "fix_hogql_query",
         "analyze_user_interviews",
-        "search_error_tracking_issues",
+        "call_mcp_server",  # Scoped to user's own MCP installations (team + user filtered) but no protected resources modified
+        "diagnose_proxy",  # Explicit OrganizationMembership.Level >= ADMIN check inside _arun_impl; resource-level RBAC doesn't recognize membership level so we can't use get_required_resource_access here
     }
 
     def test_all_tools_have_access_control_or_are_exempt(self):

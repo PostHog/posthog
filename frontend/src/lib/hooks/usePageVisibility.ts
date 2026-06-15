@@ -1,24 +1,10 @@
-import { useEffect } from 'react'
-// @ts-expect-error - useSyncExternalStore is available in React 18 but types are v17
-import { useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 
-// Determine the correct hidden property name and change event for browser compatibility
-// adapted from https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API#example
-// Opera 12.10 and Firefox 18 and later support
-const { HIDDEN_PROPERTY, VISIBILITY_CHANGE_EVENT } = (() => {
-    if (typeof document !== 'undefined') {
-        if ('msHidden' in document) {
-            return { HIDDEN_PROPERTY: 'msHidden', VISIBILITY_CHANGE_EVENT: 'msvisibilitychange' }
-        }
-        if ('webkitHidden' in document) {
-            return { HIDDEN_PROPERTY: 'webkitHidden', VISIBILITY_CHANGE_EVENT: 'webkitvisibilitychange' }
-        }
-    }
-    return { HIDDEN_PROPERTY: 'hidden', VISIBILITY_CHANGE_EVENT: 'visibilitychange' }
-})()
+// See https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API
+const VISIBILITY_CHANGE_EVENT = 'visibilitychange'
 
 function isPageVisible(): boolean {
-    return !document[HIDDEN_PROPERTY as keyof Document]
+    return !document.hidden
 }
 
 /**
@@ -31,20 +17,40 @@ function isPageVisible(): boolean {
  *
  * see https://developer.mozilla.org/en-US/docs/Web/API/Page_Visibility_API
  *
- * @param callback when page visibility changes this is called with true if the page is visible and false otherwise
+ * The callback is invoked exactly once on mount with the current visibility, then on every
+ * subsequent visibilitychange. The hook stores the callback behind a ref so consumers passing a
+ * non-memoized inline function do not re-invoke the effect (and therefore do not re-fire the
+ * callback) on every parent render — that would dispatch side effects like pause/resume on
+ * unrelated state churn.
+ *
+ * Without the mount-time invocation, tabs loaded while hidden (e.g. via "Open in background tab"
+ * or after a multi-tab refresh while focus stays on one tab) never receive a "hidden" signal —
+ * consumers like the experiment / dashboard auto-refresh intervals would then run on a tab the
+ * user can't see.
+ *
+ * @param callback called with true if the page is visible, false if hidden
  */
 export function usePageVisibilityCb(callback: (pageIsVisible: boolean) => void): void {
+    const callbackRef = useRef(callback)
+    // Update the ref in a commit-phase effect rather than during render so an
+    // aborted concurrent render cannot expose an uncommitted callback to the
+    // already-registered visibilitychange listener.
+    useLayoutEffect(() => {
+        callbackRef.current = callback
+    })
+
     useEffect(() => {
         const onVisibilityChange = (): void => {
-            callback(isPageVisible())
+            callbackRef.current(isPageVisible())
         }
 
+        callbackRef.current(isPageVisible())
         document.addEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
 
         return function cleanUp() {
             document.removeEventListener(VISIBILITY_CHANGE_EVENT, onVisibilityChange)
         }
-    }, [callback])
+    }, [])
 }
 
 /**

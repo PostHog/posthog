@@ -1,0 +1,18 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "allowImportingTsExtensions": true,
+        "verbatimModuleSyntax": true,
+        "moduleDetection": "force",
+        "noEmit": true,
+        "jsx": "react-jsx",
+        "strict": true,
+        "skipLibCheck": true,
+        "paths": {
+            "@/*": ["../../packages/primitives/src/*"]
+        }
+    },
+    "include": ["stories", ".storybook"]
+}

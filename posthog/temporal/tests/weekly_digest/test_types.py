@@ -10,6 +10,7 @@ from posthog.temporal.weekly_digest.types import (
     DigestExternalDataSource,
     DigestFeatureFlag,
     DigestFilter,
+    DigestProductSuggestion,
     DigestSurvey,
     EventDefinitionList,
     ExperimentList,
@@ -20,6 +21,8 @@ from posthog.temporal.weekly_digest.types import (
     RecordingCount,
     SurveyList,
     TeamDigest,
+    UserDigestContext,
+    UserSpecificDigest,
 )
 
 
@@ -197,8 +200,8 @@ def test_team_digest_render_payload_empty_recordings():
     assert expiring_recordings["recording_count"] == 0
 
 
-def test_organization_digest_filter_for_user():
-    """Test that OrganizationDigest correctly filters teams for a user."""
+def test_organization_digest_for_user():
+    """Test that OrganizationDigest.for_user correctly filters teams and returns UserSpecificDigest."""
     team1 = TeamDigest(
         id=1,
         name="Team 1",
@@ -247,11 +250,13 @@ def test_organization_digest_filter_for_user():
 
     # User only has access to teams 1 and 3
     user_teams = {1, 3}
-    filtered = org.filter_for_user(user_teams)
+    user_digest = org.for_user(user_teams)
 
-    assert len(filtered.team_digests) == 2
-    assert filtered.team_digests[0].id == 1
-    assert filtered.team_digests[1].id == 3
+    assert isinstance(user_digest, UserSpecificDigest)
+    assert len(user_digest.team_digests) == 2
+    assert user_digest.team_digests[0].id == 1
+    assert user_digest.team_digests[1].id == 3
+    assert user_digest.context.product_suggestion is None
 
 
 def test_organization_digest_is_empty():
@@ -329,8 +334,8 @@ def test_organization_digest_count_items():
     assert org.count_items() == 3
 
 
-def test_organization_digest_render_payload():
-    """Test that OrganizationDigest renders its payload correctly."""
+def test_user_specific_digest_render_payload():
+    """Test that UserSpecificDigest renders its payload correctly."""
     team = TeamDigest(
         id=1,
         name="Test Team",
@@ -347,12 +352,13 @@ def test_organization_digest_render_payload():
 
     org_id = uuid4()
     org = OrganizationDigest(id=org_id, name="Test Org", created_at=datetime.now(UTC), team_digests=[team])
+    user_digest = org.for_user({1})
 
     period_start = datetime(2024, 1, 1, tzinfo=UTC)
     period_end = datetime(2024, 1, 8, tzinfo=UTC)
     digest = Digest(key="weekly-digest-2024-1", period_start=period_start, period_end=period_end)
 
-    payload = org.render_payload(digest)
+    payload = user_digest.render_payload(digest)
 
     assert payload["organization_name"] == "Test Org"
     assert payload["organization_id"] == str(org_id)
@@ -418,3 +424,234 @@ def test_digest_external_data_source():
 
     assert source.source_type == "stripe"
     assert source.id == source_id
+
+
+def test_digest_product_suggestion_get_readable_reason_text_with_custom_text():
+    """Test that custom reason_text takes precedence."""
+    suggestion = DigestProductSuggestion(
+        team_id=1,
+        product_path="Error tracking",
+        reason="used_by_colleagues",
+        reason_text="Custom message for this user",
+    )
+
+    assert suggestion.get_readable_reason_text() == "Custom message for this user"
+
+
+def test_digest_product_suggestion_get_readable_reason_text_fallback_to_default():
+    """Test that reason enum maps to default text when reason_text is None."""
+    suggestion = DigestProductSuggestion(
+        team_id=1,
+        product_path="Session replay",
+        reason="sales_led",
+        reason_text=None,
+    )
+
+    assert suggestion.get_readable_reason_text() == "This product is recommended for you by our team."
+
+
+def test_digest_product_suggestion_get_readable_reason_text_supported_reasons():
+    """Test that sales_led and new_product reasons map to readable text."""
+    reason_mappings = {
+        "new_product": "This is a brand new product. Give it a try!",
+        "sales_led": "This product is recommended for you by our team.",
+    }
+
+    for reason, expected_text in reason_mappings.items():
+        suggestion = DigestProductSuggestion(
+            team_id=1,
+            product_path="Test Product",
+            reason=reason,
+            reason_text=None,
+        )
+        assert suggestion.get_readable_reason_text() == expected_text, f"Failed for reason: {reason}"
+
+
+def test_digest_product_suggestion_get_readable_reason_text_unsupported_reason():
+    """Test that unsupported reasons return None (fallback)."""
+    suggestion = DigestProductSuggestion(
+        team_id=1,
+        product_path="Test Product",
+        reason="used_by_colleagues",  # Not in digest defaults
+        reason_text=None,
+    )
+
+    assert suggestion.get_readable_reason_text() is None
+
+
+def test_digest_product_suggestion_get_readable_reason_text_no_reason():
+    """Test that None is returned when neither reason nor reason_text is set."""
+    suggestion = DigestProductSuggestion(
+        team_id=1,
+        product_path="Feature flags",
+        reason=None,
+        reason_text=None,
+    )
+
+    assert suggestion.get_readable_reason_text() is None
+
+
+def test_user_specific_digest_render_payload_with_product_suggestion():
+    """Test that UserSpecificDigest renders a product suggestion in the correct team's report."""
+    team = TeamDigest(
+        id=1,
+        name="Test Team",
+        dashboards=DashboardList(root=[DigestDashboard(name="Dashboard", id=1)]),
+        event_definitions=EventDefinitionList(root=[]),
+        experiments_launched=ExperimentList(root=[]),
+        experiments_completed=ExperimentList(root=[]),
+        external_data_sources=ExternalDataSourceList(root=[]),
+        feature_flags=FeatureFlagList(root=[]),
+        filters=FilterList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
+        surveys_launched=SurveyList(root=[]),
+    )
+
+    org_id = uuid4()
+    org = OrganizationDigest(id=org_id, name="Test Org", created_at=datetime.now(UTC), team_digests=[team])
+
+    period_start = datetime(2024, 1, 1, tzinfo=UTC)
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    digest = Digest(key="weekly-digest-2024-1", period_start=period_start, period_end=period_end)
+
+    suggestion = DigestProductSuggestion(
+        team_id=1,
+        product_path="Error tracking",
+        reason="sales_led",
+        reason_text=None,
+    )
+
+    user_digest = org.for_user({1}, UserDigestContext(product_suggestion=suggestion))
+    payload = user_digest.render_payload(digest)
+
+    # Suggestion should be in the team's report, not at org level
+    assert "new_product_suggestion" not in payload
+    teams = payload["teams"]
+    assert isinstance(teams, list)
+    assert len(teams) == 1
+    team_report = teams[0]["report"]
+    assert "new_product_suggestion" in team_report
+    new_suggestion = team_report["new_product_suggestion"]
+    assert new_suggestion["product_path"] == "Error tracking"
+    assert new_suggestion["reason_text"] == "This product is recommended for you by our team."
+
+
+def test_user_specific_digest_render_payload_with_custom_reason_text():
+    """Test that custom reason_text is used when provided."""
+    team = TeamDigest(
+        id=1,
+        name="Test Team",
+        dashboards=DashboardList(root=[DigestDashboard(name="Dashboard", id=1)]),
+        event_definitions=EventDefinitionList(root=[]),
+        experiments_launched=ExperimentList(root=[]),
+        experiments_completed=ExperimentList(root=[]),
+        external_data_sources=ExternalDataSourceList(root=[]),
+        feature_flags=FeatureFlagList(root=[]),
+        filters=FilterList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
+        surveys_launched=SurveyList(root=[]),
+    )
+
+    org_id = uuid4()
+    org = OrganizationDigest(id=org_id, name="Test Org", created_at=datetime.now(UTC), team_digests=[team])
+
+    period_start = datetime(2024, 1, 1, tzinfo=UTC)
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    digest = Digest(key="weekly-digest-2024-1", period_start=period_start, period_end=period_end)
+
+    suggestion = DigestProductSuggestion(
+        team_id=1,
+        product_path="Session replay",
+        reason="product_intent",
+        reason_text="Custom reason text for this user",
+    )
+
+    user_digest = org.for_user({1}, UserDigestContext(product_suggestion=suggestion))
+    payload = user_digest.render_payload(digest)
+
+    teams = payload["teams"]
+    assert isinstance(teams, list)
+
+    team_report = teams[0]["report"]
+    assert isinstance(team_report, dict)
+
+    suggestion_payload = team_report["new_product_suggestion"]
+    assert isinstance(suggestion_payload, dict)
+    assert suggestion_payload["reason_text"] == "Custom reason text for this user"
+
+
+def test_user_specific_digest_render_payload_suggestion_wrong_team():
+    """Test that suggestion doesn't appear if team_id doesn't match."""
+    team = TeamDigest(
+        id=1,
+        name="Test Team",
+        dashboards=DashboardList(root=[DigestDashboard(name="Dashboard", id=1)]),
+        event_definitions=EventDefinitionList(root=[]),
+        experiments_launched=ExperimentList(root=[]),
+        experiments_completed=ExperimentList(root=[]),
+        external_data_sources=ExternalDataSourceList(root=[]),
+        feature_flags=FeatureFlagList(root=[]),
+        filters=FilterList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
+        surveys_launched=SurveyList(root=[]),
+    )
+
+    org_id = uuid4()
+    org = OrganizationDigest(id=org_id, name="Test Org", created_at=datetime.now(UTC), team_digests=[team])
+
+    period_start = datetime(2024, 1, 1, tzinfo=UTC)
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    digest = Digest(key="weekly-digest-2024-1", period_start=period_start, period_end=period_end)
+
+    # Suggestion is for team 999, but we only have team 1
+    suggestion = DigestProductSuggestion(
+        team_id=999,
+        product_path="Error tracking",
+        reason="sales_led",
+        reason_text=None,
+    )
+
+    user_digest = org.for_user({1}, UserDigestContext(product_suggestion=suggestion))
+    payload = user_digest.render_payload(digest)
+
+    teams = payload["teams"]
+    assert isinstance(teams, list)
+    assert len(teams) == 1
+
+    team_report = teams[0]["report"]
+    assert isinstance(team_report, dict)
+    assert "new_product_suggestion" not in team_report
+
+
+def test_user_specific_digest_render_payload_without_product_suggestion():
+    """Test that UserSpecificDigest renders correctly without product suggestion."""
+    team = TeamDigest(
+        id=1,
+        name="Test Team",
+        dashboards=DashboardList(root=[DigestDashboard(name="Dashboard", id=1)]),
+        event_definitions=EventDefinitionList(root=[]),
+        experiments_launched=ExperimentList(root=[]),
+        experiments_completed=ExperimentList(root=[]),
+        external_data_sources=ExternalDataSourceList(root=[]),
+        feature_flags=FeatureFlagList(root=[]),
+        filters=FilterList(root=[]),
+        expiring_recordings=RecordingCount(recording_count=0),
+        surveys_launched=SurveyList(root=[]),
+    )
+
+    org_id = uuid4()
+    org = OrganizationDigest(id=org_id, name="Test Org", created_at=datetime.now(UTC), team_digests=[team])
+
+    period_start = datetime(2024, 1, 1, tzinfo=UTC)
+    period_end = datetime(2024, 1, 8, tzinfo=UTC)
+    digest = Digest(key="weekly-digest-2024-1", period_start=period_start, period_end=period_end)
+
+    user_digest = org.for_user({1})
+    payload = user_digest.render_payload(digest)
+
+    teams = payload["teams"]
+    assert isinstance(teams, list)
+
+    team_report = teams[0]["report"]
+    assert isinstance(team_report, dict)
+    assert "new_product_suggestion" not in team_report

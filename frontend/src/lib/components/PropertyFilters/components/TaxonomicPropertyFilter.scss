@@ -1,5 +1,6 @@
 .TaxonomicPropertyFilter {
     width: 100%;
+    min-width: 0;
 
     &--in-dropdown {
         width: 900px;
@@ -47,6 +48,7 @@
     flex-wrap: wrap;
     gap: 0.25rem;
     align-items: center;
+    min-width: 0;
 
     > * {
         max-width: 100%;

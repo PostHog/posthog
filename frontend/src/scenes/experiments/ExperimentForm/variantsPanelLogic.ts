@@ -5,10 +5,17 @@ import { toParams } from 'lib/utils'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
 import type { variantsPanelLogicType } from './variantsPanelLogicType'
+
+export type FeatureFlagKeyValidation = {
+    valid: boolean
+    error: string | null
+    existingFlag?: FeatureFlagType
+}
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
     key: (props) => props.experiment?.id || 'new',
@@ -21,16 +28,22 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
         disabled: boolean
     },
     connect: {
-        values: [featureFlagsLogic, ['featureFlags'], experimentsLogic, ['experiments']],
+        values: [
+            featureFlagsLogic,
+            ['featureFlags'],
+            experimentsLogic,
+            ['experiments'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
         actions: [],
     },
     actions: {
         setMode: (mode: 'create' | 'link') => ({ mode }),
         validateFeatureFlagKey: (key: string) => ({ key }),
         clearFeatureFlagKeyValidation: true,
-
-        setFeatureFlagKeyDirty: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
+        setFeatureFlagKeyForAutocomplete: (key: string | null) => ({ key }),
     },
     reducers: ({ props }) => ({
         featureFlagKeyError: [
@@ -52,13 +65,6 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 },
             },
         ],
-        featureFlagKeyDirty: [
-            false,
-            {
-                setFeatureFlagKeyDirty: () => true,
-                setMode: () => false, // Reset dirty flag when switching modes
-            },
-        ],
         linkedFeatureFlag: [
             // Initialize from experiment.feature_flag when disabled
             (props.disabled && props.experiment.feature_flag
@@ -68,10 +74,17 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                 setLinkedFeatureFlag: (_, { flag }) => flag,
             },
         ],
+        featureFlagKeyForAutocomplete: [
+            // Initialize from experiment.feature_flag_key when available
+            (props.experiment.feature_flag_key || null) as string | null,
+            {
+                setFeatureFlagKeyForAutocomplete: (_, { key }) => key,
+            },
+        ],
     }),
     loaders: ({ values }) => ({
         featureFlagKeyValidation: [
-            null as { valid: boolean; error: string | null } | null,
+            null as FeatureFlagKeyValidation | null,
             {
                 validateFeatureFlagKey: async ({ key }) => {
                     // First do client-side validation
@@ -82,16 +95,29 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
 
                     // Check if key already exists in our unavailable keys set
                     if (values.unavailableFeatureFlagKeys.has(key)) {
-                        return { valid: false, error: 'A feature flag with this key already exists.' }
+                        const existingFlag = values.featureFlags.results.find(
+                            (flag: FeatureFlagType) => flag.key === key
+                        )
+                        return {
+                            valid: false,
+                            error: 'A feature flag with this key already exists.',
+                            existingFlag,
+                        }
                     }
 
                     // Double-check with API for recently created flags
-                    const response = await api.get(`api/projects/@current/feature_flags/?${toParams({ search: key })}`)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: key })}`
+                    )
 
                     if (response.results.length > 0) {
                         const exactMatch = response.results.find((flag: FeatureFlagType) => flag.key === key)
                         if (exactMatch) {
-                            return { valid: false, error: 'A feature flag with this key already exists.' }
+                            return {
+                                valid: false,
+                                error: 'A feature flag with this key already exists.',
+                                existingFlag: exactMatch,
+                            }
                         }
                     }
 

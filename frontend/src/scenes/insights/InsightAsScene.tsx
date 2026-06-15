@@ -1,64 +1,57 @@
-import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
-
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
+import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { InsightsNav } from './InsightNav/InsightsNav'
-import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
+import { InsightSceneHeader } from './InsightSceneHeader'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
-    tabId: string
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
-export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsSceneProps): JSX.Element | null {
+export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JSX.Element | null {
     // insightSceneLogic
-    const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, freshQuery } =
+    const { insightMode, insight, filtersOverride, variablesOverride, hasOverrides, dashboardId } =
         useValues(insightSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     // insightLogic
     const logic = insightLogic({
-        dashboardItemId: insightId || `new-${tabId}`,
-        tabId,
+        dashboardItemId: insightId || 'new',
+        dashboardId: dashboardId ?? undefined,
         // don't use cached insight if we have overrides
         cachedInsight: hasOverrides && insight?.short_id === insightId ? insight : null,
         filtersOverride,
         variablesOverride,
     })
-    const { insightProps, accessDeniedToInsight } = useValues(logic)
+    const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
 
     // insightDataLogic
-    const { query, showQueryEditor, showDebugPanel } = useValues(insightDataLogic(insightProps))
+    const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     useFileSystemLogView({
         type: 'insight',
         ref: insight?.short_id,
         enabled: Boolean(currentTeamId && insight?.short_id && insight?.saved && !accessDeniedToInsight),
-        deps: [currentTeamId, insight?.short_id, insight?.saved, accessDeniedToInsight],
     })
 
     // other logics
-    useMountedLogic(insightCommandLogic(insightProps))
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
 
@@ -79,51 +72,40 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         return null
     }
 
+    const isEditing = insightMode === ItemMode.Edit
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <SceneContent className="Insight">
-                <InsightPageHeader insightLogicProps={insightProps} />
-
-                {hasOverrides && (
-                    <LemonBanner type="warning" className="mb-4">
-                        <div className="flex flex-row items-center justify-between gap-2">
-                            <span>
-                                You are viewing this insight with filter/variable overrides. Discard them to edit the
-                                insight.
-                            </span>
-
-                            <LemonButton type="secondary" to={urls.insightView(insightId as InsightShortId)}>
-                                Discard overrides
-                            </LemonButton>
-                        </div>
-                    </LemonBanner>
-                )}
-
-                {insightMode === ItemMode.Edit && <InsightsNav />}
-
-                {showDebugPanel && (
-                    <div className="mb-4">
-                        <DebugCHQueries insightId={insightProps.cachedInsight?.id} />
+            <InsightModals insightLogicProps={insightProps} />
+            <SceneContent className={clsx('Insight', isEditing && '!gap-0')}>
+                {isEditing ? (
+                    <div className="flex flex-col gap-y-4 shrink-0">
+                        <InsightSceneHeader insightLogicProps={insightProps} />
                     </div>
+                ) : (
+                    <InsightSceneHeader insightLogicProps={insightProps} />
                 )}
 
-                {freshQuery ? <ReloadInsight /> : null}
-
-                <Query
-                    attachTo={attachTo}
-                    query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={setQuery}
-                    readOnly={insightMode !== ItemMode.Edit}
-                    editMode={insightMode === ItemMode.Edit}
-                    context={{
-                        showOpenEditorButton: false,
-                        showQueryEditor: actuallyShowQueryEditor,
-                        showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
-                        insightProps,
-                    }}
-                    filtersOverride={filtersOverride}
-                    variablesOverride={variablesOverride}
-                />
+                {isDataVisualizationNode(query) && insightLoading ? (
+                    // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
+                    <LemonSkeleton className="h-100 w-full" />
+                ) : (
+                    <Query
+                        attachTo={attachTo}
+                        query={isInsightVizNode(query) ? { ...query, full: true } : query}
+                        setQuery={setQuery}
+                        readOnly={insightMode !== ItemMode.Edit}
+                        editMode={insightMode === ItemMode.Edit}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor: actuallyShowQueryEditor,
+                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                            insightProps,
+                        }}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                    />
+                )}
             </SceneContent>
         </BindLogic>
     )

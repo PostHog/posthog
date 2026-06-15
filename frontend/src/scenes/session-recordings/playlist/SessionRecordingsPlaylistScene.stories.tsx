@@ -1,10 +1,13 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -139,7 +142,7 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === 'EventsQuery') {
@@ -188,26 +191,63 @@ const meta: Meta = {
 }
 export default meta
 
-export const PlaylistWide: StoryFn = () => {
-    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
+type Story = StoryObj<{}>
+
+export const PlaylistWide: Story = {
+    render: () => {
+        router.actions.push(
+            sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id })
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+        },
+    },
+    tags: ['test-skip'],
+}
+
+export const PlaylistNarrow: Story = {
+    render: () => {
+        router.actions.push(
+            sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id })
+        )
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+        },
+    },
+    tags: ['test-skip'],
+}
+
+const PlaylistCollapsedInner = (): JSX.Element => {
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+
+    useEffect(() => {
+        setPlaylistCollapsed(true)
+        return () => setPlaylistCollapsed(false)
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return <App />
 }
-PlaylistWide.parameters = {
-    testOptions: {
-        viewport: { width: 1300, height: 720 },
-    },
-}
-PlaylistWide.tags = ['test-skip']
 
-export const PlaylistNarrow: StoryFn = () => {
-    router.actions.push(sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id }))
+export const PlaylistCollapsed: Story = {
+    render: () => {
+        router.actions.push(
+            sceneUrl(urls.replayPlaylist('playlist-test-123'), { sessionRecordingId: recordings[0].id })
+        )
 
-    return <App />
-}
-PlaylistNarrow.parameters = {
-    testOptions: {
-        viewport: { width: 568, height: 1024 },
+        return <PlaylistCollapsedInner />
     },
+    parameters: {
+        testOptions: {
+            viewport: { width: 1300, height: 720 },
+        },
+    },
+    tags: ['test-skip'],
 }
-PlaylistNarrow.tags = ['test-skip']

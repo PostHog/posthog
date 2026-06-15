@@ -464,10 +464,12 @@
     },
     "opt_out_capture": false,
     "is_debug": true,
+    "allow_dev_login": false,
     "licensed_users_available": 21311,
     "site_url": "http://localhost:6006",
     "instance_preferences": {
         "debug_queries": false,
-        "disable_paid_fs": false
+        "disable_paid_fs": false,
+        "cloudflare_proxy_enabled": true
     }
 }

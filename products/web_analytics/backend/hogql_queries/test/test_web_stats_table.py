@@ -1,0 +1,2511 @@
+import math
+from collections import defaultdict
+from typing import Any, Optional
+
+import unittest
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
+from unittest.mock import patch
+
+import numpy as np
+from parameterized import parameterized
+from pydantic.dataclasses import dataclass
+
+from posthog.schema import (
+    ActionConversionGoal,
+    BounceRatePageViewMode,
+    CompareFilter,
+    CustomEventConversionGoal,
+    DateRange,
+    EventPropertyFilter,
+    HogQLQueryModifiers,
+    PropertyOperator,
+    SessionPropertyFilter,
+    SessionTableVersion,
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebStatsBreakdown,
+    WebStatsTableQuery,
+)
+
+from posthog.models import Element
+from posthog.models.utils import uuid7
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+
+nan_value = float("nan")
+
+
+@dataclass
+class PageViewProperties:
+    pathname: str
+    timestamp: str
+    scroll: float = 0
+    duration: float | None = 0
+
+
+class FloatAwareTestCase(unittest.TestCase):
+    def assertEqual(self, first, second, msg=None):
+        try:
+            self._assertEqualRecursive(first, second)
+        except AssertionError as e:
+            raise self.failureException(msg or str(e)) from e
+
+    def _assertEqualRecursive(self, a, b, msg=None, path="root"):
+        if isinstance(a, float) and isinstance(b, float):
+            if math.isnan(a) and math.isnan(b):
+                return None
+            else:
+                self.assertAlmostEqual(first=a, second=b, places=7, msg=f"{msg or ''} Float mismatch at {path}")
+        elif isinstance(a, list | tuple) and isinstance(b, list | tuple):
+            super().assertEqual(len(a), len(b), f"{msg or ''} Length mismatch at {path}")
+            for i, (x, y) in enumerate(zip(a, b)):
+                self._assertEqualRecursive(x, y, msg=msg, path=f"{path}[{i}]")
+        elif isinstance(a, dict) and isinstance(b, dict):
+            super().assertEqual(a.keys(), b.keys(), f"{msg or ''} Dict key mismatch at {path}")
+            for k in a:
+                self._assertEqualRecursive(a[k], b[k], msg=msg, path=f"{path}[{repr(k)}]")
+        else:
+            super().assertEqual(a, b, f"{msg or ''} Mismatch at {path}")
+
+
+@snapshot_clickhouse_queries
+class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareTestCase):
+    QUERY_TIMESTAMP = "2025-01-29"
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch(
+            "products.web_analytics.backend.hogql_queries.stats_table.is_web_analytics_events_prefilter_team",
+            return_value=False,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _calculate_pageview_statistics(self, groups_of_pageviews: list[list[PageViewProperties]]):
+        per_path_durations: defaultdict[Any, list] = defaultdict(list)
+        total_view_counts: defaultdict[Any, int] = defaultdict(int)
+        per_path_user_count: defaultdict[Any, set] = defaultdict(set)
+
+        for person_idx, person in enumerate(groups_of_pageviews):
+            for page_view in person:
+                per_path_durations[page_view.pathname].append(page_view.duration)
+                total_view_counts[page_view.pathname] += 1
+                per_path_user_count[page_view.pathname].add(person_idx)
+
+        def calculate_p90(values: list[float | None]) -> float | None:
+            filtered_values = [v for v in values if v is not None]
+
+            if len(filtered_values) == 0:
+                return None
+
+            return float(np.percentile(filtered_values, 90))
+
+        results = {}
+        for path, durations in per_path_durations.items():
+            results[path] = {
+                "user_count": len(per_path_user_count[path]),
+                "view_count": total_view_counts[path],
+                "p90_duration": calculate_p90(durations),
+            }
+
+        return results
+
+    def _create_events(self, data, event="$pageview"):
+        person_result = []
+        for id, timestamps in data:
+            with freeze_time(timestamps[0][0]):
+                person_result.append(
+                    _create_person(
+                        team_id=self.team.pk,
+                        distinct_ids=[id],
+                        properties={
+                            "name": id,
+                            **({"email": "test@posthog.com"} if id == "test" else {}),
+                        },
+                    )
+                )
+            for timestamp, session_id, *extra in timestamps:
+                url = None
+                elements = None
+                screen_name = None
+                if event == "$pageview":
+                    url = extra[0] if extra else None
+                elif event == "$screen":
+                    screen_name = extra[0] if extra else None
+                elif event == "$autocapture":
+                    elements = extra[0] if extra else None
+                properties = extra[1] if extra and len(extra) > 1 else {}
+
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id=id,
+                    timestamp=timestamp,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": url,
+                        "$current_url": url,
+                        "$screen_name": screen_name,
+                        **properties,
+                    },
+                    elements=elements,
+                )
+        return person_result
+
+    def _create_pageviews(self, distinct_id: str, list_page_view_properties: list[PageViewProperties]):
+        person_time = list_page_view_properties[0].timestamp
+
+        with freeze_time(person_time):
+            person_result = _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[distinct_id],
+                properties={
+                    "name": distinct_id,
+                    **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
+                },
+            )
+            session_id = str(uuid7(person_time))
+            prev_page_view_properties: PageViewProperties | None = None
+
+            for page_view in list_page_view_properties:
+                prev_pathname = prev_page_view_properties.pathname if prev_page_view_properties else None
+                prev_scroll = prev_page_view_properties.scroll if prev_page_view_properties else None
+                prev_duration = prev_page_view_properties.duration if prev_page_view_properties else None
+
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=page_view.timestamp,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": page_view.pathname,
+                        "$current_url": "http://www.example.com" + page_view.pathname,
+                        "$prev_pageview_pathname": prev_pathname,
+                        "$prev_pageview_duration": prev_duration,
+                        "$prev_pageview_max_scroll_percentage": prev_scroll,
+                        "$prev_pageview_max_content_percentage": prev_scroll,
+                    },
+                )
+                prev_page_view_properties = page_view
+
+            if prev_page_view_properties:
+                _create_event(
+                    team=self.team,
+                    event="$pageleave",
+                    distinct_id=distinct_id,
+                    timestamp=prev_page_view_properties.timestamp,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": prev_page_view_properties.pathname,
+                        "$current_url": "http://www.example.com" + page_view.pathname,
+                        "$prev_pageview_pathname": prev_page_view_properties.pathname,
+                        "$prev_pageview_duration": prev_page_view_properties.duration,
+                        "$prev_pageview_max_scroll_percentage": prev_page_view_properties.scroll,
+                        "$prev_pageview_max_content_percentage": prev_page_view_properties.scroll,
+                    },
+                )
+        return person_result
+
+    def _run_web_stats_table_query(
+        self,
+        date_from,
+        date_to,
+        breakdown_by=WebStatsBreakdown.PAGE,
+        limit=None,
+        path_cleaning_filters=None,
+        include_bounce_rate=False,
+        include_scroll_depth=False,
+        include_avg_time_on_page=False,
+        include_host=False,
+        properties=None,
+        compare_filter=None,
+        action: Optional[Action] = None,
+        custom_event: Optional[str] = None,
+        session_table_version: SessionTableVersion = SessionTableVersion.V2,
+        filter_test_accounts: Optional[bool] = False,
+        bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        orderBy=None,
+    ):
+        with freeze_time(self.QUERY_TIMESTAMP):
+            modifiers = HogQLQueryModifiers(
+                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+            )
+            query = WebStatsTableQuery(
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
+                properties=properties or [],
+                breakdownBy=breakdown_by,
+                limit=limit,
+                doPathCleaning=bool(path_cleaning_filters),
+                includeBounceRate=include_bounce_rate,
+                includeScrollDepth=include_scroll_depth,
+                includeAvgTimeOnPage=include_avg_time_on_page,
+                includeHost=include_host,
+                compareFilter=compare_filter,
+                conversionGoal=ActionConversionGoal(actionId=action.id)
+                if action
+                else CustomEventConversionGoal(customEventName=custom_event)
+                if custom_event
+                else None,
+                filterTestAccounts=filter_test_accounts,
+                orderBy=orderBy,
+            )
+            self.team.path_cleaning_filters = path_cleaning_filters or []
+            runner = WebStatsTableQueryRunner(team=self.team, query=query, modifiers=modifiers)
+            return runner.calculate()
+
+    def test_no_crash_when_no_data(self):
+        results = self._run_web_stats_table_query(
+            "2023-12-08",
+            "2023-12-15",
+        ).results
+        assert [] == results
+
+    def test_increase_in_users(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-11").results
+
+        self.assertEqual(
+            [
+                ["/", (2, None), (2, None), 2 / 3, ""],
+                ["/login", (1, None), (1, None), 1 / 3, ""],
+            ],
+            results,
+        )
+
+    def test_increase_in_users_on_mobile(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a, "Home"), ("2023-12-03", s1a, "Login"), ("2023-12-13", s1b, "Docs")]),
+                ("p2", [("2023-12-10", s2, "Home")]),
+            ],
+            event="$screen",
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-11", breakdown_by=WebStatsBreakdown.SCREEN_NAME
+        ).results
+
+        assert [
+            ["Home", (2, None), (2, None), 2 / 3, ""],
+            ["Login", (1, None), (1, None), 1 / 3, ""],
+        ] == results
+
+    def test_all_time(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query("all", "2023-12-15").results
+
+        assert [
+            ["/", (2, None), (2, None), 2 / 4, ""],
+            ["/docs", (1, None), (1, None), 1 / 4, ""],
+            ["/login", (1, None), (1, None), 1 / 4, ""],
+        ] == results
+
+    def test_comparison(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-06", "2023-12-13", compare_filter=CompareFilter(compare=True)
+        ).results
+
+        assert [
+            ["/", (1, 1), (1, 1), 1 / 2, ""],
+            ["/docs", (1, 0), (1, 0), 1 / 2, ""],
+            ["/login", (0, 1), (0, 1), 0, ""],
+        ] == results
+
+    def test_filter_test_accounts(self):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
+
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=True).results
+
+        assert [] == results
+
+    def test_dont_filter_test_accounts(self):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events([("test", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")])])
+
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
+
+        assert [["/", (1.0, None), (1.0, None), 1 / 2, ""], ["/login", (1.0, None), (1.0, None), 1 / 2, ""]] == results
+
+    def test_breakdown_channel_type_doesnt_throw(self):
+        s1a = str(uuid7("2023-12-02"))
+        s1b = str(uuid7("2023-12-13"))
+        s2 = str(uuid7("2023-12-10"))
+        # not really testing the functionality yet, which is tested elsewhere, just that it runs
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1a, "/"), ("2023-12-03", s1a, "/login"), ("2023-12-13", s1b, "/docs")]),
+                ("p2", [("2023-12-10", s2, "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        ).results
+
+        assert 1 == len(results)
+
+    def test_limit(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/"), ("2023-12-03", s1, "/login")]),
+                ("p2", [("2023-12-10", s2, "/")]),
+            ]
+        )
+
+        response_1 = self._run_web_stats_table_query("all", "2023-12-15", limit=1)
+        # The visitors fraction should still be 2/3, as there were 3 total users even if only 2 were returned by this query
+        assert [
+            ["/", (2, None), (2, None), 2 / 3, ""],
+        ] == response_1.results
+        assert response_1.hasMore is True
+
+        response_2 = self._run_web_stats_table_query("all", "2023-12-15", limit=2)
+        assert [
+            ["/", (2, None), (2, None), 2 / 3, ""],
+            ["/login", (1, None), (1, None), 1 / 3, ""],
+        ] == response_2.results
+        assert response_2.hasMore is False
+
+    def test_path_cleaning_filters(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), 2 / 5, ""],
+            ["/cleaned/:id/path/:id", (1, None), (1, None), 1 / 5, ""],
+            ["/not-cleaned", (1, None), (1, None), 1 / 5, ""],
+            ["/thing_c", (1, None), (1, None), 1 / 5, ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_cleaned_path_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        # Send a property filter that it's just like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/:id"
+                )
+            ],
+        ).results
+
+        # 2 events because we have 2 events that match this cleaned path
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), 2 / 2, ""],
+        ] == results
+
+        # Send a property filter that when cleaned will look like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"},
+                {"regex": "\\/path\\/\\d+", "alias": "/path/:id"},
+                {"regex": "thing_a", "alias": "thing_b"},
+                {"regex": "thing_b", "alias": "thing_c"},
+            ],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/123456"
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), 2 / 2, ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_cleanable_path_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-10"))
+        s4 = str(uuid7("2023-12-11"))
+        s5 = str(uuid7("2023-12-11"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/cleaned/123/path/456")]),
+                ("p2", [("2023-12-10", s2, "/cleaned/123")]),
+                ("p3", [("2023-12-10", s3, "/cleaned/456")]),
+                ("p4", [("2023-12-11", s4, "/not-cleaned")]),
+                ("p5", [("2023-12-11", s5, "/thing_a")]),
+            ]
+        )
+
+        # Send a property filter that when cleaned will look like a cleaned path filter
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[{"regex": "\\/cleaned\\/\\d+", "alias": "/cleaned/:id"}],
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.IS_CLEANED_PATH_EXACT, value="/cleaned/123456"
+                )
+            ],
+        ).results
+
+        assert [
+            ["/cleaned/:id", (2, None), (2, None), 2 / 2, ""],
+        ] == results
+
+    def test_path_cleaning_filters_with_multiple_capture_groups(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/123/detail/456")]),
+                ("p2", [("2023-12-10", s2, "/item/789/detail/101")]),
+                ("p3", [("2023-12-11", s3, "/item/999/detail/777")]),
+                ("p4", [("2023-12-12", s4, "/other/123/path")]),  # Should not match
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/item\\/(\\d+)\\/detail\\/(\\d+)", "alias": "/item/<id>/detail/<detail_id>"},
+            ],
+        ).results
+
+        # All matching paths should be grouped under the same alias pattern
+        assert [
+            ["/item/<id>/detail/<detail_id>", (3.0, None), (3.0, None), 3 / 4, ""],
+            ["/other/123/path", (1.0, None), (1.0, None), 1 / 4, ""],
+        ] == results
+
+    def test_path_cleaning_filters_applied_in_order(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+        s5 = str(uuid7("2023-12-13"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/admin/settings/users")]),  # Should match specific rule first
+                ("p2", [("2023-12-10", s2, "/admin/dashboard")]),  # Should match general admin rule
+                ("p3", [("2023-12-11", s3, "/user/123/profile")]),  # Should match user rule
+                ("p4", [("2023-12-12", s4, "/user/456/settings")]),  # Should match user rule
+                ("p5", [("2023-12-13", s5, "/other/path")]),  # Should not match any rule
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                # More specific rule first - should match /admin/settings/* paths
+                {"regex": "\\/admin\\/settings\\/.*", "alias": "/admin/settings/<page>"},
+                # More general rule second - should match remaining /admin/* paths
+                {"regex": "\\/admin\\/.*", "alias": "/admin/<section>"},
+                # Another rule for user paths
+                {"regex": "\\/user\\/\\d+\\/.*", "alias": "/user/<id>/<page>"},
+            ],
+        ).results
+
+        # The actual results show that ALL rules are applied in sequence using the previous rule's result as input
+        # That is why the general /admin/.* gets two results and we don't see a `/admin/settings/<page>`
+        assert [
+            ["/admin/<section>", (2.0, None), (2.0, None), 2 / 5, ""],  # Both admin paths matched this general rule
+            ["/user/<id>/<page>", (2.0, None), (2.0, None), 2 / 5, ""],  # Both user paths
+            ["/other/path", (1.0, None), (1.0, None), 1 / 5, ""],  # unchanged
+        ] == results
+
+    def test_path_cleaning_with_order_field_and_baseline_urls(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+        s4 = str(uuid7("2023-12-05"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/2197346/detail1/11234")]),
+                ("p2", [("2023-12-03", s2, "/item/2206728/list/2668776/baseline")]),
+                ("p3", [("2023-12-04", s3, "/item/5555/list/6666/spp/insessionForm/7777")]),
+                ("p4", [("2023-12-05", s4, "/item/123")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-06",
+            path_cleaning_filters=[
+                {
+                    "regex": r"/item/(\d+)/list/(\d+)/spp/insessionForm/(\d+)",
+                    "alias": "/item/<id>/list/<list_id>/spp/insessionForm/<form>",
+                    "order": 0,  # Most specific first
+                },
+                {"regex": r"/item/(\d+)/detail1/(\d+)", "alias": "/item/<id>/detail1/<consultation>", "order": 1},
+                {
+                    "regex": r"/item/(\d+)/list/(\d+)",
+                    "alias": "/item/<id>/list/<list_id>",
+                    "order": 2,  # General list rule - should handle baseline URLs correctly
+                },
+                {
+                    "regex": r"/item/(\d+)",
+                    "alias": "/item/<id>",
+                    "order": 3,  # Most general last
+                },
+            ],
+        ).results
+
+        expected_results = [
+            ["/item/<id>/detail1/<consultation>", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/item/<id>/list/<list_id>/spp/insessionForm/<form>", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/item/<id>/list/<list_id>/baseline", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/item/<id>", (1.0, None), (1.0, None), 1 / 4, ""],
+        ]
+
+        assert sorted(results) == sorted(expected_results)
+
+    def test_bounce_rate_one_user(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+        ).results
+
+        assert [
+            ["/a", (1, 0), (1, 0), (0, None), 1 / 3, ""],
+            ["/b", (1, 0), (1, 0), (None, None), 1 / 3, ""],
+            ["/c", (1, 0), (1, 0), (None, None), 1 / 3, ""],
+        ] == results
+
+    def test_bounce_rate(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+        ).results
+
+        assert [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), 3 / 7, ""],
+            ["/b", (2, 0), (2, 0), (None, None), 2 / 7, ""],
+            ["/c", (2, 0), (2, 0), (None, None), 2 / 7, ""],
+        ] == results
+
+    def test_bounce_rate_with_property(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
+        ).results
+
+        assert [
+            ["/a", (3, 0), (4, 0), (1 / 3, None), 1, ""],
+        ] == results
+
+    def test_bounce_rate_path_cleaning(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a/123", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b/123", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c/123", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            path_cleaning_filters=[
+                {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},
+                {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
+                {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
+            ],
+        ).results
+
+        assert [
+            ["/a/:id", (1, 0), (1, 0), (0, None), 1 / 3, ""],
+            ["/b/:id", (1, 0), (1, 0), (None, None), 1 / 3, ""],
+            ["/c/:id", (1, 0), (1, 0), (None, None), 1 / 3, ""],
+        ] == results
+
+    def test_entry_bounce_rate_one_user(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_bounce_rate=True,
+        ).results
+
+        assert [
+            ["/a", (1, None), (3, None), (0, None), 1, ""],
+        ] == results
+
+    def test_entry_bounce_rate(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_bounce_rate=True,
+        ).results
+
+        assert [
+            ["/a", (3, None), (8, None), (1 / 3, None), 1, ""],
+        ] == results
+
+    def test_entry_bounce_rate_with_property(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.9),
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:01", scroll=0.9),
+                PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:02", scroll=0.2),
+                PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:03", scroll=0.9),
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", scroll=0.1),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_bounce_rate=True,
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/a")],
+        ).results
+
+        assert [
+            ["/a", (3, None), (4, None), (1 / 3, None), 3 / 3, ""],
+        ] == results
+
+    def test_entry_bounce_rate_path_cleaning(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/a/123", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/b/123", timestamp="2023-12-02T12:00:01", scroll=0.2),
+                PageViewProperties(pathname="/c/123", timestamp="2023-12-02T12:00:02", scroll=0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_bounce_rate=True,
+            path_cleaning_filters=[
+                {"regex": "\\/a\\/\\d+", "alias": "/a/:id"},
+                {"regex": "\\/b\\/\\d+", "alias": "/b/:id"},
+                {"regex": "\\/c\\/\\d+", "alias": "/c/:id"},
+            ],
+        ).results
+
+        assert [
+            ["/a/:id", (1, None), (3, None), (0, None), 1, ""],
+        ] == results
+
+    def test_source_medium_campaign(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google", "$referring_domain": "google.com"},
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={
+                "name": d2,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={"$session_id": s2, "$referring_domain": "news.ycombinator.com", "utm_medium": "referral"},
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN,
+        ).results
+
+        assert [
+            ["google / (none) / (none)", (1, None), (1, None), 1 / 2, ""],
+            ["referrer:news.ycombinator.com / referral / (none)", (1, None), (1, None), 1 / 2, ""],
+        ] == results
+
+    def test_null_in_utm_tags(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google"},
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={
+                "name": d2,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={
+                "$session_id": s2,
+            },
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+        ).results
+
+        assert [["google", (1, None), (1, None), 1 / 2, ""], [None, (1, None), (1, None), 1 / 2, ""]] == results
+
+    def test_is_not_set_filter(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-06-26"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-06-26",
+            properties={"$session_id": s1, "utm_source": "google"},
+        )
+
+        d2 = "d2"
+        s2 = str(uuid7("2024-06-26"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={
+                "name": d2,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-06-26",
+            properties={
+                "$session_id": s2,
+            },
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-06-27",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+            properties=[EventPropertyFilter(key="utm_source", operator=PropertyOperator.IS_NOT_SET)],
+        ).results
+
+        assert [[None, (1, None), (1, None), 1, ""]] == results
+
+    def test_same_user_multiple_sessions(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "utm_source": "google", "$pathname": "/path"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Try this with a query that uses session properties
+        results_session = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,
+        ).results
+        assert [["google", (1, None), (2, None), 1, ""]] == results_session
+
+        # Try this with a query that uses event properties
+        results_event = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+        assert [["/path", (1, None), (2, None), 1, ""]] == results_event
+
+        # Try this with a query using the bounce rate
+        results_event = self._run_web_stats_table_query(
+            "all", "2024-07-31", breakdown_by=WebStatsBreakdown.PAGE, include_bounce_rate=True
+        ).results
+        assert [["/path", (1, 0), (2, 0), (None, None), 1, ""]] == results_event
+
+    def test_no_session_id(self):
+        d1 = "d1"
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={
+                "name": d1,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"utm_source": "google", "$pathname": "/path"},
+        )
+
+        # Don't show session property breakdowns type of sessions with no session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+        ).results
+        assert [] == results
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+        ).results
+        assert [] == results
+
+        # Show event property breakdowns of page view events even without session id
+        results = self._run_web_stats_table_query(
+            "all",
+            "2024-07-31",
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+
+        assert [["/path", (1, None), (1, None), 1, ""]] == results
+
+    def test_cohort_test_filters(self):
+        d1 = "d1"
+        s1 = str(uuid7("2024-07-30"))
+        d2 = "d2"
+        s2 = str(uuid7("2024-07-30"))
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1, "email": "test@example.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path1"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2, "email": "d2@hedgebox.net"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path2"},
+        )
+
+        real_users_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Real persons",
+            description="People who don't belong to the Hedgebox team.",
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": "@hedgebox.net$",
+                            "operator": "not_regex",
+                        }
+                    ]
+                }
+            ],
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+
+        flush_persons_and_events()
+        real_users_cohort.calculate_people_ch(pending_version=0)
+
+        # Test that the cohort filter works
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            filter_test_accounts=True,
+            breakdown_by=WebStatsBreakdown.PAGE,
+        ).results
+
+        assert results == [["/path1", (1, None), (1, None), 1, ""]]
+
+    def test_language_filter(self):
+        d1, s1 = "d1", str(uuid7("2024-07-30"))
+        d2, s2 = "d2", str(uuid7("2024-07-30"))
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d1],
+            properties={"name": d1, "email": "test@example.com"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path1", "$browser_language": "en-US"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path2", "$browser_language": "en-US"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d1,
+            timestamp="2024-07-30",
+            properties={"$session_id": s1, "$pathname": "/path3", "$browser_language": "en-GB"},
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[d2],
+            properties={"name": d2, "email": "d2@hedgebox.net"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path2", "$browser_language": "pt-BR"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path3", "$browser_language": "pt-BR"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=d2,
+            timestamp="2024-07-30",
+            properties={"$session_id": s2, "$pathname": "/path4", "$browser_language": "nl"},
+        )
+
+        flush_persons_and_events()
+
+        results = self._run_web_stats_table_query(
+            "all",
+            None,
+            breakdown_by=WebStatsBreakdown.LANGUAGE,
+            filter_test_accounts=True,
+        ).results
+
+        # We can't assert on this directly because we're using topK and that's probabilistic
+        # which is causing this to be flaky (en-GB happens sometimes),
+        # we'll instead assert on a reduced form where we're
+        # not counting the country, but only the locale
+        # assert results == [["en-US", (1, 0), (3, 0)], ["pt-BR", (1, 0), (2, 0)], ["nl-", (1, 0), (1, 0)]]
+
+        country_results = [result[0].split("-")[0] for result in results]
+        assert country_results == ["en", "pt", "nl"]
+
+    def test_timezone_filter_general(self):
+        before_date = "2024-07-14"
+        after_date = "2024-07-16"
+
+        for idx, (timezone_offset, before_session_id, after_session_id) in enumerate(
+            [
+                (0, str(uuid7(before_date)), str(uuid7(after_date))),  # UTC
+                (-330, str(uuid7(before_date)), str(uuid7(after_date))),  # Calcutta UTC+5:30
+                (240, str(uuid7(before_date)), str(uuid7(after_date))),  # New York UTC-4
+                (180, str(uuid7(before_date)), str(uuid7(after_date))),  # Brasilia UTC-3
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[timezone_offset],
+                properties={"name": before_session_id, "email": f"{timezone_offset}@example.com"},
+            )
+
+            # Always one event in the before_date
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=timezone_offset,
+                timestamp=before_date,
+                properties={
+                    "$session_id": before_session_id,
+                    "$pathname": f"/path/landing",
+                    "$timezone_offset": timezone_offset,
+                },
+            )
+
+            # Several events in the actual range
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=timezone_offset,
+                    timestamp=after_date,
+                    properties={
+                        "$session_id": after_session_id,
+                        "$pathname": f"/path{i}",
+                        "$timezone_offset": timezone_offset,
+                    },
+                )
+
+        results = self._run_web_stats_table_query(
+            "2024-07-15",  # Period is since July first, we create some events before that date, and some after
+            None,
+            breakdown_by=WebStatsBreakdown.TIMEZONE,
+        ).results
+
+        # Brasilia UTC-3, New York UTC-4, Calcutta UTC+5:30, UTC
+        assert results == [
+            [-3, (1, None), (4, None), 1 / 4, ""],
+            [-4, (1, None), (3, None), 1 / 4, ""],
+            [5.5, (1, None), (2, None), 1 / 4, ""],
+            [0, (1, None), (1, None), 1 / 4, ""],
+        ]
+
+    def test_timezone_filter_with_invalid_timezone_offset(self):
+        date = "2024-07-30"
+
+        for idx, (distinct_id, session_id) in enumerate(
+            [
+                (None, str(uuid7(date))),
+                ("Timezone_not_exists", str(uuid7(date))),
+                ("", str(uuid7(date))),
+            ]
+        ):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[str(distinct_id)],
+                properties={"name": session_id, "email": f"{distinct_id}@example.com"},
+            )
+
+            for i in range(idx + 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=str(distinct_id),
+                    timestamp=date,
+                    properties={"$session_id": session_id, "$pathname": f"/path{i}", "$timezone_offset": distinct_id},
+                )
+
+            results = self._run_web_stats_table_query(
+                "all",
+                None,
+                breakdown_by=WebStatsBreakdown.TIMEZONE,
+            ).results
+
+            # Invalid timezone offsets collapse to a single NULL row instead of being dropped,
+            # so totals stay consistent with the overview tile (the frontend renders this as
+            # "(not set)").
+            assert len(results) == 1
+            assert results[0][0] is None
+            assert results[0][1][0] == idx + 1  # visitors == number of distinct persons seen so far
+            assert results[0][2][0] == sum(range(idx + 2))  # views == cumulative pageview count
+
+    def test_conversion_goal_no_conversions(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Bar",
+            steps_json=[{"event": "$pageview", "url": "https://www.example.com/bar", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        self.assertEqual(
+            [["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), nan_value, ""]],
+            response.results,
+        )
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ] == response.columns
+
+    def test_conversion_goal_one_pageview_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [["https://www.example.com/foo", (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ] == response.columns
+
+    def test_conversion_goal_one_custom_event_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "https://www.example.com/foo")]),
+            ],
+            event="custom_event",
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            custom_event="custom_event",
+        )
+
+        assert [[None, (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ] == response.columns
+
+    def test_conversion_goal_one_custom_action_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1)]),
+            ],
+            event="custom_event",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Did Custom Event",
+            steps_json=[
+                {
+                    "event": "custom_event",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
+        )
+
+        assert [[None, (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ] == response.columns
+
+    def test_conversion_goal_one_autocapture_conversion(self):
+        s1 = str(uuid7("2023-12-01"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, [Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")])]),
+            ],
+            event="$autocapture",
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Paid $10",
+            steps_json=[
+                {
+                    "event": "$autocapture",
+                    "tag_name": "button",
+                    "text": "Pay $10",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.INITIAL_UTM_SOURCE,  # Allow the breakdown value to be non-null
+            action=action,
+        )
+
+        assert [[None, (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ] == response.columns
+
+    def test_conversion_rate(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-01", s2, "https://www.example.com/foo"),
+                        ("2023-12-01", s2, "https://www.example.com/bar"),
+                    ],
+                ),
+                ("p3", [("2023-12-01", s3, "https://www.example.com/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
+        )
+
+        assert [
+            ["https://www.example.com/foo", (2, None), (3, None), (2, None), (1, None), 2 / 2, ""],
+            ["https://www.example.com/bar", (2, None), (0, None), (0, None), (0, None), 0 / 2, ""],
+        ] == response.results
+        assert [
+            "context.columns.breakdown_value",
+            "context.columns.visitors",
+            "context.columns.total_conversions",
+            "context.columns.unique_conversions",
+            "context.columns.conversion_rate",
+            "context.columns.ui_fill_fraction",
+            "context.columns.cross_sell",
+        ] == response.columns
+
+    def test_bounce_rate_with_multiple_pathname_filters(self):
+        self._create_pageviews(
+            "user1",
+            [
+                PageViewProperties(
+                    pathname="/onboarding/portfolio-selection", timestamp="2023-12-02T12:00:00", scroll=0.5
+                ),
+                PageViewProperties(pathname="/", timestamp="2023-12-02T12:00:30", scroll=0.3),
+            ],
+        )
+
+        self._create_pageviews(
+            "user2",
+            [
+                PageViewProperties(pathname="/", timestamp="2023-12-02T12:00:00", scroll=0.1),
+            ],
+        )
+
+        self._create_pageviews(
+            "user3",
+            [
+                PageViewProperties(
+                    pathname="/onboarding/portfolio-selection", timestamp="2023-12-02T12:00:00", scroll=0.1
+                ),
+            ],
+        )
+
+        self._create_pageviews(
+            "user4",
+            [
+                PageViewProperties(pathname="/onboarding/goals", timestamp="2023-12-02T12:00:30", scroll=0.8),
+                PageViewProperties(pathname="/onboarding/funding", timestamp="2023-12-02T12:01:00", scroll=0.9),
+            ],
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            properties=[
+                EventPropertyFilter(
+                    key="$pathname", operator=PropertyOperator.EXACT, value=["/onboarding/portfolio-selection", "/"]
+                ),
+            ],
+        ).results
+
+        assert len(results) == 2
+
+        portfolio_row = next((row for row in results if row[0] == "/onboarding/portfolio-selection"), None)
+        home_row = next((row for row in results if row[0] == "/"), None)
+
+        assert portfolio_row is not None
+        assert home_row is not None
+
+        assert portfolio_row[3][0] == 0.5  # 50% bounce rate (1 of 2 sessions bounced)
+        assert home_row[3][0] == 1.0  # 100% bounce rate (1 of 1 sessions bounced)
+
+    def test_sorting_by_visitors(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/path1")]),
+                ("p2", [("2023-12-01", s2, "/path1"), ("2023-12-01", s2, "/path2")]),
+                ("p3", [("2023-12-01", s3, "/path1"), ("2023-12-01", s3, "/path2"), ("2023-12-01", s3, "/path3")]),
+            ]
+        )
+
+        # Test ascending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
+
+        # Test descending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
+
+    def test_sorting_by_views(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/path1")]),
+                ("p2", [("2023-12-01", s2, "/path2"), ("2023-12-01", s2, "/path2")]),
+                ("p3", [("2023-12-01", s3, "/path3"), ("2023-12-01", s3, "/path3"), ("2023-12-01", s3, "/path3")]),
+            ]
+        )
+
+        # Test ascending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path2", "/path3"]
+
+        # Test descending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path3", "/path2", "/path1"]
+
+    def test_sorting_by_bounce_rate(self):
+        self._create_pageviews(
+            "p1",
+            [
+                PageViewProperties(pathname="/path1", timestamp="2023-12-02T12:00:00", scroll=0.1),  # Bounce
+            ],
+        )
+        self._create_pageviews(
+            "p2",
+            [
+                PageViewProperties(pathname="/path2", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/path2", timestamp="2023-12-02T12:00:01", scroll=0.2),  # No bounce
+            ],
+        )
+        self._create_pageviews(
+            "p3",
+            [
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:00", scroll=0.1),
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:01", scroll=0.1),
+                PageViewProperties(pathname="/path3", timestamp="2023-12-02T12:00:02", scroll=0.2),  # No bounce
+            ],
+        )
+
+        # Test ascending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.ASC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path2", "/path3", "/path1"]
+
+        # Test descending order
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_bounce_rate=True,
+            orderBy=(WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC),
+        ).results
+
+        assert [row[0] for row in results] == ["/path1", "/path3", "/path2"]
+
+    def test_sorting_by_total_conversions(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/foo"), ("2023-12-01", s1, "/foo")]),
+                ("p2", [("2023-12-01", s2, "/foo"), ("2023-12-01", s2, "/bar")]),
+                ("p3", [("2023-12-01", s3, "/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[{"event": "$pageview", "url": "/foo", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, WebAnalyticsOrderByDirection.ASC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/bar", "/foo"]
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.TOTAL_CONVERSIONS, WebAnalyticsOrderByDirection.DESC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/foo", "/bar"]
+
+    def test_sorting_by_conversion_rate(self):
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-01", s1, "/foo"), ("2023-12-01", s1, "/foo")]),
+                ("p2", [("2023-12-01", s2, "/foo"), ("2023-12-01", s2, "/bar")]),
+                ("p3", [("2023-12-01", s3, "/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[{"event": "$pageview", "url": "/foo", "url_matching": "regex"}],
+        )
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, WebAnalyticsOrderByDirection.ASC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/bar", "/foo"]
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-03",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            orderBy=(WebAnalyticsOrderByFields.CONVERSION_RATE, WebAnalyticsOrderByDirection.DESC),
+            action=action,
+        )
+
+        assert [row[0] for row in response.results] == ["/foo", "/bar"]
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_channel_type_filter(self):
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
+            breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+            properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
+        )
+        runner = WebStatsTableQueryRunner(team=self.team, query=query)
+        pre_agg_builder = runner.preaggregated_query_builder
+        assert pre_agg_builder.can_use_preaggregated_tables()
+
+    def test_avg_time_on_page_one_user(self):
+        page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=10),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:10", duration=5),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:20", duration=30),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:30", duration=60),
+        ]
+
+        self._create_pageviews("p1", page_views)
+
+        stats = self._calculate_pageview_statistics([page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",  # breakdown (page / path)
+                    (stats["/a"]["user_count"], 0),  # (visitors_this_month, visitors_last_month)
+                    (stats["/a"]["view_count"], 0),  # (views_this_month, views_last_month)
+                    (stats["/a"]["p90_duration"], 0),  # (p90_time_on_page_this_month, p90_time_on_page_last_month)
+                    (0, 0),
+                    1 / len(results),  # ui fill fraction
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_avg_time_on_page_multiple_users(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:10", duration=20),
+        ]
+
+        p2_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:20", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:30", duration=40),
+        ]
+
+        p3_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:40", duration=10),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=15),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_avg_time_on_multiple_routes_and_users(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:30", duration=20),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=3),
+        ]
+
+        p2_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:30", duration=10),
+            PageViewProperties(pathname="/c", timestamp="2023-12-02T12:00:40", duration=40),
+        ]
+
+        p3_page_views = [
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:50", duration=10),
+            PageViewProperties(pathname="/c", timestamp="2023-12-02T12:01:00", duration=15),
+        ]
+
+        p4_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=40),
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:40", duration=25),
+            PageViewProperties(pathname="/c", timestamp="2023-12-02T12:01:50", duration=13),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+        self._create_pageviews("p4", p4_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+                [
+                    "/b",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/b"]["view_count"], 0),
+                    (stats["/b"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+                [
+                    "/c",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/c"]["view_count"], 0),
+                    (stats["/c"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_avg_time_can_compare(self):
+        m1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-03", duration=30),
+        ]
+
+        m2_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-13", duration=120),
+        ]
+
+        self._create_pageviews("p1", m1_page_views)
+        self._create_pageviews("p2", m2_page_views)
+
+        m1_stats = self._calculate_pageview_statistics([m1_page_views])
+        m2_stats = self._calculate_pageview_statistics([m2_page_views])
+
+        results = self._run_web_stats_table_query(
+            "2023-12-06",
+            "2023-12-13",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            compare_filter=CompareFilter(compare=True),
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (m2_stats["/a"]["user_count"], m1_stats["/a"]["user_count"]),
+                    (m2_stats["/a"]["view_count"], m1_stats["/a"]["view_count"]),
+                    (m2_stats["/a"]["p90_duration"], m1_stats["/a"]["p90_duration"]),
+                    (1, 1),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_time_on_page_caps_at_24_hours(self):
+        page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=100000),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+
+        self._create_pageviews("p1", page_views)
+
+        capped_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:00", duration=86400),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T22:01:00", duration=120),
+        ]
+        stats = self._calculate_pageview_statistics([capped_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        self.assertEqual(
+            [
+                [
+                    "/a",
+                    (stats["/a"]["user_count"], 0),
+                    (stats["/a"]["view_count"], 0),
+                    (stats["/a"]["p90_duration"], 0),
+                    (0, 0),
+                    1 / len(results),
+                    "",
+                ],
+            ],
+            results,
+        )
+
+    def test_calculate_pageview_statistics_p90_single_session(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=15),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views])
+
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 28.5, places=2)
+
+    def test_calculate_pageview_statistics_p90_multiple_sessions(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=25),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:50", duration=40),
+        ]
+
+        p2_page_views = [
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:00", duration=30),
+            PageViewProperties(pathname="/b", timestamp="2023-12-02T12:00:50", duration=15),
+        ]
+
+        p3_page_views = [
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=17),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:00:00", duration=28),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views])
+
+        self.assertAlmostEqual(stats["/a"]["p90_duration"], 36.4, places=2)
+
+    def test_calculate_pageview_statistics_excludes_null_durations(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:06:40", duration=50),
+        ]
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        self.assertAlmostEqual(stats["/start"]["p90_duration"], 76.0, places=2)
+
+    def test_null_prev_pageview_duration_excluded_from_p90(self):
+        p1_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:00:00", duration=None),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:01:40", duration=50),
+        ]
+        p2_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:02:00", duration=80),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:03:20", duration=50),
+        ]
+        p3_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:04:00", duration=60),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:05:00", duration=50),
+        ]
+        p4_page_views = [
+            PageViewProperties(pathname="/start", timestamp="2023-12-02T12:06:00", duration=40),
+            PageViewProperties(pathname="/a", timestamp="2023-12-02T12:06:40", duration=50),
+        ]
+
+        self._create_pageviews("p1", p1_page_views)
+        self._create_pageviews("p2", p2_page_views)
+        self._create_pageviews("p3", p3_page_views)
+        self._create_pageviews("p4", p4_page_views)
+
+        stats = self._calculate_pageview_statistics([p1_page_views, p2_page_views, p3_page_views, p4_page_views])
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_avg_time_on_page=True,
+        ).results
+
+        start_result = next(r for r in results if r[0] == "/start")
+        self.assertAlmostEqual(start_result[3][0], stats["/start"]["p90_duration"], places=2)
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.INITIAL_PAGE,),
+            (WebStatsBreakdown.EXIT_PAGE,),
+        ]
+    )
+    def test_include_host_concatenates_host_and_path(self, breakdown):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        (
+                            "2023-12-02 10:00:00",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02 10:01:00",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        (
+                            "2023-12-03 10:00:00",
+                            s2,
+                            "/landing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/landing"},
+                        ),
+                        (
+                            "2023-12-03 10:01:00",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
+                    ],
+                ),
+                (
+                    "p3",
+                    [
+                        (
+                            "2023-12-04 10:00:00",
+                            s3,
+                            "/pricing",
+                            {"$host": "example.com", "$current_url": "https://example.com/pricing"},
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=breakdown,
+            include_host=True,
+        ).results
+
+        breakdown_values = [r[0] for r in results]
+
+        if breakdown == WebStatsBreakdown.PAGE:
+            assert "example.com/landing" in breakdown_values
+            assert "subdomain.example.com/landing" in breakdown_values
+            assert "example.com/features" in breakdown_values
+            assert "subdomain.example.com/pricing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+        elif breakdown == WebStatsBreakdown.INITIAL_PAGE:
+            assert "example.com/landing" in breakdown_values
+            assert "subdomain.example.com/landing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+        elif breakdown == WebStatsBreakdown.EXIT_PAGE:
+            assert "example.com/features" in breakdown_values
+            assert "subdomain.example.com/pricing" in breakdown_values
+            assert "example.com/pricing" in breakdown_values
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.PAGE,),
+            (WebStatsBreakdown.INITIAL_PAGE,),
+            (WebStatsBreakdown.EXIT_PAGE,),
+        ]
+    )
+    def test_include_host_false_returns_path_only(self, breakdown):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/landing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/landing"},
+                        ),
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=breakdown,
+            include_host=False,
+        ).results
+
+        breakdown_values = [r[0] for r in results]
+
+        assert "/landing" in breakdown_values
+        assert "example.com/landing" not in breakdown_values
+        assert "subdomain.example.com/landing" not in breakdown_values
+
+    def test_include_host_page_breakdown_groups_same_paths_on_different_hosts_separately(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/landing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/landing"},
+                        ),
+                    ],
+                ),
+                (
+                    "p3",
+                    [
+                        (
+                            "2023-12-04",
+                            s3,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        results_with_host = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_host=True,
+        ).results
+
+        results_without_host = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.PAGE,
+            include_host=False,
+        ).results
+
+        with_host_dict = {r[0]: r[1] for r in results_with_host}
+        without_host_dict = {r[0]: r[1] for r in results_without_host}
+
+        assert with_host_dict["example.com/landing"][0] == 2
+        assert with_host_dict["subdomain.example.com/landing"][0] == 1
+        assert without_host_dict["/landing"][0] == 3
+
+    def test_include_host_initial_page_breakdown_with_bounce_rate(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        (
+                            "2023-12-03",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.INITIAL_PAGE,
+            include_bounce_rate=True,
+            include_host=True,
+        ).results
+
+        breakdown_values = {r[0]: r for r in results}
+
+        assert "example.com/landing" in breakdown_values
+        assert "subdomain.example.com/pricing" in breakdown_values
+
+    def test_include_host_exit_page_breakdown_counts_correctly(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-03"))
+        s3 = str(uuid7("2023-12-04"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        (
+                            "2023-12-02 10:00:00",
+                            s1,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-02 10:01:00",
+                            s1,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        (
+                            "2023-12-03 10:00:00",
+                            s2,
+                            "/pricing",
+                            {"$host": "subdomain.example.com", "$current_url": "https://subdomain.example.com/pricing"},
+                        ),
+                        (
+                            "2023-12-03 10:01:00",
+                            s2,
+                            "/features",
+                            {
+                                "$host": "subdomain.example.com",
+                                "$current_url": "https://subdomain.example.com/features",
+                            },
+                        ),
+                    ],
+                ),
+                (
+                    "p3",
+                    [
+                        (
+                            "2023-12-04 10:00:00",
+                            s3,
+                            "/landing",
+                            {"$host": "example.com", "$current_url": "https://example.com/landing"},
+                        ),
+                        (
+                            "2023-12-04 10:01:00",
+                            s3,
+                            "/features",
+                            {"$host": "example.com", "$current_url": "https://example.com/features"},
+                        ),
+                    ],
+                ),
+            ]
+        )
+
+        results_with_host = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            breakdown_by=WebStatsBreakdown.EXIT_PAGE,
+            include_host=True,
+        ).results
+
+        results_dict = {r[0]: r[1] for r in results_with_host}
+
+        assert results_dict["example.com/features"][0] == 2
+        assert results_dict["subdomain.example.com/features"][0] == 1

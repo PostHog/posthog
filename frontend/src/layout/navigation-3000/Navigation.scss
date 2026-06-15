@@ -1,16 +1,33 @@
 @import '../../styles/vars';
 
-.Navigation3000 {
+// These are used in SceneLayout.css
+:root {
+    --scene-layout-panel-width: 300px;
+    --scene-layout-header-height: 40px;
+    --scene-title-section-height: 50px;
+    --side-panel-min-width: 28rem;
+    --settings-nav-width: 16rem;
+
+    // Layout vars consumed across scenes. Defined at the root so they cascade
+    // in every layout mode — `.Navigation3000` only renders in non-`full`
+    // modes, so scoping them there leaves them undefined for the normal app.
     --breadcrumbs-height-full: 3.75rem;
     --breadcrumbs-height-compact: 2.75rem; // Sync with BREADCRUMBS_HEIGHT_COMPACT
     --scene-padding: 1rem;
     --scene-padding-bottom: 4rem;
 
-    // These are used in SceneLayout.css
-    --scene-layout-panel-width: 300px;
-    --scene-layout-header-height: 40px;
-    --scene-title-section-height: 50px;
+    @media screen and (max-width: $sm) {
+        // handle notched devices and mobile safari's bottom nav bar
+        // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
+        --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
+    }
 
+    @media screen and (max-width: $lg) {
+        --scene-padding: 0.5rem;
+    }
+}
+
+.Navigation3000 {
     position: relative;
     display: flex;
     width: 100%;
@@ -20,6 +37,7 @@
 
     .storybook-test-runner & {
         height: auto;
+        min-height: 100vh;
     }
 
     > main {
@@ -32,16 +50,6 @@
         height: 100%;
         overflow: visible;
         background: none;
-    }
-
-    @media screen and (max-width: $sm) {
-        // handle notched devices and mobile safari's bottom nav bar
-        // provide a fallback of 80px as Safari's approach to safe-area-inset-bottom is not consistent across versions
-        --scene-padding-bottom: calc(var(--scene-padding) + max(env(safe-area-inset-bottom), 80px));
-    }
-
-    @media screen and (max-width: $lg) {
-        --scene-padding: 0.5rem;
     }
 }
 
@@ -303,6 +311,7 @@
     width: calc(2 * var(--sidebar-slider-padding) + 1px); // The interactive area is enlarged for easier interaction
     cursor: col-resize;
     user-select: none; // Fixes inadvertent selection of scene text when resizing
+
     &::before,
     &::after {
         position: absolute;
@@ -695,4 +704,36 @@
     z-index: 1; // Show above .SidebarListItem::after gradient
     display: none; // Only show on hover/focus or for current page
     transform: translateY(-50%);
+}
+
+.app-layout {
+    --left-nav-width: var(--project-navbar-width);
+
+    /* Default, overridden via inline style */
+
+    display: grid;
+    grid-template: 'left content' 1fr / var(--left-nav-width) minmax(0, 1fr);
+    height: 100vh;
+    overflow: hidden;
+
+    .storybook-test-runner & {
+        height: fit-content;
+    }
+
+    /* Mobile layout - single column with overlay nav */
+    &.app-layout--mobile {
+        grid-template: 'content' 1fr / minmax(0, 1fr);
+
+        .main-content-container {
+            margin-right: 0;
+        }
+    }
+}
+
+.left-nav {
+    grid-area: left;
+}
+
+.main-content-container {
+    grid-area: content;
 }

@@ -48,6 +48,6 @@ func TestStatsHandler(t *testing.T) {
 
 	if assert.NoError(t, handler(c)) {
 		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.JSONEq(t, `{"users_on_product":1}`, string(rec.Body.Bytes()))
+		assert.JSONEq(t, `{"users_on_product":1}`, rec.Body.String())
 	}
 }

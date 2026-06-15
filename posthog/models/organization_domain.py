@@ -1,6 +1,7 @@
 import secrets
 from typing import Optional
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
@@ -9,6 +10,7 @@ import dns.resolver
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -31,6 +33,47 @@ class OrganizationDomainManager(models.Manager):
         """
         domain = email[email.index("@") + 1 :]
         return self.verified_domains().filter(domain__iexact=domain).first()
+
+    def get_verified_for_email_address_and_issuer(
+        self, email: str, issuer: str
+    ) -> tuple[Optional["OrganizationDomain"], Optional[str]]:
+        """
+        Resolve the `OrganizationDomain` that should authorize an ID-JAG
+        assertion for `email` signed by `issuer`. Returns
+        `(org_domain, error)` where `error` is `None` on success or a
+        human-readable description of the failure mode otherwise.
+
+        Lookup is by `(domain, issuer)` (not `.first()`) so the chosen org is
+        deterministic and cannot be steered by row ordering when multiple
+        organizations have verified the same domain. The returned org is the
+        one whose IdP signed the assertion — callers should scope the issued
+        access token to that org and require user membership there.
+        """
+        if "@" not in email:
+            return None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
+        domain = email[email.index("@") + 1 :].lower()
+        normalized_issuer = (issuer or "").rstrip("/")
+
+        verified_for_domain = list(self.verified_domains().filter(domain__iexact=domain))
+        if not verified_for_domain:
+            return None, "ID-JAG sub email domain is not a verified domain for any PostHog organization"
+
+        configured = [d for d in verified_for_domain if (d.id_jag_issuer_url or "").rstrip("/")]
+        if not configured:
+            return None, "ID-JAG is not configured for this domain (id_jag_issuer_url is unset)"
+
+        matching = [d for d in configured if (d.id_jag_issuer_url or "").rstrip("/") == normalized_issuer]
+        if not matching:
+            return None, "ID-JAG iss does not match the IdP configured for this email's domain"
+
+        if len(matching) > 1:
+            # Ambiguous config — multiple orgs verified the same domain AND
+            # configured the same IdP issuer. This is a case that will rqeuire
+            # manual intervention to resolve since it is not clear if one of
+            # or both of the org domains are valid
+            return None, "ID-JAG configuration is ambiguous: multiple OrganizationDomains share this (domain, issuer)"
+
+        return matching[0], None
 
     def get_is_saml_available_for_email(self, email: str) -> bool:
         """
@@ -118,8 +161,10 @@ class OrganizationDomainManager(models.Manager):
         return candidate_sso_enforcement
 
 
-class OrganizationDomain(UUIDTModel):
+class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
+
+    activity_logging_on_delete = True
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
     domain = models.CharField(max_length=128, unique=True)
@@ -148,8 +193,55 @@ class OrganizationDomain(UUIDTModel):
         max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"
     )
 
+    # ---- ID-JAG attributes ----
+    id_jag_issuer_url = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="Trusted IdP issuer URL for ID-JAG. Required to enable ID-JAG on this domain.",
+    )
+    # Defaults to `{id_jag_issuer_url}/.well-known/openid-configuration`.
+    id_jag_jwks_url = models.CharField(
+        max_length=512,
+        blank=True,
+        null=True,
+        help_text="Override JWKS URL. Defaults to OIDC discovery on the issuer URL.",
+    )
+    id_jag_allowed_clients = ArrayField(
+        models.CharField(max_length=256),
+        default=list,
+        blank=True,
+        null=True,
+        help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
+    )
+
     class Meta:
         verbose_name = "domain"
+
+    def clean(self) -> None:
+        # Validate ID-JAG IdP URLs at write time as a UX guard against the
+        # common admin mistake of pointing them at an internal/loopback/
+        # metadata host. This is best-effort — DNS rebinding and post-write
+        # config changes can still produce an unsafe URL at fetch time, so
+        # `posthog.api.id_jag._get_jwks_client` re-validates before every
+        # network call. Callers must invoke `full_clean()` (or use a
+        # ModelForm / DRF serializer that does) for this to take effect.
+        # Imported lazily to keep this app's import graph free of security/.
+        from django.core.exceptions import ValidationError
+
+        from posthog.security.url_validation import is_url_allowed
+
+        errors: dict[str, str] = {}
+        for field_name in ("id_jag_issuer_url", "id_jag_jwks_url"):
+            url = getattr(self, field_name, None)
+            if not url:
+                continue
+            allowed, reason = is_url_allowed(url)
+            if not allowed:
+                errors[field_name] = f"URL is not allowed: {reason}"
+        if errors:
+            raise ValidationError(errors)
+        super().clean()
 
     @property
     def is_verified(self) -> bool:
@@ -172,6 +264,13 @@ class OrganizationDomain(UUIDTModel):
         Returns whether SCIM is configured and enabled for this domain.
         """
         return self.scim_enabled and bool(self.scim_bearer_token)
+
+    @property
+    def has_id_jag(self) -> bool:
+        """
+        Returns whether ID-JAG (XAA) is configured for this domain.
+        """
+        return bool(self.id_jag_issuer_url)
 
     def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

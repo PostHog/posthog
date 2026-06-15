@@ -85,7 +85,7 @@ You can add optional properties through the option functions:
 2. Import and use the typed PostHog client:
    from posthog_typed import PosthogTyped
 
-   client = PosthogTyped("<ph_project_api_key>", host="<ph_client_api_host>")
+   client = PosthogTyped("<ph_project_token>", host="<ph_client_api_host>")
 
    # Use typed capture methods with full IDE autocomplete:
    client.capture_event_name(

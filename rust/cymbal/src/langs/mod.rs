@@ -7,9 +7,12 @@ pub mod go;
 pub mod hermes;
 pub mod java;
 pub mod js;
+pub mod native;
 pub mod node;
+pub mod php;
 pub mod python;
 pub mod ruby;
+pub mod rust;
 pub mod utils;
 
 // Some metadata is common across all languages, so we define it here. In some

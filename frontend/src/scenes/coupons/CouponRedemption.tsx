@@ -92,7 +92,7 @@ export function CouponRedemption({
 
     if (!isAdminOrOwner) {
         return (
-            <div className="mx-auto max-w-200 mt-6 px-4">
+            <div className="mx-auto w-full max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
                     <h2 className="mb-2">Admin or owner permission required</h2>
                     <p>

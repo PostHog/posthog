@@ -1,6 +1,6 @@
 import { IconActivity, IconMemory, IconRocket, IconSupport, IconThumbsUp } from '@posthog/icons'
 
-import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
+import { FeatureFlagKey } from 'lib/constants'
 
 import { SlashCommandName } from '~/queries/schema/schema-assistant-messages'
 
@@ -32,22 +32,19 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
     },
     {
         name: SlashCommandName.SlashUsage,
-        description: 'View AI credit usage for this conversation',
+        description: 'View AI credit usage for this conversation and billing period',
         icon: <IconActivity />,
-        flag: FEATURE_FLAGS.POSTHOG_AI_BILLING_USAGE_COMMAND,
     },
     {
         name: SlashCommandName.SlashFeedback,
         arg: '[your feedback]',
         description: 'Share feedback about your PostHog AI experience',
         icon: <IconThumbsUp />,
-        flag: FEATURE_FLAGS.POSTHOG_AI_FEEDBACK_COMMAND,
     },
     {
         name: SlashCommandName.SlashTicket,
         description: 'Create a support ticket with a summary of this conversation',
         icon: <IconSupport />,
-        flag: FEATURE_FLAGS.POSTHOG_AI_TICKET_COMMAND,
         requiresIdle: true,
         requiresPaidPlan: true,
     },

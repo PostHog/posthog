@@ -87,11 +87,13 @@ function NoOtherWatchers(): JSX.Element {
     )
 }
 
+export interface PlayerSidebarOverviewOtherWatchersProps {
+    startExpanded?: boolean
+}
+
 export function PlayerSidebarOverviewOtherWatchers({
     startExpanded = false,
-}: {
-    startExpanded?: boolean
-}): JSX.Element {
+}: PlayerSidebarOverviewOtherWatchersProps): JSX.Element {
     const { sessionPlayerMetaDataLoading, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
 
     return (

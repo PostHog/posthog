@@ -1,12 +1,12 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
+import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnings'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
-import { captureIngestionWarning } from '../utils'
 import { PersonContext } from './person-context'
-import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 export class PersonCreateService {
@@ -25,7 +25,7 @@ export class PersonCreateService {
         creatorEventUuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
-        tx?: PersonsStoreTransaction
+        tx?: PersonsStoreTransactionForBatch
     ): Promise<[InternalPerson, boolean]> {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
@@ -56,7 +56,7 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                await this.context.kafkaProducer.queueMessages(result.messages)
+                await this.context.produceMessages(result.messages)
                 return [result.person, result.created]
             }
 
@@ -86,7 +86,7 @@ export class PersonCreateService {
             throw new Error('Unexpected CreatePersonResult state')
         } catch (error) {
             if (error instanceof PersonPropertiesSizeViolationError) {
-                await captureIngestionWarning(this.context.kafkaProducer, teamId, 'person_properties_size_violation', {
+                await emitIngestionWarning(this.context.outputs, teamId, 'person_properties_size_violation', {
                     personId: error.personId,
                     distinctId: primaryDistinctId.distinctId,
                     teamId: teamId,

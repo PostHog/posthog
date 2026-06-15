@@ -1,0 +1,8 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey, {{ user_name }},</p>
+
+<p>You added a passkey to {{ user_email }}.</p>
+
+<p>This is generally good news because it helps protect your account, but if you didn't do this or think it sounds suspicious then please let us know.</p>
+{% endblock %}

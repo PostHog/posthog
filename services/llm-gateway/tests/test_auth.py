@@ -14,7 +14,7 @@ from llm_gateway.auth.service import AuthService, extract_token
 
 
 @pytest.fixture(autouse=True)
-def reset_cache() -> Generator[None, None, None]:
+def reset_cache() -> Generator[None]:
     reset_auth_cache()
     yield
     reset_auth_cache()
@@ -105,6 +105,7 @@ class TestAuthService:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -129,6 +130,7 @@ class TestAuthService:
                 "user_id": 789,
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 101,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -198,7 +200,13 @@ class TestPersonalApiKeyAuthenticator:
     ) -> None:
         conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
-            return_value={"id": "k1", "user_id": 123, "scopes": ["llm_gateway:read"], "current_team_id": 456}
+            return_value={
+                "id": "k1",
+                "user_id": 123,
+                "scopes": ["llm_gateway:read"],
+                "current_team_id": 456,
+                "distinct_id": "test-distinct-id",
+            }
         )
 
         token_hash = authenticator.hash_token("phx_test_key")
@@ -225,6 +233,10 @@ class TestPersonalApiKeyAuthenticator:
             pytest.param(
                 {"id": "k3", "user_id": 100, "scopes": [], "current_team_id": 200},
                 id="empty_scopes",
+            ),
+            pytest.param(
+                {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
+                id="wildcard_scope_rejected",
             ),
         ],
     )
@@ -273,6 +285,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) - timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -293,6 +306,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": None,
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -315,6 +329,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": None,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -344,6 +359,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -360,6 +376,7 @@ class TestOAuthAccessTokenAuthenticator:
             pytest.param(
                 "read:all llm_gateway:read admin", ["read:all", "llm_gateway:read", "admin"], id="three_scopes"
             ),
+            pytest.param("*", ["*"], id="wildcard_scope_accepted_for_oauth"),
         ],
     )
     async def test_scope_parsing(
@@ -374,6 +391,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -396,6 +414,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": 456,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 
@@ -421,6 +440,7 @@ class TestOAuthAccessTokenAuthenticator:
                 "expires": datetime.now(UTC) + timedelta(hours=1),
                 "current_team_id": None,
                 "application_id": 789,
+                "distinct_id": "test-distinct-id",
             }
         )
 

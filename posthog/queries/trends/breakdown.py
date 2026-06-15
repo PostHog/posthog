@@ -20,7 +20,6 @@ from posthog.constants import (
     WEEKLY_ACTIVE,
     PropertyOperatorType,
 )
-from posthog.models.action.util import format_action_filter
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
@@ -76,6 +75,8 @@ from posthog.queries.util import (
 )
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.utils import encode_get_request_params, generate_short_id
+
+from products.actions.backend.models.util import format_action_filter
 
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
 BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
@@ -170,7 +171,7 @@ class TrendsBreakdown:
         action_query = ""
         action_params: dict = {}
         if self.entity.type == TREND_FILTER_TYPE_ACTIONS:
-            action = self.entity.get_action()
+            action = self.entity.get_action(self.team_id)
             action_query, action_params = format_action_filter(
                 team_id=self.team_id,
                 action=action,
@@ -728,7 +729,7 @@ class TrendsBreakdown:
         value: Union[str, int],
     ) -> str:
         if breakdown_type == "cohort":
-            return get_breakdown_cohort_name(breakdown_value)
+            return get_breakdown_cohort_name(breakdown_value, self.team)
         elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
             return BREAKDOWN_OTHER_DISPLAY
         elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:

@@ -1,115 +1,100 @@
-import { actions, kea, path, reducers, useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
 import { ItemSelectModal } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { LinkToModal } from 'lib/components/FileSystem/LinkTo/LinkTo'
 import { MoveToModal } from 'lib/components/FileSystem/MoveTo/MoveTo'
-import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
+import { HedgehogMode } from 'lib/components/HedgehogMode/HedgehogMode'
+import { SuperpowersModal } from 'lib/components/Superpowers/Superpowers'
+import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
-import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
+import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { CreateEnvironmentModal } from 'scenes/project/CreateEnvironmentModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { EnvironmentRollbackModal } from 'scenes/settings/environment/EnvironmentRollbackModal'
-import { environmentRollbackModalLogic } from 'scenes/settings/environment/environmentRollbackModalLogic'
-import { InviteModal } from 'scenes/settings/organization/InviteModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
+import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
-import type { globalModalsLogicType } from './GlobalModalsType'
+import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
 
-export const globalModalsLogic = kea<globalModalsLogicType>([
-    path(['layout', 'navigation', 'globalModalsLogic']),
-    actions({
-        showCreateOrganizationModal: true,
-        hideCreateOrganizationModal: true,
-        showCreateProjectModal: true,
-        hideCreateProjectModal: true,
-        showCreateEnvironmentModal: true,
-        hideCreateEnvironmentModal: true,
-    }),
-    reducers({
-        isCreateOrganizationModalShown: [
-            false,
-            {
-                showCreateOrganizationModal: () => true,
-                hideCreateOrganizationModal: () => false,
-            },
-        ],
-        isCreateProjectModalShown: [
-            false,
-            {
-                showCreateProjectModal: () => true,
-                hideCreateProjectModal: () => false,
-            },
-        ],
-        isCreateEnvironmentModalShown: [
-            false,
-            {
-                showCreateEnvironmentModal: () => true,
-                hideCreateEnvironmentModal: () => false,
-            },
-        ],
-    }),
-])
+import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
+import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+
+import { globalModalsLogic } from './globalModalsLogic'
+import { navigationLogic } from './navigation/navigationLogic'
+import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
+import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
+
+// The session player modal anchors the entire replay player graph; loading it only when a
+// recording is opened keeps that graph out of the chunk every logged-in page downloads.
+const SessionPlayerModal = lazy(() =>
+    import('scenes/session-recordings/player/modal/SessionPlayerModal').then((m) => ({
+        default: m.SessionPlayerModal,
+    }))
+)
+
+// Same trick for the logs viewer, whose sparkline anchors chart.js.
+const LogsViewerModal = lazy(() =>
+    import('products/logs/frontend/components/LogsViewer/LogsViewerModal').then((m) => ({
+        default: m.LogsViewerModal,
+    }))
+)
 
 export function GlobalModals(): JSX.Element {
-    const { isCreateOrganizationModalShown, isCreateProjectModalShown, isCreateEnvironmentModalShown } =
-        useValues(globalModalsLogic)
-    const {
-        hideCreateOrganizationModal,
-        hideCreateProjectModal,
-        hideCreateEnvironmentModal,
-        showCreateEnvironmentModal,
-    } = useActions(globalModalsLogic)
+    const { isCreateOrganizationModalShown, isCreateProjectModalShown } = useValues(globalModalsLogic)
+    const { hideCreateOrganizationModal, hideCreateProjectModal } = useActions(globalModalsLogic)
+    const { activeSessionRecording } = useValues(sessionPlayerModalLogic)
+    const { isOpen: isLogsViewerModalOpen } = useValues(logsViewerModalLogic)
+    // Grace-extended so the modals' exit animations finish before the lazy subtree unmounts.
+    const shouldRenderSessionPlayerModal = useKeepMountedWhileOpen(!!activeSessionRecording)
+    const shouldRenderLogsViewerModal = useKeepMountedWhileOpen(isLogsViewerModalOpen)
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { hasEnvironmentsRollbackFeature } = useValues(environmentRollbackModalLogic)
-
-    // Expose modal actions to window for debugging purposes
-    useEffect(() => {
-        const isDebugEnabled = typeof window !== 'undefined' && window.localStorage?.getItem('ph-debug') === 'true'
-
-        if (typeof window !== 'undefined' && isDebugEnabled) {
-            // @ts-expect-error-next-line
-            window.posthogDebug = window.posthogDebug || {}
-            // @ts-expect-error-next-line
-            window.posthogDebug.showCreateEnvironmentModal = showCreateEnvironmentModal
-        }
-
-        return () => {
-            if (typeof window !== 'undefined') {
-                // @ts-expect-error-next-line
-                if (window.posthogDebug) {
-                    // @ts-expect-error-next-line
-                    delete window.posthogDebug.showCreateEnvironmentModal
-                }
-            }
-        }
-    }, [showCreateEnvironmentModal])
+    const { superpowersEnabled } = useValues(superpowersLogic)
+    const { isConfigureHomeModalOpen } = useValues(navigationLogic)
+    const { hideConfigureHomeModal } = useActions(navigationLogic)
+    const { isConfigureModalOpen: isConfigurePromotedProductModalOpen } = useValues(promotedProductLogic)
+    const { hideConfigureModal: hideConfigurePromotedProductModal } = useActions(promotedProductLogic)
 
     return (
         <>
             <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <CreateOrganizationModal isVisible={isCreateOrganizationModalShown} onClose={hideCreateOrganizationModal} />
             <CreateProjectModal isVisible={isCreateProjectModalShown} onClose={hideCreateProjectModal} />
-            <CreateEnvironmentModal isVisible={isCreateEnvironmentModalShown} onClose={hideCreateEnvironmentModal} />
             <UpgradeModal />
             <TimeSensitiveAuthenticationModal />
-            <SessionPlayerModal />
+            {shouldRenderSessionPlayerModal ? (
+                <Suspense fallback={null}>
+                    <SessionPlayerModal />
+                </Suspense>
+            ) : null}
+            {shouldRenderLogsViewerModal ? (
+                <Suspense fallback={null}>
+                    <LogsViewerModal />
+                </Suspense>
+            ) : null}
             <PreviewingCustomCssModal />
             <TwoFactorSetupModal />
-            <HedgehogBuddyWithLogic />
+            <HedgehogMode />
             <PaymentEntryModal />
             <GlobalCustomUnitModal />
             <MoveToModal />
             <LinkToModal />
             <ItemSelectModal />
-            {hasEnvironmentsRollbackFeature && <EnvironmentRollbackModal />}
+            {superpowersEnabled && <SuperpowersModal />}
+            <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
+            <ConfigurePromotedProductModal
+                isOpen={isConfigurePromotedProductModalOpen}
+                onClose={hideConfigurePromotedProductModal}
+            />
+            <MaybeWelcomeDialog />
+            <ComposeTicketModal />
         </>
     )
 }

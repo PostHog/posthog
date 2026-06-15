@@ -1,5 +1,6 @@
 import { FunnelLayout } from 'lib/constants'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     FunnelsQuery,
@@ -89,6 +90,8 @@ describe('queryNodeToFilter', () => {
                 aggregationAxisPrefix: 'M',
                 aggregationAxisPostfix: '$',
                 decimalPlaces: 5,
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
                 showValuesOnSeries: true,
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
@@ -118,6 +121,8 @@ describe('queryNodeToFilter', () => {
             aggregation_axis_format: 'numeric',
             aggregation_axis_prefix: 'M',
             aggregation_axis_postfix: '$',
+            x_axis_label: 'Signup date',
+            y_axis_label: 'Unique users',
             breakdown: '$browser',
             breakdown_hide_other_aggregation: true,
             breakdown_limit: 1,
@@ -131,6 +136,20 @@ describe('queryNodeToFilter', () => {
             show_multiple_y_axes: false,
         }
         expect(result).toEqual(filters)
+    })
+
+    test('round-trips axis labels through legacy trends filters', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+            },
+        }
+
+        expect(filtersToQueryNode(queryNodeToFilter(query))).toEqual(query)
     })
 
     test('converts a funnelsFilter into filter properties', () => {
@@ -207,6 +226,38 @@ describe('queryNodeToFilter', () => {
             entity_type: 'events',
         }
         expect(result).toEqual(filters)
+    })
+
+    test('converts a funnels data warehouse node to a legacy filter', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'timestamp',
+                    id_field: 'id',
+                    aggregation_target_field: 'person_id',
+                },
+            ],
+        }
+
+        const result = queryNodeToFilter(query)
+
+        expect(result.data_warehouse).toEqual([
+            {
+                type: 'data_warehouse',
+                id: 'warehouse_orders',
+                order: 0,
+                name: 'Orders',
+                table_name: 'warehouse_orders',
+                timestamp_field: 'timestamp',
+                id_field: 'id',
+                aggregation_target_field: 'person_id',
+            },
+        ])
     })
 
     test('converts a pathsFilter and funnelPathsFilter into filter properties', () => {

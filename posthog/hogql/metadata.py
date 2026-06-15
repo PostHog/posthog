@@ -1,32 +1,40 @@
-from typing import Optional, Union, cast
+from typing import Literal, Optional, Union, cast
 
 from django.conf import settings
 
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice
+from pydantic import BaseModel
+
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLNotice, HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.metadata_heuristics import run_metadata_heuristics
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.query import create_default_modifiers_for_team
+from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.models.user import User
 
 
 def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
+    user: Optional[User] = None,
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
-    clickhouse_prepared_ast: Optional[ast.AST] = None,
-    clickhouse_sql: Optional[str] = None,
+    prepared_ast: Optional[ast.AST] = None,  # precached
+    printed_sql: Optional[str] = None,  # precached
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -38,10 +46,29 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
+    source = get_direct_connection_source(team, query.connectionId)
+    if query.connectionId and source is None:
+        response.isValid = False
+        response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
+        return response
+
+    database = None
+    if source:
+        database = Database.create_for(
+            team=team,
+            user=user,
+            modifiers=query_modifiers,
+            connection_id=str(source.id),
+        )
+
+    heuristic_warnings: list[HogQLNotice] = []
+    context: Optional[HogQLContext] = None
 
     try:
         context = HogQLContext(
             team_id=team.pk,
+            user=user,
+            database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
             debug=query.debug or False,
@@ -65,36 +92,35 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
-                    hogql_ast = replace_filters(hogql_ast, query.filters, team)
-                if query.variables:
-                    hogql_ast = replace_variables(hogql_ast, list(query.variables.values()), team)
-                if finder.placeholder_fields or finder.placeholder_expressions:
+                    hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
+                if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
+                    hogql_ast = replace_variables(
+                        hogql_ast, list(query.variables.values()) if query.variables else [], team
+                    )
                     hogql_ast = cast(ast.SelectQuery, replace_placeholders(hogql_ast, query.globals))
 
+            heuristic_warnings.extend(run_metadata_heuristics(hogql_ast))
             hogql_table_names = get_table_names(hogql_ast)
+            heuristic_warnings.extend(validate_taxonomy_references(hogql_ast, team, hogql_table_names))
             response.table_names = hogql_table_names
 
-            if not clickhouse_sql or not clickhouse_prepared_ast:
-                clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+            if not printed_sql or not prepared_ast:
+                printed_sql, prepared_ast = prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="clickhouse",
+                    dialect="postgres" if source else "clickhouse",
                 )
 
-            if clickhouse_prepared_ast:
-                ch_table_names = get_table_names(clickhouse_prepared_ast)
-                response.ch_table_names = ch_table_names
+            if prepared_ast:
+                response.ch_table_names = get_table_names(prepared_ast)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
-        response.warnings = context.warnings
-        response.notices = context.notices
-        response.errors = context.errors
-        response.isValid = len(response.errors) == 0
     except Exception as e:
         response.isValid = False
         if isinstance(e, ExposedHogQLError):
             error = str(e)
-            if "mismatched input '<EOF>' expecting" in error:
+            # cpp-json (ANTLR) and rust-py word EOF differently; collapse both into a single human-readable string.
+            if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
                 error = "Unexpected end of query"
             if e.end and e.start and e.end < e.start:
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
@@ -106,6 +132,15 @@ def get_hogql_metadata(
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
         else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
+    finally:
+        if context is not None:
+            response.warnings = [*context.warnings, *heuristic_warnings]
+            response.notices = context.notices
+            if response.errors:
+                response.errors = [*context.errors, *response.errors]
+            else:
+                response.errors = context.errors
+            response.isValid = len(response.errors) == 0
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now
     if query.language == HogLanguage.HOG_TEMPLATE:
@@ -115,6 +150,50 @@ def get_hogql_metadata(
                 err.end -= 2
 
     return response
+
+
+def enrich_hogql_validation_error(
+    query: BaseModel | None,
+    team: Team,
+    user: Optional[User],
+    original_detail: str,
+) -> tuple[str, dict | None]:
+    """When a HogQLQuery fails, run it through metadata resolution to collect
+    structured error positions, table references, and any fix hints. Returns a
+    (possibly enriched) detail string and a dict suitable for exceptions_hog's
+    ``extra`` attribute — or ``(original_detail, None)`` when enrichment isn't
+    applicable or fails.
+    """
+    if not isinstance(query, HogQLQuery) or not query.query:
+        return original_detail, None
+
+    try:
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query=query.query,
+                modifiers=query.modifiers,
+                filters=query.filters,
+                connectionId=query.connectionId,
+            ),
+            team=team,
+            user=user,
+        )
+    except Exception:
+        return original_detail, None
+
+    lines: list[str] = [original_detail]
+
+    for notice in [*metadata.errors, *metadata.warnings, *metadata.notices]:
+        if notice.fix and notice.fix not in lines:
+            lines.append(f"Hint: {notice.fix}")
+
+    if metadata.table_names:
+        lines.append(f"Tables referenced: {', '.join(metadata.table_names)}")
+
+    extra = {"hogql_metadata": metadata.model_dump(mode="json", exclude_none=True)}
+    return "\n".join(lines), extra
 
 
 def process_expr_on_table(
@@ -130,7 +209,10 @@ def process_expr_on_table(
             select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
 
         # Nothing to return, we just make sure it doesn't throw
-        prepare_and_print_ast(select_query, context, "clickhouse")
+        dialect: Literal["clickhouse", "postgres"] = (
+            "postgres" if getattr(context.database, "_connection_id", None) else "clickhouse"
+        )
+        prepare_and_print_ast(select_query, context, dialect)
     except (NotImplementedError, SyntaxError):
         raise
 

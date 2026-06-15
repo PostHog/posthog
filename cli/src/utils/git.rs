@@ -15,7 +15,7 @@ pub struct GitInfo {
 }
 
 pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
-    if let Some(info) = get_git_info_from_vercel() {
+    if let Some(info) = get_git_info_from_env(get_env_variable) {
         return Ok(Some(info));
     }
 
@@ -26,8 +26,8 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
 
     let remote_url = get_remote_url(&git_dir);
     let repo_name = get_repo_name(&git_dir);
-    let branch = get_current_branch(&git_dir).context("Failed to determine current branch")?;
-    let commit = get_head_commit(&git_dir, &branch).context("Failed to determine commit ID")?;
+    let branch = get_branch_name(&git_dir).context("Failed to determine current branch")?;
+    let commit = get_commit_sha(&git_dir, &branch).context("Failed to determine commit sha")?;
 
     Ok(Some(GitInfo {
         remote_url,
@@ -37,14 +37,42 @@ pub fn get_git_info(dir: Option<PathBuf>) -> Result<Option<GitInfo>> {
     }))
 }
 
-fn get_git_info_from_vercel() -> Option<GitInfo> {
-    get_env_variable("VERCEL")?;
+#[doc(hidden)]
+pub fn get_git_info_from_env(get_env: impl Fn(&str) -> Option<String>) -> Option<GitInfo> {
+    if let Some(info) = get_git_info_from_github(&get_env) {
+        return Some(info);
+    }
 
-    let branch = get_env_variable("VERCEL_GIT_COMMIT_REF")?;
-    let commit_id = get_env_variable("VERCEL_GIT_COMMIT_SHA")?;
-    let repo_slug = get_env_variable("VERCEL_GIT_REPO_SLUG")?;
+    get_git_info_from_vercel(&get_env)
+}
 
-    let remote_url = build_vercel_remote_url(&repo_slug);
+fn get_git_info_from_github(get_env: &impl Fn(&str) -> Option<String>) -> Option<GitInfo> {
+    get_env("GITHUB_ACTIONS")?;
+
+    let branch = get_env("GITHUB_REF_NAME")?;
+    let commit_id = get_env("GITHUB_SHA")?;
+    let repository = get_env("GITHUB_REPOSITORY")?;
+    let server_url = get_env("GITHUB_SERVER_URL")?;
+
+    let repo_name = repository.split('/').next_back().map(|s| s.to_string());
+    let remote_url = Some(format!("{server_url}/{repository}.git"));
+
+    Some(GitInfo {
+        remote_url,
+        repo_name,
+        branch,
+        commit_id,
+    })
+}
+
+fn get_git_info_from_vercel(get_env: &impl Fn(&str) -> Option<String>) -> Option<GitInfo> {
+    get_env("VERCEL")?;
+
+    let branch = get_env("VERCEL_GIT_COMMIT_REF")?;
+    let commit_id = get_env("VERCEL_GIT_COMMIT_SHA")?;
+    let repo_slug = get_env("VERCEL_GIT_REPO_SLUG")?;
+
+    let remote_url = build_vercel_remote_url(&repo_slug, get_env);
 
     Some(GitInfo {
         remote_url,
@@ -54,9 +82,12 @@ fn get_git_info_from_vercel() -> Option<GitInfo> {
     })
 }
 
-fn build_vercel_remote_url(repo_slug: &String) -> Option<String> {
-    let provider = get_env_variable("VERCEL_GIT_PROVIDER")?;
-    let owner = get_env_variable("VERCEL_GIT_REPO_OWNER")?;
+fn build_vercel_remote_url(
+    repo_slug: &str,
+    get_env: &impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    let provider = get_env("VERCEL_GIT_PROVIDER")?;
+    let owner = get_env("VERCEL_GIT_REPO_OWNER")?;
 
     let base_url = match provider.as_str() {
         "github" => "https://github.com",
@@ -139,7 +170,7 @@ pub fn get_repo_name(git_dir: &Path) -> Option<String> {
     None
 }
 
-fn get_current_branch(git_dir: &Path) -> Result<String> {
+fn get_branch_name(git_dir: &Path) -> Result<String> {
     // First try to read from HEAD file
     let head_path = git_dir.join("HEAD");
     let mut head_content = String::new();
@@ -161,7 +192,7 @@ fn get_current_branch(git_dir: &Path) -> Result<String> {
     }
 }
 
-fn get_head_commit(git_dir: &Path, branch: &str) -> Result<String> {
+fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
     if branch == "HEAD-detached" {
         // For detached HEAD, read directly from HEAD
         let head_path = git_dir.join("HEAD");

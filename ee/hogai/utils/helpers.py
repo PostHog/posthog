@@ -1,4 +1,7 @@
+import re
 import json
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from typing import Any, Optional, TypeVar, Union, cast
@@ -34,13 +37,33 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
-from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import (
+    ArtifactRefMessage,
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    ConversationTitleAction,
+)
+
+
+def sanitize_for_system_reminder(text: str) -> str:
+    """Neutralize system_reminder tags to prevent framing spoofs in user-provided content."""
+    return re.sub(r"<(\s*/?\s*system_reminder\b[^>]*)>", r"&lt;\1&gt;", text, flags=re.IGNORECASE)
+
+
+BK_DRILLDOWN_HANDLE_RE = re.compile(r"`?\[bk-doc=[^\]]*\]`?")
+
+
+def strip_bk_drilldown_handles(text: str) -> str:
+    """Remove BK drill-down handles from text. No-op when absent."""
+    result = BK_DRILLDOWN_HANDLE_RE.sub("", text)
+    return re.sub(r"  +", " ", result)
 
 
 def remove_line_breaks(line: str) -> str:
@@ -147,25 +170,32 @@ def convert_tool_messages_to_dict(messages: Sequence[AssistantMessageUnion]) -> 
     return {message.tool_call_id: message for message in messages if isinstance(message, AssistantToolCallMessage)}
 
 
-def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -> tuple[list[dict], dict[str, str]]:
+def _process_events_data(
+    events_in_context: list[MaxEventContext],
+    team: Team,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> tuple[list[dict], dict[str, str], bool]:
     """Common logic for processing events and building event data."""
-    response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
-        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+    query = TeamTaxonomyQuery(limit=limit, offset=offset)
+    response = TeamTaxonomyQueryRunner(query, team).run(
+        ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+        analytics_props={"source": EventSource.POSTHOG_AI},
     )
 
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
         raise ValueError("Failed to generate events prompt.")
+
+    has_more = bool(response.hasMore)
 
     events: list[str] = [
         # Add "All events" to the mapping
         "All events",
     ]
     for item in response.results:
-        if len(response.results) > 25 and item.count <= 3:
-            continue
-        if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(item.event):
-            if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                continue  # Skip system or ignored events
+        event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
+        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+            continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
     event_to_description: dict[str, str] = {}
@@ -199,11 +229,11 @@ def _process_events_data(events_in_context: list[MaxEventContext], team: Team) -
 
         processed_events.append(event_data)
 
-    return processed_events, event_to_description
+    return processed_events, event_to_description, has_more
 
 
 def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> str:
-    processed_events, _ = _process_events_data(events_in_context, team)
+    processed_events, _, _ = _process_events_data(events_in_context, team)
 
     root = ET.Element("defined_events")
     for event_data in processed_events:
@@ -217,14 +247,23 @@ def format_events_xml(events_in_context: list[MaxEventContext], team: Team) -> s
     return ET.tostring(root, encoding="unicode")
 
 
-def format_events_yaml(events_in_context: list[MaxEventContext], team: Team) -> str:
-    processed_events, _ = _process_events_data(events_in_context, team)
+def format_events_yaml(
+    events_in_context: list[MaxEventContext],
+    team: Team,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> str:
+    processed_events, _, has_more = _process_events_data(events_in_context, team, limit=limit, offset=offset)
 
     formatted_events = ["events:"]
     for event_data in processed_events:
         name = event_data["name"]
         description = event_data.get("description", "")
         formatted_events.append(f"- `{name}` - {description}" if description else f"- `{name}`")
+
+    if has_more:
+        next_offset = (offset or 0) + (limit or 500)
+        formatted_events.append(f"\n# More events available. To fetch the next page, use offset={next_offset}")
 
     return "\n".join(formatted_events)
 
@@ -332,6 +371,10 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
         for i, final_message in enumerate(messages):
             final_message.id = f"temp-{i}"  # Assign each ephemeral message an index-based temp ID
 
+    for msg in messages:
+        if msg.content:
+            msg.content = strip_bk_drilldown_handles(msg.content)
+
     return messages
 
 
@@ -370,7 +413,7 @@ def extract_stream_update(update: Any) -> Any:
         # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
         update = update[2]
 
-    if isinstance(update, AssistantDispatcherEvent):
+    if isinstance(update, (AssistantDispatcherEvent, ConversationTitleAction)):
         return update
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name

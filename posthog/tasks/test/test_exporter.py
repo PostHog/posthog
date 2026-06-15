@@ -8,11 +8,19 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.exported_asset import ExportedAsset
+from posthog.hogql.errors import QueryError
+
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.tasks import exporter
-from posthog.tasks.exporter import export_asset_direct, is_user_query_error_type
-from posthog.tasks.exports.image_exporter import get_driver
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import (
+    FAILURE_TYPE_SYSTEM,
+    FAILURE_TYPE_USER,
+    is_user_query_error_type,
+)
+from products.exports.backend.tasks.image_exporter import get_driver
 
 
 class TestIsUserQueryErrorType(TestCase):
@@ -52,7 +60,7 @@ class MockWebDriver(MagicMock):
         return None  # Never return anything for Spinner
 
 
-@patch("posthog.tasks.exports.image_exporter.uuid")
+@patch("products.exports.backend.tasks.image_exporter.uuid")
 class TestExporterTask(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
 
@@ -69,7 +77,7 @@ class TestExporterTask(APIBaseTest):
         with open("/tmp/posthog_test_exporter.png", "wb") as fh:
             fh.write(base64.decodebytes(example_png))
 
-    @patch("posthog.tasks.exports.image_exporter.get_driver")
+    @patch("products.exports.backend.tasks.image_exporter.get_driver")
     def test_exporter_runs(self, mock_get_driver: MagicMock, mock_uuid: MagicMock) -> None:
         mock_uuid.uuid4.return_value = "posthog_test_exporter"
         mock_get_driver.return_value = MockWebDriver()
@@ -94,15 +102,51 @@ class TestExporterTask(APIBaseTest):
         if driver:
             driver.close()
 
-    @patch("posthog.tasks.exports.image_exporter.export_image")
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:
-        from posthog.hogql.errors import QueryError
-
         mock_export.side_effect = QueryError("Unknown table 'foo'")
 
         asset = ExportedAsset.objects.create(team=self.team, dashboard=None, export_format="image/png")
-        export_asset_direct(asset)
+        exporter.export_asset(asset.id)
 
         asset.refresh_from_db()
         assert asset.exception == "Unknown table 'foo'"
         assert asset.exception_type == "QueryError"
+        assert asset.failure_type == FAILURE_TYPE_USER
+
+
+class TestExportAssetFailureRecording(APIBaseTest):
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
+        mock_export_direct.side_effect = QueryError("Invalid query syntax")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+        # Should NOT raise - non-retriable errors are swallowed
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == "Invalid query syntax"
+        assert asset.exception_type == "QueryError"
+        assert asset.failure_type == "user"
+
+    @patch("products.exports.backend.tasks.image_exporter.export_image")
+    def test_transient_error_records_failure_without_retry(self, mock_export_direct: MagicMock) -> None:
+        mock_export_direct.side_effect = CHQueryErrorTooManySimultaneousQueries("Too many queries")
+
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        exporter.export_asset(asset.id)
+
+        # No in-process retries — Temporal handles retries at the activity level
+        assert mock_export_direct.call_count == 1
+
+        asset.refresh_from_db()
+        assert asset.exception == "Code: None.\nToo many queries"
+        assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
+        assert asset.failure_type == FAILURE_TYPE_SYSTEM

@@ -12,7 +12,7 @@ describe('GeoIp', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        service = new GeoIPService(config)
+        service = new GeoIPService(config.MMDB_FILE_LOCATION)
     })
 
     afterEach(() => {
@@ -30,9 +30,11 @@ describe('GeoIp', () => {
             commonCheck(geoip)
         })
 
-        it('should throw if it could not be loaded from disk if set', async () => {
-            config.MMDB_FILE_LOCATION = 'non-existent-file.mmdb'
-            await expect(service.get()).rejects.toThrow()
+        it('should return null for lookups if MMDB file is missing', async () => {
+            service = new GeoIPService('non-existent-file.mmdb')
+            const geoip = await service.get()
+            expect(geoip).toBeTruthy()
+            expect(geoip.city('12.87.118.0')).toBeNull()
         })
 
         it('should only load mmdb from disk once', async () => {

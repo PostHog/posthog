@@ -19,20 +19,36 @@ import { getMetricTag } from './shared/utils'
 const MetricItem = ({
     metric,
     order,
+    isRemoved,
+    isMoved,
+    canLeave,
+    moveTargetLabel,
+    onRemove,
+    onMove,
+    onRestore,
 }: {
     metric: ExperimentMetric & { sharedMetricId?: number; isSharedMetric?: boolean }
     order: number
+    isRemoved: boolean
+    isMoved: boolean
+    canLeave: boolean
+    moveTargetLabel: string
+    onRemove: () => void
+    onMove: () => void
+    onRestore: () => void
 }): JSX.Element => {
     const uuid = metric.uuid || (metric as any).query?.uuid
+    const isStaged = isRemoved || isMoved
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: uuid,
+        disabled: isStaged,
     })
 
     return (
         <div
             ref={setNodeRef}
             className={clsx(
-                'relative flex items-center gap-2 p-3 border rounded cursor-move bg-bg-light',
+                'relative flex items-center gap-2 p-3 border rounded bg-bg-light',
                 isDragging && 'z-[999999]'
             )}
             style={{
@@ -40,11 +56,21 @@ const MetricItem = ({
                 transition,
             }}
             {...attributes}
-            {...listeners}
         >
-            <IconDrag className="text-orange-500 flex-shrink-0 text-lg" />
+            <div
+                className={clsx('flex-shrink-0', isStaged ? 'cursor-default' : 'cursor-move')}
+                {...(isStaged ? {} : listeners)}
+            >
+                <IconDrag className={clsx('text-lg', isStaged ? 'text-muted' : 'text-orange-500')} />
+            </div>
             <LemonBadge.Number count={order + 1} maxDigits={3} status="muted" />
-            <div className="flex-1 min-w-0 flex flex-col gap-1">
+            <div
+                className={clsx(
+                    'flex-1 min-w-0 flex flex-col gap-1',
+                    isRemoved && 'line-through opacity-50',
+                    isMoved && 'opacity-50'
+                )}
+            >
                 <div className="font-semibold">
                     <MetricTitle metric={metric} />
                 </div>
@@ -59,6 +85,38 @@ const MetricItem = ({
                     )}
                 </div>
             </div>
+            {isStaged ? (
+                <>
+                    {isMoved && (
+                        <LemonTag type="highlight" size="small">
+                            Moving to {moveTargetLabel}
+                        </LemonTag>
+                    )}
+                    <LemonButton size="small" type="secondary" onClick={onRestore}>
+                        Restore
+                    </LemonButton>
+                </>
+            ) : (
+                <>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={onMove}
+                        disabledReason={!canLeave ? 'At least one metric is required' : undefined}
+                    >
+                        Move to {moveTargetLabel}
+                    </LemonButton>
+                    <LemonButton
+                        size="small"
+                        status="danger"
+                        type="secondary"
+                        onClick={onRemove}
+                        disabledReason={!canLeave ? 'At least one metric is required' : undefined}
+                    >
+                        Remove
+                    </LemonButton>
+                </>
+            )}
         </div>
     )
 }
@@ -70,10 +128,14 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
     const isOpen = isSecondary ? isSecondaryMetricsReorderModalOpen : isPrimaryMetricsReorderModalOpen
     const closeModal = isSecondary ? closeSecondaryMetricsReorderModal : closePrimaryMetricsReorderModal
 
-    const { experiment, getOrderedMetricsWithResults } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { experiment, getOrderedMetricsWithResults, experimentUpdateLoading } = useValues(experimentLogic)
+    const { saveMetricsReorder } = useActions(experimentLogic)
+
+    const moveTargetLabel = isSecondary ? 'primary' : 'secondary'
 
     const [orderedUuids, setOrderedUuids] = useState<string[]>([])
+    const [removedUuids, setRemovedUuids] = useState<Set<string>>(new Set())
+    const [movedUuids, setMovedUuids] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         if (isOpen && experiment) {
@@ -84,6 +146,8 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         } else {
             setOrderedUuids([])
         }
+        setRemovedUuids(new Set())
+        setMovedUuids(new Set())
     }, [
         isOpen,
         isSecondary,
@@ -111,6 +175,11 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean)
     })()
 
+    // Moved metrics leave the section just like removed ones, so both count
+    // against the at-least-one-primary-metric requirement.
+    const activeCount = orderedUuids.length - removedUuids.size - movedUuids.size
+    const canLeaveMore = isSecondary || activeCount > 1
+
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (active.id && over && active.id !== over.id) {
             const from = orderedUuids.indexOf(active.id as string)
@@ -123,20 +192,10 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         }
     }
 
-    const handleSaveOrder = async (): Promise<void> => {
-        // Update the appropriate field and send both to preserve state
-        if (isSecondary) {
-            experiment!.secondary_metrics_ordered_uuids = orderedUuids
-        } else {
-            experiment!.primary_metrics_ordered_uuids = orderedUuids
-        }
-
-        await updateExperiment({
-            primary_metrics_ordered_uuids: experiment?.primary_metrics_ordered_uuids,
-            secondary_metrics_ordered_uuids: experiment?.secondary_metrics_ordered_uuids,
-        })
-
-        closeModal()
+    const handleSave = (): void => {
+        // The listener persists everything in one update, realigns results, and
+        // closes the modal on completion.
+        saveMetricsReorder(isSecondary, orderedUuids, Array.from(removedUuids), Array.from(movedUuids))
     }
 
     return (
@@ -147,8 +206,8 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
             title={`Reorder ${isSecondary ? 'secondary' : 'primary'} metrics`}
             description={
                 <p>
-                    Change the order in which your {isSecondary ? 'secondary' : 'primary'} metrics are displayed. You
-                    can <b>drag and drop the metrics below</b> to change their order.
+                    Drag and drop to reorder, move metrics to the {moveTargetLabel} section, or remove metrics you no
+                    longer need.
                 </p>
             }
             footer={
@@ -156,8 +215,8 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                     <LemonButton type="secondary" onClick={closeModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={handleSaveOrder}>
-                        Save order
+                    <LemonButton type="primary" onClick={handleSave} loading={experimentUpdateLoading}>
+                        Save
                     </LemonButton>
                 </>
             }
@@ -170,13 +229,41 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                                 <p>No metrics available for reordering</p>
                             </div>
                         )}
-                        {displayMetrics.map((metric, index) => (
-                            <MetricItem
-                                key={metric.uuid || (metric as any).query?.uuid}
-                                metric={metric}
-                                order={index}
-                            />
-                        ))}
+                        {displayMetrics.map((metric, index) => {
+                            const uuid = metric.uuid || (metric as any).query?.uuid
+                            const isRemoved = removedUuids.has(uuid)
+                            const isMoved = movedUuids.has(uuid)
+                            const effectiveIndex =
+                                displayMetrics.slice(0, index + 1).filter((m) => {
+                                    const id = m.uuid || (m as any).query?.uuid
+                                    return !removedUuids.has(id) && !movedUuids.has(id)
+                                }).length - 1
+                            return (
+                                <MetricItem
+                                    key={uuid}
+                                    metric={metric}
+                                    order={isRemoved || isMoved ? index : effectiveIndex}
+                                    isRemoved={isRemoved}
+                                    isMoved={isMoved}
+                                    canLeave={canLeaveMore}
+                                    moveTargetLabel={moveTargetLabel}
+                                    onRemove={() => setRemovedUuids((prev) => new Set([...prev, uuid]))}
+                                    onMove={() => setMovedUuids((prev) => new Set([...prev, uuid]))}
+                                    onRestore={() => {
+                                        setRemovedUuids((prev) => {
+                                            const next = new Set(prev)
+                                            next.delete(uuid)
+                                            return next
+                                        })
+                                        setMovedUuids((prev) => {
+                                            const next = new Set(prev)
+                                            next.delete(uuid)
+                                            return next
+                                        })
+                                    }}
+                                />
+                            )
+                        })}
                     </SortableContext>
                 </DndContext>
             </div>

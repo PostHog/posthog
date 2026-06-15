@@ -84,6 +84,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "countState": HogQLFunctionMeta("countState", 0, 1, aggregate=True),
     "countMerge": HogQLFunctionMeta("countMerge", 1, 1, aggregate=True),
     "countStateIf": HogQLFunctionMeta("countStateIf", 1, 2, aggregate=True),
+    "countDistinct": HogQLFunctionMeta("countDistinct", 1, 1, aggregate=True),
     "countDistinctIf": HogQLFunctionMeta("countDistinctIf", 1, 2, aggregate=True),
     "countMapIf": HogQLFunctionMeta("countMapIf", 2, 3, aggregate=True),
     "min": HogQLFunctionMeta("min", 1, 1, aggregate=True, case_sensitive=False),
@@ -144,7 +145,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
         using_placeholder_arguments=True,
     ),
     "every": HogQLFunctionMeta(
-        "toBool(min({}))",
+        "accurateCastOrNull(min({}), 'Bool')",
         1,
         1,
         aggregate=True,
@@ -162,6 +163,10 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "argMaxIf": HogQLFunctionMeta("argMaxIf", 3, 3, aggregate=True),
     "argMinMerge": HogQLFunctionMeta("argMinMerge", 1, 1, aggregate=True),
     "argMaxMerge": HogQLFunctionMeta("argMaxMerge", 1, 1, aggregate=True),
+    "argMinState": HogQLFunctionMeta("argMinState", 2, 2, aggregate=True),
+    "argMaxState": HogQLFunctionMeta("argMaxState", 2, 2, aggregate=True),
+    "sumForEachState": HogQLFunctionMeta("sumForEachState", 1, 1, aggregate=True),
+    "sumForEachMerge": HogQLFunctionMeta("sumForEachMerge", 1, 1, aggregate=True),
     "avgState": HogQLFunctionMeta("avgState", 1, 1, aggregate=True),
     "avgStateIf": HogQLFunctionMeta("avgStateIf", 2, 2, aggregate=True),
     "avgMerge": HogQLFunctionMeta("avgMerge", 1, 1, aggregate=True),
@@ -178,6 +183,10 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     # "groupArrayLastIf": HogQLFunctionMeta("groupArrayLastIf", 2, 2, aggregate=True),
     "groupUniqArray": HogQLFunctionMeta("groupUniqArray", 1, 1, aggregate=True),
     "groupUniqArrayIf": HogQLFunctionMeta("groupUniqArrayIf", 2, 2, aggregate=True),
+    "groupUniqArrayArray": HogQLFunctionMeta("groupUniqArrayArray", 1, 1, min_params=0, max_params=1, aggregate=True),
+    "groupUniqArrayArrayIf": HogQLFunctionMeta(
+        "groupUniqArrayArrayIf", 2, 2, min_params=0, max_params=1, aggregate=True
+    ),
     "groupArrayInsertAt": HogQLFunctionMeta("groupArrayInsertAt", 2, 2, aggregate=True),
     "groupArrayInsertAtIf": HogQLFunctionMeta("groupArrayInsertAtIf", 3, 3, aggregate=True),
     "groupArrayMovingAvg": HogQLFunctionMeta("groupArrayMovingAvg", 1, 1, aggregate=True),
@@ -290,11 +299,25 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "medianTDigestWeightedIf": HogQLFunctionMeta("medianTDigestWeightedIf", 2, 2, aggregate=True),
     "medianBFloat16": HogQLFunctionMeta("medianBFloat16", 1, 1, aggregate=True),
     "medianBFloat16If": HogQLFunctionMeta("medianBFloat16If", 2, 2, aggregate=True),
+    "percentile_cont": HogQLFunctionMeta(
+        "percentile_cont", 0, 0, min_params=1, max_params=1, aggregate=True, requires_within_group=True
+    ),
+    "percentile_disc": HogQLFunctionMeta(
+        "percentile_disc", 0, 0, min_params=1, max_params=1, aggregate=True, requires_within_group=True
+    ),
     "quantile": HogQLFunctionMeta("quantile", 1, 1, min_params=1, max_params=1, aggregate=True),
     "quantileIf": HogQLFunctionMeta("quantileIf", 2, 2, min_params=1, max_params=1, aggregate=True),
     "quantiles": HogQLFunctionMeta("quantiles", 1, None, aggregate=True),
     "quantilesIf": HogQLFunctionMeta("quantilesIf", 2, 2, min_params=1, max_params=1, aggregate=True),
-    # "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, aggregate=True),
+    # `-State` and `-Merge*` combinators needed by lazy precompute paths that
+    # store quantile reservoirs (e.g. web_vitals_paths_preaggregated). Params
+    # are the percentile list; args are the value (for `-State`) or the
+    # state + filter condition (for `-MergeIf`).
+    "quantilesState": HogQLFunctionMeta("quantilesState", 1, 1, min_params=1, max_params=None, aggregate=True),
+    "quantilesStateIf": HogQLFunctionMeta("quantilesStateIf", 2, 2, min_params=1, max_params=None, aggregate=True),
+    "quantilesMerge": HogQLFunctionMeta("quantilesMerge", 1, 1, min_params=1, max_params=None, aggregate=True),
+    "quantilesMergeIf": HogQLFunctionMeta("quantilesMergeIf", 2, 2, min_params=1, max_params=None, aggregate=True),
+    "quantileExact": HogQLFunctionMeta("quantileExact", 1, 1, min_params=1, max_params=1, aggregate=True),
     # "quantileExactIf": HogQLFunctionMeta("quantileExactIf", 2, 2, aggregate=True),
     # "quantileExactLow": HogQLFunctionMeta("quantileExactLow", 1, 1, aggregate=True),
     # "quantileExactLowIf": HogQLFunctionMeta("quantileExactLowIf", 2, 2, aggregate=True),

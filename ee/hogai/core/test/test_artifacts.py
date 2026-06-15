@@ -7,8 +7,13 @@ from pydantic import ValidationError
 from posthog.schema import (
     AssistantTrendsQuery,
     DocumentArtifactContent,
+    EventsNode,
+    LifecycleQuery,
     MarkdownBlock,
+    PathsFilter,
+    PathsQuery,
     SessionReplayBlock,
+    StickinessQuery,
     TrendsQuery,
     VisualizationArtifactContent,
     VisualizationBlock,
@@ -30,6 +35,21 @@ class TestDocumentBlocks(BaseTest):
 
     def test_visualization_block_valid(self):
         query = AssistantTrendsQuery(series=[])
+        block = VisualizationBlock(query=query)
+        self.assertEqual(block.type, "visualization")
+        self.assertEqual(block.query, query)
+
+    @parameterized.expand(
+        [
+            ("lifecycle", LifecycleQuery(series=[EventsNode(event="$pageview")])),
+            ("stickiness", StickinessQuery(series=[EventsNode(event="$pageview")])),
+            ("paths", PathsQuery(pathsFilter=PathsFilter())),
+        ]
+    )
+    def test_visualization_block_accepts_saved_insight_query_types(self, _name, query):
+        # Saved insights can be Lifecycle/Stickiness/Paths queries (concrete, non-Assistant types).
+        # These must be valid members of the VisualizationBlock.query union, otherwise enriching a
+        # notebook artifact that references such an insight raises a ValidationError.
         block = VisualizationBlock(query=query)
         self.assertEqual(block.type, "visualization")
         self.assertEqual(block.query, query)
@@ -61,12 +81,11 @@ class TestDocumentArtifactContent(BaseTest):
         self.assertEqual(content.blocks, [])
 
     def test_mixed_blocks(self):
-        query = AssistantTrendsQuery(series=[])
         blocks = [
-            {"type": "markdown", "content": "# Introduction"},
-            {"type": "visualization", "query": query.model_dump()},
-            {"type": "session_replay", "session_id": "sess456", "timestamp_ms": 1000, "title": "Example"},
-            {"type": "markdown", "content": "## Summary"},
+            MarkdownBlock(content="# Introduction"),
+            VisualizationBlock(query=AssistantTrendsQuery(series=[])),
+            SessionReplayBlock(session_id="sess456", timestamp_ms=1000, title="Example"),
+            MarkdownBlock(content="## Summary"),
         ]
         content = DocumentArtifactContent(blocks=blocks)
 

@@ -4,6 +4,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
+import { sleep } from './utils'
 
 const lazyLoaderCacheHits = new Counter({
     name: 'lazy_loader_cache_hits',
@@ -48,10 +49,27 @@ const lazyLoaderCacheSize = new Gauge({
  * - Parallel loading defense - multiple calls for the same value in parallel only loads once
  */
 
+/**
+ * Retry policy for the loader. When set, a loader call that throws a retriable error
+ * (`error.isRetriable === true`) is retried until `maxElapsedMs` is exhausted. Useful for absorbing
+ * transient dependency blips (e.g. a Postgres pooler scale-down) so a single failed background load
+ * doesn't propagate to every caller — including fire-and-forget ones, where it would crash the process.
+ */
+export type LoaderRetryOptions = {
+    /** Base delay between attempts. */
+    retryIntervalMs: number
+    /** Random extra delay in `[0, retryJitterMs)` added to each interval to avoid a thundering herd. */
+    retryJitterMs?: number
+    /** Total time budget for retrying. Once exceeded, the last error is rethrown. */
+    maxElapsedMs: number
+}
+
 export type LazyLoaderOptions<T> = {
     name: string
     /** Function to load the values */
     loader: (key: string[]) => Promise<Record<string, T | null | undefined>>
+    /** Retry policy for transient loader failures. Off by default (no retry). */
+    loaderRetry?: LoaderRetryOptions
     /** How long to cache the value */
     refreshAgeMs?: number
     /** How long to cache null values */
@@ -137,23 +155,25 @@ export class LazyLoader<T> {
     }
 
     private setValues(map: LazyLoaderMap<T>): void {
-        for (const [key, value] of Object.entries(map)) {
+        const now = Date.now()
+        const keys = Object.keys(map)
+        for (const key of keys) {
+            const value = map[key] ?? null
             // Track if this is a new key being added
             const isNewKey = !(key in this.cache)
-            this.cache[key] = value ?? null
+            this.cache[key] = value
             if (isNewKey) {
                 this.cacheSize++
             }
             // Always update the lastUsed time
-            this.lastUsed[key] = Date.now()
-            const valueOrNull = value ?? null
+            this.lastUsed[key] = now
             const jitter = Math.floor(Math.random() * this.refreshJitterMs)
-            this.cacheUntil[key] =
-                Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshAgeMs) + jitter
+            const refreshAge = value === null ? this.refreshNullAgeMs : this.refreshAgeMs
+            this.cacheUntil[key] = now + refreshAge + jitter
 
             if (this.refreshBackgroundAgeMs) {
-                this.backgroundRefreshAfter[key] =
-                    Date.now() + (valueOrNull === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs) + jitter
+                const bgAge = value === null ? this.refreshNullAgeMs : this.refreshBackgroundAgeMs
+                this.backgroundRefreshAfter[key] = now + bgAge + jitter
             }
         }
         this.evictLRU()
@@ -192,7 +212,12 @@ export class LazyLoader<T> {
 
                     // If we haven't triggered a hard refresh, we check for a background refresh
                     if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
-                        void this.load([key])
+                        void this.load([key]).catch((err) => {
+                            logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
+                                key,
+                                error: String(err),
+                            })
+                        })
                         lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
                         continue
                     }
@@ -257,7 +282,7 @@ export class LazyLoader<T> {
                         .then((keys) => {
                             // Pull out the keys to load and clear the buffer
                             logger.debug('[LazyLoader]', this.options.name, 'Loading: ', keys)
-                            return this.options.loader(keys)
+                            return this.invokeLoader(keys)
                         })
                         .then((map) => {
                             this.setValues(map)
@@ -282,14 +307,70 @@ export class LazyLoader<T> {
         }
 
         const results = await Promise.all(keyPromises)
-        const mappedResults = keys.reduce((acc, key, index) => {
-            acc[key] = results[index] ?? null
-            return acc
-        }, {} as LazyLoaderMap<T>)
 
-        this.setValues(mappedResults)
+        // Values are already in the cache via the buffer's setValues call.
+        // For keys the loader omitted (resolved to null), update the cache
+        // so deleted/disabled items don't serve stale data.
+        const now = Date.now()
+        const result: LazyLoaderMap<T> = {}
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i]
+            if (results[i] === null && this.cache[key] !== null) {
+                const isNewKey = !(key in this.cache)
+                this.cache[key] = null
+                if (isNewKey) {
+                    this.cacheSize++
+                }
+                this.lastUsed[key] = now
+                const jitter = Math.floor(Math.random() * this.refreshJitterMs)
+                this.cacheUntil[key] = now + this.refreshNullAgeMs + jitter
+            }
+            result[key] = this.cache[key] ?? null
+        }
+        return result
+    }
 
-        return mappedResults
+    /**
+     * Invoke the loader, optionally retrying transient failures.
+     *
+     * Each attempt re-invokes `loader(keys)` so the ids/tokens are re-evaluated against the source at
+     * retry time rather than reusing a stale result. Only retriable errors (`error.isRetriable === true`)
+     * are retried; anything else is rethrown immediately so genuine bugs surface rather than being masked.
+     */
+    private async invokeLoader(keys: string[]): Promise<LazyLoaderMap<T>> {
+        const retry = this.options.loaderRetry
+        if (!retry) {
+            return await this.options.loader(keys)
+        }
+
+        const deadline = performance.now() + retry.maxElapsedMs
+        let attempt = 0
+        for (;;) {
+            try {
+                return await this.options.loader(keys)
+            } catch (error) {
+                attempt++
+                if (error?.isRetriable !== true) {
+                    // Non-transient: rethrow immediately so genuine bugs surface rather than being masked.
+                    throw error
+                }
+                if (performance.now() >= deadline) {
+                    logger.warn('🔁', `[LazyLoader:${this.options.name}] Loader retries exhausted, giving up`, {
+                        attempt,
+                        keys: keys.length,
+                        error: String(error),
+                    })
+                    throw error
+                }
+                const jitter = retry.retryJitterMs ? Math.floor(Math.random() * retry.retryJitterMs) : 0
+                logger.warn('🔁', `[LazyLoader:${this.options.name}] Loader failed, retrying`, {
+                    attempt,
+                    keys: keys.length,
+                    error: String(error),
+                })
+                await sleep(retry.retryIntervalMs + jitter)
+            }
+        }
     }
 
     private evictLRU(): void {
@@ -297,16 +378,18 @@ export class LazyLoader<T> {
             return
         }
 
-        // Calculate how many to evict
-        const toEvict = this.cacheSize - this.maxSize
+        // Evict extra headroom so we don't re-sort on every subsequent insert.
+        // Only apply headroom for caches large enough to benefit (>100 entries).
+        const headroom = this.maxSize > 100 ? Math.ceil(this.maxSize * 0.1) : 0
+        const toEvict = this.cacheSize - this.maxSize + headroom
 
-        // Sort entries by lastUsed time (oldest first) and take the N oldest
-        const entries = Object.entries(this.lastUsed).filter(([key]) => key in this.cache)
-        entries.sort((a, b) => (a[1] ?? 0) - (b[1] ?? 0))
-        const keysToEvict = entries.slice(0, toEvict).map(([key]) => key)
+        const cacheKeys = Object.keys(this.cache)
+        cacheKeys.sort((a, b) => (this.lastUsed[a] ?? 0) - (this.lastUsed[b] ?? 0))
 
         // Evict the least recently used entries
-        for (const key of keysToEvict) {
+        const evictCount = Math.min(toEvict, cacheKeys.length)
+        for (let i = 0; i < evictCount; i++) {
+            const key = cacheKeys[i]
             delete this.cache[key]
             delete this.lastUsed[key]
             delete this.cacheUntil[key]

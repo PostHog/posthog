@@ -1,18 +1,25 @@
 import dagster
 
 from posthog.dags import (
+    add_index_to_materialized_column,
+    backfill_materialized_column,
     backups,
     ch_examples,
+    create_materialized_column,
+    data_deletion_requests,
     deletes,
+    drop_materialized_column,
     export_query_logs_to_s3,
-    materialized_columns,
+    fix_missing_person_overrides,
+    fix_person_id_overrides,
     orm_examples,
+    part_breaker,
     person_overrides,
     postgres_to_clickhouse_etl,
     property_definitions,
 )
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[
@@ -24,15 +31,24 @@ defs = dagster.Definitions(
         postgres_to_clickhouse_etl.teams_in_clickhouse,
     ],
     jobs=[
+        add_index_to_materialized_column.add_index_to_materialized_column,
+        create_materialized_column.create_materialized_column,
+        drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         export_query_logs_to_s3.export_query_logs_to_s3,
-        materialized_columns.materialize_column,
+        backfill_materialized_column.backfill_materialized_column,
+        fix_missing_person_overrides.fix_missing_person_overrides_job,
+        fix_person_id_overrides.fix_person_id_overrides_job,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         postgres_to_clickhouse_etl.postgres_to_clickhouse_etl_job,
         property_definitions.property_definitions_ingestion_job,
         backups.sharded_backup,
         backups.non_sharded_backup,
+        data_deletion_requests.data_deletion_request_event_removal,
+        data_deletion_requests.data_deletion_request_property_removal,
+        data_deletion_requests.verify_queued_deletion_requests_job,
+        part_breaker.break_oversized_parts,
     ],
     schedules=[
         export_query_logs_to_s3.query_logs_export_schedule,
@@ -43,9 +59,13 @@ defs = dagster.Definitions(
         backups.incremental_sharded_backup_schedule,
         backups.full_non_sharded_backup_schedule,
         backups.incremental_non_sharded_backup_schedule,
+        part_breaker.break_oversized_parts_schedule,
     ],
     sensors=[
         deletes.run_deletes_after_squash,
+        data_deletion_requests.data_deletion_request_pickup_sensor,
+        data_deletion_requests.verify_queued_deletion_requests,
     ],
+    loggers=loggers,
     resources=resources,
 )

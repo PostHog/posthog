@@ -1,0 +1,1018 @@
+import { Autocomplete } from '@base-ui/react/autocomplete'
+import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
+import { router } from 'kea-router'
+import {
+    Fragment,
+    type MutableRefObject,
+    type ReactNode,
+    type RefObject,
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react'
+
+import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
+import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
+import { filterSearchItems } from 'lib/components/Search/utils'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
+import { Label } from 'lib/ui/Label/Label'
+import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
+import { fileSystemTypes } from '~/products'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+import type { UserTheme } from '~/types'
+
+import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { RECENTS_LIMIT, STARRED_LIMIT, SearchItem, SearchLogicProps, searchLogic } from './searchLogic'
+import { formatRelativeTimeShort, getCategoryDisplayName } from './utils'
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const PLACEHOLDER_OPTIONS = [
+    'insights...',
+    'dashboards...',
+    'feature flags...',
+    'experiments...',
+    'surveys...',
+    'notebooks...',
+    'cohorts...',
+    'persons...',
+    'recordings filters...',
+    'workflows...',
+    'early access features...',
+    'events...',
+    'properties...',
+    'actions...',
+    'groups...',
+    'cohorts...',
+]
+
+const PLACEHOLDER_CYCLE_INTERVAL = 3000
+
+const SETTINGS_THEME_ITEM_ID = '__settings_theme__'
+
+const SETTINGS_THEME_ITEM_QUERY = ['dark', 'light', 'theme', 'appearance']
+
+const EMPTY_SUGGESTED_ITEMS: SearchItem[] = []
+
+// ============================================================================
+// Hooks
+// ============================================================================
+
+const useRotatingPlaceholder = (isActive: boolean): { text: string; isVisible: boolean } => {
+    const [index, setIndex] = useState(0)
+    const [isVisible, setIsVisible] = useState(true)
+
+    useEffect(() => {
+        if (!isActive) {
+            setIndex(0)
+            setIsVisible(true)
+            return
+        }
+
+        let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+        const interval = setInterval(() => {
+            setIsVisible(false)
+            timeoutId = setTimeout(() => {
+                setIndex((prev) => (prev + 1) % PLACEHOLDER_OPTIONS.length)
+                setIsVisible(true)
+            }, 200)
+        }, PLACEHOLDER_CYCLE_INTERVAL)
+
+        return () => {
+            clearInterval(interval)
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId)
+            }
+        }
+    }, [isActive])
+
+    return { text: PLACEHOLDER_OPTIONS[index], isVisible }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+const getItemTypeDisplayName = (type: string | null | undefined): string | null => {
+    if (!type) {
+        return null
+    }
+
+    // Check fileSystemTypes manifest first
+    if (type in fileSystemTypes) {
+        return (fileSystemTypes as Record<string, { name?: string }>)[type]?.name ?? null
+    }
+
+    // Handle insight subtypes (e.g., 'insight/funnels' -> 'Funnel')
+    if (type.startsWith('insight/')) {
+        const subtype = type.slice(8) // Remove 'insight/' prefix
+        const insightDisplayNames: Record<string, string> = {
+            funnels: 'Funnel',
+            trends: 'Trend',
+            retention: 'Retention',
+            paths: 'Paths',
+            lifecycle: 'Lifecycle',
+            stickiness: 'Stickiness',
+            hog: 'SQL insight',
+        }
+        return insightDisplayNames[subtype] ?? null
+    }
+
+    // Fallback for types not in the manifest
+    const fallbackDisplayNames: Record<string, string> = {
+        query: 'SQL query',
+        product_analytics: 'Product analytics',
+        web_analytics: 'Web analytics',
+        llm_analytics: 'AI observability',
+        revenue_analytics: 'Revenue analytics',
+        marketing_analytics: 'Marketing analytics',
+        session_replay: 'Session replay',
+        error_tracking: 'Error tracking',
+        data_warehouse: 'Data ops',
+        data_pipeline: 'Data pipeline',
+        annotation: 'Annotation',
+        event_definition: 'Event',
+        property_definition: 'Property',
+        person: 'Person',
+        persons: 'Person',
+        user: 'User',
+        group: 'Group',
+        heatmap: 'Heatmap',
+        sql_editor: 'SQL query',
+        logs: 'Logs',
+        alert: 'Alert',
+        folder: 'Folder',
+        hog_flow: 'Workflow',
+    }
+    return fallbackDisplayNames[type] ?? null
+}
+
+const getIconForItem = (item: SearchItem): ReactNode => {
+    if (item.icon) {
+        return item.icon
+    }
+    let itemType = item.itemType || item.record?.type
+    // Normalize types for icon lookup
+    if (itemType === 'person') {
+        itemType = 'persons'
+    } else if (itemType === 'hog_flow') {
+        itemType = 'workflows'
+    }
+    if (itemType) {
+        // Handle iconColor which may be a single-element array or tuple
+        const rawColor = item.record?.iconColor as string[] | undefined
+        const colorOverride: [string, string] | undefined = rawColor
+            ? rawColor.length === 1
+                ? [rawColor[0], rawColor[0]]
+                : [rawColor[0], rawColor[1]]
+            : undefined
+        return (
+            <ProductIconWrapper type={itemType as string} colorOverride={colorOverride}>
+                {iconForType(itemType as FileSystemIconType, colorOverride)}
+            </ProductIconWrapper>
+        )
+    }
+    return null
+}
+
+const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
+    return {
+        id: item.id,
+        name: item.name,
+        record: {
+            ...item.record,
+            href: item.href,
+            path: item.name,
+        },
+    }
+}
+
+// ============================================================================
+// Context
+// ============================================================================
+
+interface SearchContextValue {
+    logicKey: string
+    searchValue: string
+    setSearchValue: (value: string) => void
+    filteredItems: SearchItem[]
+    groupedItems: { category: string; items: SearchItem[]; isLoading?: boolean }[]
+    isSearching: boolean
+    isActive: boolean
+    inputRef: RefObject<HTMLInputElement>
+    handleItemClick: (item: SearchItem) => void
+    showAskAiLink: boolean
+    onAskAiClick?: () => void
+    highlightedItemRef: MutableRefObject<SearchItem | null>
+}
+
+const SearchContext = createContext<SearchContextValue | null>(null)
+
+const useSearchContext = (): SearchContextValue => {
+    const context = useContext(SearchContext)
+    if (!context) {
+        throw new Error('Search compound components must be used within Search.Root')
+    }
+    return context
+}
+
+// ============================================================================
+// Hooks
+// ============================================================================
+
+const SEARCH_DEBOUNCE_DELAY = 200
+
+type GroupedItemsEntry = { category: string; items: SearchItem[]; isLoading?: boolean }
+
+function useDebouncedGroupedItems(
+    groupedItems: GroupedItemsEntry[],
+    searchValue: string,
+    enabled: boolean
+): GroupedItemsEntry[] {
+    const [stable, setStable] = useState(groupedItems)
+    const prevSearchRef = useRef(searchValue)
+    const searchJustChangedRef = useRef(false)
+    const prevEnabledRef = useRef(enabled)
+    // `stable` only stays in sync with `groupedItems` while `enabled` is true.
+    // If we're disabled, or were disabled at any point (including initial
+    // mount before async feature-flag hydration), `stable` lags. Track that
+    // so the next enabled render bypasses `stable` and returns `groupedItems`
+    // directly until the effect re-syncs — avoids a flash of stale results.
+    const stableIsStaleRef = useRef(!enabled)
+
+    if (searchValue !== prevSearchRef.current) {
+        prevSearchRef.current = searchValue
+        searchJustChangedRef.current = true
+    }
+
+    if (enabled !== prevEnabledRef.current) {
+        prevEnabledRef.current = enabled
+        stableIsStaleRef.current = true
+    }
+
+    useEffect(() => {
+        if (!enabled) {
+            return
+        }
+        if (searchJustChangedRef.current || stableIsStaleRef.current) {
+            searchJustChangedRef.current = false
+            stableIsStaleRef.current = false
+            setStable(groupedItems)
+            return
+        }
+        const timer = setTimeout(() => setStable(groupedItems), SEARCH_DEBOUNCE_DELAY)
+        return () => clearTimeout(timer)
+    }, [groupedItems, enabled, searchValue])
+
+    if (!enabled || searchJustChangedRef.current || stableIsStaleRef.current) {
+        return groupedItems
+    }
+
+    return stable
+}
+
+function useReRankedGroupedItems(
+    groupedItems: GroupedItemsEntry[],
+    searchValue: string,
+    enabled: boolean
+): GroupedItemsEntry[] {
+    const incumbentRef = useRef<string | null>(null)
+    const prevSearchRef = useRef(searchValue)
+
+    if (searchValue !== prevSearchRef.current) {
+        prevSearchRef.current = searchValue
+        incumbentRef.current = null
+    }
+
+    const result = useMemo(() => {
+        const firstGroup = groupedItems.find((g) => g.items.length > 0)
+        const firstItem = firstGroup?.items[0]
+
+        if (!enabled || !firstItem || !incumbentRef.current) {
+            return groupedItems
+        }
+
+        if (firstItem.id === incumbentRef.current) {
+            return groupedItems
+        }
+
+        // Incumbent isn't first anymore — find it
+        const incumbentId = incumbentRef.current
+        let found: { groupIdx: number; itemIdx: number; item: SearchItem } | null = null
+
+        for (let gi = 0; gi < groupedItems.length; gi++) {
+            for (let ii = 0; ii < groupedItems[gi].items.length; ii++) {
+                if (groupedItems[gi].items[ii].id === incumbentId) {
+                    found = { groupIdx: gi, itemIdx: ii, item: groupedItems[gi].items[ii] }
+                    break
+                }
+            }
+            if (found) {
+                break
+            }
+        }
+
+        if (!found) {
+            return groupedItems
+        }
+
+        // Promote: move incumbent to front of its group, move group to front
+        const promoted = [...groupedItems]
+        const group = { ...promoted[found.groupIdx], items: [...promoted[found.groupIdx].items] }
+        group.items.splice(found.itemIdx, 1)
+        group.items.unshift(found.item)
+
+        if (found.groupIdx > 0) {
+            promoted.splice(found.groupIdx, 1)
+            promoted.unshift(group)
+        } else {
+            promoted[0] = group
+        }
+
+        return promoted
+    }, [groupedItems, enabled])
+
+    useEffect(() => {
+        const firstGroup = result.find((g) => g.items.length > 0)
+        incumbentRef.current = firstGroup?.items[0]?.id ?? null
+    }, [result])
+
+    return result
+}
+
+// ============================================================================
+// Search.Root
+// ============================================================================
+
+export interface SearchRootProps {
+    children: ReactNode
+    /** Unique key to identify this search instance (e.g., 'command', 'new-tab') */
+    logicKey?: SearchLogicProps['logicKey']
+    /** Whether the search is active (for placeholder animation) */
+    isActive?: boolean
+    /** Callback when an item is selected */
+    onItemSelect?: (item: SearchItem) => void
+    /** Whether to show the Ask AI link */
+    showAskAiLink?: boolean
+    /** Callback when Ask AI is clicked */
+    onAskAiClick?: () => void
+    /** Custom class for the container */
+    className?: string
+    /** Initial search value (useful for stories/tests) */
+    defaultSearchValue?: string
+    /** Optional suggested items shown above recents/apps */
+    suggestedItems?: SearchItem[]
+}
+
+function SearchRoot({
+    children,
+    logicKey = 'default',
+    isActive = true,
+    onItemSelect,
+    showAskAiLink = true,
+    onAskAiClick,
+    className = '',
+    defaultSearchValue = '',
+    suggestedItems = EMPTY_SUGGESTED_ITEMS,
+}: SearchRootProps): JSX.Element {
+    const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
+    const { setSearch } = useActions(searchLogic({ logicKey }))
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { toggleTheme } = useActions(themeLogic)
+    const { updateUser } = useActions(userLogic)
+    const debounceEnabled = useFeatureFlag('SEARCH_DEBOUNCE_ALL')
+    const reRankEnabled = useFeatureFlag('SEARCH_RE_RANK')
+
+    const [searchValue, setSearchValue] = useState(defaultSearchValue)
+
+    useEffect(() => {
+        if (defaultSearchValue) {
+            setSearchValue(defaultSearchValue)
+        }
+    }, [defaultSearchValue])
+
+    const inputRef = useRef<HTMLInputElement>(null!)
+    const actionsRef = useRef<Autocomplete.Root.Actions>(null)
+    const highlightedItemRef = useRef<SearchItem | null>(null)
+
+    const allItems = useMemo(() => {
+        const items: SearchItem[] = []
+        for (const category of allCategories) {
+            items.push(...category.items)
+        }
+        return items
+    }, [allCategories])
+
+    // Compute filteredItems synchronously to avoid render gap between loading and content
+    const filteredItems = useMemo(() => {
+        const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
+        let items: SearchItem[]
+        if (searchValue.trim()) {
+            // Client-side fuzzy filter for recents/apps/starred; keep server results as-is
+            const clientItems = allItems.filter((item) => ['recents', 'apps', 'starred'].includes(item.category))
+            const serverItems = allItems.filter((item) => !['recents', 'apps', 'starred'].includes(item.category))
+            const filteredClientItems = filterSearchItems(clientItems, searchValue)
+            items = [...filteredClientItems, ...serverItems]
+        } else {
+            // When not searching, show recents, starred, and apps
+            items = allItems.filter((item) => ['recents', 'starred', 'apps'].includes(item.category))
+        }
+
+        // Add a direct shortcut to the theme setting when searching for dark/light/theme
+        const normalizedQuery = searchValue.trim().toLowerCase()
+        if (normalizedQuery && SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
+            const hasDark = normalizedQuery.includes('dark')
+            const hasLight = normalizedQuery.includes('light')
+
+            let targetTheme: UserTheme
+            let record: Record<string, unknown> | undefined
+
+            if (!hasDark && !hasLight) {
+                targetTheme = isDarkModeOn ? 'light' : 'dark'
+                record = { toggleTheme: true }
+            } else {
+                targetTheme = hasDark ? 'dark' : 'light'
+                record = { themeMode: targetTheme }
+            }
+
+            const themeItem: SearchItem = {
+                id: SETTINGS_THEME_ITEM_ID,
+                name: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                displayName: targetTheme === 'dark' ? 'Dark mode' : 'Light mode',
+                category: 'settings',
+                href: urls.settings('user-customization', 'theme'),
+                record,
+                searchKeywords: SETTINGS_THEME_ITEM_QUERY,
+                icon: targetTheme === 'dark' ? <IconNight /> : <IconDay />,
+            }
+            const hasThemeItemAlready = items.some((item) => item.id === themeItem.id)
+            if (!hasThemeItemAlready) {
+                items = [themeItem, ...items]
+            }
+        }
+
+        return [...normalizedSuggestedItems, ...items]
+    }, [allItems, searchValue, suggestedItems, isDarkModeOn])
+
+    useEffect(() => {
+        if (!isActive) {
+            return
+        }
+        setSearch(searchValue)
+    }, [searchValue, setSearch, isActive])
+
+    useEffect(() => {
+        if (isActive && inputRef.current) {
+            setTimeout(() => {
+                inputRef.current?.focus()
+            }, 50)
+        }
+    }, [isActive])
+
+    useEffect(() => {
+        if (!isActive) {
+            setSearchValue('')
+            setSearch('')
+        }
+    }, [isActive, setSearch])
+
+    const handleItemClick = useCallback(
+        (item: SearchItem) => {
+            if (item.id === SETTINGS_THEME_ITEM_ID) {
+                const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
+                if (record?.themeMode) {
+                    updateUser({ theme_mode: record.themeMode })
+                    return
+                }
+                if (record?.toggleTheme) {
+                    toggleTheme()
+                    return
+                }
+                if (item.href) {
+                    router.actions.push(item.href)
+                    return
+                }
+            }
+            if (onItemSelect) {
+                onItemSelect(item)
+            } else if (item.href) {
+                router.actions.push(item.href)
+            }
+        },
+        [onItemSelect, onAskAiClick, updateUser, toggleTheme]
+    )
+
+    const groupedItems = useMemo(() => {
+        const groups: { category: string; items: SearchItem[]; isLoading?: boolean }[] = []
+        const categoryMap = new Map<string, SearchItem[]>()
+
+        for (const item of filteredItems) {
+            const existing = categoryMap.get(item.category)
+            if (existing) {
+                existing.push(item)
+            } else {
+                categoryMap.set(item.category, [item])
+            }
+        }
+
+        // Build loading state lookup from allCategories
+        const loadingByCategory = new Map<string, boolean>()
+        for (const cat of allCategories) {
+            loadingByCategory.set(cat.key, cat.isLoading ?? false)
+        }
+
+        // Fixed order: ai first (when searching), then recents, starred, apps, create, then everything else
+        const orderedCategories = ['suggested', 'recents', 'starred', 'apps', 'create']
+        const hasSearchValue = searchValue.trim().length > 0
+
+        for (const category of orderedCategories) {
+            const items = categoryMap.get(category) ?? []
+            const isLoading = loadingByCategory.get(category) ?? false
+
+            // When searching: hide empty groups (unless still loading)
+            // When not searching: always show recents/apps (with skeleton if loading); starred only when items or loading
+            // "ai" and "create" are only shown when searching
+            const shouldShow = hasSearchValue
+                ? items.length > 0 || isLoading
+                : (category === 'suggested' && items.length > 0) ||
+                  category === 'recents' ||
+                  category === 'apps' ||
+                  (category === 'starred' && (items.length > 0 || isLoading))
+
+            if (shouldShow) {
+                groups.push({ category, items, isLoading })
+            }
+        }
+
+        // Add remaining categories
+        for (const [category, items] of categoryMap) {
+            if (!orderedCategories.includes(category)) {
+                groups.push({ category, items, isLoading: loadingByCategory.get(category) })
+            }
+        }
+
+        return groups
+    }, [filteredItems, allCategories, searchValue])
+
+    // Debounce grouped items so async results don't shift the highlighted item mid-keystroke.
+    // When searchValue changes, items update immediately; async result arrivals are batched.
+    const debouncedGroupedItems = useDebouncedGroupedItems(groupedItems, searchValue, debounceEnabled)
+
+    // Re-rank: pin the incumbent first item so async results don't shift what's highlighted.
+    // Promotes the incumbent's group to the front if needed.
+    const stableGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
+
+    // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
+    // exactly matches the DOM render order. Without this, Base UI's keyboard navigation
+    // breaks at group boundaries where the two orderings diverge.
+    const orderedItems = useMemo(() => stableGroupedItems.flatMap((g) => g.items), [stableGroupedItems])
+
+    const contextValue: SearchContextValue = useMemo(
+        () => ({
+            logicKey,
+            searchValue,
+            setSearchValue,
+            filteredItems: orderedItems,
+            groupedItems: stableGroupedItems,
+            isSearching,
+            isActive,
+            inputRef,
+            handleItemClick,
+            showAskAiLink,
+            onAskAiClick,
+            highlightedItemRef,
+        }),
+        [
+            logicKey,
+            searchValue,
+            orderedItems,
+            stableGroupedItems,
+            isSearching,
+            isActive,
+            handleItemClick,
+            showAskAiLink,
+            onAskAiClick,
+        ]
+    )
+
+    return (
+        <SearchContext.Provider value={contextValue}>
+            <div
+                className={`flex flex-col overflow-hidden ${className} group/colorful-product-icons colorful-product-icons-true`}
+            >
+                <Autocomplete.Root
+                    items={orderedItems}
+                    mode="none"
+                    itemToStringValue={(item) => item?.name ?? ''}
+                    actionsRef={actionsRef}
+                    inline
+                    autoHighlight
+                    openOnInputClick={false}
+                    defaultOpen
+                >
+                    {children}
+                </Autocomplete.Root>
+            </div>
+        </SearchContext.Provider>
+    )
+}
+
+// ============================================================================
+// Search.Input
+// ============================================================================
+
+export interface SearchInputProps {
+    autoFocus?: boolean
+    className?: string
+}
+
+function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
+    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick } = useSearchContext()
+
+    const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
+
+    const handleInputChange = useCallback(
+        (value: string) => {
+            setSearchValue(value)
+        },
+        [setSearchValue]
+    )
+
+    const handleInputKeyDown = useCallback(
+        (e: React.KeyboardEvent) => {
+            if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
+                e.preventDefault()
+                onAskAiClick?.()
+                router.actions.push(urls.ai(undefined, searchValue.trim()))
+            }
+        },
+        [showAskAiLink, searchValue, onAskAiClick]
+    )
+
+    useEffect(() => {
+        if (autoFocus && inputRef.current) {
+            setTimeout(() => {
+                inputRef.current?.focus()
+            }, 50)
+        }
+    }, [autoFocus, inputRef])
+
+    return (
+        <div className={cn('p-2 space-y-2', className)}>
+            <label
+                htmlFor="app-autocomplete-search"
+                className="group input-like flex gap-1 items-center relative w-full bg-fill-input border border-primary focus:outline-none focus:ring-2 focus-within:ring-primary py-1 px-2"
+            >
+                <Autocomplete.Icon
+                    render={<IconSearch className="size-4 shrink-0 text-tertiary group-focus-within:text-primary" />}
+                />
+                {searchValue ? null : (
+                    <span className="text-tertiary pointer-events-none absolute left-8 top-1/2 -translate-y-1/2 ">
+                        <span className="text-tertiary">Ask PostHog AI or search </span>
+                        <span
+                            className="transition-opacity duration-200"
+                            style={{ opacity: placeholderVisible ? 1 : 0 }}
+                        >
+                            {placeholderText}
+                        </span>
+                    </span>
+                )}
+                <Autocomplete.Input
+                    ref={inputRef}
+                    value={searchValue}
+                    onChange={(e) => handleInputChange(e.target.value)}
+                    onKeyDown={handleInputKeyDown}
+                    aria-label="Search"
+                    id="app-autocomplete-search"
+                    className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
+                />
+
+                {showAskAiLink && searchValue.trim() && (
+                    <ButtonPrimitive
+                        size="sm"
+                        tabIndex={-1}
+                        aria-label="Ask PostHog AI"
+                        className="shrink-0 gap-1 text-tertiary hover:text-ai "
+                        variant="panel"
+                        onClick={() => {
+                            onAskAiClick?.()
+                            router.actions.push(urls.ai(undefined, searchValue.trim()))
+                        }}
+                        tooltip="Click or press Tab to ask AI"
+                    >
+                        <IconSparkles className="size-3.5" />
+                        <span className="text-xs whitespace-nowrap flex items-center gap-1">Press Tab to ask AI</span>
+                    </ButtonPrimitive>
+                )}
+
+                <Autocomplete.Clear
+                    render={
+                        <ButtonPrimitive
+                            iconOnly
+                            size="sm"
+                            onClick={() => setSearchValue('')}
+                            aria-label="Clear search"
+                            className="-mr-1"
+                        >
+                            <IconX className="size-4 text-tertiary" />
+                        </ButtonPrimitive>
+                    }
+                />
+            </label>
+        </div>
+    )
+}
+
+// ============================================================================
+// Search.Status
+// ============================================================================
+
+function SearchStatus(): JSX.Element {
+    const { isSearching, searchValue, filteredItems } = useSearchContext()
+
+    const statusMessage = useMemo(() => {
+        if (isSearching) {
+            return (
+                <span className="flex items-center gap-2">
+                    <Spinner className="size-3" />
+                    <span>Searching...</span>
+                </span>
+            )
+        }
+        if (searchValue && filteredItems.length === 0) {
+            return 'No results found'
+        }
+        if (filteredItems.length > 0) {
+            if (!searchValue.trim()) {
+                return 'Recents and apps'
+            }
+            return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
+        }
+        return 'Type to search...'
+    }, [isSearching, searchValue, filteredItems.length])
+
+    return (
+        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
+            <span>{statusMessage}</span>
+        </Autocomplete.Status>
+    )
+}
+
+// ============================================================================
+// Search.Separator
+// ============================================================================
+
+export interface SearchSeparatorProps {
+    className?: string
+}
+
+function SearchSeparator({ className }: SearchSeparatorProps): JSX.Element {
+    return <div className={cn('border-b border-primary', className)} />
+}
+
+// ============================================================================
+// Search.Results
+// ============================================================================
+
+function SearchResults({
+    className,
+    listClassName,
+    groupLabelClassName,
+}: {
+    className?: string
+    listClassName?: string
+    groupLabelClassName?: string
+}): JSX.Element {
+    const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
+
+    // Don't show "no results" while any category is still loading
+    const isAnyLoading = groupedItems.some((g) => g.isLoading)
+
+    return (
+        <ScrollableShadows
+            direction="vertical"
+            styledScrollbars
+            className={cn('flex-1 overflow-y-auto', className)}
+            innerClassName="scroll-pt-12 scroll-pb-8"
+        >
+            {!isAnyLoading && (
+                <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
+                    <span>
+                        No results for &quot;<span className="italic">{searchValue.trim()}</span>&quot;
+                    </span>
+                </Autocomplete.Empty>
+            )}
+
+            <Autocomplete.List className={cn('pt-3 pb-1 empty:hidden', listClassName)} tabIndex={-1}>
+                {groupedItems.map((group) => {
+                    return (
+                        <Fragment key={group.category}>
+                            <Autocomplete.Group items={group.items} className="mb-4">
+                                <Autocomplete.GroupLabel
+                                    render={
+                                        <Label
+                                            className={cn('px-3 sticky top-0 z-1 mb-1', groupLabelClassName)}
+                                            intent="menu"
+                                        >
+                                            {getCategoryDisplayName(group.category)}
+                                        </Label>
+                                    }
+                                />
+                                {group.isLoading && !isSearching ? (
+                                    <>
+                                        {Array.from({
+                                            length:
+                                                group.category === 'recents'
+                                                    ? RECENTS_LIMIT
+                                                    : group.category === 'starred'
+                                                      ? Math.min(STARRED_LIMIT, 5)
+                                                      : 10,
+                                        }).map((_, i) => (
+                                            // We give the height to the parent div and padding so the skeleton vibibily has some space and isn't a block
+                                            <div key={i} className="px-2 h-[30px] py-px">
+                                                <WrappingLoadingSkeleton fullWidth className="h-full">
+                                                    <ButtonPrimitive fullWidth className="invisible">
+                                                        &nbsp;
+                                                    </ButtonPrimitive>
+                                                </WrappingLoadingSkeleton>
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <Autocomplete.Collection>
+                                        {(item: SearchItem) => {
+                                            const typeLabel = getItemTypeDisplayName(item.itemType)
+                                            const icon = getIconForItem(item)
+
+                                            return (
+                                                <ContextMenu key={item.id}>
+                                                    <ContextMenuTrigger asChild>
+                                                        <Autocomplete.Item
+                                                            value={item}
+                                                            onClick={(e) => {
+                                                                e.preventDefault()
+                                                                handleItemClick(item)
+                                                            }}
+                                                            render={(props) => {
+                                                                const isHighlighted =
+                                                                    (props as Record<string, unknown>)[
+                                                                        'data-highlighted'
+                                                                    ] === ''
+                                                                if (isHighlighted) {
+                                                                    highlightedItemRef.current = item
+                                                                }
+                                                                return (
+                                                                    <div className="px-2">
+                                                                        <Link
+                                                                            to={item.href}
+                                                                            buttonProps={{
+                                                                                fullWidth: true,
+                                                                            }}
+                                                                            {...props}
+                                                                            tabIndex={-1}
+                                                                        >
+                                                                            {icon}
+                                                                            <span className="truncate">
+                                                                                {String(item.displayName || item.name)}
+                                                                            </span>
+                                                                            {(group.category === 'recents' ||
+                                                                                group.category === 'starred' ||
+                                                                                group.category === 'groups') &&
+                                                                                (item.groupNoun || typeLabel) && (
+                                                                                    <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                        {capitalizeFirstLetter(
+                                                                                            item.groupNoun ||
+                                                                                                typeLabel ||
+                                                                                                ''
+                                                                                        )}
+                                                                                    </span>
+                                                                                )}
+                                                                            {item.productCategory && (
+                                                                                <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                    {item.productCategory}
+                                                                                </span>
+                                                                            )}
+                                                                            {item.tags?.map((tag) => (
+                                                                                <LemonTag
+                                                                                    key={tag}
+                                                                                    type={
+                                                                                        tag === 'alpha'
+                                                                                            ? 'completion'
+                                                                                            : tag === 'beta'
+                                                                                              ? 'warning'
+                                                                                              : 'success'
+                                                                                    }
+                                                                                    size="small"
+                                                                                    className="shrink-0"
+                                                                                >
+                                                                                    {tag.toUpperCase()}
+                                                                                </LemonTag>
+                                                                            ))}
+                                                                            {item.lastViewedAt && (
+                                                                                <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
+                                                                                    {formatRelativeTimeShort(
+                                                                                        item.lastViewedAt
+                                                                                    )}
+                                                                                </span>
+                                                                            )}
+                                                                        </Link>
+                                                                    </div>
+                                                                )
+                                                            }}
+                                                        />
+                                                    </ContextMenuTrigger>
+                                                    <ContextMenuContent loop className="max-w-[250px] z-top">
+                                                        <ContextMenuGroup>
+                                                            <MenuItems
+                                                                item={commandItemToTreeDataItem(item)}
+                                                                type="context"
+                                                                root="project://"
+                                                                onlyTree={false}
+                                                                showSelectMenuOption={false}
+                                                            />
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        }}
+                                    </Autocomplete.Collection>
+                                )}
+                            </Autocomplete.Group>
+                        </Fragment>
+                    )
+                })}
+            </Autocomplete.List>
+        </ScrollableShadows>
+    )
+}
+
+// ============================================================================
+// Search.Footer
+// ============================================================================
+
+export interface SearchFooterProps {
+    children?: ReactNode
+}
+
+function SearchFooter({ children }: SearchFooterProps): JSX.Element {
+    const { filteredItems } = useSearchContext()
+    const { searchValue } = useSearchContext()
+
+    return (
+        <div className="border-t px-2 py-1 text-xxs text-tertiary font-medium select-none flex items-center gap-1">
+            {children ?? (
+                <>
+                    {filteredItems.length > 1 && (
+                        <span>
+                            <KeyboardShortcut arrowup arrowdown preserveOrder /> to navigate
+                        </span>
+                    )}
+                    <span>
+                        <KeyboardShortcut enter /> to activate
+                    </span>
+                    {searchValue.trim() && (
+                        <span>
+                            <KeyboardShortcut tab /> to ask AI
+                        </span>
+                    )}
+                    <span>
+                        <KeyboardShortcut escape /> to close
+                    </span>
+                </>
+            )}
+        </div>
+    )
+}
+
+// ============================================================================
+// Compound Component Export
+// ============================================================================
+
+export const Search = {
+    Root: SearchRoot,
+    Input: SearchInput,
+    Status: SearchStatus,
+    Separator: SearchSeparator,
+    Results: SearchResults,
+    Footer: SearchFooter,
+}

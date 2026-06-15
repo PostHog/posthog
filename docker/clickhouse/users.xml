@@ -9,8 +9,6 @@
             <!-- Maximum memory usage for processing single query, in bytes. -->
             <max_memory_usage>10000000000</max_memory_usage>
 
-            <!-- Disable analyzer -->
-            <enable_analyzer>0</enable_analyzer>
 
             <!-- How to choose between replicas during distributed query processing.
                  random - choose random replica from set of replicas with minimum number of errors
@@ -24,6 +22,29 @@
             <load_balancing>random</load_balancing>
 
             <allow_nondeterministic_mutations>1</allow_nondeterministic_mutations>
+
+            <compatibility>26.3</compatibility>
+            <!-- The funnel correlation query intentionally uses a materialized CTE
+                 to avoid re-running the actor subquery across UNION branches. -->
+            <enable_materialized_cte>1</enable_materialized_cte>
+            <!-- Keep inserts synchronous. Production configures async inserts explicitly
+                 (currently off); the 26.3 compatibility default turns them on, which makes
+                 every single-row test insert wait for the async flush and slows the suite. -->
+            <async_insert>0</async_insert>
+            <!-- 26.3 enables rewriting `col = ''` / `col != ''` into emptiness checks that
+                 skip DEFAULT-expression evaluation on parts written before the column was
+                 added. Materialized property columns rely on that evaluation for
+                 is_set / is_not_set filters on rows older than their backfill window, so
+                 pin the rewrite off until ClickHouse honors DEFAULTs there. -->
+            <optimize_empty_string_comparisons>0</optimize_empty_string_comparisons>
+            <distributed_product_mode>global</distributed_product_mode>
+            <enable_parallel_replicas>0</enable_parallel_replicas>
+            <max_parallel_replicas>1</max_parallel_replicas>
+            <allow_experimental_window_functions>1</allow_experimental_window_functions>
+            <allow_suspicious_low_cardinality_types>1</allow_suspicious_low_cardinality_types>
+            <insert_distributed_sync>1</insert_distributed_sync>
+            <throw_on_max_partitions_per_insert_block>false</throw_on_max_partitions_per_insert_block>
+            <number_of_mutations_to_throw>1</number_of_mutations_to_throw>
 
         </default>
 

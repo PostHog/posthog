@@ -6,8 +6,10 @@ from django.utils import timezone
 from posthog.schema import EmbeddingModelName
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.models.team.team import Team
+
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
 
 from ee.hogai.llm_traces_summaries.constants import (
     DOCUMENT_EMBEDDINGS_TOPIC,
@@ -17,7 +19,6 @@ from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_MAX_ATTEMPTS,
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_POLL_INTERVAL_SECONDS,
 )
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 
 class LLMTracesSummarizerEmbedder:
@@ -25,14 +26,14 @@ class LLMTracesSummarizerEmbedder:
         self, team: Team, embedding_model_name: EmbeddingModelName = EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072
     ):
         self._team = team
-        self._producer = KafkaProducer()
+        self._producer = get_producer(topic=DOCUMENT_EMBEDDINGS_TOPIC)
         self._embedding_model_name = embedding_model_name
 
     def embed_summaries(self, summarized_traces: dict[str, str], summary_type: LLMTraceSummary.LLMTraceSummaryType):
         """Generated embeddings for all summaries of stringified traces."""
         # Add all the summaries to the Kafka producer to be stored in ClickHouse
         for trace_id, summary in summarized_traces.items():
-            self._embed_document(
+            self.embed_document(
                 content=summary,
                 document_id=trace_id,
                 document_type=LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
@@ -50,7 +51,7 @@ class LLMTracesSummarizerEmbedder:
         We expect query to come either from conversation or from a search request.
         """
         # Embed the search query and store the timestamp it was generated at
-        timestamp = self._embed_document(
+        timestamp = self.embed_document(
             content=query,
             document_id=request_id,
             document_type=LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
@@ -96,7 +97,7 @@ class LLMTracesSummarizerEmbedder:
         )
         return result[0][0] > 0
 
-    def _embed_document(
+    def embed_document(
         self, content: str, document_id: str, document_type: str, rendering: str, product: str
     ) -> datetime:
         timestamp = timezone.now()

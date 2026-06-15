@@ -1,5 +1,14 @@
 .dashboard-items-wrapper {
     width: 100%; // This provides the width for the dashboard items grid
+    padding-top: 0.5rem;
+
+    .InsightCard__viz {
+        z-index: 0; // Keep viz below CardMeta details overlay on dashboards
+
+        .InsightVizDisplay .LineGraph {
+            padding: 0.25rem;
+        }
+    }
 }
 
 .react-grid-layout {
@@ -10,6 +19,10 @@
     /* remove initial loading animation, animations are only needed in edit mode */
     &.dashboard-view-mode .react-grid-item {
         transition: border-color 100ms ease;
+
+        /* Skip rendering for off-screen tiles during resize/reflow */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 30rem;
     }
 }
 
@@ -22,15 +35,20 @@
     will-change: width, height;
 }
 
-.react-grid-item.react-draggable .CardMeta,
-.react-grid-item.react-draggable .TextCard__body {
-    // .CardMeta is the draggable handle of insight cards. Text cards are draggable as a whole
-    cursor: move;
-    user-select: none; // Prevent accidental text selection while dragging
+.react-grid-item.react-draggable.DashboardTileCard {
+    .CardMeta,
+    .TextCard__body,
+    .ButtonTileCard__body,
+    .WidgetCard__header {
+        // CardMeta: insight + widget (dashboard_tile layout). Bodies: text/button tiles. Header: widget (simple layout).
+        cursor: grab;
+        user-select: none; // Prevent accidental text selection while dragging
+    }
 }
 
 .react-grid-item.react-draggable-dragging {
     z-index: 105;
+    cursor: grabbing;
     transition: none;
     will-change: transform;
 }
@@ -55,8 +73,97 @@
 }
 
 .react-grid-item {
+    box-sizing: border-box;
     transition: all 100ms ease;
     transition-property: left, top;
+
+    // Drop InsightCard's fixed 30rem so RGL's inline height is the only constraint.
+    &.DashboardTileCard.InsightCard {
+        height: unset;
+    }
+
+    // Decorative resize overlays: anchor to the grid cell, not an inner wrapper.
+    & > .handle {
+        position: absolute;
+        inset: 0;
+        z-index: var(--z-raised);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        pointer-events: none;
+
+        &.horizontal {
+            svg {
+                transform: rotate(90deg) translateX(0.75rem);
+            }
+
+            &.top {
+                align-items: flex-start;
+
+                svg {
+                    transform: rotate(90deg) translateX(-0.75rem);
+                }
+            }
+        }
+
+        &.vertical {
+            flex-direction: column;
+
+            &.right {
+                align-items: flex-end;
+                justify-content: center;
+
+                svg {
+                    transform: translateX(0.5rem);
+                }
+            }
+
+            &.left {
+                align-items: flex-start;
+                justify-content: center;
+
+                svg {
+                    transform: translateX(-0.5rem);
+                }
+            }
+        }
+
+        &.corner {
+            align-items: flex-end;
+            justify-content: flex-end;
+
+            svg {
+                transform: translate(0.5rem, 0.5rem);
+            }
+
+            &.bottom-left {
+                align-items: flex-end;
+                justify-content: flex-start;
+
+                svg {
+                    transform: translate(-0.5rem, 0.5rem) rotateY(180deg);
+                }
+            }
+
+            &.top-right {
+                align-items: flex-start;
+                justify-content: flex-end;
+
+                svg {
+                    transform: translate(0.5rem, -0.5rem) rotateX(180deg);
+                }
+            }
+
+            &.top-left {
+                align-items: flex-start;
+                justify-content: flex-start;
+
+                svg {
+                    transform: translate(-0.5rem, -0.5rem) rotateX(180deg) rotateY(180deg);
+                }
+            }
+        }
+    }
 
     & > .react-resizable-handle {
         position: absolute;
@@ -84,5 +191,47 @@
         left: 0;
         width: auto;
         cursor: ns-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-n {
+        top: -0.5rem;
+        right: 3rem;
+        left: 3rem;
+        width: auto;
+        height: 1rem;
+        cursor: ns-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-w {
+        top: 0;
+        bottom: 2rem;
+        left: -0.5rem;
+        width: 2rem;
+        height: auto;
+        cursor: ew-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-nw {
+        top: -0.5rem;
+        left: -0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: nw-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-ne {
+        top: -0.5rem;
+        right: -0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: ne-resize;
+    }
+
+    & > .react-resizable-handle.react-resizable-handle-sw {
+        bottom: -0.5rem;
+        left: -0.5rem;
+        width: 2rem;
+        height: 2rem;
+        cursor: sw-resize;
     }
 }

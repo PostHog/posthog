@@ -19,18 +19,22 @@ export const SlackSetupModal = (props: SlackSetupModalLogicProps): JSX.Element =
                     <span>Configure Slack integration</span>
                 </div>
             }
-            onClose={() => props.onComplete()}
             footer={
                 <div className="flex justify-end">
-                    <LemonButton type="secondary" onClick={() => props.onComplete()}>
+                    <LemonButton type="secondary" onClick={props.onClose}>
                         Close
                     </LemonButton>
                 </div>
             }
+            onClose={props.onClose}
         >
             <div className="max-w-[400px]">
                 {slackAvailable ? (
-                    <Link to={api.integrations.authorizeUrl({ kind: 'slack' })} disableClientSideRouting>
+                    <Link
+                        to={api.integrations.authorizeUrl({ kind: 'slack' })}
+                        onClick={() => props.onComplete()}
+                        disableClientSideRouting
+                    >
                         <img
                             alt="Connect to Slack workspace"
                             height="40"

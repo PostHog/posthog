@@ -8,10 +8,10 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
 import {
@@ -19,17 +19,16 @@ import {
     EventHeaders,
     IncomingEventWithTeam,
     PipelineEvent,
-    PluginsServerConfig,
+    RedisPool,
     Team,
 } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
-import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
-import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
+import { IngestionConsumerConfig } from '../config'
+import { PipelineResult, dlq, drop, isOkResult, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------
@@ -96,9 +95,31 @@ interface CookielessConfig {
     identifiesTtlSeconds: number
     sessionTtlSeconds: number
     saltTtlSeconds: number
-    timestampLoggingSampleRate: number
     sessionInactivityMs: number
 }
+
+/**
+ * The cookieless-related keys a CookielessManager needs from the consumer config.
+ */
+export type CookielessManagerConfig = Pick<
+    IngestionConsumerConfig,
+    | 'COOKIELESS_DISABLED'
+    | 'COOKIELESS_FORCE_STATELESS_MODE'
+    | 'COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS'
+    | 'COOKIELESS_SESSION_TTL_SECONDS'
+    | 'COOKIELESS_SALT_TTL_SECONDS'
+    | 'COOKIELESS_SESSION_INACTIVITY_MS'
+    | 'COOKIELESS_IDENTIFIES_TTL_SECONDS'
+>
+
+/**
+ * Everything a server needs to instantiate a CookielessManager and its Redis pool —
+ * the manager's own config plus the Redis connection knobs read by
+ * `createCookielessRedisConnectionConfig`. Use this in service config slices instead
+ * of redeclaring the cookieless keys inline.
+ */
+export type CookielessServerConfig = CookielessManagerConfig &
+    Pick<IngestionConsumerConfig, 'COOKIELESS_REDIS_HOST' | 'COOKIELESS_REDIS_PORT'>
 
 export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
@@ -108,11 +129,7 @@ export class CookielessManager {
     private readonly mutex = new ConcurrencyController(1)
     private cleanupInterval: NodeJS.Timeout | null = null
 
-    constructor(
-        config: PluginsServerConfig,
-        redis: GenericPool<Redis.Redis>,
-        private teamManager: TeamManager
-    ) {
+    constructor(config: CookielessManagerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
             disabled: config.COOKIELESS_DISABLED,
             forceStatelessMode: config.COOKIELESS_FORCE_STATELESS_MODE,
@@ -121,7 +138,6 @@ export class CookielessManager {
             saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
             sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
             identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
-            timestampLoggingSampleRate: config.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
         }
 
         this.redisHelpers = new RedisHelpers(redis)
@@ -378,16 +394,6 @@ export class CookielessManager {
                 continue
             }
 
-            // Compare timestamp from headers with current parsing logic
-            compareTimestamps(
-                timestamp,
-                headers,
-                team.id,
-                event.uuid,
-                'cookieless_processing',
-                this.config.timestampLoggingSampleRate
-            )
-
             const {
                 userAgent,
                 ip,
@@ -546,13 +552,15 @@ export class CookielessManager {
 
             const identifiesCacheItem = identifiesCache[identifiesRedisKey]
 
+            // Compute n without mutating the identifies set yet — we only commit the
+            // mutation after the hash succeeds so a DLQ'd event doesn't inflate the
+            // count for subsequent events in the same batch.
             let n: number
+            let isIdentifyEvent = false
             if (event.event === '$identify') {
-                identifiesCacheItem.identifyEventIds.add(event.uuid)
-                identifiesCacheItem.isDirty = true
-
-                // identify, we want the number of identifies from before this event
-                n = identifiesCacheItem.identifyEventIds.size - 1
+                isIdentifyEvent = true
+                const alreadySeen = identifiesCacheItem.identifyEventIds.has(event.uuid)
+                n = identifiesCacheItem.identifyEventIds.size - (alreadySeen ? 1 : 0)
             } else if (event.distinct_id === COOKIELESS_SENTINEL_VALUE) {
                 // non-identify event
                 n = identifiesCacheItem.identifyEventIds.size
@@ -577,6 +585,11 @@ export class CookielessManager {
             if (!hashValueResult.success) {
                 results[originalIndex] = dlq('cookieless_unexpected_date_validation_failure')
                 continue
+            }
+
+            if (isIdentifyEvent) {
+                identifiesCacheItem.identifyEventIds.add(event.uuid)
+                identifiesCacheItem.isDirty = true
             }
             const distinctId = hashToDistinctId(hashValueResult.salt)
             const sessionRedisKey = getRedisSessionsKey(hashValueResult.salt, team.id)
@@ -679,8 +692,12 @@ export class CookielessManager {
             )
         }
 
-        // Update results with successfully processed events
+        // Update results with successfully processed events, but don't overwrite
+        // DLQ/drop results that were set by earlier passes (e.g. pass 3 date validation failure)
         for (const { event, team, message, headers, originalIndex } of eventsWithStatus) {
+            if (!isOkResult(results[originalIndex])) {
+                continue
+            }
             results[originalIndex] = ok({ event, team, message, headers })
         }
 
@@ -1013,4 +1030,27 @@ export function extractRootDomain(input: string): string {
 
     // Add the port back if it exists
     return port ? `${domain}:${port}` : domain
+}
+
+/**
+ * Scope entry for a `CookielessManager`. Takes an already-built Redis pool (its own scope entry, so
+ * draining it is the pool component's job); `stop` only shuts the manager down — i.e. clears its
+ * cleanup interval.
+ */
+export class CookielessManagerComponent {
+    constructor(
+        private readonly config: CookielessManagerConfig,
+        private readonly redisPool: RedisPool
+    ) {}
+
+    start(): Promise<{ value: CookielessManager; stop: () => Promise<void> }> {
+        const manager = new CookielessManager(this.config, this.redisPool)
+        return Promise.resolve({
+            value: manager,
+            stop: (): Promise<void> => {
+                manager.shutdown()
+                return Promise.resolve()
+            },
+        })
+    }
 }

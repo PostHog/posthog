@@ -1,19 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
+import { ReactInstallSnippet } from './js-web'
 import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
 function NextEnvVarsSnippet(): JSX.Element {
@@ -21,9 +20,10 @@ function NextEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`NEXT_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`, `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`].join(
-                '\n'
-            )}
+            {[
+                `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`,
+                `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`,
+            ].join('\n')}
         </CodeSnippet>
     )
 }
@@ -37,13 +37,13 @@ function NextPagesRouterPageViewSnippet(): JSX.Element {
 import { useEffect } from 'react'
 import { Router } from 'next/router'
 import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
+import { PostHogProvider } from '@posthog/react'
 import type { AppProps } from 'next/app'
 
 export default function App({ Component, pageProps }: AppProps) {
 
   useEffect(() => {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
@@ -101,14 +101,14 @@ function NextAppRouterPageViewProviderSnippet(): JSX.Element {
 
 import { usePathname, useSearchParams } from "next/navigation"
 import { useEffect } from "react"
-import { usePostHog } from 'posthog-js/react'
+import { usePostHog } from '@posthog/react'
 
 import posthog from 'posthog-js'
-import { PostHogProvider as PHProvider } from 'posthog-js/react'
+import { PostHogProvider as PHProvider } from '@posthog/react'
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
@@ -136,7 +136,7 @@ function NextInstrumentationClientSnippet(): JSX.Element {
             {`// instrumentation-client.js
 import posthog from 'posthog-js'
 
-posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
+posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     defaults: '${SDK_DEFAULTS_DATE}'
 });
@@ -148,25 +148,16 @@ posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
 export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
-    const showSetupWizard = !hideWizard && isCloudOrDev
 
     return (
         <>
-            {showSetupWizard && (
-                <>
-                    <h2>Automated Installation</h2>
-                    <SetupWizardBanner integrationName="Next.js" />
-                    <LemonDivider label="OR" />
-                    <h2>Manual Installation</h2>
-                </>
-            )}
-            <h3>Install posthog-js using your package manager</h3>
-            <JSInstallSnippet />
+            <SetupWizardBanner integrationName="Next.js" hide={hideWizard} />
+            <h3>Install posthog-js and @posthog/react using your package manager</h3>
+            <ReactInstallSnippet />
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
-                Netlify, AWS). You can find your project API key in your project settings.
+                Netlify, AWS). You can find your project token in your project settings.
             </p>
             <p>
                 These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the client-side.

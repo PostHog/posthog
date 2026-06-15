@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 
-import { SurveyFeatureWarning } from 'scenes/surveys/surveyVersionRequirements'
 import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
+import { SurveyFeatureWarning } from 'scenes/surveys/surveyVersionRequirements'
 
 export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarning[] }): JSX.Element | null {
     const { teamSdkVersions } = useValues(surveysSdkLogic)
@@ -20,7 +20,7 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarnin
             relevantSdks.add(issue.sdkType)
         }
         for (const sdk of warning.unsupportedSdks) {
-            relevantSdks.add(sdk)
+            relevantSdks.add(sdk.sdk)
         }
     }
 
@@ -47,11 +47,17 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyFeatureWarnin
                                             Requires {issue.sdkType} v{issue.minVersion}+
                                         </li>
                                     ))}
-                                    {warning.unsupportedSdks.length > 0 && (
-                                        <li className="text-secondary">
-                                            Not supported on {warning.unsupportedSdks.join(', ')}
+                                    {warning.unsupportedSdks.map((s) => (
+                                        <li key={s.sdk} className="text-secondary">
+                                            {s.issue === false ? (
+                                                <>Not supported on {s.sdk}</>
+                                            ) : (
+                                                <Link to={s.issue} target="_blank" targetBlankIcon>
+                                                    Not yet supported on {s.sdk}
+                                                </Link>
+                                            )}
                                         </li>
-                                    )}
+                                    ))}
                                 </ul>
                             </li>
                         ))}

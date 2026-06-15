@@ -3,6 +3,8 @@ import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { STL as HOG_STL } from '@posthog/hogvm'
 
+import { createFuse } from 'lib/utils/fuseSearch'
+
 import type { cyclotronJobTemplateSuggestionsLogicType } from './cyclotronJobTemplateSuggestionsLogicType'
 
 export type CyclotronJobTemplateOption = {
@@ -98,9 +100,8 @@ export const cyclotronJobTemplateSuggestionsLogic = kea<cyclotronJobTemplateSugg
         optionsFuse: [
             (s) => [s.allOptions],
             (allOptions): Fuse => {
-                return new FuseClass(allOptions, {
+                return createFuse(allOptions, {
                     keys: ['description', 'example'],
-                    threshold: 0.3,
                 })
             },
         ],

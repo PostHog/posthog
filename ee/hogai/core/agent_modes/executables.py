@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import Mapping, Sequence
-from typing import Literal, TypeVar, cast
+from typing import Any, Literal, TypeVar, cast
 from uuid import uuid4
+
+from django.conf import settings
 
 import structlog
 import posthoganalytics
@@ -13,8 +15,9 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
-from langgraph.errors import NodeInterrupt
+from langgraph.errors import GraphInterrupt
 from langgraph.types import Send
+from opentelemetry import trace
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
 
@@ -30,6 +33,7 @@ from posthog.schema import (
 
 from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.prompts import (
@@ -44,6 +48,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.feature_flags import get_llm_gateway_variant
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -60,6 +65,7 @@ RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantT
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
 logger = structlog.get_logger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 
 class BaseAgentLoopExecutable(BaseAgentExecutable[AssistantState, PartialAssistantState]):
@@ -94,7 +100,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     """
     Determines the maximum number of tool calls allowed in a single generation.
     """
-    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 1024}
+    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 10240}
     """
     Determines the thinking configuration for the model.
     """
@@ -196,12 +202,17 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         else:
             new_messages = cast(list[AssistantMessageUnion], generated_messages)
 
+        # NOTE: We intentionally do NOT extract the mode from switch_mode tool calls here.
+        # The mode should only change AFTER the tools node validates and executes the tool.
+        # If we set agent_mode prematurely, the tools node will use the wrong mode_registry
+        # to validate the switch_mode call (e.g., trying to validate "plan" against the
+        # plan mode registry which doesn't have "plan" as a valid mode).
         return PartialAssistantState(
             messages=new_messages,
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
-            agent_mode=self._get_updated_agent_mode(generated_messages[-1], state.agent_mode_or_default),
+            agent_mode=state.agent_mode_or_default,
         )
 
     def router(self, state: AssistantState):
@@ -213,18 +224,82 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             for tool_call in last_message.tool_calls
         ]
 
+    def _get_llm_gateway_product(self) -> str:
+        return "django"
+
+    def _get_gateway_kwargs(self) -> dict[str, Any]:
+        variant = get_llm_gateway_variant(self._team, self._user)
+        if variant == "control":
+            return {}
+        if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+            logger.warning(
+                "llm_gateway settings are not configured",
+                product=self._get_llm_gateway_product(),
+                team_id=self._team.id,
+                variant=variant,
+            )
+            return {}
+
+        headers: dict[str, str] = {
+            "X-POSTHOG-FLAG-phai-llm-gateway": variant,
+        }
+
+        if variant == "gateway-bedrock":
+            headers["X-PostHog-Provider"] = "bedrock"
+        elif variant == "gateway-anthropic":
+            headers["X-PostHog-Use-Bedrock-Fallback"] = "true"
+
+        return {
+            "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
+            "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
+            "default_headers": headers,
+        }
+
+    def _get_agent_mode_posthog_properties(self, state: AssistantState) -> dict[str, Any]:
+        """Telemetry props so $ai_generation events can be scoped to a specific agent mode."""
+        supermode = state.supermode
+        supermode_value: str | None
+        if isinstance(supermode, AgentMode):
+            supermode_value = supermode.value
+        elif isinstance(supermode, str):
+            supermode_value = supermode
+        else:
+            supermode_value = None
+        return {
+            "agent_mode": state.agent_mode_or_default.value,
+            "supermode": supermode_value,
+        }
+
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+        model_name = "claude-sonnet-4-6"
+        if self._has_legacy_summarize_sessions_messages(state.messages):
+            model_name = "claude-sonnet-4-5"
+
+        is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
+
+        gateway_kwargs = self._get_gateway_kwargs()
+        is_routing_through_llm_gateway = bool(gateway_kwargs)
+
         base_model = MaxChatAnthropic(
-            model="claude-sonnet-4-5",
+            model=model_name,
             streaming=True,
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
-            max_tokens=8192,
-            thinking=self.THINKING_CONFIG,
+            betas=[
+                "interleaved-thinking-2025-05-14",
+                "fine-grained-tool-streaming-2025-05-14",
+            ],
+            max_tokens=8192 if is_sonnet_4_5 else 16384,
+            thinking=self.THINKING_CONFIG if not is_sonnet_4_5 else {"type": "enabled", "budget_tokens": 1024},
+            # langchain-anthropic 0.3.x doesn't have a first-class effort field;
+            # forward it via model_kwargs so the Anthropic API receives output_config.
+            model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
             conversation_start_dt=state.start_dt,
             billable=True,
+            bypass_proxy=is_routing_through_llm_gateway,
+            posthog_properties=self._get_agent_mode_posthog_properties(state),
+            **gateway_kwargs,
         )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
@@ -309,25 +384,56 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         """Process the output message."""
         return normalize_ai_message(message)
 
-    def _get_updated_agent_mode(self, generated_message: AssistantMessage, current_mode: AgentMode) -> AgentMode | None:
-        for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == AssistantTool.SWITCH_MODE and (new_mode := tool_call.args.get("new_mode")):
-                return new_mode
-        return current_mode
+    @staticmethod
+    def _has_legacy_summarize_sessions_messages(messages: Sequence[AssistantMessageUnion]) -> bool:
+        """Detect pre-migration summarize_sessions AssistantMessages with meta.form.
+
+        Before the migration, summarize_sessions returned a ToolMessagesArtifact containing
+        an AssistantMessage with meta.form (the "Open report" button). This AssistantMessage
+        converts to a trailing AIMessage, causing a prefill error with Sonnet 4.6.
+        Sonnet 4.5 handles this gracefully, so we fall back to it for legacy conversations.
+        """
+        for message in messages:
+            if (
+                isinstance(message, AssistantMessage)
+                and message.meta
+                and message.meta.form
+                and any(
+                    option.href and option.href.startswith("/session-summaries/")
+                    for option in message.meta.form.options
+                )
+            ):
+                return True
+        return False
 
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
-
         reset_state = PartialAssistantState(root_tool_call_id=None)
-        # Should never happen, but just in case.
-        if not isinstance(last_message, AssistantMessage) or not last_message.id or not state.root_tool_call_id:
+
+        # Check if we're resuming from an interrupted approval flow
+        tool_call_message = None
+        if isinstance(last_message, AssistantToolCallMessage) and state.root_tool_call_id:
+            # Look for the original AssistantMessage with the tool call
+            for msg in reversed(state.messages[:-1]):
+                if isinstance(msg, AssistantMessage) and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.id == state.root_tool_call_id:
+                            tool_call_message = msg
+                            break
+                    if tool_call_message:
+                        break
+        elif isinstance(last_message, AssistantMessage):
+            tool_call_message = last_message
+
+        if not tool_call_message or not tool_call_message.id or not state.root_tool_call_id:
             return reset_state
 
-        # Find the current tool call in the last message.
+        # Find the current tool call in the message.
         tool_call = next(
-            (tool_call for tool_call in last_message.tool_calls or [] if tool_call.id == state.root_tool_call_id), None
+            (tool_call for tool_call in tool_call_message.tool_calls or [] if tool_call.id == state.root_tool_call_id),
+            None,
         )
         if not tool_call:
             return reset_state
@@ -358,18 +464,45 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         tool.set_node_path(
             (
                 *self.node_path[:-1],
-                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
+                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=tool_call_message.id, tool_call_id=tool_call.id),
             )
         )
 
         try:
-            result = await tool.ainvoke(
-                ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
-            )
-            if not isinstance(result, LangchainToolMessage):
-                raise ValueError(
-                    f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+            # tool_call.id is typed as str|None in some LangChain shapes; OTel rejects None
+            # attribute values with a warning, so include the id only when present.
+            tool_span_attributes: dict[str, str | int] = {
+                "posthog_ai.tool_name": tool_call.name,
+                "posthog_ai.team_id": self._team.id,
+            }
+            if tool_call.id is not None:
+                tool_span_attributes["posthog_ai.tool_call_id"] = tool_call.id
+            with _tracer.start_as_current_span("posthog_ai.tool.invoke", attributes=tool_span_attributes):
+                result = await tool.ainvoke(
+                    ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id),
+                    config=config,
                 )
+                # Keep the type-mismatch raise inside the span so OTel records the exception
+                # on the tool.invoke span rather than on its (unrelated) parent.
+                if not isinstance(result, LangchainToolMessage):
+                    raise ValueError(
+                        f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
+                    )
+
+            # Track successful tool execution
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                with _tracer.start_as_current_span("posthoganalytics.capture"):
+                    await database_sync_to_async(posthoganalytics.capture)(
+                        distinct_id=user_distinct_id,
+                        event="ai tool executed",
+                        properties={
+                            **self._get_debug_props(config),
+                            "tool_name": tool_call.name,
+                        },
+                        groups=groups(None, self._team),
+                        send_feature_flags=True,
+                    )
         except MaxToolError as e:
             logger.exception(
                 "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
@@ -423,8 +556,9 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                     )
                 ],
             )
-        except NodeInterrupt:
-            # Let NodeInterrupt propagate to the graph engine for tool interrupts
+        except GraphInterrupt:
+            # GraphInterrupt is raised when a tool calls interrupt() for approval flow.
+            # Let it propagate up to be handled by LangGraph's interrupt
             raise
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
@@ -443,7 +577,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
 
         if isinstance(result.artifact, ToolMessagesArtifact):
             return PartialAssistantState(
-                messages=result.artifact.messages,
+                messages=list(result.artifact.messages),
             )
 
         tool_message = AssistantToolCallMessage(
@@ -453,8 +587,29 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             tool_call_id=tool_call.id,
         )
 
+        # Extract agent_mode from switch_mode tool result
+        # The switch_mode tool returns (content, new_mode) where new_mode is stored in artifact
+        agent_mode: AgentMode | None = None
+        if tool_call.name == AssistantTool.SWITCH_MODE and result.artifact:
+            agent_mode = result.artifact
+            user_distinct_id = self._get_user_distinct_id(config)
+            if user_distinct_id:
+                with _tracer.start_as_current_span("posthoganalytics.capture"):
+                    await database_sync_to_async(posthoganalytics.capture)(
+                        distinct_id=user_distinct_id,
+                        event="ai mode executed",
+                        properties={
+                            **self._get_debug_props(config),
+                            "mode": agent_mode,
+                            "previous_mode": state.agent_mode_or_default,
+                        },
+                        groups=groups(None, self._team),
+                        send_feature_flags=True,
+                    )
+
         return PartialAssistantState(
             messages=[tool_message],
+            agent_mode=agent_mode,
         )
 
     def router(self, state: AssistantState) -> Literal["root", "end"]:

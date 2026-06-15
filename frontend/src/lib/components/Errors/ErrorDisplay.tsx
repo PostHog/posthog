@@ -1,16 +1,16 @@
 import { BindLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { CollapsibleExceptionList } from './ExceptionList/CollapsibleExceptionList'
+import { addExceptionStepsMalformedWarning } from './errorDisplayWarnings'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
+import { CollapsibleExceptionList } from './ExceptionList/CollapsibleExceptionList'
 import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
 import { concatValues } from './utils'
 
@@ -27,15 +27,16 @@ export function idFrom(event: ErrorEventType): string {
     return 'error'
 }
 
-export function ErrorDisplay({
-    eventProperties,
-    eventId,
-}: {
+export interface ErrorDisplayProps {
     eventProperties: ErrorEventProperties
     eventId: ErrorEventId
-}): JSX.Element {
+}
+
+export function ErrorDisplay({ eventProperties, eventId }: ErrorDisplayProps): JSX.Element {
+    const enrichedEventProperties = useMemo(() => addExceptionStepsMalformedWarning(eventProperties), [eventProperties])
+
     return (
-        <BindLogic logic={errorPropertiesLogic} props={{ properties: eventProperties, id: eventId }}>
+        <BindLogic logic={errorPropertiesLogic} props={{ properties: enrichedEventProperties, id: eventId }}>
             <ErrorDisplayContent />
         </BindLogic>
     )
@@ -46,7 +47,22 @@ export function ErrorDisplayContent(): JSX.Element {
     const { sentryUrl, ingestionErrors, handled } = exceptionAttributes || {}
     const browserInfo = concatValues(exceptionAttributes, 'browser', 'browserVersion')
     const appInfo = concatValues(exceptionAttributes, 'appNamespace', 'appVersion')
-    const [showAllFrames, setShowAllFrames] = useState(false)
+    const [expandedFrameRawIds, setExpandedFrameRawIds] = useState(new Set<string>())
+    const handleFrameExpandedChange = (rawId: string, expanded: boolean): void => {
+        setExpandedFrameRawIds((prev) => {
+            const has = prev.has(rawId)
+            if (expanded === has) {
+                return prev
+            }
+            const next = new Set(prev)
+            if (expanded) {
+                next.add(rawId)
+            } else {
+                next.delete(rawId)
+            }
+            return next
+        })
+    }
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
             <div className="flex justify-between gap-2 items-center">
@@ -77,11 +93,6 @@ export function ErrorDisplayContent(): JSX.Element {
                     {appInfo && <TitledSnack title="app" value={appInfo} />}
                     <TitledSnack title="os" value={concatValues(exceptionAttributes, 'os', 'osVersion') ?? 'unknown'} />
                 </div>
-                <LemonSwitch
-                    checked={showAllFrames}
-                    label="Show entire stack trace"
-                    onChange={() => setShowAllFrames(!showAllFrames)}
-                />
             </div>
 
             {ingestionErrors || hasStacktrace ? <LemonDivider dashed={true} /> : null}
@@ -96,7 +107,10 @@ export function ErrorDisplayContent(): JSX.Element {
                     </LemonBanner>
                 </>
             )}
-            <CollapsibleExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} />
+            <CollapsibleExceptionList
+                expandedFrameRawIds={expandedFrameRawIds}
+                onFrameExpandedChange={handleFrameExpandedChange}
+            />
         </div>
     )
 }

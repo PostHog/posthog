@@ -1,8 +1,17 @@
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { AccessControlLevel, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import { initKeaTests } from '~/test/init'
+import {
+    AccessControlLevel,
+    FeatureFlagBucketingIdentifier,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagType,
+} from '~/types'
 
 import { VariantsPanelLinkFeatureFlag } from './VariantsPanelLinkFeatureFlag'
 
@@ -31,12 +40,11 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         created_at: '2021-01-01',
         updated_at: '2021-01-01',
         created_by: null,
-        is_simple_flag: false,
         is_remote_configuration: false,
         deleted: false,
         active: true,
-        rollout_percentage: null,
         experiment_set: null,
+        experiment_set_metadata: null,
         features: null,
         surveys: null,
         can_edit: true,
@@ -48,10 +56,12 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         version: 0,
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
-        evaluation_tags: [],
+        evaluation_contexts: [],
+        bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
 
     beforeEach(() => {
+        initKeaTests()
         jest.clearAllMocks()
     })
 
@@ -123,7 +133,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             )
 
             const link = screen.getByRole('link', { name: /view feature flag/i })
-            expect(link).toHaveAttribute('href', '/feature_flags/1')
+            expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature_flags/1`)
             expect(link).toHaveAttribute('target', '_blank')
         })
 
@@ -153,7 +163,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             expect(mockSetShowFeatureFlagSelector).toHaveBeenCalledTimes(1)
         })
 
-        it('renders active status for active flag', () => {
+        it('does not render status badge for active flag', () => {
             render(
                 <VariantsPanelLinkFeatureFlag
                     linkedFeatureFlag={{ ...baseFeatureFlag, active: true }}
@@ -161,12 +171,11 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            expect(screen.getByText('Active')).toBeInTheDocument()
-            const statusDot = screen.getByTitle('Active')
-            expect(statusDot).toHaveClass('bg-success')
+            expect(screen.queryByText('Active')).not.toBeInTheDocument()
+            expect(screen.queryByText('Inactive')).not.toBeInTheDocument()
         })
 
-        it('renders inactive status for inactive flag', () => {
+        it('renders inactive badge inline for inactive flag', () => {
             render(
                 <VariantsPanelLinkFeatureFlag
                     linkedFeatureFlag={{ ...baseFeatureFlag, active: false }}
@@ -174,9 +183,9 @@ describe('VariantsPanelLinkFeatureFlag', () => {
                 />
             )
 
-            expect(screen.getByText('Inactive')).toBeInTheDocument()
-            const statusDot = screen.getByTitle('Inactive')
-            expect(statusDot).toHaveClass('bg-muted')
+            const inactiveTag = screen.getByText('Inactive')
+            expect(inactiveTag).toBeInTheDocument()
+            expect(inactiveTag.closest('.LemonTag')).toBeInTheDocument()
         })
 
         it('does not render description when name is not set', () => {
@@ -409,11 +418,13 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             expect(screen.getByText('All users')).toBeInTheDocument()
         })
 
-        it('handles simple flag with rollout percentage', () => {
+        it('handles flag with single group rollout percentage', () => {
             const simpleFlag: FeatureFlagType = {
                 ...baseFeatureFlag,
-                is_simple_flag: true,
-                rollout_percentage: 75,
+                filters: {
+                    ...baseFeatureFlag.filters,
+                    groups: [{ properties: [], rollout_percentage: 75, variant: null }],
+                },
             }
 
             render(

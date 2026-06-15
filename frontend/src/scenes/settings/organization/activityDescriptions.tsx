@@ -134,8 +134,8 @@ function organizationMembershipActivityDescriber(logItem: ActivityLogItem, asNot
                         <strong>
                             {userName} ({userEmail})
                         </strong>
-                        's role from <strong>{beforeLevel}</strong> to <strong>{afterLevel}</strong> in organization{' '}
-                        {nameOrLinkToOrganization(organizationName)}
+                        's role from <strong>{String(beforeLevel)}</strong> to <strong>{String(afterLevel)}</strong> in
+                        organization {nameOrLinkToOrganization(organizationName)}
                     </>
                 ),
             }
@@ -221,4 +221,120 @@ function organizationInviteActivityDescriber(logItem: ActivityLogItem, asNotific
     }
 
     return defaultDescriber(logItem, asNotification)
+}
+
+export function organizationDomainActivityDescriber(
+    logItem: ActivityLogItem,
+    asNotification?: boolean
+): HumanizedChange {
+    const context = logItem.detail.context
+    const domainName = context?.domain || 'unknown domain'
+
+    if (logItem.activity === 'updated') {
+        const changes = logItem.detail.changes || []
+        const hasScimEnabledChange = changes.some((c) => c.field === 'SCIM provisioning')
+
+        const descriptions: JSX.Element[] = []
+        for (const change of changes) {
+            if (change.field === 'SCIM provisioning') {
+                descriptions.push(
+                    <>
+                        {change.after ? 'enabled' : 'disabled'} <strong>SCIM provisioning</strong> for domain{' '}
+                        <strong>{domainName}</strong>
+                    </>
+                )
+            } else if (change.field === 'scim_bearer_token') {
+                if (!hasScimEnabledChange) {
+                    descriptions.push(
+                        <>
+                            rotated the <strong>SCIM bearer token</strong> for domain <strong>{domainName}</strong>
+                        </>
+                    )
+                }
+            } else {
+                descriptions.push(
+                    <>
+                        updated <strong>{change.field}</strong> for domain <strong>{domainName}</strong>
+                    </>
+                )
+            }
+        }
+
+        if (descriptions.length > 0) {
+            return {
+                description: (
+                    <>
+                        <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
+                        {descriptions.length === 1 ? (
+                            descriptions[0]
+                        ) : (
+                            <ul>
+                                {descriptions.map((d, i) => (
+                                    <li key={i}>{d}</li>
+                                ))}
+                            </ul>
+                        )}
+                    </>
+                ),
+            }
+        }
+    }
+
+    if (logItem.activity === 'deleted') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted domain{' '}
+                    <strong>{domainName}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> added domain{' '}
+                    <strong>{domainName}</strong>
+                </>
+            ),
+        }
+    }
+
+    return defaultDescriber(logItem, asNotification, domainName)
+}
+
+export function legalDocumentActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
+    const detail = logItem.detail as {
+        name?: string | null
+        context?: { document_type?: string; company_name?: string }
+    }
+    const documentType = detail.context?.document_type || 'document'
+    const companyName = detail.context?.company_name || detail.name || 'company'
+    const article = documentType === 'BAA' || documentType === 'DPA' ? 'a' : 'the'
+
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> generated {article}{' '}
+                    <strong>{documentType}</strong> for <strong>{companyName}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'deleted') {
+        return {
+            description: (
+                <>
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted {article}{' '}
+                    <strong>{documentType}</strong> for <strong>{companyName}</strong>
+                </>
+            ),
+        }
+    }
+
+    return defaultDescriber(logItem, asNotification, `${documentType} for ${companyName}`)
 }

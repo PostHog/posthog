@@ -5,10 +5,11 @@ from time import sleep
 
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_index_from_explain
 from unittest import TestCase
 from unittest.mock import patch
 
+from parameterized import parameterized
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
@@ -24,8 +25,12 @@ from ee.clickhouse.materialized_columns.columns import (
     MaterializedColumnDetails,
     backfill_materialized_columns,
     drop_column,
+    get_bloom_filter_index_name,
+    get_bloom_filter_lower_index_name,
     get_enabled_materialized_columns,
     get_materialized_columns,
+    get_minmax_index_name,
+    get_ngram_lower_index_name,
     materialize,
     update_column_is_disabled,
 )
@@ -247,14 +252,23 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
         columns = [
             materialize("events", "myprop", create_minmax_index=True),
             materialize("events", "myprop_nullable", create_minmax_index=True, is_nullable=True),
+            materialize(
+                "events",
+                "myprop_float",
+                create_minmax_index=True,
+                is_nullable=True,
+                column_type="Nullable(Float64)",
+            ),
         ]
 
         expr_nonnullable = "replaceRegexpAll(JSONExtractRaw(properties, 'myprop'), '^\"|\"$', '')"
         expr_nullable = "JSONExtract(properties, 'myprop_nullable', 'Nullable(String)')"
+        expr_float = "JSONExtract(properties, 'myprop_float', 'Nullable(Float64)')"
 
         backfill_materialized_columns("events", columns, timedelta(days=50))
         assert self._get_column_types("mat_myprop") == ("String", "DEFAULT", expr_nonnullable)
         assert self._get_column_types("mat_myprop_nullable") == ("Nullable(String)", "DEFAULT", expr_nullable)
+        assert self._get_column_types("mat_myprop_float") == ("Nullable(Float64)", "DEFAULT", expr_float)
 
     def _count_materialized_rows(self, column):
         return sync_execute(
@@ -317,6 +331,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
+                has_minmax_index=True,
             )
 
         # disable them and ensure updates apply as needed
@@ -328,6 +344,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=True),
                 is_nullable=False,
+                column_type="String",
+                has_minmax_index=True,
             )
 
         # re-enable them and ensure updates apply as needed
@@ -339,6 +357,8 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
                 destination_column,
                 MaterializedColumnDetails(source_column, property_name, is_disabled=False),
                 is_nullable=False,
+                column_type="String",
+                has_minmax_index=True,
             )
 
         # drop them and ensure updates apply as needed
@@ -413,3 +433,216 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
 
         mutations_ran = self._get_mutations_since_id(table, latest_mutation_id_before_drop)
         assert not any("DROP COLUMN" in mutation for mutation in mutations_ran)
+
+    def test_minmax_index_usage(self):
+        property_name = "numeric_prop"
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={property_name: "100"},
+        )
+
+        column = materialize("events", property_name, create_minmax_index=True)
+        index_name = get_minmax_index_name(column.name)
+
+        # Verify index appears in EXPLAIN for range query
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE {column.name} > '50'"
+        index_info = get_index_from_explain(query, index_name)
+        assert index_info is not None, f"MinMax index {index_name} should appear in EXPLAIN output"
+
+    def test_bloom_filter_index_usage(self):
+        property_name = "category_prop"
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={property_name: "category_a"},
+        )
+
+        column = materialize("events", property_name, create_bloom_filter_index=True)
+        index_name = get_bloom_filter_index_name(column.name)
+
+        # Verify index appears in EXPLAIN for equality query
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE {column.name} = 'category_a'"
+        index_info = get_index_from_explain(query, index_name)
+        assert index_info is not None, f"Bloom filter index {index_name} should appear in EXPLAIN output"
+
+    def test_ngram_lower_index_usage_non_nullable(self):
+        property_name = "text_prop"
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={property_name: "Hello World Text"},
+        )
+
+        column = materialize("events", property_name, create_ngram_lower_index=True, is_nullable=False)
+        index_name = get_ngram_lower_index_name(column.name)
+
+        # Verify index appears in EXPLAIN for case-insensitive LIKE query
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE lower({column.name}) LIKE '%world%'"
+        index_info = get_index_from_explain(query, index_name)
+        assert index_info is not None, f"N-gram index {index_name} should appear in EXPLAIN output"
+
+    def test_ngram_lower_index_usage_nullable(self):
+        property_name = "text_prop"
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={property_name: "Hello World Text"},
+        )
+
+        column = materialize("events", property_name, create_ngram_lower_index=True, is_nullable=True)
+        index_name = get_ngram_lower_index_name(column.name)
+
+        # Verify index appears in EXPLAIN for case-insensitive LIKE query
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE lower(coalesce({column.name}, '')) LIKE '%world%'"
+        index_info = get_index_from_explain(query, index_name)
+        assert index_info is not None, f"N-gram index {index_name} should appear in EXPLAIN output"
+
+    @parameterized.expand([("non_nullable", False), ("nullable", True)])
+    def test_bloom_filter_lower_index_usage(self, _name, is_nullable):
+        property_name = "ci_category_prop"
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={property_name: "Category_A"},
+        )
+
+        column = materialize("events", property_name, create_bloom_filter_lower_index=True, is_nullable=is_nullable)
+        index_name = get_bloom_filter_lower_index_name(column.name)
+
+        # The index expression is lower(coalesce(col, '')) for nullable columns, lower(col) otherwise
+        indexed_expr = f"lower(coalesce({column.name}, ''))" if is_nullable else f"lower({column.name})"
+        query = f"SELECT count() FROM {EVENTS_DATA_TABLE()} WHERE {indexed_expr} = 'category_a'"
+        index_info = get_index_from_explain(query, index_name)
+        assert index_info is not None, f"Bloom filter lower index {index_name} should appear in EXPLAIN output"
+
+    def test_get_all_returns_index_flags(self):
+        """Test that get_materialized_columns returns correct index flags from ClickHouse."""
+        prop_all = "prop_all"
+        prop_minmax = "prop_minmax"
+        prop_bf = "prop_bf"
+        prop_ngram_lower = "prop_ngram_lower"
+        prop_bf_lower = "prop_bf_lower"
+        prop_none = "prop_none"
+
+        _create_event(
+            team=self.team,
+            event="test_event",
+            distinct_id="user1",
+            properties={
+                prop_all: prop_all,
+                prop_minmax: prop_minmax,
+                prop_bf: prop_bf,
+                prop_ngram_lower: prop_ngram_lower,
+                prop_bf_lower: prop_bf_lower,
+                prop_none: prop_none,
+            },
+        )
+
+        # Create column with all index types
+        materialize(
+            "events",
+            prop_all,
+            create_minmax_index=True,
+            create_bloom_filter_index=True,
+            create_ngram_lower_index=True,
+            create_bloom_filter_lower_index=True,
+        )
+        materialize(
+            "events",
+            prop_minmax,
+            create_minmax_index=True,
+            create_bloom_filter_index=False,
+            create_ngram_lower_index=False,
+            create_bloom_filter_lower_index=False,
+        )
+        materialize(
+            "events",
+            prop_bf,
+            create_bloom_filter_index=True,
+            create_ngram_lower_index=False,
+            create_minmax_index=False,
+            create_bloom_filter_lower_index=False,
+        )
+        materialize(
+            "events",
+            prop_ngram_lower,
+            create_bloom_filter_index=False,
+            create_ngram_lower_index=True,
+            create_minmax_index=False,
+            create_bloom_filter_lower_index=False,
+        )
+        materialize(
+            "events",
+            prop_bf_lower,
+            create_bloom_filter_index=False,
+            create_ngram_lower_index=False,
+            create_minmax_index=False,
+            create_bloom_filter_lower_index=True,
+        )
+        materialize(
+            "events",
+            prop_none,
+            create_bloom_filter_index=False,
+            create_ngram_lower_index=False,
+            create_minmax_index=False,
+            create_bloom_filter_lower_index=False,
+        )
+
+        cols = get_materialized_columns("events")
+        mat_col_all = cols.get((prop_all, "properties"))
+        mat_col_minmax = cols.get((prop_minmax, "properties"))
+        mat_col_bf = cols.get((prop_bf, "properties"))
+        mat_col_ngram_lower = cols.get((prop_ngram_lower, "properties"))
+        mat_col_bf_lower = cols.get((prop_bf_lower, "properties"))
+        mat_col_none = cols.get((prop_none, "properties"))
+
+        assert mat_col_all is not None
+        assert mat_col_minmax is not None
+        assert mat_col_bf is not None
+        assert mat_col_ngram_lower is not None
+        assert mat_col_bf_lower is not None
+        assert mat_col_none is not None
+
+        # Verify index flags: (has_minmax, has_bloom_filter, has_ngram_lower, has_bloom_filter_lower)
+        assert (
+            mat_col_all.has_minmax_index,
+            mat_col_all.has_bloom_filter_index,
+            mat_col_all.has_ngram_lower_index,
+            mat_col_all.has_bloom_filter_lower_index,
+        ) == (True, True, True, True)
+        assert (
+            mat_col_minmax.has_minmax_index,
+            mat_col_minmax.has_bloom_filter_index,
+            mat_col_minmax.has_ngram_lower_index,
+            mat_col_minmax.has_bloom_filter_lower_index,
+        ) == (True, False, False, False)
+        assert (
+            mat_col_bf.has_minmax_index,
+            mat_col_bf.has_bloom_filter_index,
+            mat_col_bf.has_ngram_lower_index,
+            mat_col_bf.has_bloom_filter_lower_index,
+        ) == (False, True, False, False)
+        assert (
+            mat_col_ngram_lower.has_minmax_index,
+            mat_col_ngram_lower.has_bloom_filter_index,
+            mat_col_ngram_lower.has_ngram_lower_index,
+            mat_col_ngram_lower.has_bloom_filter_lower_index,
+        ) == (False, False, True, False)
+        assert (
+            mat_col_bf_lower.has_minmax_index,
+            mat_col_bf_lower.has_bloom_filter_index,
+            mat_col_bf_lower.has_ngram_lower_index,
+            mat_col_bf_lower.has_bloom_filter_lower_index,
+        ) == (False, False, False, True)
+        assert (
+            mat_col_none.has_minmax_index,
+            mat_col_none.has_bloom_filter_index,
+            mat_col_none.has_ngram_lower_index,
+            mat_col_none.has_bloom_filter_lower_index,
+        ) == (False, False, False, False)

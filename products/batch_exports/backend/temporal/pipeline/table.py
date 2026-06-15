@@ -150,6 +150,9 @@ class Field[T](typing.Protocol):
     def __hash__(self) -> int:
         return self.name.__hash__()
 
+    def __eq__(self, other) -> bool:
+        return self.name == other.name and self.alias == other.alias and self.data_type == other.data_type
+
 
 FieldType = typing.TypeVar("FieldType", bound=Field)
 
@@ -178,7 +181,7 @@ class TableBase:
         This consists of the parents and name concatenated, separated by a ".".
         """
         if self.parents:
-            return f'{".".join(self.parents)}.{self.name}'
+            return f"{'.'.join(self.parents)}.{self.name}"
         else:
             return self.name
 
@@ -309,7 +312,7 @@ class Table(TableBase, typing.Generic[FieldType]):
             if len(missing) == 1:
                 raise ValueError(f"Field is not in this table: '{missing[0]}'")
             else:
-                raise ValueError(f"Fields are not in this table: '{", ".join(missing)}'")
+                raise ValueError(f"Fields are not in this table: '{', '.join(missing)}'")
 
         return False
 
@@ -406,7 +409,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         else:
             return field in self.fields
 
-    @functools.lru_cache
+    @functools.lru_cache  # noqa: B019 - Table instances are short-lived
     def _get_field_by_name_or_alias(self, key: str) -> FieldType:
         """Get a field from this `Table` by its name or alias.
 

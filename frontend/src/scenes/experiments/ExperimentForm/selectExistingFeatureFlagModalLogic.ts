@@ -34,21 +34,22 @@ const DEFAULT_FILTERS: FeatureFlagModalFilters = {
 export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlagModalLogicType>([
     path(['scenes', 'experiments', 'create', 'selectExistingFeatureFlagModalLogic']),
 
-    connect({
+    connect(() => ({
         actions: [
             eventUsageLogic,
             ['reportExperimentFeatureFlagModalOpened'],
             teamLogic,
             ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess'],
         ],
-        values: [teamLogic, ['currentTeam']],
-    }),
+        values: [teamLogic, ['currentTeam', 'currentProjectId']],
+    })),
 
     actions({
         openSelectExistingFeatureFlagModal: true,
         closeSelectExistingFeatureFlagModal: true,
         setFilters: (filters: Partial<FeatureFlagModalFilters>, replace?: boolean) => ({ filters, replace }),
         resetFilters: true,
+        loadFeatureFlagsForAutocomplete: true,
     }),
 
     reducers({
@@ -85,6 +86,9 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             actions.reportExperimentFeatureFlagModalOpened()
             actions.loadFeatureFlags()
         },
+        loadFeatureFlagsForAutocomplete: () => {
+            actions.loadFeatureFlags()
+        },
         loadCurrentTeamSuccess: () => {
             if (values.isModalOpen) {
                 actions.loadFeatureFlags()
@@ -102,9 +106,11 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
                 loadFeatureFlags: async () => {
-                    const url = `api/projects/@current/experiments/eligible_feature_flags/?${toParams({
-                        ...values.paramsFromFilters,
-                    })}`
+                    const url = `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams(
+                        {
+                            ...values.paramsFromFilters,
+                        }
+                    )}`
                     const response = await api.get(url)
                     return response
                 },
@@ -122,9 +128,9 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                     offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
                 }
 
-                // Add evaluation tags filter if required by team
-                if (currentTeam?.require_evaluation_environment_tags) {
-                    params.has_evaluation_tags = true
+                // Add evaluation contexts filter if required by team
+                if (currentTeam?.require_evaluation_contexts) {
+                    params.has_evaluation_contexts = true
                 }
 
                 return params
@@ -162,7 +168,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
         isEvaluationTagsRequired: [
             (s) => [s.currentTeam],
-            (currentTeam) => currentTeam?.require_evaluation_environment_tags || false,
+            (currentTeam) => currentTeam?.require_evaluation_contexts || false,
         ],
     }),
 ])

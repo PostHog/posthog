@@ -27,9 +27,9 @@ export interface QueryLogTableLogicProps {
 
 export const queryLogTableLogic = kea<queryLogTableLogicType>([
     path(['scenes', 'debug', 'queryLogTableLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         loadQueryLogs: true,
         loadMoreQueryLogs: true,

@@ -10,7 +10,7 @@ import { HogQLQuery } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQueryDraft } from '~/types'
 
 import type { draftsLogicType } from './draftsLogicType'
-import { QueryTab } from './multitabEditorLogic'
+import { QueryTab } from './sqlEditorLogic'
 
 export const draftsLogic = kea<draftsLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'draftsLogic']),

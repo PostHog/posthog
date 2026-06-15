@@ -3,9 +3,10 @@ import { mockFetch } from '../../../tests/helpers/mocks/request.mock'
 import { Message } from 'node-rdkafka'
 
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { Action, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
+import { Action, ClickHouseTimestamp, Hook, Hub, ISOTimestamp, PostIngestionEvent, ProjectId, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
+import { parseJSON } from '../../utils/json-parse'
 import { FetchResponse } from '../../utils/request'
 import { createIncomingEvent, createKafkaMessage } from '../_tests/fixtures'
 import { LegacyWebhookService } from './legacy-webhook-service'
@@ -55,12 +56,12 @@ describe('LegacyWebhookService', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
-        service = new LegacyWebhookService(hub)
+        service = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub)
         await service.start()
 
         mockFetch.mockResolvedValue({
@@ -149,17 +150,13 @@ describe('LegacyWebhookService', () => {
             expect(service.processEvent).toHaveBeenCalledTimes(1)
         })
 
-        it('should enrich events with group properties when available', async () => {
+        it('should not query the group repository when processing events with $groups', async () => {
             service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            // Both zapier and group_analytics enabled — group_analytics used to trigger enrichment
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            hub.groupTypeManager.fetchGroupTypes = jest.fn().mockResolvedValue({
-                project: 0,
-            })
-            hub.groupRepository.fetchGroup = jest.fn().mockResolvedValue({
-                group_properties: { name: 'Test Project' },
-            })
-
-            const processEventSpy = jest.spyOn(service, 'processEvent')
+            const fetchGroupsByKeysSpy = jest.spyOn(hub.groupRepository, 'fetchGroupsByKeys')
+            const fetchGroupSpy = jest.spyOn(hub.groupRepository, 'fetchGroup')
+            service.processEvent = jest.fn()
 
             const messages: Message[] = [
                 createKafkaMessage(
@@ -173,15 +170,63 @@ describe('LegacyWebhookService', () => {
             const result = await service.processBatch(messages)
             await result.backgroundTask
 
-            expect(processEventSpy).toHaveBeenCalledTimes(1)
-            const processedEvent = processEventSpy.mock.calls[0][0]
-            expect(processedEvent.groups).toBeDefined()
-            expect(processedEvent.groups?.project).toEqual({
-                index: 0,
-                key: 'test-project-id',
-                type: 'project',
-                properties: { name: 'Test Project' },
+            expect(fetchGroupsByKeysSpy).not.toHaveBeenCalled()
+            expect(fetchGroupSpy).not.toHaveBeenCalled()
+        })
+
+        it('posts an identical payload regardless of group_analytics and never adds a groups key', async () => {
+            service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
+            const hook = createMockHook(team.id)
+            const action = createMockAction(team.id, { hooks: [hook] })
+            service['actionMatcher'].match = jest.fn().mockReturnValue([action])
+
+            const fetchGroupsByKeysSpy = jest.spyOn(hub.groupRepository, 'fetchGroupsByKeys')
+            const fetchGroupSpy = jest.spyOn(hub.groupRepository, 'fetchGroup')
+
+            // Pin volatile fields so the two events are byte-for-byte identical
+            const fixedTimestamp = '2024-01-01 00:00:00.000' as ClickHouseTimestamp
+            const makeMessage = (): Message =>
+                createKafkaMessage(
+                    createIncomingEvent(team.id, {
+                        uuid: 'fixed-event-uuid',
+                        event: '$pageview',
+                        properties: JSON.stringify({ $groups: { project: 'test-project-id' }, foo: 'bar' }),
+                        timestamp: fixedTimestamp,
+                        created_at: fixedTimestamp,
+                        person_created_at: fixedTimestamp,
+                    })
+                )
+
+            // group_analytics ON (and zapier ON)
+            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
+            let result = await service.processBatch([makeMessage()])
+            await result.backgroundTask
+            const bodyWithGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
+
+            mockFetch.mockClear()
+
+            // group_analytics OFF (zapier still ON) — the non-group case
+            hub.teamManager.hasAvailableFeature = jest
+                .fn()
+                .mockImplementation((_teamId, feature) => Promise.resolve(feature === 'zapier'))
+            result = await service.processBatch([makeMessage()])
+            await result.backgroundTask
+            const bodyWithoutGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
+
+            // The payload is byte-for-byte identical whether or not group_analytics is enabled
+            expect(bodyWithGroupAnalytics).toEqual(bodyWithoutGroupAnalytics)
+            // ...and crucially never carries a top-level groups key
+            expect(bodyWithGroupAnalytics.data).not.toHaveProperty('groups')
+            // ...while the fields that consumers actually read remain intact
+            expect(bodyWithGroupAnalytics.data.properties).toMatchObject({
+                $groups: { project: 'test-project-id' },
+                foo: 'bar',
             })
+            expect(bodyWithGroupAnalytics.data).toHaveProperty('person')
+            expect(bodyWithGroupAnalytics.data).toHaveProperty('elementsList')
+            // ...and we never reach into the group repository
+            expect(fetchGroupsByKeysSpy).not.toHaveBeenCalled()
+            expect(fetchGroupSpy).not.toHaveBeenCalled()
         })
     })
 

@@ -7,7 +7,6 @@ from typing import Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_column_for_property
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -16,9 +15,11 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.property import PropertyIdentifier, PropertyType, TableWithProperties
+from posthog.models.property import PropertyIdentifier, PropertyType, TableColumn, TableWithProperties
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.property_optimizer import PropertyOptimizer
+
+from products.actions.backend.models.util import get_action_tables_and_properties
 
 
 class FOSSColumnOptimizer:
@@ -65,7 +66,7 @@ class FOSSColumnOptimizer:
         self,
         table: TableWithProperties,
         used_properties: set[PropertyIdentifier],
-        table_column: str = "properties",
+        table_column: TableColumn = "properties",
     ) -> set[ColumnName]:
         "Transforms a list of property names to what columns are needed for that query"
         column_names = set()
@@ -96,7 +97,9 @@ class FOSSColumnOptimizer:
     @cached_property
     def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
+        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(
+            self.filter.property_groups.flat, team_id=self.team_id
+        )
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
@@ -128,7 +131,7 @@ class FOSSColumnOptimizer:
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.entities_used_in_filter():
-            counter += extract_tables_and_properties(entity.property_groups.flat)
+            counter += extract_tables_and_properties(entity.property_groups.flat, team_id=self.team_id)
 
             # Math properties are also implicitly used.
             #
@@ -140,7 +143,7 @@ class FOSSColumnOptimizer:
             #
             # See ee/clickhouse/models/action.py#format_action_filter for an example
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                counter += get_action_tables_and_properties(entity.get_action())
+                counter += get_action_tables_and_properties(entity.get_action(self.team_id))
 
         if (
             not isinstance(self.filter, StickinessFilter | PropertiesTimelineFilter)
@@ -165,7 +168,7 @@ class FOSSColumnOptimizer:
             }
         )
 
-    def entities_used_in_filter(self) -> Generator[Entity, None, None]:
+    def entities_used_in_filter(self) -> Generator[Entity]:
         yield from self.filter.entities
         yield from cast(list[Entity], self.filter.exclusions)
 

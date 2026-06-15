@@ -14,7 +14,7 @@ from posthog.approvals.exceptions import (
     ReasonRequiredError,
 )
 from posthog.approvals.models import Approval, ApprovalDecision, ChangeRequest, ChangeRequestState
-from posthog.approvals.notifications import send_approval_decision_notification
+from posthog.approvals.notifications import send_approval_applied_notification, send_approval_decision_notification
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
@@ -27,9 +27,11 @@ class RequestContext:
         self.user = user
         self.data = data
         self.session: dict[str, Any] = {}
+        self.META: dict[str, str] = {}
+        self.headers: dict[str, str] = {}
 
 
-def apply_change_request(change_request: ChangeRequest) -> Any:
+def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
     """
     Apply an approved change request.
 
@@ -113,7 +115,11 @@ def apply_change_request(change_request: ChangeRequest) -> Any:
                     "action_key": change_request.action_key,
                     "change_request_id": str(change_request.id),
                 },
+                team=change_request.team,
+                request=request,
             )
+
+        send_approval_applied_notification(change_request)
 
         return result
 
@@ -173,9 +179,10 @@ class CancelResult(ServiceResult):
 class ChangeRequestService:
     """Service for managing change request lifecycle operations."""
 
-    def __init__(self, change_request: ChangeRequest, user: User):
+    def __init__(self, change_request: ChangeRequest, user: User, request=None):
         self.change_request = change_request
         self.user = user
+        self._request = request
 
     def approve(self, reason: str = "") -> ApproveResult:
         """
@@ -187,6 +194,9 @@ class ChangeRequestService:
 
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            if change_request.state != ChangeRequestState.PENDING:
+                raise InvalidStateError("Only pending change requests can be approved")
 
             approval, created = Approval.objects.get_or_create(
                 change_request=change_request,
@@ -205,6 +215,8 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "decision": ApprovalDecision.APPROVED,
                 },
+                team=change_request.team,
+                request=self._request,
             )
 
             approval_count = change_request.approvals.filter(decision=ApprovalDecision.APPROVED).count()
@@ -235,7 +247,7 @@ class ChangeRequestService:
                 )
 
                 try:
-                    result = apply_change_request(change_request)
+                    result = apply_change_request(change_request, request=self._request)
                     return ApproveResult(
                         status="applied",
                         message="Quorum reached. Change applied successfully.",
@@ -278,6 +290,9 @@ class ChangeRequestService:
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
 
+            if change_request.state != ChangeRequestState.PENDING:
+                raise InvalidStateError("Only pending change requests can be rejected")
+
             approval, created = Approval.objects.get_or_create(
                 change_request=change_request,
                 created_by=self.user,
@@ -300,6 +315,8 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "decision": ApprovalDecision.REJECTED,
                 },
+                team=change_request.team,
+                request=self._request,
             )
 
             logger.info(
@@ -318,11 +335,11 @@ class ChangeRequestService:
         )
 
     def cancel(self, reason: str = "Canceled by requester") -> CancelResult:
-        if self.change_request.state != ChangeRequestState.PENDING:
-            raise InvalidStateError("Only pending change requests can be canceled")
-
         with transaction.atomic():
             change_request = ChangeRequest.objects.select_for_update().get(pk=self.change_request.pk)
+
+            if not change_request.can_be_canceled_by(self.user.id):
+                raise InvalidStateError("Cannot cancel this change request")
 
             # Create a rejection record with the cancellation reason
             Approval.objects.create(
@@ -343,6 +360,8 @@ class ChangeRequestService:
                     "action_key": change_request.action_key,
                     "reason": reason,
                 },
+                team=change_request.team,
+                request=self._request,
             )
 
             logger.info(

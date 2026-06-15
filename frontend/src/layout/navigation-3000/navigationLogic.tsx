@@ -15,7 +15,6 @@ import {
     IconLive,
     IconLlmAnalytics,
     IconMessage,
-    IconNewspaper,
     IconNotebook,
     IconPeople,
     IconPieChart,
@@ -38,6 +37,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
+import { onboardingVariantChrome, resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -70,7 +70,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             groupsModel,
             ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
-            ['sceneConfig'],
+            ['sceneConfig', 'activeSceneId'],
             navigationLogic,
             ['mobileLayout'],
             sessionRecordingSavedFiltersLogic,
@@ -237,6 +237,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         ],
         zenMode: [
             false,
+            { persist: true },
             {
                 setZenMode: (_, { zenMode }) => zenMode,
                 toggleZenMode: (state) => !state,
@@ -346,20 +347,48 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
         },
     })),
     selectors({
+        zenModeFromUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams): boolean => {
+                // Enable zen mode via ?zen or ?zen=true or ?zen=1
+                const zenParam = searchParams?.zen
+                return zenParam !== undefined && zenParam !== 'false' && zenParam !== '0'
+            },
+        ],
         mode: [
-            (s) => [s.sceneConfig, s.isCurrentOrganizationUnavailable, s.zenMode],
-            (sceneConfig, isCurrentOrganizationUnavailable, zenMode): Navigation3000Mode => {
+            (s) => [
+                s.sceneConfig,
+                s.isCurrentOrganizationUnavailable,
+                s.zenMode,
+                s.activeSceneId,
+                featureFlagLogic.selectors.featureFlags,
+            ],
+            (
+                sceneConfig,
+                isCurrentOrganizationUnavailable,
+                zenMode,
+                activeSceneId,
+                featureFlags
+            ): Navigation3000Mode => {
                 if (zenMode) {
                     return 'zen'
                 }
                 if (isCurrentOrganizationUnavailable) {
                     return 'minimal'
                 }
-                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
-                    ? 'minimal'
-                    : sceneConfig?.layout !== 'plain'
-                      ? 'full'
-                      : 'none'
+                if (sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated) {
+                    if (activeSceneId === Scene.Onboarding) {
+                        // A flow variant can opt to own the whole viewport (no navbar); the
+                        // existing ONBOARDING_NAVBAR='hide' flag stays as a separate override.
+                        const variantHidesNavbar =
+                            onboardingVariantChrome(resolveOnboardingFlowVariant(featureFlags)) === 'none'
+                        if (variantHidesNavbar || featureFlags[FEATURE_FLAGS.ONBOARDING_NAVBAR] === 'hide') {
+                            return 'none'
+                        }
+                    }
+                    return 'minimal'
+                }
+                return sceneConfig?.layout !== 'plain' ? 'full' : 'none'
             },
         ],
         isNavShown: [
@@ -387,16 +416,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconHome />,
                             to: urls.projectRoot(),
                         },
-                        ...(featureFlags[FEATURE_FLAGS.HOME_FEED_TAB]
-                            ? [
-                                  {
-                                      identifier: Scene.Feed,
-                                      label: 'Feed',
-                                      icon: <IconNewspaper />,
-                                      to: urls.feed(),
-                                  },
-                              ]
-                            : []),
                         {
                             identifier: Scene.Dashboards,
                             label: 'Dashboards',
@@ -485,14 +504,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        {
-                            identifier: Scene.RevenueAnalytics,
-                            label: 'Revenue analytics',
-                            icon: <IconPiggyBank />,
-                            to: urls.revenueAnalytics(),
-                            tag: 'beta' as const,
-                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                        },
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'alpha' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -580,19 +601,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         featureFlags[FEATURE_FLAGS.USER_INTERVIEWS]
                             ? {
                                   identifier: Scene.UserInterviews,
-                                  label: 'User interviews',
+                                  label: 'User research',
                                   icon: <IconChat />,
                                   tag: 'alpha' as const,
                                   to: urls.userInterviews(),
                               }
                             : null,
                         {
-                            identifier: 'LLMAnalytics',
-                            label: 'LLM analytics',
+                            identifier: 'AIObservability',
+                            label: 'AI observability',
                             icon: <IconLlmAnalytics />,
-                            to: urls.llmAnalyticsDashboard(),
-                            tooltipDocLink: 'https://posthog.com/docs/llm-analytics/dashboard',
+                            to: urls.aiObservabilityDashboard(),
+                            tooltipDocLink: 'https://posthog.com/docs/ai-observability/dashboard',
                         },
+                        featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]
+                            ? {
+                                  identifier: 'MCPAnalytics',
+                                  label: 'MCP analytics',
+                                  icon: <IconLlmAnalytics />,
+                                  to: urls.mcpAnalyticsDashboard(),
+                                  tooltipDocLink: 'https://posthog.com/docs/mcp-analytics/installation',
+                              }
+                            : null,
                         {
                             identifier: Scene.Logs,
                             label: 'Logs',
@@ -617,11 +647,11 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.DataPipelines,
-                            label: 'Data pipelines',
+                            identifier: Scene.WebScripts,
+                            label: 'Web scripts',
                             icon: <IconPlug />,
-                            to: urls.dataPipelines('overview'),
-                            tooltipDocLink: 'https://posthog.com/docs/cdp',
+                            to: urls.webScripts(),
+                            tooltipDocLink: 'https://posthog.com/docs/cdp/apps',
                         },
                         {
                             identifier: Scene.Heatmaps,
@@ -641,15 +671,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   tooltipDocLink: 'https://posthog.com/docs/links',
                               }
                             : null,
-                        featureFlags[FEATURE_FLAGS.WORKFLOWS]
-                            ? {
-                                  identifier: Scene.Workflows,
-                                  label: 'Workflows',
-                                  icon: <IconDecisionTree />,
-                                  to: urls.workflows(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
+                        {
+                            identifier: Scene.Workflows,
+                            label: 'Workflows',
+                            icon: <IconDecisionTree />,
+                            to: urls.workflows(),
+                        },
                     ].filter(isNotNil) as NavbarItem[],
                 ]
             },
@@ -787,6 +814,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 item.ref?.current?.focus()
             } else {
                 props.inputElement?.focus()
+            }
+        },
+        zenModeFromUrl: (zenModeFromUrl: boolean) => {
+            // Enable zen mode when URL parameter is present (e.g., ?zen or ?zen=true)
+            // Only enable, never disable from URL - user can manually disable
+            if (zenModeFromUrl && !values.zenMode) {
+                actions.setZenMode(true)
             }
         },
     })),

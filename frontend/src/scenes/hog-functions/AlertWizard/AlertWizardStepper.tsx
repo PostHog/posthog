@@ -1,0 +1,97 @@
+import { IconCheckCircle } from '@posthog/icons'
+
+import { cn } from 'lib/utils/css-classes'
+
+import { WizardStep } from './alertWizardLogic'
+
+interface Step {
+    key: WizardStep
+    label: string
+}
+
+const ALL_STEPS: Step[] = [
+    { key: WizardStep.Destination, label: 'Destination' },
+    { key: WizardStep.Trigger, label: 'Trigger' },
+    { key: WizardStep.Configure, label: 'Configure' },
+]
+
+interface AlertWizardStepperProps {
+    currentStep: WizardStep
+    onStepClick: (step: WizardStep) => void
+    hideTriggerStep?: boolean
+}
+
+export function AlertWizardStepper({
+    currentStep,
+    onStepClick,
+    hideTriggerStep,
+}: AlertWizardStepperProps): JSX.Element {
+    const steps = hideTriggerStep ? ALL_STEPS.filter((s) => s.key !== WizardStep.Trigger) : ALL_STEPS
+    const stepOrder = new Map(steps.map((s, i) => [s.key, i]))
+    const currentOrder = stepOrder.get(currentStep) ?? 0
+
+    return (
+        <nav className="flex items-center justify-center" aria-label="Alert wizard progress">
+            {steps.map((step, index) => {
+                const order = stepOrder.get(step.key) ?? 0
+                const isCompleted = currentOrder > order
+                const isCurrent = currentStep === step.key
+                const isFuture = order > currentOrder
+
+                return (
+                    <div key={step.key} className="flex items-center">
+                        {index > 0 && (
+                            <div
+                                className={cn(
+                                    'w-6 h-px transition-colors duration-150',
+                                    isCompleted || isCurrent ? 'bg-success' : 'bg-border-primary'
+                                )}
+                            />
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={() => onStepClick(step.key)}
+                            disabled={isFuture}
+                            className={cn(
+                                'group flex items-center gap-1.5 px-2 py-1 rounded',
+                                'transition-all duration-150',
+                                'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+                                isFuture
+                                    ? 'opacity-50 cursor-not-allowed'
+                                    : 'hover:bg-fill-button-tertiary-hover active:scale-[0.98]'
+                            )}
+                            aria-current={isCurrent ? 'step' : undefined}
+                        >
+                            {isCompleted ? (
+                                <IconCheckCircle className="size-5 text-success" />
+                            ) : (
+                                <span
+                                    className={cn(
+                                        'flex items-center justify-center size-5 rounded-full text-xs font-semibold',
+                                        'transition-all duration-150',
+                                        isCurrent && 'bg-accent text-primary-inverse ring-2 ring-accent/25',
+                                        !isCurrent && 'bg-surface-secondary text-secondary border border-primary'
+                                    )}
+                                >
+                                    {index + 1}
+                                </span>
+                            )}
+
+                            <span
+                                className={cn(
+                                    'text-sm transition-colors duration-150',
+                                    isCurrent && 'font-semibold text-primary',
+                                    isCompleted && 'font-medium text-primary',
+                                    !isCompleted && !isCurrent && 'text-secondary'
+                                )}
+                            >
+                                {step.label}
+                            </span>
+                        </button>
+                    </div>
+                )
+            })}
+        </nav>
+    )
+}

@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -7,11 +7,26 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'DataManagement'
+export type PanelLayoutNavIdentifier =
+    | 'Project'
+    | 'Products'
+    | 'People'
+    | 'Games'
+    | 'Shortcuts'
+    | 'DataManagement'
+    | 'DataAndPeople'
+    | 'Chat'
+    | 'Notifications'
+export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
+
+// Navbar resize: any width upward, snapping to collapsed below the threshold.
+export const PANEL_NAVBAR_DEFAULT_WIDTH: number = 215
+// Below this the drag snaps to collapsed mode.
+export const PANEL_NAVBAR_COLLAPSE_THRESHOLD: number = 140
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
@@ -22,7 +37,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         closePanel: true,
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
-        toggleLayoutPanelPinned: (pinned: boolean) => ({ pinned }),
         // TODO: This is a temporary action to set the active navbar item
         // We should remove this once we have a proper way to handle the navbar item
         setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => ({ identifier }),
@@ -36,6 +50,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
         setMainContentRect: (rect: DOMRect) => ({ rect }),
+        setSidePanelWidth: (width: number) => ({ width }),
+        toggleNavSection: (section: string) => ({ section }),
+        setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
+        setNavbarWidth: (width: number) => ({ width }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -57,7 +75,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             true,
             {
                 showLayoutPanel: () => true,
-                toggleLayoutPanelPinned: () => false,
             },
         ],
         isLayoutNavbarVisible: [
@@ -72,13 +89,6 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true, prefix: '2', separator: '.' },
             {
                 showLayoutPanel: (_, { visible }) => visible,
-            },
-        ],
-        isLayoutPanelPinned: [
-            false,
-            { persist: true, prefix: '2', separator: '.' },
-            {
-                toggleLayoutPanelPinned: (_, { pinned }) => pinned,
             },
         ],
         activePanelIdentifier: [
@@ -140,6 +150,37 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setMainContentRect: (_, { rect }) => rect,
             },
         ],
+        sidePanelWidth: [
+            0,
+            {
+                setSidePanelWidth: (_, { width }) => width,
+            },
+        ],
+        navExperimentActiveTab: [
+            'home' as NavExperimentTab,
+            { persist: true },
+            {
+                setNavExperimentTab: (_, { tab }) => tab,
+            },
+        ],
+        // Transient: the live open width is restored from the resizer's persisted size on mount,
+        // so persisting here would only duplicate it and thrash localStorage on every drag frame.
+        navbarWidth: [
+            PANEL_NAVBAR_DEFAULT_WIDTH,
+            {
+                setNavbarWidth: (_, { width }) => width,
+            },
+        ],
+        expandedNavSections: [
+            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
+            { persist: true },
+            {
+                toggleNavSection: (state, { section }) => ({
+                    ...state,
+                    [section]: !state[section],
+                }),
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         closePanel: () => {
@@ -155,11 +196,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             }
         },
         resetPanelLayout: ({ keyboardAction = false }) => {
-            // Hide the panel if it's not pinned and clear active panel identifier
-            if (!values.isLayoutPanelPinned) {
-                actions.clearActivePanelIdentifier()
-                actions.showLayoutPanel(false)
-            }
+            // Hide the panel and clear active panel identifier
+            actions.clearActivePanelIdentifier()
+            actions.showLayoutPanel(false)
             // Hide the navbar if it's mobile and navbar is visible (which is an overlay on mobile)
             if (values.mobileLayout && values.isLayoutNavbarVisible) {
                 actions.showLayoutNavBar(false)
@@ -177,12 +216,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 // Set up new ResizeObserver for the new container
                 if (typeof ResizeObserver !== 'undefined') {
                     cache.disposables.add(() => {
+                        // ref.current may be null when disposable resumes after visibility change
+                        if (!ref.current) {
+                            return () => {}
+                        }
                         const observer = new ResizeObserver(() => {
                             if (ref?.current) {
                                 actions.setMainContentRect(ref.current.getBoundingClientRect())
                             }
                         })
-                        observer.observe(ref.current!)
+                        observer.observe(ref.current)
                         return () => observer.disconnect()
                     }, 'resizeObserver')
                 }
@@ -210,8 +253,38 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 return ''
             },
         ],
+        activePanelIdentifierFromUrlAiFirst: [
+            () => [router.selectors.location],
+            (location): PanelLayoutNavIdentifier | '' => {
+                const cleanPath = removeProjectIdIfPresent(location.pathname)
+
+                if (
+                    cleanPath.startsWith('/data-management/') ||
+                    cleanPath === '/persons' ||
+                    cleanPath === '/cohorts' ||
+                    cleanPath.startsWith('/groups/')
+                ) {
+                    return 'DataAndPeople'
+                }
+
+                return ''
+            },
+        ],
         pathname: [(s) => [s.location], (location): string => location.pathname],
     }),
+    urlToAction(({ actions, values }) => ({
+        '*': () => {
+            // URL-surfaced panels (DataAndPeople, DataManagement) set activePanelIdentifier
+            // without flipping isLayoutPanelVisible, so check the identifier too — otherwise
+            // navigating away from one leaves the panel and its dim mounted.
+            const panelIsShown = values.isLayoutPanelVisible || values.activePanelIdentifier !== ''
+            if (values.mobileLayout && (values.isLayoutNavbarVisibleForMobile || panelIsShown)) {
+                actions.showLayoutNavBar(false)
+                actions.showLayoutPanel(false)
+                actions.clearActivePanelIdentifier()
+            }
+        },
+    })),
     afterMount(({ actions, cache, values }) => {
         // Watch for window resize
         if (typeof window !== 'undefined') {

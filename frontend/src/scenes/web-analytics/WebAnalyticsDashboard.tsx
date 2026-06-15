@@ -1,35 +1,33 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import React, { useState } from 'react'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import React, { useEffect, useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { IconLink, IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
-import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
-import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
 import {
     ProductTab,
     QueryTile,
@@ -39,21 +37,33 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WebAnalyticsTile,
+    tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
+import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
+import { ShareNudgePrompt } from 'scenes/web-analytics/ShareNudgePrompt'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebAnalyticsShareColleagueBanner } from 'scenes/web-analytics/WebAnalyticsShareColleagueBanner'
+import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
+import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { BotAnalyticsFilters } from './BotAnalyticsFilters'
+import { botAnalyticsLogic } from './botAnalyticsLogic'
+import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
+import { LiveBotTiles } from './LiveMetricsDashboard/LiveBotTiles'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -62,15 +72,19 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
     const { featureFlags } = useValues(featureFlagLogic)
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
     const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam, productTab)
 
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
-                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+                'mt-4 grid grid-cols-1',
+                useTileHeaderV2 ? 'lg:grid-cols-2 2xl:grid-cols-3' : 'md:grid-cols-2 2xl:grid-cols-3',
+                useTileHeaderV2 && '2xl:grid-flow-dense',
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
+            data-attr="web-analytics-dashboard"
         >
             {emptyOnboardingContent ??
                 tiles.map((tile, i) => {
@@ -93,9 +107,114 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
 
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
 
+    const containerClassName = clsx(
+        'col-span-1 row-span-1 flex flex-col',
+        layout.colSpanClassName ?? 'md:col-span-1',
+        layout.rowSpanClassName ?? 'md:row-span-1',
+        layout.orderWhenLargeClassName ?? '2xl:order-12',
+        layout.className
+    )
+
+    if (useTileHeaderV2) {
+        return (
+            <QueryTileItemV2
+                tile={tile}
+                containerClassName={containerClassName}
+                query={query}
+                title={title}
+                insightProps={insightProps}
+                control={control}
+                showIntervalSelect={showIntervalSelect}
+                docs={docs}
+            />
+        )
+    }
+
+    return (
+        <QueryTileItemLegacy
+            tile={tile}
+            containerClassName={containerClassName}
+            query={query}
+            title={title}
+            insightProps={insightProps}
+            control={control}
+            showIntervalSelect={showIntervalSelect}
+            docs={docs}
+        />
+    )
+}
+
+interface QueryTileItemVariantProps {
+    tile: QueryTile
+    containerClassName: string
+    query: QuerySchema
+    title?: string
+    insightProps: InsightLogicProps
+    control?: JSX.Element
+    showIntervalSelect?: boolean
+    docs?: QueryTile['docs']
+}
+
+const QueryTileItemV2 = ({
+    tile,
+    containerClassName,
+    query,
+    title,
+    insightProps,
+    control,
+    showIntervalSelect,
+    docs,
+}: QueryTileItemVariantProps): JSX.Element => {
+    const overflowMenuItems = useWebTileOverflowMenuItems({
+        tileId: tile.tileId,
+        query,
+        insightProps,
+        canOpenModal: tile.canOpenModal,
+        extraMenuItems: tile.extraMenuItems,
+    })
+    const openInsight = useWebTileOpenInsight({ tileId: tile.tileId, canOpenInsight: !!tile.canOpenInsight })
+
+    return (
+        <div className={containerClassName}>
+            <WebQuery
+                attachTo={webAnalyticsLogic}
+                uniqueKey={`WebAnalytics.${tile.tileId}`}
+                query={query}
+                insightProps={insightProps}
+                control={control}
+                showIntervalSelect={showIntervalSelect}
+                tileId={tile.tileId}
+                headerSlot={
+                    tile.tileId === TileId.OVERVIEW ? undefined : (
+                        <WebTileHeader
+                            tileId={tile.tileId}
+                            title={title}
+                            docs={docs}
+                            openInsight={openInsight}
+                            overflowMenuItems={overflowMenuItems}
+                        />
+                    )
+                }
+            />
+        </div>
+    )
+}
+
+const QueryTileItemLegacy = ({
+    tile,
+    containerClassName,
+    query,
+    title,
+    insightProps,
+    control,
+    showIntervalSelect,
+    docs,
+}: QueryTileItemVariantProps): JSX.Element => {
     const { openModal } = useActions(webAnalyticsModalLogic)
-    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsModalLogic)
 
     const buttonsRow = [
         <WebAnalyticsExport key="export-button" query={query} insightProps={insightProps} />,
@@ -131,17 +250,9 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     ].filter(isNotNil)
 
     return (
-        <div
-            className={clsx(
-                'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? 'md:col-span-6',
-                layout.rowSpanClassName ?? 'md:row-span-1',
-                layout.orderWhenLargeClassName ?? 'xxl:order-12',
-                layout.className
-            )}
-        >
+        <div className={containerClassName}>
             {title && (
-                <div className="flex flex-row items-center mb-3">
+                <div className="flex flex-row items-center mb-2">
                     <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
                 </div>
@@ -164,10 +275,120 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     )
 }
 
+const TABS_TILE_VISUALIZATION_TOGGLE_TILES = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS]
+
+const TILES_WHERE_DROPDOWN_IS_TITLE = new Set<TileId>([TileId.GRAPHS, TileId.PATHS])
+
+const TILE_TITLE_PREFIX: Partial<Record<TileId, string>> = {
+    [TileId.SOURCES]: 'Sources by',
+    [TileId.DEVICES]: 'Devices by',
+    [TileId.GEOGRAPHY]: 'Geography by',
+    [TileId.ACTIVE_HOURS]: 'Active hours by',
+}
+
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
+
+    if (useTileHeaderV2) {
+        return <TabsTileItemV2 tile={tile} />
+    }
+    return <TabsTileItemLegacy tile={tile} />
+}
+
+const TabsTileItemV2 = ({ tile }: { tile: TabsTile }): JSX.Element => {
+    const { layout, tileId, activeTabId, setTabId, tabs } = tile
+
+    const { setDateInterval, setTileVisualization } = useActions(webAnalyticsLogic)
+    const {
+        dateFilter: { interval },
+        tileVisualizations,
+    } = useValues(webAnalyticsLogic)
+
+    const activeTab = tabs.find((t) => t.id === activeTabId)
+    const useLongLabels = TILES_WHERE_DROPDOWN_IS_TITLE.has(tileId)
+    const titlePrefix = TILE_TITLE_PREFIX[tileId]
+    const dropdownOptions = tabs.map((t) => ({
+        value: t.id,
+        label: (useLongLabels ? t.title : t.linkText) as string | JSX.Element,
+    }))
+
+    const showIntervalInHeader = tileId === TileId.GRAPHS && !!activeTab?.showIntervalSelect
+    const showVisualizationToggle = TABS_TILE_VISUALIZATION_TOGGLE_TILES.includes(tileId)
+
+    const overflowMenuItems = useWebTileOverflowMenuItems({
+        tileId,
+        tabId: activeTabId,
+        query: activeTab?.query,
+        insightProps: activeTab?.insightProps,
+        canOpenModal: activeTab?.canOpenModal,
+        extraMenuItems: activeTab?.extraMenuItems,
+    })
+    const openInsight = useWebTileOpenInsight({
+        tileId,
+        tabId: activeTabId,
+        canOpenInsight: !!activeTab?.canOpenInsight,
+    })
+
+    const header = (
+        <WebTileHeader
+            tileId={tileId}
+            titlePrefix={titlePrefix}
+            titleDropdown={{ value: activeTabId, options: dropdownOptions, onChange: setTabId }}
+            docs={activeTab?.docs}
+            intervalSelector={
+                showIntervalInHeader
+                    ? {
+                          node: <IntervalFilterStandalone interval={interval} onIntervalChange={setDateInterval} />,
+                      }
+                    : undefined
+            }
+            visualizationToggle={
+                showVisualizationToggle
+                    ? {
+                          value: tileVisualizations[tileId],
+                          onChange: (value) => setTileVisualization(tileId, value),
+                      }
+                    : undefined
+            }
+            openInsight={openInsight}
+            overflowMenuItems={overflowMenuItems}
+        />
+    )
+
+    return (
+        <div
+            className={clsx(
+                'col-span-1 row-span-1 flex flex-col',
+                layout.colSpanClassName ?? 'md:col-span-1',
+                layout.rowSpanClassName ?? 'md:row-span-1',
+                layout.orderWhenLargeClassName ?? '2xl:order-12',
+                layout.className
+            )}
+        >
+            {activeTab ? (
+                <WebQuery
+                    attachTo={webAnalyticsLogic}
+                    uniqueKey={`WebAnalytics.${tileId}.${activeTab.id}`}
+                    key={activeTab.id}
+                    query={activeTab.query}
+                    showIntervalSelect={showIntervalInHeader ? false : activeTab.showIntervalSelect}
+                    control={activeTab.control}
+                    insightProps={activeTab.insightProps}
+                    tileId={tileId}
+                    headerSlot={header}
+                />
+            ) : (
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col">{header}</div>
+            )}
+        </div>
+    )
+}
+
+const TabsTileItemLegacy = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
 
-    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { getNewInsightUrl } = useValues(webAnalyticsModalLogic)
 
     return (
         <WebTabs
@@ -175,7 +396,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 'col-span-1 row-span-1',
                 layout.colSpanClassName || 'md:col-span-1',
                 layout.rowSpanClassName || 'md:row-span-1',
-                layout.orderWhenLargeClassName || 'xxl:order-12',
+                layout.orderWhenLargeClassName || '2xl:order-12',
                 layout.className
             )}
             activeTabId={tile.activeTabId}
@@ -203,29 +424,9 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 insightProps: tab.insightProps,
             }))}
             tileId={tile.tileId}
+            splitIndices={tile.splitIndices}
             getNewInsightUrl={getNewInsightUrl}
         />
-    )
-}
-
-export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
-    return (
-        <div className="col-span-full">
-            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
-            <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
-                {tile.tiles.map((subTile, i) => {
-                    if (subTile.kind === 'query') {
-                        return (
-                            <div key={`${subTile.tileId}-${i}`} className="col-span-1">
-                                <QueryTileItem tile={subTile} />
-                            </div>
-                        )
-                    }
-                    return null
-                })}
-            </div>
-            {separator && <LemonDivider className="my-3" />}
-        </div>
     )
 }
 
@@ -236,6 +437,7 @@ export const WebTabs = ({
     setActiveTabId,
     getNewInsightUrl,
     tileId,
+    splitIndices,
 }: {
     className?: string
     activeTabId: string
@@ -253,6 +455,7 @@ export const WebTabs = ({
     setActiveTabId: (id: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
+    splitIndices?: number[]
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
@@ -289,7 +492,7 @@ export const WebTabs = ({
                     })
                 }}
             >
-                Open as new Insight
+                Open as new insight
             </LemonButton>
         ) : null,
         activeTab?.canOpenModal !== false ? (
@@ -307,7 +510,7 @@ export const WebTabs = ({
 
     return (
         <div className={clsx(className, 'flex flex-col')}>
-            <div className="flex flex-row items-center self-stretch mb-3">
+            <div className="flex flex-row items-center self-stretch mb-2">
                 <h2 className="flex-1 m-0 flex flex-row ml-1">
                     {activeTab?.title}
                     {activeTab?.docs && (
@@ -338,12 +541,10 @@ export const WebTabs = ({
                     />
                 )}
 
-                <LemonSegmentedSelect
-                    shrinkOn={7}
+                <LemonSegmentedDropdown
+                    splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
                     size="small"
-                    disabled={false}
                     value={activeTabId}
-                    dropdownMatchSelectWidth={false}
                     onChange={setActiveTabId}
                     options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
                 />
@@ -352,6 +553,27 @@ export const WebTabs = ({
             {buttonsRow.length > 0 ? (
                 <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
             ) : null}
+        </div>
+    )
+}
+
+export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
+    return (
+        <div className="col-span-full">
+            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
+            <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
+                {tile.tiles.map((subTile, i) => {
+                    if (subTile.kind === 'query') {
+                        return (
+                            <div key={`${subTile.tileId}-${i}`} className="col-span-1">
+                                <QueryTileItem tile={subTile} />
+                            </div>
+                        )
+                    }
+                    return null
+                })}
+            </div>
+            {separator && <LemonDivider className="my-3" />}
         </div>
     )
 }
@@ -397,7 +619,13 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
                 </div>
             }
         >
-            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} className="ml-1 mb-1" />
+            <LemonButton
+                onClick={() => setIsOpen(!isOpen)}
+                size="small"
+                noPadding
+                icon={<IconInfo />}
+                aria-label="More info"
+            />
         </Popover>
     )
 }
@@ -412,6 +640,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
+        case ProductTab.BOT_ANALYTICS:
+            return <BotAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -432,7 +662,29 @@ const MainContent = (): JSX.Element => {
         return <LiveWebAnalyticsMetrics />
     }
 
+    if (productTab === ProductTab.BOT_ANALYTICS) {
+        return <BotAnalyticsTiles />
+    }
+
     return <Tiles />
+}
+
+const BotAnalyticsTiles = (): JSX.Element => {
+    // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
+    useMountedLogic(botAnalyticsLogic)
+    const { tiles } = useValues(botAnalyticsLogic)
+
+    return (
+        <>
+            <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
+                Bot detection is based on user agent pattern matching. Events with no user agent are excluded from these
+                results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
+                don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
+            </LemonBanner>
+            <LiveBotTiles />
+            <Tiles tiles={tiles} />
+        </>
+    )
 }
 
 const HealthTabLabel = (): JSX.Element => {
@@ -450,30 +702,45 @@ const HealthTabLabel = (): JSX.Element => {
     )
 }
 
-const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
-        return []
-    }
-
+const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.HEALTH,
             label: <HealthTabLabel />,
-            link: '/web/health',
+            link: urls.webAnalyticsHealth(),
         },
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
-        return []
-    }
-
+const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.LIVE,
             label: 'Live',
             link: '/web/live',
+        },
+    ]
+}
+
+const botAnalyticsTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.BOT_ANALYTICS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Bots
+                    <LemonTag type="completion" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsBotAnalytics(),
         },
     ]
 }
@@ -499,23 +766,36 @@ const WebAnalyticsSurveyModal = (): JSX.Element | null => {
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
+    useOnMountEffect(() => {
+        globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
+    })
+
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
                 <WebAnalyticsSurveyModal />
-                <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard">
-                    <WebAnalyticsTabs />
-                    {/* Empty fragment so tabs are not part of the sticky bar */}
-                    <Filters tabs={<></>} />
+                <SceneContent className="WebAnalyticsDashboard gap-y-2">
+                    <>
+                        <WebAnalyticsTabs />
+                        {/* Empty fragment so tabs are not part of the sticky bar */}
+                        <Filters tabs={<></>} />
 
-                    <WebAnalyticsHealthCheck />
-                    <MainContent />
+                        <WebAnalyticsShareColleagueBanner />
+                        <ShareNudgePrompt />
+                        <WebAnalyticsHealthCheck />
+                        <MainContent />
+                    </>
                 </SceneContent>
             </BindLogic>
         </BindLogic>
     )
+}
+
+const WebAnalyticsLoadTimeTracker = (): null => {
+    useMountedLogic(webAnalyticsLoadTimeLogic)
+    return null
 }
 
 const WebAnalyticsTabs = (): JSX.Element => {
@@ -556,12 +836,16 @@ const WebAnalyticsTabs = (): JSX.Element => {
         interaction: 'function',
         callback: () => setProductTab(ProductTab.HEALTH),
         scope: Scene.WebAnalytics,
-        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
 
-    const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
-    }
+    useEffect(() => {
+        if (productTab === ProductTab.ANALYTICS) {
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewWebAnalyticsDashboard)
+        }
+        if (productTab === ProductTab.WEB_VITALS) {
+            globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.VisitWebVitalsDashboard)
+        }
+    }, [productTab])
 
     return (
         <LemonTabs<ProductTab>
@@ -570,36 +854,13 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                {
-                    key: ProductTab.PAGE_REPORTS,
-                    label: (
-                        <div className="flex items-center gap-1">
-                            Page reports
-                            <LemonTag type="warning" className="uppercase">
-                                Beta
-                            </LemonTag>
-                        </div>
-                    ),
-                    link: '/web/page-reports',
-                },
-                ...liveTab(featureFlags),
-                ...healthTab(featureFlags),
+                { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
+                ...liveTab(),
+                ...botAnalyticsTab(featureFlags),
+                ...healthTab(),
             ]}
             sceneInset
             className="-mt-4"
-            rightSlot={
-                !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR] && (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconLink fontSize="16" />}
-                        tooltip="Share"
-                        tooltipPlacement="top"
-                        onClick={handleShare}
-                        data-attr="web-analytics-share-button"
-                    />
-                )
-            }
         />
     )
 }
@@ -663,7 +924,10 @@ const getEmptyOnboardingContent = (
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="primary"
-                                to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                to={urls.onboarding({
+                                    productKey: ProductKey.WEB_ANALYTICS,
+                                    stepKey: OnboardingStepKey.INSTALL,
+                                })}
                                 data-attr="web-analytics-onboarding"
                             >
                                 Open installation guide

@@ -1,4 +1,3 @@
-export * from './ExpandedLogContent'
 export * from './LogsViewer'
 export * from './LogsViewerCellPopover'
 export * from './LogsViewerRowActions'

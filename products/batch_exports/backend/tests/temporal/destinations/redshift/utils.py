@@ -1,18 +1,14 @@
 import os
-import ast
 import json
-import asyncio
 import datetime as dt
 import operator
 import collections.abc
 
-import aioboto3
-import botocore.exceptions
 from psycopg import sql
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import redshift_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
@@ -126,20 +122,30 @@ async def assert_clickhouse_records_in_redshift(
                     event[column] = json.loads(event[column])
 
             for column in array_super_columns:
-                # Arrays stored in SUPER are dumped like Python sets: '{"value", "value1"}'
-                # But we expect these to come as lists from ClickHouse.
-                # So, since they are read as strings, we first `json.loads` them and
-                # then pass the resulting string to `literal_eval`, which will produce
-                # either a dict or a set (depending if it's empty or not). Either way
-                # we can cast them to list.
+                # Arrays stored in SUPER are dumped almost like the string
+                # representation of as Python sets, but without quotes for the values:
+                # '"{value,value1}"'. We expect these to be Python lists rather than
+                # whatever garbage that is, as reading from ClickHouse returns Python
+                #  lists. So, we load up the string as JSON, and compare against '"{}"'
+                # to determine if it is empty. If it is, we can just set the value to
+                # empty list. Otherwise, we strip the '"{}"', and iterate through the
+                # values adding them to a new list.
                 if column in event and event.get(column, None) is not None:
-                    load_result = json.loads(event[column])
-
-                    if not isinstance(load_result, list):
-                        value = ast.literal_eval(load_result)
-                        event[column] = list(value)
+                    loaded = json.loads(event[column])
+                    if isinstance(loaded, list):
+                        # In COPY tests, it is already a list. I have no clue why.
+                        # TODO: investigate.
+                        event[column] = loaded
+                    elif loaded == "{}":
+                        event[column] = []
                     else:
-                        event[column] = load_result
+                        # ruff complains that using `strip` is misleading, but the
+                        # alternative would mean calling two functions, and the example
+                        # in their docs (removing only a file suffix) is not what I'm
+                        # doing here. So, I respectfully disagree.
+                        stripped = loaded.strip("{}")  # noqa: B005
+                        values = list(stripped.split(","))
+                        event[column] = values
 
             if extra_fields:
                 for column in extra_fields:
@@ -233,27 +239,9 @@ async def assert_clickhouse_records_in_redshift(
     inserted_records.sort(key=operator.itemgetter(sort_key))
     expected_records.sort(key=operator.itemgetter(sort_key))
 
-    assert (
-        inserted_column_names == expected_column_names
-    ), f"Expected column names to be '{expected_column_names}', got '{inserted_column_names}'"
+    assert inserted_column_names == expected_column_names, (
+        f"Expected column names to be '{expected_column_names}', got '{inserted_column_names}'"
+    )
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
     assert len(inserted_records) == len(expected_records)
-
-
-async def check_valid_credentials() -> bool:
-    """Check if there are valid AWS credentials in the environment."""
-    session = aioboto3.Session()
-    async with session.client("sts") as sts:
-        try:
-            await sts.get_caller_identity()
-        except botocore.exceptions.ClientError:
-            return False
-        else:
-            return True
-
-
-def has_valid_credentials() -> bool:
-    """Synchronous wrapper around check_valid_credentials."""
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(check_valid_credentials())

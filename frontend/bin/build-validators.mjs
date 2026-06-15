@@ -13,6 +13,11 @@ const schema = JSON.parse(fs.readFileSync(inputPath, 'utf-8'))
 const ajv = new Ajv({
     allowUnionTypes: true,
     code: { source: true, esm: true },
+    // `discriminator` is an OpenAPI keyword used by ts-json-schema-generator (and consumed
+    // by datamodel-codegen to emit Pydantic `Field(discriminator=...)`). It carries routing
+    // information for union types, not validation rules — declare it as a no-op so ajv's
+    // strict mode doesn't reject schemas that use it.
+    keywords: [{ keyword: 'discriminator' }],
 })
 
 // Add the main schema
@@ -25,6 +30,7 @@ const validators = [
     'RevenueAnalyticsPropertyFilters',
     'SessionPropertyFilter',
     'CompareFilter',
+    'ExperimentMetric',
 ]
 
 // Compile validators - standaloneCode needs the schema references, not the compiled functions

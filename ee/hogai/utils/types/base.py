@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union, cast
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import (
@@ -22,6 +22,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
     AssistantGenerationStatusEvent,
     AssistantHogQLQuery,
+    AssistantLifecycleQuery,
     AssistantMessage,
     AssistantRetentionQuery,
     AssistantToolCall,
@@ -30,6 +31,7 @@ from posthog.schema import (
     AssistantUpdateEvent,
     BaseAssistantMessage,
     ContextMessage,
+    DataVisualizationNode,
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
@@ -43,7 +45,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ee.models import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
 
 
 class ArtifactRefMessage(BaseAssistantMessage):
@@ -71,15 +73,34 @@ AssistantResultUnion = Union[
     AssistantStreamedMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent, SubagentUpdateEvent
 ]
 
+
+class ApprovalPayload(BaseModel):
+    """Payload for dangerous operation approval requests."""
+
+    proposal_id: str
+    decision_status: str
+    tool_name: str
+    preview: str
+    payload: dict
+    original_tool_call_id: str | None
+    message_id: str | None
+
+
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
     | tuple[Literal[AssistantEventType.MESSAGE], AssistantStreamedMessageUnion]
     | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
     | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent | SubagentUpdateEvent]
+    | tuple[Literal[AssistantEventType.APPROVAL], ApprovalPayload]
 )
 
 AnyAssistantGeneratedQuery = (
-    AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    AssistantTrendsQuery
+    | AssistantFunnelsQuery
+    | AssistantLifecycleQuery
+    | AssistantRetentionQuery
+    | AssistantHogQLQuery
+    | DataVisualizationNode
 )
 AnyPydanticModelQuery = TypeVar("AnyPydanticModelQuery", bound=BaseModel)
 
@@ -103,6 +124,32 @@ ASSISTANT_MESSAGE_TYPES = (
 
 def replace(_: Any | None, right: Any | None) -> Any | None:
     return right
+
+
+def replace_if_not_none(left: Any | None, right: Any | None) -> Any | None:
+    """Replace the left value with right only if right is not None."""
+    return right if right is not None else left
+
+
+# String sentinel for clearing supermode - must be a string for msgpack serialization
+CLEAR_SUPERMODE: str = "__CLEAR_SUPERMODE__"
+
+
+def replace_supermode(left: AgentMode | str | None, right: AgentMode | str | None) -> AgentMode | None:
+    """Replace supermode with special handling for explicit clearing.
+
+    - If right is CLEAR_SUPERMODE string, returns None (explicit clear)
+    - If right is an AgentMode, returns right (explicit set)
+    - If right is None, returns left (no change)
+    """
+    if right == CLEAR_SUPERMODE:
+        return None
+    result = right if right is not None else left
+    # CLEAR_SUPERMODE should only appear on the right side (incoming update)
+    # If it's in left (current state), that's a bug - treat as None
+    if result == CLEAR_SUPERMODE:
+        return None
+    return cast("AgentMode", result)
 
 
 def append(left: Sequence, right: Sequence) -> Sequence:
@@ -211,7 +258,9 @@ class InsightArtifact(TaskArtifact):
     An insight artifact created by a task.
     """
 
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    query: Union[
+        AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery, DataVisualizationNode
+    ]
 
 
 class TaskResult(BaseModel):
@@ -267,9 +316,14 @@ class BaseStateWithMessages(BaseState):
     """
     Messages exposed to the user.
     """
-    agent_mode: AgentMode | None = Field(default=None)
+    agent_mode: Annotated[AgentMode | None, replace_if_not_none] = Field(default=None)
     """
     The mode of the agent.
+    """
+    supermode: Annotated[AgentMode | str | None, replace_supermode] = Field(default=None)
+    """
+    The supermode of the agent (e.g., PLAN, RESEARCH).
+    Use CLEAR_SUPERMODE string to explicitly clear the supermode.
     """
 
     @field_validator("messages", mode="after")
@@ -315,7 +369,12 @@ class BaseStateWithMessages(BaseState):
 
     @property
     def agent_mode_or_default(self) -> AgentMode:
-        return self.agent_mode or AgentMode.PRODUCT_ANALYTICS
+        # EXECUTION is a fictitious transition mode - treat as default
+        if self.agent_mode is None or (self.agent_mode in [AgentMode.EXECUTION, AgentMode.RESEARCH]):
+            return AgentMode.PRODUCT_ANALYTICS
+        if self.agent_mode == AgentMode.PLAN:
+            return AgentMode.SQL
+        return self.agent_mode
 
 
 class BaseStateWithTasks(BaseState):
@@ -510,6 +569,7 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
+    SUPPORT = "support_graph"
 
 
 class AssistantMode(StrEnum):
@@ -552,7 +612,15 @@ class UpdateAction(BaseModel):
     content: str | AssistantToolCall
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+class ConversationTitleAction(BaseModel):
+    type: Literal["CONVERSATION_TITLE"] = "CONVERSATION_TITLE"
+    title: str
+    topic: str | None = None
+
+
+AssistantActionUnion = (
+    MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction | ConversationTitleAction
+)
 
 
 class NodePath(BaseModel):

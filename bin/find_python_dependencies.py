@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "grimp==3.13",
+# ]
+# ///
 """
 Find all local Python dependencies for a given entrypoint file.
 
@@ -7,11 +13,11 @@ dependencies (modules that the entrypoint imports, directly or transitively).
 This is useful for determining which files need to trigger a rebuild of a worker.
 
 Usage:
-    python bin/find_python_dependencies.py posthog.temporal.subscriptions
+    python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions
     # Output: {"dependencies": ["posthog/utils.py", ...]}
 
     # Check if any changed files affect a worker
-    python bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "posthog/utils.py posthog/unrelated_file.py"
+    python bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes "posthog/utils.py posthog/unrelated_file.py"
     # Output: {"affected": true, "matching_files": ["posthog/utils.py"]}
 """
 
@@ -93,7 +99,7 @@ def main():
     )
     parser.add_argument(
         "entrypoint",
-        help="Module path to analyze (e.g., posthog.temporal.subscriptions)",
+        help="Module path to analyze (e.g., products.exports.backend.temporal.subscriptions)",
     )
     parser.add_argument(
         "--check-changes",
@@ -106,7 +112,7 @@ def main():
     # Validate entrypoint format
     if "/" in args.entrypoint or args.entrypoint.endswith(".py"):
         sys.stderr.write(
-            f"Error: Entrypoint should be a module path (e.g., 'posthog.temporal.subscriptions'), "
+            f"Error: Entrypoint should be a module path (e.g., 'products.exports.backend.temporal.subscriptions'), "
             f"not a file path ('{args.entrypoint}')\n"
         )
         sys.exit(1)

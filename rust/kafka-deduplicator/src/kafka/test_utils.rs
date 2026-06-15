@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 
+use super::batch_context::{ConsumerCommand, ConsumerCommandSender};
 use super::rebalance_handler::RebalanceHandler;
 use super::types::Partition;
 
@@ -42,8 +43,16 @@ impl RebalanceHandler for TestRebalanceHandler {
 
     async fn async_setup_assigned_partitions(
         &self,
-        _partitions: &TopicPartitionList,
+        consumer_command_tx: &ConsumerCommandSender,
     ) -> Result<()> {
+        // Send Resume command to unblock paused partitions (required for tests to work)
+        // Build TPL from tracked assigned partitions
+        let mut tpl = TopicPartitionList::new();
+        let assigned = self.assigned_partitions.lock().unwrap();
+        for partition in assigned.iter() {
+            tpl.add_partition(partition.topic(), partition.partition_number());
+        }
+        let _ = consumer_command_tx.send(ConsumerCommand::Resume(tpl));
         Ok(())
     }
 

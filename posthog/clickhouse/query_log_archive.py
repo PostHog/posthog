@@ -4,7 +4,13 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repli
 
 QUERY_LOG_ARCHIVE_DATA_TABLE = "query_log_archive"
 QUERY_LOG_ARCHIVE_MV = "query_log_archive_mv"
+QUERY_LOG_ARCHIVE_OLD_TABLE = "query_log_archive_v2"
 QUERY_LOG_ARCHIVE_WRITABLE_DISTRIBUTED_TABLE = "writable_query_log_archive"
+
+SHARDED_QUERY_LOG_ARCHIVE_TABLE = "sharded_query_log_archive"
+SHARDED_QUERY_LOG_ARCHIVE_MV = "sharded_query_log_archive_mv"
+DIST_QUERY_LOG_ARCHIVE_MV = "dist_query_log_archive_mv"
+SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE = "writable_sharded_query_log_archive"
 
 
 def QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW():
@@ -127,6 +133,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     hostname                              LowCardinality(String),
     user                                  LowCardinality(String),
     query_id                              String,
+    initial_query_id                      String,
+    is_initial_query                      UInt8,
     type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
 
     event_date                            Date,
@@ -175,6 +183,8 @@ CREATE TABLE IF NOT EXISTS {table_name} (
     ProfileEvents_ReadBufferFromS3Bytes Int64,
     ProfileEvents_WriteBufferFromS3Bytes Int64,
 
+    ProfileEvents Map(String, UInt64),
+
     lc_workflow LowCardinality(String),
     lc_kind LowCardinality(String),
     lc_id String,
@@ -214,6 +224,7 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_query__kind LowCardinality(String),
     lc_query__query String,
+    lc_query String,
 
     lc_temporal__workflow_namespace String,
     lc_temporal__workflow_type String,
@@ -225,7 +236,9 @@ CREATE TABLE IF NOT EXISTS {table_name} (
 
     lc_dagster__job_name String,
     lc_dagster__run_id String,
-    lc_dagster__owner String
+    lc_dagster__owner String,
+
+    lc_modifiers String
 ) ENGINE = {engine}{table_clauses}
     """.format(
         table_name=table_name,
@@ -246,6 +259,8 @@ SELECT
     hostname,
     user,
     query_id,
+    initial_query_id,
+    is_initial_query,
     type,
 
     event_date,
@@ -293,6 +308,8 @@ SELECT
     ProfileEvents['ReadBufferFromS3Bytes'] as ProfileEvents_ReadBufferFromS3Bytes,
     ProfileEvents['WriteBufferFromS3Bytes'] as ProfileEvents_WriteBufferFromS3Bytes,
 
+    ProfileEvents,
+
     JSONExtractString(log_comment, 'workflow') as lc_workflow,
     JSONExtractString(log_comment, 'kind') as lc_kind,
     JSONExtractString(log_comment, 'id') as lc_id,
@@ -334,9 +351,10 @@ SELECT
     if(JSONHas(log_comment, 'query', 'source'),
         JSONExtractString(log_comment, 'query', 'source', 'kind'),
         JSONExtractString(log_comment, 'query', 'kind')) as lc_query__kind,
-    if(JSONHas(log_comment, 'query', 'source'),
-        JSONExtractString(log_comment, 'query', 'source', 'query'),
+    multiIf(not is_initial_query, '',
+        JSONHas(log_comment, 'query', 'source'), JSONExtractString(log_comment, 'query', 'source', 'query'),
         JSONExtractString(log_comment, 'query', 'query')) as lc_query__query,
+    if(is_initial_query, JSONExtractRaw(log_comment, 'query'), '') as lc_query,
 
     JSONExtractString(log_comment, 'temporal', 'workflow_namespace') as lc_temporal__workflow_namespace,
     JSONExtractString(log_comment, 'temporal', 'workflow_type') as lc_temporal__workflow_type,
@@ -348,11 +366,12 @@ SELECT
 
     JSONExtractString(log_comment, 'dagster', 'job_name') as lc_dagster__job_name,
     JSONExtractString(log_comment, 'dagster', 'run_id') as lc_dagster__run_id,
-    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner
+    JSONExtractString(log_comment, 'dagster', 'tags', 'owner') as lc_dagster__owner,
+
+    if(is_initial_query, JSONExtractRaw(log_comment, 'modifiers'), '') as lc_modifiers
 FROM system.query_log
 WHERE
     type != 'QueryStart'
-    AND is_initial_query
 """
 
 
@@ -403,3 +422,380 @@ def QUERY_LOG_ARCHIVE_ADD_IS_IMPERSONATED_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE
     return """
     ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_is_impersonated Bool AFTER lc_user_id
     """.format(table=table)
+
+
+# V7 - sharded query_log_archive
+def SHARDED_QUERY_LOG_ARCHIVE_TABLE_ENGINE():
+    return MergeTreeEngine(SHARDED_QUERY_LOG_ARCHIVE_TABLE, replication_scheme=ReplicationScheme.SHARDED)
+
+
+def SHARDED_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+        engine=SHARDED_QUERY_LOG_ARCHIVE_TABLE_ENGINE(),
+    )
+
+
+def DISTRIBUTED_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            sharding_key="cityHash64(query_id)",
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )
+
+
+def SHARDED_WRITABLE_QUERY_LOG_ARCHIVE_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_WRITABLE_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            sharding_key="cityHash64(query_id)",
+            cluster=settings.CLICKHOUSE_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )
+
+
+# V8 - adding initial_query_id, is_initial_query to track subqueries, and ProfileEvents map
+def QUERY_LOG_ARCHIVE_ADD_V8_COLUMNS_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS initial_query_id String AFTER query_id,
+        ADD COLUMN IF NOT EXISTS is_initial_query UInt8 AFTER initial_query_id,
+        ADD COLUMN IF NOT EXISTS ProfileEvents Map(String, UInt64) AFTER ProfileEvents_WriteBufferFromS3Bytes
+    """
+
+
+# V9 - adding lc_query for storing full query JSON from log_comment
+def QUERY_LOG_ARCHIVE_ADD_LC_QUERY_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table} ADD COLUMN IF NOT EXISTS lc_query String AFTER lc_query__query
+    """
+
+
+# V10 - adding lc_modifiers to store HogQL query modifiers
+def QUERY_LOG_ARCHIVE_ADD_MODIFIERS_COLUMN_SQL(table=QUERY_LOG_ARCHIVE_DATA_TABLE):
+    return f"""
+    ALTER TABLE {table}
+        ADD COLUMN IF NOT EXISTS lc_modifiers String AFTER lc_dagster__owner
+    """
+
+
+def QUERY_LOG_ARCHIVE_UPDATE_MV_SQL(mv_name=QUERY_LOG_ARCHIVE_MV):
+    return f"""ALTER TABLE {mv_name} MODIFY QUERY {MV_SELECT_SQL}"""
+
+
+# ============================================================================
+# OPS generation
+# ----------------------------------------------------------------------------
+# Single physical data table living ONLY on the OPS cluster. Every cluster gets
+# a Distributed read table (query_log_archive) and a Distributed write table
+# (writable_query_log_archive) pointing at it, so logs from the whole fleet are
+# archived into OPS and can be read from anywhere.
+#
+# log_comment is stored as a native ClickHouse JSON column holding a curated
+# subset of system.query_log.log_comment (typed hints for the hot dimensions,
+# SKIP for PII/bulky keys). ProfileEvents is stored as the raw Map. All lc_* and
+# ProfileEvents_* columns are read-time ALIASes over those two columns, so the
+# MV and the writable table only ever carry the real physical columns.
+# ============================================================================
+
+WRITABLE_QUERY_LOG_ARCHIVE_TABLE = "writable_query_log_archive"
+QUERY_LOG_ARCHIVE_OPS_MV = "ops_query_log_archive_mv"  # slim MV -> writable_query_log_archive, on every cluster
+
+# Curated JSON subset of log_comment. Keys not hinted here are still kept as
+# dynamic paths (bounded by max_dynamic_paths) UNLESS listed in SKIP. The SKIP
+# list drops PII (user_email, http_*) and bulky objects (query_settings, timings,
+# filter, hogql_features) so they never reach the archive. The `query` and
+# `modifiers` subtrees are intentionally NOT skipped so the lc_query* / lc_modifiers
+# aliases can read them back.
+LOG_COMMENT_JSON_TYPE = """JSON(
+        max_dynamic_paths = 256,
+        team_id Int64,
+        user_id Int64,
+        org_id String,
+        session_id String,
+        access_method LowCardinality(String),
+        api_key_label String,
+        api_key_mask String,
+        workflow LowCardinality(String),
+        kind LowCardinality(String),
+        id String,
+        route_id String,
+        query_type LowCardinality(String),
+        product LowCardinality(String),
+        chargeable Bool,
+        name String,
+        request_name String,
+        client_query_id String,
+        is_impersonated Bool,
+        dashboard_id Int64,
+        insight_id Int64,
+        cohort_id Int64,
+        batch_export_id String,
+        experiment_id Int64,
+        experiment_feature_flag_key String,
+        alert_config_id String,
+        feature LowCardinality(String),
+        table_id String,
+        warehouse_query Bool,
+        person_on_events_mode LowCardinality(String),
+        service_name String,
+        workload LowCardinality(String),
+        `temporal.workflow_namespace` String,
+        `temporal.workflow_type` String,
+        `temporal.workflow_id` String,
+        `temporal.workflow_run_id` String,
+        `temporal.activity_type` String,
+        `temporal.activity_id` String,
+        `temporal.attempt` Int64,
+        `dagster.job_name` String,
+        `dagster.run_id` String,
+        `dagster.tags.owner` String,
+        SKIP user_email,
+        SKIP query_settings,
+        SKIP timings,
+        SKIP `filter`,
+        SKIP hogql_features,
+        SKIP http_referer,
+        SKIP http_user_agent,
+        SKIP http_request_id,
+        SKIP cache_key
+    )"""
+
+# Real columns copied verbatim from system.query_log, plus the physical team_id
+# (it is part of the sort key so it cannot be an alias), the JSON log_comment and
+# the raw ProfileEvents map. These are exactly the columns the MV inserts.
+_QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS = """
+    hostname                              LowCardinality(String),
+    user                                  LowCardinality(String),
+    query_id                              String,
+    initial_query_id                      String,
+    is_initial_query                      UInt8,
+    type                                  Enum8('QueryStart' = 1, 'QueryFinish' = 2, 'ExceptionBeforeStart' = 3, 'ExceptionWhileProcessing' = 4),
+
+    event_date                            Date,
+    event_time                            DateTime,
+    event_time_microseconds               DateTime64(6),
+    query_start_time                      DateTime,
+    query_start_time_microseconds         DateTime64(6),
+    query_duration_ms                     UInt64,
+
+    read_rows                             UInt64,
+    read_bytes                            UInt64,
+    written_rows                          UInt64,
+    written_bytes                         UInt64,
+    result_rows                           UInt64,
+    result_bytes                          UInt64,
+    memory_usage                          UInt64,
+    peak_threads_usage                    UInt64,
+
+    current_database                      LowCardinality(String),
+    query                                 String,
+    formatted_query                       String,
+    normalized_query_hash                 UInt64,
+    query_kind                            LowCardinality(String),
+
+    exception_code                        Int32,
+    exception                             String,
+    stack_trace                           String,
+
+    team_id                               Int64,
+    log_comment                           {log_comment_type},
+    ProfileEvents                         Map(String, UInt64)""".format(log_comment_type=LOG_COMMENT_JSON_TYPE)
+
+# Read-time aliases. lc_* read the curated JSON subset; ProfileEvents_* read the
+# raw map; exception_name keeps its derived form. The lc_query* / lc_modifiers
+# aliases reproduce the previous MV logic (source preference + is_initial_query
+# gating) against the serialized JSON.
+_QUERY_LOG_ARCHIVE_ALIAS_COLUMNS = """
+    exception_name String ALIAS errorCodeToName(exception_code),
+
+    ProfileEvents_RealTimeMicroseconds Int64 ALIAS ProfileEvents['RealTimeMicroseconds'],
+    ProfileEvents_OSCPUVirtualTimeMicroseconds Int64 ALIAS ProfileEvents['OSCPUVirtualTimeMicroseconds'],
+    ProfileEvents_S3Clients Int64 ALIAS ProfileEvents['S3Clients'],
+    ProfileEvents_S3DeleteObjects Int64 ALIAS ProfileEvents['S3DeleteObjects'],
+    ProfileEvents_S3CopyObject Int64 ALIAS ProfileEvents['S3CopyObject'],
+    ProfileEvents_S3ListObjects Int64 ALIAS ProfileEvents['S3ListObjects'],
+    ProfileEvents_S3HeadObject Int64 ALIAS ProfileEvents['S3HeadObject'],
+    ProfileEvents_S3GetObjectAttributes Int64 ALIAS ProfileEvents['S3GetObjectAttributes'],
+    ProfileEvents_S3CreateMultipartUpload Int64 ALIAS ProfileEvents['S3CreateMultipartUpload'],
+    ProfileEvents_S3UploadPartCopy Int64 ALIAS ProfileEvents['S3UploadPartCopy'],
+    ProfileEvents_S3UploadPart Int64 ALIAS ProfileEvents['S3UploadPart'],
+    ProfileEvents_S3AbortMultipartUpload Int64 ALIAS ProfileEvents['S3AbortMultipartUpload'],
+    ProfileEvents_S3CompleteMultipartUpload Int64 ALIAS ProfileEvents['S3CompleteMultipartUpload'],
+    ProfileEvents_S3PutObject Int64 ALIAS ProfileEvents['S3PutObject'],
+    ProfileEvents_S3GetObject Int64 ALIAS ProfileEvents['S3GetObject'],
+    ProfileEvents_ReadBufferFromS3Bytes Int64 ALIAS ProfileEvents['ReadBufferFromS3Bytes'],
+    ProfileEvents_WriteBufferFromS3Bytes Int64 ALIAS ProfileEvents['WriteBufferFromS3Bytes'],
+
+    lc_workflow LowCardinality(String) ALIAS log_comment.workflow,
+    lc_kind LowCardinality(String) ALIAS log_comment.kind,
+    lc_id String ALIAS log_comment.id::String,
+    lc_route_id String ALIAS log_comment.route_id::String,
+    lc_access_method LowCardinality(String) ALIAS log_comment.access_method,
+    lc_api_key_label String ALIAS log_comment.api_key_label::String,
+    lc_api_key_mask String ALIAS log_comment.api_key_mask::String,
+    lc_query_type LowCardinality(String) ALIAS log_comment.query_type,
+    lc_product LowCardinality(String) ALIAS log_comment.product,
+    lc_chargeable Bool ALIAS log_comment.chargeable,
+    lc_name String ALIAS log_comment.name::String,
+    lc_request_name String ALIAS log_comment.request_name::String,
+    lc_client_query_id String ALIAS log_comment.client_query_id::String,
+    lc_org_id String ALIAS log_comment.org_id::String,
+    lc_user_id Int64 ALIAS log_comment.user_id,
+    lc_is_impersonated Bool ALIAS log_comment.is_impersonated,
+    lc_session_id String ALIAS log_comment.session_id::String,
+    lc_dashboard_id Int64 ALIAS log_comment.dashboard_id,
+    lc_insight_id Int64 ALIAS log_comment.insight_id,
+    lc_cohort_id Int64 ALIAS log_comment.cohort_id,
+    lc_batch_export_id String ALIAS log_comment.batch_export_id::String,
+    lc_experiment_id Int64 ALIAS log_comment.experiment_id,
+    lc_experiment_feature_flag_key String ALIAS log_comment.experiment_feature_flag_key::String,
+    lc_alert_config_id String ALIAS log_comment.alert_config_id::String,
+    lc_feature LowCardinality(String) ALIAS log_comment.feature,
+    lc_table_id String ALIAS log_comment.table_id::String,
+    lc_warehouse_query Bool ALIAS log_comment.warehouse_query,
+    lc_person_on_events_mode LowCardinality(String) ALIAS log_comment.person_on_events_mode,
+    lc_service_name String ALIAS log_comment.service_name::String,
+    lc_workload LowCardinality(String) ALIAS log_comment.workload,
+
+    lc_query__kind LowCardinality(String) ALIAS if(JSONHas(toString(log_comment), 'query', 'source'),
+        JSONExtractString(toString(log_comment), 'query', 'source', 'kind'),
+        JSONExtractString(toString(log_comment), 'query', 'kind')),
+    lc_query__query String ALIAS multiIf(not is_initial_query, '',
+        JSONHas(toString(log_comment), 'query', 'source'), JSONExtractString(toString(log_comment), 'query', 'source', 'query'),
+        JSONExtractString(toString(log_comment), 'query', 'query')),
+    lc_query String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'query'), ''),
+
+    lc_temporal__workflow_namespace String ALIAS log_comment.`temporal.workflow_namespace`::String,
+    lc_temporal__workflow_type String ALIAS log_comment.`temporal.workflow_type`::String,
+    lc_temporal__workflow_id String ALIAS log_comment.`temporal.workflow_id`::String,
+    lc_temporal__workflow_run_id String ALIAS log_comment.`temporal.workflow_run_id`::String,
+    lc_temporal__activity_type String ALIAS log_comment.`temporal.activity_type`::String,
+    lc_temporal__activity_id String ALIAS log_comment.`temporal.activity_id`::String,
+    lc_temporal__attempt Int64 ALIAS log_comment.`temporal.attempt`,
+
+    lc_dagster__job_name String ALIAS log_comment.`dagster.job_name`::String,
+    lc_dagster__run_id String ALIAS log_comment.`dagster.run_id`::String,
+    lc_dagster__owner String ALIAS log_comment.`dagster.tags.owner`::String,
+
+    lc_modifiers String ALIAS if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"""
+
+_QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES = """
+PARTITION BY toYYYYMM(event_date)
+ORDER BY (team_id, event_date, event_time, query_id)
+PRIMARY KEY (team_id, event_date, event_time, query_id)"""
+
+
+def QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(table_name, engine, include_aliases=True, include_table_clauses=True):
+    """JSON-backed query_log_archive table.
+
+    include_aliases=True for the data table and read tables (exposes lc_* / ProfileEvents_*).
+    include_aliases=False for the writable distributed table (physical, insertable columns only).
+    """
+    columns = _QUERY_LOG_ARCHIVE_PHYSICAL_COLUMNS
+    if include_aliases:
+        columns = f"{columns},\n{_QUERY_LOG_ARCHIVE_ALIAS_COLUMNS}"
+    return "CREATE TABLE IF NOT EXISTS {table_name} (\n{columns}\n) ENGINE = {engine}{table_clauses}".format(
+        table_name=table_name,
+        columns=columns,
+        engine=engine,
+        table_clauses=_QUERY_LOG_ARCHIVE_OPS_TABLE_CLAUSES if include_table_clauses else "",
+    )
+
+
+def SHARDED_QUERY_LOG_ARCHIVE_OPS_ENGINE():
+    # OPS is a single-shard (1xN) cluster: replicated, not sharded.
+    return MergeTreeEngine(SHARDED_QUERY_LOG_ARCHIVE_TABLE, replication_scheme=ReplicationScheme.REPLICATED)
+
+
+def SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL():
+    return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+        table_name=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+        engine=SHARDED_QUERY_LOG_ARCHIVE_OPS_ENGINE(),
+    )
+
+
+def DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
+    """Distributed read table (query_log_archive), created on every cluster, pointing at OPS."""
+    return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+        table_name=QUERY_LOG_ARCHIVE_DATA_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            cluster=cluster or settings.CLICKHOUSE_OPS_CLUSTER,
+        ),
+        include_table_clauses=False,
+    )
+
+
+def WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
+    """Distributed write table carrying physical columns only, pointing at OPS."""
+    return QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(
+        table_name=WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
+        engine=Distributed(
+            data_table=SHARDED_QUERY_LOG_ARCHIVE_TABLE,
+            cluster=cluster or settings.CLICKHOUSE_OPS_CLUSTER,
+        ),
+        include_aliases=False,
+        include_table_clauses=False,
+    )
+
+
+# The MV stays trivial: real columns pass through, team_id is extracted as a concrete
+# value (sort key), and the raw log_comment String is cast into the JSON column on insert
+# (the column's type hints + SKIP rules do the curation). ProfileEvents is copied as-is.
+MV_SELECT_SQL_OPS = """
+SELECT
+    hostname,
+    user,
+    query_id,
+    initial_query_id,
+    is_initial_query,
+    type,
+
+    event_date,
+    event_time,
+    event_time_microseconds,
+    query_start_time,
+    query_start_time_microseconds,
+    query_duration_ms,
+
+    read_rows,
+    read_bytes,
+    written_rows,
+    written_bytes,
+    result_rows,
+    result_bytes,
+    memory_usage,
+    peak_threads_usage,
+
+    current_database,
+    query,
+    formatted_query,
+    normalized_query_hash,
+    query_kind,
+
+    exception_code,
+    exception,
+    stack_trace,
+
+    JSONExtractInt(log_comment, 'team_id') as team_id,
+    log_comment,
+    ProfileEvents
+FROM system.query_log
+WHERE
+    type != 'QueryStart'
+"""
+
+
+def QUERY_LOG_ARCHIVE_OPS_MV_SQL(view_name, dest_table):
+    return "CREATE MATERIALIZED VIEW IF NOT EXISTS {view_name}\nTO {dest_table}\nAS {select_sql}".format(
+        view_name=view_name,
+        dest_table=dest_table,
+        select_sql=MV_SELECT_SQL_OPS,
+    )

@@ -5,13 +5,22 @@ import type { addInsightsToNotebookModalLogicType } from './addInsightsToNoteboo
 export const addInsightsToNotebookModalLogic = kea<addInsightsToNotebookModalLogicType>([
     path(['scenes', 'notebooks', 'AddInsightsToNotebookModal', 'addInsightsToNotebookModalLogic']),
     actions({
-        toggleIsAddInsightsToNotebookModalOpen: true,
+        openModal: (insertionPosition: number | null) => ({ insertionPosition }),
+        closeModal: true,
     }),
     reducers({
         isAddInsightsToNotebookModalOpen: [
             false,
             {
-                toggleIsAddInsightsToNotebookModalOpen: (state) => !state,
+                openModal: () => true,
+                closeModal: () => false,
+            },
+        ],
+        insertionPosition: [
+            null as number | null,
+            {
+                openModal: (_, { insertionPosition }) => insertionPosition,
+                closeModal: () => null,
             },
         ],
     }),

@@ -3,7 +3,6 @@ import { useEffect } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
@@ -13,6 +12,7 @@ import {
     defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -104,7 +104,8 @@ const errorTrackingIssueActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed status of {nameAndLink(logItem)} from <strong>{before}</strong> to <strong>{after}</strong>
+                    changed status of {nameAndLink(logItem)} from <strong>{String(before)}</strong> to{' '}
+                    <strong>{String(after)}</strong>
                 </>,
             ],
         }

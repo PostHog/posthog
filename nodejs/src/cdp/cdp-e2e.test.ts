@@ -3,6 +3,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -11,6 +12,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { logger } from '../utils/logger'
@@ -21,19 +23,21 @@ import {
     insertIntegration,
 } from './_tests/fixtures'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
+import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
+import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { compileHog } from './templates/compiler'
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
-describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP Consumer loop: %s', (mode) => {
+describe('CDP Consumer loop', () => {
     jest.setTimeout(20000)
 
     describe('e2e fetch call', () => {
         let eventsConsumer: CdpEventsConsumer
-        let cyclotronWorkerKafka: CdpCyclotronWorker | undefined
-        let cyclotronWorkerPostgres: CdpCyclotronWorker | undefined
+        let cyclotronWorker: CdpCyclotronWorker
 
         let hub: Hub
+        let kafkaProducer: KafkaProducerWrapper = undefined as unknown as KafkaProducerWrapper
         let team: Team
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
@@ -45,7 +49,10 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         }
 
         beforeEach(async () => {
-            // We still want to mock all created producers but we wan't to use the real implementation, not the mocked one
+            // Each `KafkaProducerWrapper.create()` call (e.g. inside each cyclotron job
+            // queue) gets a fresh real producer it owns and disconnects on stop. The
+            // CDP outputs registry uses the dedicated `kafkaProducer` below — a separate
+            // real producer the test owns, observes, and disconnects in `afterEach`.
             MockKafkaProducerWrapper.create = jest.fn((...args) => {
                 return ActualKafkaProducerWrapper.create(...args)
             })
@@ -54,19 +61,16 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
 
             await resetTestDatabase()
             hub = await createHub()
-            team = await getFirstTeam(hub)
-            mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
+
+            kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+
+            team = await getFirstTeam(hub.postgres)
             mockProducerObserver.resetKafkaProducer()
 
             hub.CDP_FETCH_RETRIES = 2
             hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
             hub.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA = true
-            hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
-
-            // If hybrid we enable the scheduling to PG which ensures we test that routing there happens
-            hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES = mode === 'hybrid'
-            hub.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING =
-                mode === 'hybrid' || mode === 'kafka' ? '*:kafka' : '*:postgres'
 
             // Include integration parsing as part of the e2e check
             await insertIntegration(hub.postgres, team.id, {
@@ -107,23 +111,17 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            eventsConsumer = new CdpEventsConsumer({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
+            const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
+            const postgresV2Queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+
+            eventsConsumer = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+                hogQueue: kafkaQueue,
+                hogflowQueue: postgresV2Queue,
             })
             await eventsConsumer.start()
 
-            cyclotronWorkerKafka = new CdpCyclotronWorker({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
-            })
-            await cyclotronWorkerKafka.start()
-
-            cyclotronWorkerPostgres = new CdpCyclotronWorker({
-                ...hub,
-                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
-            })
-            await cyclotronWorkerPostgres.start()
+            cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
+            await cyclotronWorker.start()
 
             globals = createHogExecutionGlobals({
                 project: {
@@ -152,13 +150,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         })
 
         afterEach(async () => {
-            const stoppers = [
+            await Promise.all([
                 eventsConsumer?.stop().then(() => console.log('Stopped eventsConsumer')),
-                cyclotronWorkerKafka?.stop().then(() => console.log('Stopped cyclotronWorkerKafka')),
-                cyclotronWorkerPostgres?.stop().then(() => console.log('Stopped cyclotronWorkerPostgres')),
-            ]
-
-            await Promise.all(stoppers)
+                cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
+            ])
+            await kafkaProducer.disconnect()
             await closeHub(hub)
             mockProducerObserver.resetKafkaProducer()
         })
@@ -220,7 +216,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     topic: 'clickhouse_app_metrics2_test',
                     value: {
                         app_source: 'hog_function',
-                        app_source_id: fnFetchNoFilters.id.toString(),
+                        app_source_id: '_event_trigger',
                         count: 1,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',

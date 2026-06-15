@@ -8,6 +8,7 @@ from posthog.schema import (
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     InCohortVia,
     MultipleBreakdownType,
@@ -15,22 +16,25 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.insights.utils.breakdowns import (
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    has_breakdown_filter,
+    has_multi_breakdown,
+    strip_user_aliases,
+)
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-
-BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
-BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
-BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"
-BREAKDOWN_NULL_DISPLAY = "None (i.e. no value)"
-BREAKDOWN_NUMERIC_ALL_VALUES_PLACEHOLDER = '["",""]'
 
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:
@@ -40,7 +44,7 @@ def hogql_to_string(expr: ast.Expr) -> ast.Call:
 class Breakdown:
     query: TrendsQuery
     team: Team
-    series: Union[EventsNode, ActionsNode, DataWarehouseNode]
+    series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]
     query_date_range: QueryDateRange
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
@@ -50,7 +54,7 @@ class Breakdown:
         self,
         team: Team,
         query: TrendsQuery,
-        series: Union[EventsNode, ActionsNode, DataWarehouseNode],
+        series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode],
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
@@ -66,10 +70,7 @@ class Breakdown:
 
     @property
     def enabled(self) -> bool:
-        return self.query.breakdownFilter is not None and (
-            self.query.breakdownFilter.breakdown is not None
-            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
-        )
+        return has_breakdown_filter(self.query.breakdownFilter)
 
     @cached_property
     def is_histogram_breakdown(self) -> bool:
@@ -88,10 +89,7 @@ class Breakdown:
 
     @property
     def is_multiple_breakdown(self) -> bool:
-        if self.enabled:
-            breakdown_filter = self._breakdown_filter
-            return breakdown_filter.breakdowns is not None
-        return False
+        return has_multi_breakdown(self.query.breakdownFilter)
 
     @cached_property
     def field_exprs(self) -> list[ast.Field]:
@@ -132,10 +130,19 @@ class Breakdown:
             isinstance(breakdown_filter.breakdown, list)
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
+            # `__in_cohort` is a LEFT JOIN of every cohort referenced in the query — breakdown
+            # cohorts *and* any cohort used in a series-level `person in cohort` filter. Restrict
+            # to declared breakdown IDs via `get_trends_query_where_filter` so filter-only-cohort
+            # JOIN rows are dropped at the events WHERE level (before aggregation and ranking).
             return [
                 ast.Alias(
                     alias=self.breakdown_alias,
-                    expr=hogql_to_string(ast.Field(chain=["__in_cohort", "cohort_id"])),
+                    expr=parse_expr(
+                        "toString({cohort_id})",
+                        placeholders={
+                            "cohort_id": ast.Field(chain=["__in_cohort", "cohort_id"]),
+                        },
+                    ),
                 )
             ]
 
@@ -204,11 +211,35 @@ class Breakdown:
         )
 
     def get_trends_query_where_filter(self) -> ast.Expr | None:
-        if self.is_cohort_breakdown:
-            assert self._breakdown_filter.breakdown is not None  # type checking
-            return self._get_cohort_filter(self._breakdown_filter.breakdown)
+        if not self.is_cohort_breakdown:
+            return None
 
-        return None
+        assert self._breakdown_filter.breakdown is not None  # type checking
+        base_filter = self._get_cohort_filter(self._breakdown_filter.breakdown)
+
+        # `__in_cohort` emits one row per cohort the person matches — including filter-only
+        # cohorts referenced elsewhere (e.g. a series `person in cohort X` filter). Drop those
+        # rows here so they can't compete for rank slots at the `breakdown_limit` truncation.
+        if (
+            isinstance(self._breakdown_filter.breakdown, list)
+            and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
+        ):
+            breakdown_ids: list[ast.Expr] = [
+                ast.Constant(value=int(breakdown))
+                for breakdown in self._breakdown_filter.breakdown
+                if breakdown != "all"
+            ]
+            if breakdown_ids:
+                cohort_id_filter = parse_expr(
+                    "{cohort_id} IN {ids}",
+                    placeholders={
+                        "cohort_id": ast.Field(chain=["__in_cohort", "cohort_id"]),
+                        "ids": ast.Array(exprs=breakdown_ids),
+                    },
+                )
+                return ast.And(exprs=[base_filter, cohort_id_filter]) if base_filter is not None else cohort_id_filter
+
+        return base_filter
 
     def get_actors_query_where_filter(self, lookup_values: str | int | list[int | str] | list[str]) -> ast.Expr | None:
         if self.is_cohort_breakdown:
@@ -278,7 +309,9 @@ class Breakdown:
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
         if breakdown_type == "hogql":
-            left = parse_expr(breakdown_value)
+            tag_contains_user_hogql()
+        if breakdown_type == "hogql" or breakdown_type == "event_metadata":
+            left = strip_user_aliases(parse_expr(breakdown_value))
         else:
             left = ast.Field(
                 chain=get_properties_chain(
@@ -287,6 +320,13 @@ class Breakdown:
                     group_type_index=group_type_index,
                 )
             )
+
+        if is_numeric_breakdown:
+            # The bin bounds are numeric — coerce the property so the comparison
+            # matches the toFloat() column built in _get_breakdown_col_expr.
+            # HogQL toFloat maps to accurateCastOrNull, so non-numeric values
+            # become NULL and drop out of the comparison rather than throwing.
+            left = ast.Call(name="toFloat", args=[left])
 
         if lookup_value == BREAKDOWN_NULL_STRING_LABEL:
             none_expr = ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None))
@@ -354,9 +394,10 @@ class Breakdown:
         return cast(
             ast.Call,
             parse_expr(
-                "ifNull(nullIf(toString({node}), ''), {nil})",
+                "ifNull(nullIf(left(toString({node}), {max_length}), ''), {nil})",
                 placeholders={
                     "node": node,
+                    "max_length": ast.Constant(value=BREAKDOWN_VALUE_MAX_LENGTH),
                     "nil": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                 },
             ),
@@ -380,8 +421,11 @@ class Breakdown:
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
-            return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(parse_expr(cast(str, value))))
+            inner = strip_user_aliases(parse_expr(cast(str, value)))
+            return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(inner))
 
         properties_chain = get_properties_chain(
             breakdown_type=breakdown_type,
@@ -390,9 +434,14 @@ class Breakdown:
         )
 
         if histogram_bin_count is not None:
+            # Histogram bin math (max - min, divide, ...) requires a numeric column.
+            # The property is not always numeric-typed (so the property-type swapper
+            # would not coerce it), so coerce it here to avoid an illegal-type error.
+            # HogQL toFloat maps to accurateCastOrNull, so a stray non-numeric
+            # value buckets as NULL instead of throwing and failing the query.
             return ast.Alias(
                 alias=alias,
-                expr=ast.Field(chain=properties_chain),
+                expr=ast.Call(name="toFloat", args=[ast.Field(chain=properties_chain)]),
             )
 
         return ast.Alias(
@@ -411,7 +460,7 @@ class Breakdown:
         return "breakdown_value"
 
     @cached_property
-    def multiple_breakdowns_aliases(self):
+    def multiple_breakdowns_aliases(self) -> list[str]:
         breakdown_filter = self._breakdown_filter
         assert breakdown_filter.breakdowns is not None  # type checking
         return [self._get_multiple_breakdown_alias_name(idx + 1) for idx in range(len(breakdown_filter.breakdowns))]

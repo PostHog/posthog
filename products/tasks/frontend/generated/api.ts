@@ -1,0 +1,1119 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+import type {
+    CodeInviteRedeemRequestApi,
+    ConnectionTokenResponseApi,
+    PaginatedSandboxEnvironmentListListApi,
+    PaginatedTaskAutomationListApi,
+    PaginatedTaskListApi,
+    PaginatedTaskRunDetailListApi,
+    PaginatedTaskSummaryListApi,
+    PatchedSandboxEnvironmentApi,
+    PatchedTaskApi,
+    PatchedTaskAutomationApi,
+    PatchedTaskRunSetOutputRequestApi,
+    PatchedTaskRunUpdateApi,
+    RepositoryReadinessResponseApi,
+    SandboxEnvironmentApi,
+    SandboxListParams,
+    SlackThreadContextResponseApi,
+    TaskApi,
+    TaskAutomationApi,
+    TaskAutomationsListParams,
+    TaskPresenceBeaconRequestApi,
+    TaskRepositoriesResponseApi,
+    TaskRunAppendLogRequestApi,
+    TaskRunArtifactPresignRequestApi,
+    TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsFinalizeUploadRequestApi,
+    TaskRunArtifactsFinalizeUploadResponseApi,
+    TaskRunArtifactsPrepareUploadRequestApi,
+    TaskRunArtifactsPrepareUploadResponseApi,
+    TaskRunArtifactsUploadRequestApi,
+    TaskRunArtifactsUploadResponseApi,
+    TaskRunBootstrapCreateRequestApi,
+    TaskRunCommandRequestApi,
+    TaskRunCommandResponseApi,
+    TaskRunCreateRequestSchemaApi,
+    TaskRunDetailApi,
+    TaskRunRelayMessageRequestApi,
+    TaskRunRelayMessageResponseApi,
+    TaskRunStartRequestApi,
+    TaskStagedArtifactsFinalizeUploadRequestApi,
+    TaskStagedArtifactsFinalizeUploadResponseApi,
+    TaskStagedArtifactsPrepareUploadRequestApi,
+    TaskStagedArtifactsPrepareUploadResponseApi,
+    TaskSummariesRequestApi,
+    TasksListParams,
+    TasksRepositoryReadinessRetrieveParams,
+    TasksRunsListParams,
+    TasksRunsSessionLogsRetrieveParams,
+    TasksSlackThreadContextRetrieveParams,
+    TasksSummariesCreateParams,
+} from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
+
+export const getCodeInvitesCheckAccessRetrieveUrl = () => {
+    return `/api/code/invites/check-access/`
+}
+
+/**
+ * Check whether the authenticated user has access to PostHog Code.
+ * @summary Check access
+ */
+export const codeInvitesCheckAccessRetrieve = async (options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesCheckAccessRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCodeInvitesRedeemCreateUrl = () => {
+    return `/api/code/invites/redeem/`
+}
+
+/**
+ * Redeem a PostHog Code invite code to enable access.
+ * @summary Redeem invite code
+ */
+export const codeInvitesRedeemCreate = async (
+    codeInviteRedeemRequestApi: CodeInviteRedeemRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCodeInvitesRedeemCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+export const getSandboxListUrl = (projectId: string, params?: SandboxListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/sandbox_environments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/sandbox_environments/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxList = async (
+    projectId: string,
+    params?: SandboxListParams,
+    options?: RequestInit
+): Promise<PaginatedSandboxEnvironmentListListApi> => {
+    return apiMutator<PaginatedSandboxEnvironmentListListApi>(getSandboxListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxCreate = async (
+    projectId: string,
+    sandboxEnvironmentApi: NonReadonly<SandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxEnvironmentApi),
+    })
+}
+
+export const getSandboxRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/${id}/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSandboxPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/${id}/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSandboxEnvironmentApi?: NonReadonly<PatchedSandboxEnvironmentApi>,
+    options?: RequestInit
+): Promise<SandboxEnvironmentApi> => {
+    return apiMutator<SandboxEnvironmentApi>(getSandboxPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSandboxEnvironmentApi),
+    })
+}
+
+export const getSandboxDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/sandbox_environments/${id}/`
+}
+
+/**
+ * API for managing sandbox environments that control network access for task runs.
+ */
+export const sandboxDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getSandboxDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTaskAutomationsListUrl = (projectId: string, params?: TaskAutomationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsList = async (
+    projectId: string,
+    params?: TaskAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskAutomationListApi> => {
+    return apiMutator<PaginatedTaskAutomationListApi>(getTaskAutomationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskAutomationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_automations/`
+}
+
+export const taskAutomationsCreate = async (
+    projectId: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
+    })
+}
+
+export const getTaskAutomationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskAutomationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsUpdate = async (
+    projectId: string,
+    id: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
+    })
+}
+
+export const getTaskAutomationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTaskAutomationApi?: NonReadonly<PatchedTaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskAutomationApi),
+    })
+}
+
+export const getTaskAutomationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/`
+}
+
+export const taskAutomationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTaskAutomationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTaskAutomationsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_automations/${id}/run/`
+}
+
+export const taskAutomationsRunCreate = async (
+    projectId: string,
+    id: string,
+    taskAutomationApi: NonReadonly<TaskAutomationApi>,
+    options?: RequestInit
+): Promise<TaskAutomationApi> => {
+    return apiMutator<TaskAutomationApi>(getTaskAutomationsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskAutomationApi),
+    })
+}
+
+export const getTasksListUrl = (projectId: string, params?: TasksListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/`
+}
+
+/**
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * @summary List tasks
+ */
+export const tasksList = async (
+    projectId: string,
+    params?: TasksListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskListApi> => {
+    return apiMutator<PaginatedTaskListApi>(getTasksListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksCreate = async (
+    projectId: string,
+    taskApi?: NonReadonly<TaskApi>,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskApi),
+    })
+}
+
+export const getTasksRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksUpdate = async (
+    projectId: string,
+    id: string,
+    taskApi?: NonReadonly<TaskApi>,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskApi),
+    })
+}
+
+export const getTasksPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTaskApi?: NonReadonly<PatchedTaskApi>,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskApi),
+    })
+}
+
+export const getTasksDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksPresenceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/presence/`
+}
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const tasksPresenceCreate = async (
+    projectId: string,
+    id: string,
+    taskPresenceBeaconRequestApi: TaskPresenceBeaconRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksPresenceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPresenceBeaconRequestApi),
+    })
+}
+
+export const getTasksPresenceDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/presence/`
+}
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const tasksPresenceDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTasksPresenceDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTasksRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/run/`
+}
+
+/**
+ * Create a new task run and kick off the workflow.
+ * @summary Run task
+ */
+export const tasksRunCreate = async (
+    projectId: string,
+    id: string,
+    taskRunCreateRequestSchemaApi?: TaskRunCreateRequestSchemaApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCreateRequestSchemaApi),
+    })
+}
+
+export const getTasksStagedArtifactsFinalizeUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/finalize_upload/`
+}
+
+/**
+ * Verify staged S3 uploads and cache their metadata so they can be attached to the next run created for this task.
+ * @summary Finalize staged direct uploads for task attachments
+ */
+export const tasksStagedArtifactsFinalizeUploadCreate = async (
+    projectId: string,
+    id: string,
+    taskStagedArtifactsFinalizeUploadRequestApi: TaskStagedArtifactsFinalizeUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskStagedArtifactsFinalizeUploadResponseApi> => {
+    return apiMutator<TaskStagedArtifactsFinalizeUploadResponseApi>(
+        getTasksStagedArtifactsFinalizeUploadCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskStagedArtifactsFinalizeUploadRequestApi),
+        }
+    )
+}
+
+export const getTasksStagedArtifactsPrepareUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/staged_artifacts/prepare_upload/`
+}
+
+/**
+ * Reserve S3 object keys for task attachments before creating a new run and return presigned POST forms for direct uploads.
+ * @summary Prepare staged direct uploads for task attachments
+ */
+export const tasksStagedArtifactsPrepareUploadCreate = async (
+    projectId: string,
+    id: string,
+    taskStagedArtifactsPrepareUploadRequestApi: TaskStagedArtifactsPrepareUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskStagedArtifactsPrepareUploadResponseApi> => {
+    return apiMutator<TaskStagedArtifactsPrepareUploadResponseApi>(
+        getTasksStagedArtifactsPrepareUploadCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskStagedArtifactsPrepareUploadRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsListUrl = (projectId: string, taskId: string, params?: TasksRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/`
+}
+
+/**
+ * Get a list of runs for a specific task.
+ * @summary List task runs
+ */
+export const tasksRunsList = async (
+    projectId: string,
+    taskId: string,
+    params?: TasksRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaskRunDetailListApi> => {
+    return apiMutator<PaginatedTaskRunDetailListApi>(getTasksRunsListUrl(projectId, taskId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsCreateUrl = (projectId: string, taskId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/`
+}
+
+/**
+ * Create a new run for a specific task without starting execution.
+ * @summary Create task run
+ */
+export const tasksRunsCreate = async (
+    projectId: string,
+    taskId: string,
+    taskRunBootstrapCreateRequestApi?: TaskRunBootstrapCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsCreateUrl(projectId, taskId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunBootstrapCreateRequestApi),
+    })
+}
+
+export const getTasksRunsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
+export const tasksRunsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Update task run
+ */
+export const tasksRunsPartialUpdate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    patchedTaskRunUpdateApi?: PatchedTaskRunUpdateApi,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunUpdateApi),
+    })
+}
+
+export const getTasksRunsAppendLogCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/append_log/`
+}
+
+/**
+ * Append one or more log entries to the task run log array
+ * @summary Append log entries
+ */
+export const tasksRunsAppendLogCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunAppendLogRequestApi: TaskRunAppendLogRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsAppendLogCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunAppendLogRequestApi),
+    })
+}
+
+export const getTasksRunsArtifactsCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/`
+}
+
+/**
+ * Persist task artifacts to S3 and attach them to the run manifest.
+ * @summary Upload artifacts for a task run
+ */
+export const tasksRunsArtifactsCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsUploadRequestApi: TaskRunArtifactsUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsUploadResponseApi>(getTasksRunsArtifactsCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunArtifactsUploadRequestApi),
+    })
+}
+
+export const getTasksRunsArtifactsDownloadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/download/`
+}
+
+/**
+ * Streams artifact content for a task run artifact after validating that it belongs to the run.
+ * @summary Download an artifact through the backend
+ */
+export const tasksRunsArtifactsDownloadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactPresignRequestApi: TaskRunArtifactPresignRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsArtifactsDownloadCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+export const getTasksRunsArtifactsFinalizeUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/finalize_upload/`
+}
+
+/**
+ * Verify directly uploaded S3 objects and attach them to the run artifact manifest.
+ * @summary Finalize direct uploads for task run artifacts
+ */
+export const tasksRunsArtifactsFinalizeUploadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsFinalizeUploadRequestApi: TaskRunArtifactsFinalizeUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsFinalizeUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsFinalizeUploadResponseApi>(
+        getTasksRunsArtifactsFinalizeUploadCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsFinalizeUploadRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsArtifactsPrepareUploadCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/prepare_upload/`
+}
+
+/**
+ * Reserve S3 object keys for task artifacts and return presigned POST forms for direct uploads.
+ * @summary Prepare direct uploads for task run artifacts
+ */
+export const tasksRunsArtifactsPrepareUploadCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactsPrepareUploadRequestApi: TaskRunArtifactsPrepareUploadRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactsPrepareUploadResponseApi> => {
+    return apiMutator<TaskRunArtifactsPrepareUploadResponseApi>(
+        getTasksRunsArtifactsPrepareUploadCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunArtifactsPrepareUploadRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsArtifactsPresignCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/artifacts/presign/`
+}
+
+/**
+ * Returns a temporary, signed URL that can be used to download a specific artifact.
+ * @summary Generate presigned URL for an artifact
+ */
+export const tasksRunsArtifactsPresignCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunArtifactPresignRequestApi: TaskRunArtifactPresignRequestApi,
+    options?: RequestInit
+): Promise<TaskRunArtifactPresignResponseApi> => {
+    return apiMutator<TaskRunArtifactPresignResponseApi>(getTasksRunsArtifactsPresignCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunArtifactPresignRequestApi),
+    })
+}
+
+export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/command/`
+}
+
+/**
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, and set_config_option commands.
+ * @summary Send command to task run
+ */
+export const tasksRunsCommandCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunCommandRequestApi: TaskRunCommandRequestApi,
+    options?: RequestInit
+): Promise<TaskRunCommandResponseApi> => {
+    return apiMutator<TaskRunCommandResponseApi>(getTasksRunsCommandCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunCommandRequestApi),
+    })
+}
+
+export const getTasksRunsConnectionTokenRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/connection_token/`
+}
+
+/**
+ * Generate a JWT token for direct connection to the sandbox. Valid for 24 hours.
+ * @summary Get sandbox connection token
+ */
+export const tasksRunsConnectionTokenRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ConnectionTokenResponseApi> => {
+    return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
+}
+
+/**
+ * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
+ * @summary Relay run message to Slack
+ */
+export const tasksRunsRelayMessageCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
+    options?: RequestInit
+): Promise<TaskRunRelayMessageResponseApi> => {
+    return apiMutator<TaskRunRelayMessageResponseApi>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunRelayMessageRequestApi),
+    })
+}
+
+export const getTasksRunsResumeInCloudCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/resume_in_cloud/`
+}
+
+/**
+ * Resume an existing task run in a cloud sandbox. Terminates any existing workflow and starts a new one.
+ * @summary Resume task run in cloud
+ */
+export const tasksRunsResumeInCloudCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsResumeInCloudCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTasksRunsSessionLogsRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/session_logs/`
+}
+
+/**
+ * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
+ * @summary Get filtered task run session logs
+ */
+export const tasksRunsSessionLogsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsSessionLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsSessionLogsRetrieveUrl(projectId, taskId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsSetOutputPartialUpdateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/set_output/`
+}
+
+/**
+ * Update the output field for a task run (e.g., PR URL, commit SHA, etc.)
+ * @summary Set run output
+ */
+export const tasksRunsSetOutputPartialUpdate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    patchedTaskRunSetOutputRequestApi?: PatchedTaskRunSetOutputRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTaskRunSetOutputRequestApi),
+    })
+}
+
+export const getTasksRunsStartCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/start/`
+}
+
+/**
+ * Start an existing cloud run after any initial run-scoped attachments have been uploaded.
+ * @summary Start task run
+ */
+export const tasksRunsStartCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunStartRequestApi?: TaskRunStartRequestApi,
+    options?: RequestInit
+): Promise<TaskApi> => {
+    return apiMutator<TaskApi>(getTasksRunsStartCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunStartRequestApi),
+    })
+}
+
+export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
+export const tasksRunsStreamRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRepositoriesRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/repositories/`
+}
+
+/**
+ * Return the set of repositories referenced by non-deleted, non-internal tasks in the current project. Used to populate repository filter pickers without being constrained by task list pagination.
+ * @summary List distinct task repositories
+ */
+export const tasksRepositoriesRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<TaskRepositoriesResponseApi> => {
+    return apiMutator<TaskRepositoriesResponseApi>(getTasksRepositoriesRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRepositoryReadinessRetrieveUrl = (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/repository_readiness/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/repository_readiness/`
+}
+
+/**
+ * Get autonomy readiness details for a specific repository in the current project.
+ * @summary Get repository readiness
+ */
+export const tasksRepositoryReadinessRetrieve = async (
+    projectId: string,
+    params: TasksRepositoryReadinessRetrieveParams,
+    options?: RequestInit
+): Promise<RepositoryReadinessResponseApi> => {
+    return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSlackThreadContextRetrieveUrl = (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/slack_thread_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/slack_thread_context/`
+}
+
+/**
+ * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs.
+ * @summary Resolve a Slack thread to its task, runs, and Temporal workflows
+ */
+export const tasksSlackThreadContextRetrieve = async (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams,
+    options?: RequestInit
+): Promise<SlackThreadContextResponseApi> => {
+    return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSummariesCreateUrl = (projectId: string, params?: TasksSummariesCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/summaries/`
+}
+
+/**
+ * Returns summary for the requested tasks: `id`, `title`, `repository`, `created_at`, `updated_at`, and the latest run's `status` and `environment`.
+ * @summary Fetch task summaries by ID
+ */
+export const tasksSummariesCreate = async (
+    projectId: string,
+    taskSummariesRequestApi: TaskSummariesRequestApi,
+    params?: TasksSummariesCreateParams,
+    options?: RequestInit
+): Promise<PaginatedTaskSummaryListApi> => {
+    return apiMutator<PaginatedTaskSummaryListApi>(getTasksSummariesCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskSummariesRequestApi),
+    })
+}

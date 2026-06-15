@@ -3,3 +3,5 @@ build/
 *.egg-info
 *.so
 dist/
+.cache/
+build_wasm/

@@ -12,9 +12,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -29,6 +32,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -38,134 +43,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestPreviewList.test_early_access_features.2
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'feature_flag'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.3
-  '''
-  SELECT "posthog_integration"."id",
-         "posthog_integration"."team_id",
-         "posthog_integration"."kind",
-         "posthog_integration"."integration_id",
-         "posthog_integration"."config",
-         "posthog_integration"."sensitive_config",
-         "posthog_integration"."errors",
-         "posthog_integration"."created_at",
-         "posthog_integration"."created_by_id"
-  FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
-         AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.4
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'early_access_feature'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.5
-  '''
-  SELECT "posthog_filesystem"."team_id",
-         "posthog_filesystem"."id",
-         "posthog_filesystem"."path",
-         "posthog_filesystem"."depth",
-         "posthog_filesystem"."type",
-         "posthog_filesystem"."ref",
-         "posthog_filesystem"."href",
-         "posthog_filesystem"."shortcut",
-         "posthog_filesystem"."meta",
-         "posthog_filesystem"."created_at",
-         "posthog_filesystem"."created_by_id",
-         "posthog_filesystem"."project_id"
-  FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
-         AND "posthog_filesystem"."team_id" = 99999
-         AND "posthog_filesystem"."type" = 'early_access_feature'
-         AND NOT ("posthog_filesystem"."shortcut"
-                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.6
-  '''
-  SELECT "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."is_active",
-         "posthog_user"."role_at_organization",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."allow_impersonation",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."hedgehog_config",
-         "posthog_user"."allow_sidebar_suggestions",
-         "posthog_user"."shortcut_position",
-         "posthog_user"."events_column_config",
-         "posthog_user"."email_opt_in"
-  FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.7
-  '''
-  SELECT "posthog_team"."id"
-  FROM "posthog_team"
-  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_team"."receive_org_level_activity_logs")
-  '''
-# ---
-# name: TestPreviewList.test_early_access_features.8
+# name: TestPreviewList.test_early_access_features.10
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -183,6 +61,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -196,8 +76,12 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -209,6 +93,9 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -218,6 +105,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -247,13 +136,15 @@
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21
   '''
 # ---
-# name: TestPreviewList.test_early_access_features.9
+# name: TestPreviewList.test_early_access_features.11
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -268,7 +159,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -294,6 +184,187 @@
          AND "posthog_team"."project_id" = 99999)
   '''
 # ---
+# name: TestPreviewList.test_early_access_features.2
+  '''
+  SELECT "posthog_organizationintegration"."id",
+         "posthog_organizationintegration"."organization_id",
+         "posthog_organizationintegration"."kind",
+         "posthog_organizationintegration"."integration_id",
+         "posthog_organizationintegration"."config",
+         "posthog_organizationintegration"."sensitive_config",
+         "posthog_organizationintegration"."created_by_id",
+         "posthog_organizationintegration"."created_at",
+         "posthog_organizationintegration"."updated_at"
+  FROM "posthog_organizationintegration"
+  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
+         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
+  LIMIT 21
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.3
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'feature_flag'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.4
+  '''
+  SELECT "posthog_integration"."id",
+         "posthog_integration"."team_id",
+         "posthog_integration"."kind",
+         "posthog_integration"."integration_id",
+         "posthog_integration"."config",
+         "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
+         "posthog_integration"."errors",
+         "posthog_integration"."created_at",
+         "posthog_integration"."created_by_id"
+  FROM "posthog_integration"
+  WHERE ("posthog_integration"."kind" = 'vercel'
+         AND "posthog_integration"."team_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.5
+  '''
+  SELECT "posthog_organizationintegration"."id",
+         "posthog_organizationintegration"."organization_id",
+         "posthog_organizationintegration"."kind",
+         "posthog_organizationintegration"."integration_id",
+         "posthog_organizationintegration"."config",
+         "posthog_organizationintegration"."sensitive_config",
+         "posthog_organizationintegration"."created_by_id",
+         "posthog_organizationintegration"."created_at",
+         "posthog_organizationintegration"."updated_at"
+  FROM "posthog_organizationintegration"
+  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
+         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
+  LIMIT 21
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.6
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'early_access_feature'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.7
+  '''
+  SELECT "posthog_filesystem"."team_id",
+         "posthog_filesystem"."id",
+         "posthog_filesystem"."path",
+         "posthog_filesystem"."depth",
+         "posthog_filesystem"."type",
+         "posthog_filesystem"."ref",
+         "posthog_filesystem"."href",
+         "posthog_filesystem"."shortcut",
+         "posthog_filesystem"."meta",
+         "posthog_filesystem"."created_at",
+         "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
+         "posthog_filesystem"."project_id"
+  FROM "posthog_filesystem"
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
+         AND "posthog_filesystem"."team_id" = 99999
+         AND "posthog_filesystem"."type" = 'early_access_feature'
+         AND NOT ("posthog_filesystem"."shortcut"
+                  AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.8
+  '''
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
+         "posthog_user"."requested_2fa_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
+         "posthog_user"."is_active",
+         "posthog_user"."role_at_organization",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."allow_impersonation",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."hedgehog_config",
+         "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
+         "posthog_user"."events_column_config",
+         "posthog_user"."email_opt_in"
+  FROM "posthog_user"
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features.9
+  '''
+  SELECT "posthog_team"."id" AS "id"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_team"."receive_org_level_activity_logs")
+  '''
+# ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview
   '''
   SELECT "posthog_filesystem"."team_id",
@@ -307,9 +378,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -324,6 +398,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -334,6 +410,23 @@
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_includes_payload_in_preview.2
+  '''
+  SELECT "posthog_organizationintegration"."id",
+         "posthog_organizationintegration"."organization_id",
+         "posthog_organizationintegration"."kind",
+         "posthog_organizationintegration"."integration_id",
+         "posthog_organizationintegration"."config",
+         "posthog_organizationintegration"."sensitive_config",
+         "posthog_organizationintegration"."created_by_id",
+         "posthog_organizationintegration"."created_at",
+         "posthog_organizationintegration"."updated_at"
+  FROM "posthog_organizationintegration"
+  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
+         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
+  LIMIT 21
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.3
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -346,16 +439,19 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.3
+# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.4
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -369,9 +465,10 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -384,22 +481,30 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.4
+# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.5
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.5
+# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.6
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -417,6 +522,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -430,8 +537,12 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -443,6 +554,9 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -452,6 +566,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -481,13 +597,15 @@
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.6
+# name: TestPreviewList.test_early_access_features_includes_payload_in_preview.7
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -502,7 +620,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -546,6 +663,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -559,8 +678,12 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."conversations_enabled",
+         "posthog_team"."conversations_settings",
+         "posthog_team"."proactive_tasks_enabled",
          "posthog_team"."survey_config",
          "posthog_team"."surveys_opt_in",
          "posthog_team"."product_tours_opt_in",
@@ -572,6 +695,9 @@
          "posthog_team"."autocapture_web_vitals_allowed_metrics",
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
+         "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -581,6 +707,8 @@
          "posthog_team"."feature_flag_confirmation_message",
          "posthog_team"."default_evaluation_environments_enabled",
          "posthog_team"."require_evaluation_environment_tags",
+         "posthog_team"."default_evaluation_contexts_enabled",
+         "posthog_team"."require_evaluation_contexts",
          "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
@@ -610,6 +738,8 @@
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
+         "posthog_team"."default_experiment_confidence_level",
+         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
@@ -629,9 +759,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -646,6 +779,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -656,6 +791,23 @@
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_cached_team.3
+  '''
+  SELECT "posthog_organizationintegration"."id",
+         "posthog_organizationintegration"."organization_id",
+         "posthog_organizationintegration"."kind",
+         "posthog_organizationintegration"."integration_id",
+         "posthog_organizationintegration"."config",
+         "posthog_organizationintegration"."sensitive_config",
+         "posthog_organizationintegration"."created_by_id",
+         "posthog_organizationintegration"."created_at",
+         "posthog_organizationintegration"."updated_at"
+  FROM "posthog_organizationintegration"
+  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
+         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
+  LIMIT 21
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features_with_cached_team.4
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -668,16 +820,19 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_with_cached_team.4
+# name: TestPreviewList.test_early_access_features_with_cached_team.5
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -691,9 +846,10 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -706,22 +862,30 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_with_cached_team.5
+# name: TestPreviewList.test_early_access_features_with_cached_team.6
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_with_cached_team.6
+# name: TestPreviewList.test_early_access_features_with_cached_team.7
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -736,7 +900,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -775,9 +938,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -792,6 +958,8 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
+         "posthog_integration"."repository_cache",
+         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
@@ -802,6 +970,23 @@
   '''
 # ---
 # name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.2
+  '''
+  SELECT "posthog_organizationintegration"."id",
+         "posthog_organizationintegration"."organization_id",
+         "posthog_organizationintegration"."kind",
+         "posthog_organizationintegration"."integration_id",
+         "posthog_organizationintegration"."config",
+         "posthog_organizationintegration"."sensitive_config",
+         "posthog_organizationintegration"."created_by_id",
+         "posthog_organizationintegration"."created_at",
+         "posthog_organizationintegration"."updated_at"
+  FROM "posthog_organizationintegration"
+  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
+         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
+  LIMIT 21
+  '''
+# ---
+# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.3
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -814,16 +999,19 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'early_access_feature'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.3
+# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.4
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -837,9 +1025,10 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
+         "posthog_user"."credentials_reviewed_at",
+         "posthog_user"."requested_2fa_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."strapi_id",
          "posthog_user"."is_active",
@@ -852,22 +1041,30 @@
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
          "posthog_user"."shortcut_position",
+         "posthog_user"."passkeys_enabled_for_2fa",
+         "posthog_user"."hide_mcp_hints",
+         "posthog_user"."onboarding_skipped_at",
+         "posthog_user"."onboarding_skipped_reason",
+         "posthog_user"."onboarding_skipped_organization_id",
+         "posthog_user"."onboarding_delegated_to_invite_id",
+         "posthog_user"."onboarding_delegated_to_organization_id",
+         "posthog_user"."onboarding_delegation_accepted_at",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
-  WHERE "posthog_user"."id" = 99999
-  LIMIT 21
+  WHERE ("posthog_user"."is_active"
+         AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.4
+# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.5
   '''
-  SELECT "posthog_team"."id"
+  SELECT "posthog_team"."id" AS "id"
   FROM "posthog_team"
   WHERE ("posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_team"."receive_org_level_activity_logs")
   '''
 # ---
-# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.5
+# name: TestPreviewList.test_early_access_features_with_pre_env_cached_team.6
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -882,7 +1079,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",

@@ -1,22 +1,36 @@
-import { Properties } from '@posthog/plugin-scaffold'
+import { Properties } from '~/plugin-scaffold'
 
 import { OrganizationAvailableFeature, ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader } from './lazy-loader'
+import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'availableFeatures'> & {
+type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
 }
 
+export interface TeamManagerOptions {
+    /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
+    loaderRetry?: LoaderRetryOptions
+}
+
+/**
+ * Looks up Teams by id or token, backed by a Postgres-loaded lazy cache.
+ * Pure business surface — no `start` / `stop`. Callers that need to manage
+ * its lifetime as part of a `Lifecycle` use `TeamManagerComponent`.
+ */
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        options?: TeamManagerOptions
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'TeamManager',
             refreshAgeMs: 2 * 60 * 1000, // 2 minute
             refreshJitterMs: 30 * 1000, // 30 seconds
+            loaderRetry: options?.loaderRetry,
             loader: async (teamIdOrTokens: string[]) => {
                 return await this.fetchTeams(teamIdOrTokens)
             },
@@ -79,15 +93,6 @@ export class TeamManager {
         }
     }
 
-    public async getTeamForEvent(event: { team_id?: number | null; token?: string | null }): Promise<Team | null> {
-        if (event.team_id) {
-            return this.getTeam(event.team_id)
-        } else if (event.token) {
-            return this.getTeamByToken(event.token)
-        }
-        return null
-    }
-
     private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {
@@ -118,7 +123,7 @@ export class TeamManager {
                 t.name,
                 t.anonymize_ips,
                 t.api_token,
-                t.slack_incoming_webhook,
+                t.secret_api_token,
                 t.session_recording_opt_in,
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
@@ -126,6 +131,8 @@ export class TeamManager {
                 t.person_display_name_properties,
                 t.cookieless_server_hash_mode,
                 t.timezone,
+                t.logs_settings,
+                t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 o.available_product_features
             FROM posthog_team t
@@ -160,6 +167,26 @@ export class TeamManager {
             resultRecord[row.api_token] = team
         })
 
-        return resultRecord as Record<string, Team | null>
+        return resultRecord
+    }
+}
+
+/**
+ * Lifecycle owner for `TeamManager`. `start()` constructs a fresh
+ * `TeamManager` and hands it back along with a no-op stop callback. The
+ * resulting `TeamManager` has no `start`/`stop` of its own — its lifetime
+ * is fully controlled through this Manager.
+ */
+export class TeamManagerComponent {
+    constructor(
+        private postgres: PostgresRouter,
+        private options?: TeamManagerOptions
+    ) {}
+
+    start(): Promise<{ value: TeamManager; stop: () => Promise<void> }> {
+        return Promise.resolve({
+            value: new TeamManager(this.postgres, this.options),
+            stop: () => Promise.resolve(),
+        })
     }
 }

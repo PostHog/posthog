@@ -7,11 +7,14 @@ import {
     ConversionGoalFilter,
     DataTableNode,
     DatabaseSchemaDataWarehouseTable,
+    MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MarketingAnalyticsBaseColumns,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     SourceMap,
+    getEffectiveExcludedColumns,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
@@ -42,7 +45,7 @@ export type NativeSource = {
 export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType>([
     path(['scenes', 'marketingAnalytics', 'marketingAnalyticsTableLogic']),
     connect(() => ({
-        values: [marketingAnalyticsLogic, ['conversion_goals', 'draftConversionGoal']],
+        values: [marketingAnalyticsLogic, ['conversion_goals', 'draftConversionGoal', 'drillDownLevel']],
         actions: [marketingAnalyticsLogic, ['setDraftConversionGoal']],
     })),
     actions({
@@ -58,17 +61,53 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
     }),
     selectors({
         defaultColumns: [
-            (s) => [s.conversion_goals],
-            (conversionGoals: ConversionGoalFilter[]) => {
-                const selectColumns = [
-                    ...Object.values(MarketingAnalyticsBaseColumns).map((column) => column.toString()),
-                    ...conversionGoals
-                        .map((goal) => [
-                            goal.conversion_goal_name,
-                            `${MarketingAnalyticsHelperForColumnNames.CostPer} ${goal.conversion_goal_name}`,
-                        ])
-                        .flat(),
-                ].filter(isNotNil)
+            (s) => [s.conversion_goals, s.drillDownLevel],
+            (conversionGoals: ConversionGoalFilter[], drillDownLevel: MarketingAnalyticsDrillDownLevel) => {
+                const config = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
+                // Hierarchy columns are auto-excluded outside AD_GROUP / AD — see
+                // getEffectiveExcludedColumns. Routing on the user-config (config.excludedBaseColumns)
+                // keeps CAMPAIGN on the natural-order path (preserves master's [ID, Campaign, Source, …]).
+                const effectiveExcluded = getEffectiveExcludedColumns(drillDownLevel)
+
+                // Dedupe in case the alias also appears in the filtered base columns
+                // (e.g. AD_GROUP / AD where the alias matches a base column that isn't
+                // excluded). Without this we'd render the primary column twice and
+                // confuse the URL/order machinery.
+                const baseColumns =
+                    config.excludedBaseColumns.length > 0
+                        ? Array.from(
+                              new Set([
+                                  config.columnAlias,
+                                  ...Object.values(MarketingAnalyticsBaseColumns).filter(
+                                      (col) => !effectiveExcluded.has(col)
+                                  ),
+                              ])
+                          )
+                        : Object.values(MarketingAnalyticsBaseColumns)
+                              .filter((col) => !effectiveExcluded.has(col))
+                              .map((column) => column.toString())
+
+                // Cost per conversion only makes sense when the Cost metric exists at this level.
+                // At UTM drill-downs (medium/content/term) Cost is excluded because platform
+                // cost can't be attributed to a specific UTM value.
+                const costAvailable = !effectiveExcluded.has(MarketingAnalyticsBaseColumns.Cost)
+
+                // At ad-group / ad levels, events can't be attributed to a specific ad so
+                // conversion goals are dropped entirely.
+                const conversionGoalColumns = config.excludesConversionGoals
+                    ? []
+                    : conversionGoals
+                          .map((goal) =>
+                              costAvailable
+                                  ? [
+                                        goal.conversion_goal_name,
+                                        `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
+                                    ]
+                                  : [goal.conversion_goal_name]
+                          )
+                          .flat()
+
+                const selectColumns = [...baseColumns, ...conversionGoalColumns].filter(isNotNil)
                 return selectColumns
             },
         ],

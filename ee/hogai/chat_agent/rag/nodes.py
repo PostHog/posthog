@@ -1,5 +1,7 @@
 import json
 import time
+
+# nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (XML generation only, no parsing - no XXE risk)
 import xml.etree.ElementTree as ET
 from typing import Literal, TypedDict
 
@@ -10,15 +12,16 @@ from prometheus_client import Histogram
 
 from posthog.schema import CachedVectorSearchQueryResponse, MaxActionContext, TeamTaxonomyQuery, VectorSearchQuery
 
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.event_usage import report_user_action
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import (
     LATEST_ACTIONS_EMBEDDING_VERSION,
     VectorSearchQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Action
+
+from products.actions.backend.models.action import Action
 
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.embeddings import embed_search_query, get_azure_embeddings_client
@@ -122,8 +125,16 @@ class InsightRagContextNode(AssistantNode):
                     team=self._team,
                     query=VectorSearchQuery(embedding=embedding, embeddingVersion=LATEST_ACTIONS_EMBEDDING_VERSION),
                 )
-                with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
-                    response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                with tags_context(
+                    product=Product.MAX_AI,
+                    feature=Feature.POSTHOG_AI,
+                    team_id=self._team.pk,
+                    org_id=self._team.organization_id,
+                ):
+                    response = runner.run(
+                        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
+                    )
                 if isinstance(response, CachedVectorSearchQueryResponse) and response.results:
                     ids = list({row.id for row in response.results} | set(ids))
                     distances = [row.distance for row in response.results]
@@ -168,7 +179,8 @@ class InsightRagContextNode(AssistantNode):
         This will slightly reduce latency.
         """
         TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
-            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+            analytics_props={"source": EventSource.POSTHOG_AI},
         )
 
     def _report_metrics(self, config: RunnableConfig, distances: list[float]):

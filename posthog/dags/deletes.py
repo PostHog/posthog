@@ -21,6 +21,7 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     NodeRole,
     Query,
+    Workload,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
@@ -434,7 +435,7 @@ def load_pending_deletions(
                         "group_type_index": deletion.group_type_index,
                         "created_at": deletion.created_at,
                         "delete_verified_at": deletion.delete_verified_at,
-                        "created_by_id": str(deletion.created_by.id) if deletion.created_by else None,
+                        "created_by_id": str(deletion.created_by_id) if deletion.created_by_id else None,
                         "team_id": deletion.team_id,
                     }
                     for deletion in chunk
@@ -601,6 +602,7 @@ def delete_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (cluster.map_one_host_per_shard(delete_mutation_runner).result().items())
+        if host.shard_num is not None
     }
 
     return (load_and_verify_deletes_dictionary, shard_mutations)
@@ -750,7 +752,7 @@ def cleanup_delete_assets(
     """Clean up temporary tables and mark deletions as verified."""
     # Drop the dictionary and table using the table object
     if not config.cleanup:
-        config.log.info("Skipping cleanup as cleanup is disabled")
+        dagster.get_dagster_logger().info("Skipping cleanup as cleanup is disabled")
         return True
 
     # Must drop dict first
@@ -758,7 +760,9 @@ def cleanup_delete_assets(
     cluster.map_all_hosts(resources.pending_deletions_dictionary.source.drop).result()
 
     cluster.map_all_hosts(resources.adhoc_event_deletes_dictionary.drop).result()
-    cluster.any_host(resources.adhoc_event_deletes_dictionary.source.optimize).result()
+    cluster.any_host_by_role(
+        resources.adhoc_event_deletes_dictionary.source.optimize, NodeRole.DATA, Workload.ONLINE
+    ).result()
 
     return True
 
@@ -812,25 +816,28 @@ def find_partitions_to_cleanup(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> list[int]:
     """Find partitions that contain old events for the specified teams."""
-    team_ids_str = ", ".join(str(tid) for tid in config.team_ids)
-
     query = f"""
         SELECT toYYYYMM(timestamp) as partition, count(1) as rows
         FROM {EVENTS_DATA_TABLE()}
-        WHERE team_id IN ({team_ids_str})
-        AND age('month', timestamp, now()) >= {config.min_age_months}
+        WHERE team_id IN %(team_ids)s
+        AND age('month', timestamp, now()) >= %(min_age_months)s
         GROUP BY partition
         ORDER BY partition DESC
     """
 
-    results = cluster.any_host_by_role(Query(query), NodeRole.DATA).result()
+    parameters = {
+        "team_ids": config.team_ids,
+        "min_age_months": config.min_age_months,
+    }
+
+    results = cluster.any_host_by_role(Query(query, parameters=parameters), NodeRole.DATA).result()
     partitions = [partition for partition, _rows in results]
 
     context.add_output_metadata(
         {
             "partitions_found": dagster.MetadataValue.int(len(partitions)),
             "partitions": dagster.MetadataValue.text(", ".join(str(p) for p in partitions)),
-            "team_ids": dagster.MetadataValue.text(team_ids_str),
+            "team_ids": dagster.MetadataValue.text(", ".join(str(tid) for tid in config.team_ids)),
         }
     )
 
@@ -849,7 +856,6 @@ def cleanup_old_events_by_partition(
         context.log.info("No partitions found to clean up")
         return
 
-    team_ids_str = ", ".join(str(tid) for tid in config.team_ids)
     total_partitions = len(partitions)
 
     for idx, partition in enumerate(partitions, 1):
@@ -857,10 +863,14 @@ def cleanup_old_events_by_partition(
 
         delete_mutation_runner = LightweightDeleteMutationRunner(
             table=EVENTS_DATA_TABLE(),
-            predicate=f"""
-                team_id IN ({team_ids_str})
-                AND age('month', timestamp, now()) >= {config.min_age_months}
+            predicate="""
+                team_id IN %(team_ids)s
+                AND age('month', timestamp, now()) >= %(min_age_months)s
             """,
+            parameters={
+                "team_ids": config.team_ids,
+                "min_age_months": config.min_age_months,
+            },
             partition=str(partition),
             settings={"lightweight_deletes_sync": 0},
         )
@@ -878,7 +888,7 @@ def cleanup_old_events_by_partition(
     context.add_output_metadata(
         {
             "partitions_processed": dagster.MetadataValue.int(total_partitions),
-            "team_ids": dagster.MetadataValue.text(team_ids_str),
+            "team_ids": dagster.MetadataValue.text(", ".join(str(tid) for tid in config.team_ids)),
         }
     )
 

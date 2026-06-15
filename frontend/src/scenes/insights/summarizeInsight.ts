@@ -9,14 +9,14 @@ import {
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { MathCategory, MathDefinition, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
+import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import {
     Breakdown,
     BreakdownFilter,
@@ -59,8 +59,8 @@ function summarizeSingularBreakdown(
         breakdownType &&
         breakdownType in PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE
             ? getCoreFilterDefinition(breakdown, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[breakdownType])
-                  ?.label || extractExpressionComment(breakdown)
-            : extractExpressionComment(breakdown as string)
+                  ?.label || extractDisplayLabel(breakdown)
+            : extractDisplayLabel(breakdown as string)
     return `${noun}'s ${propertyLabel}`
 }
 
@@ -111,7 +111,7 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         let summary = query.series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
-                const mathDefinition = context.mathDefinitions[mathType] as MathDefinition | undefined
+                const mathDefinition = context.mathDefinitions[mathType]
                 let series: string
                 if (mathDefinition?.category === MathCategory.EventCountPerActor) {
                     series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
@@ -152,8 +152,14 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             summary = `${query.trendsFilter.formula} on ${summary}`
         }
         if (query.trendsFilter?.formulaNodes) {
-            const formulas = query.trendsFilter?.formulaNodes.map((node) => node.custom_name || node.formula).join(', ')
-            summary = `${formulas} on ${summary}`
+            const formulas = query.trendsFilter.formulaNodes
+                .map((node) => node.custom_name?.trim() || node.formula?.trim())
+                .filter((formula): formula is string => !!formula)
+                .join(', ')
+
+            if (formulas) {
+                summary = `${formulas} on ${summary}`
+            }
         }
 
         return summary
@@ -264,7 +270,7 @@ function summarizeQuery(query: Node): string {
 
         if (selected.length > 0) {
             return `${selected
-                .map(extractExpressionComment)
+                .map(extractDisplayLabel)
                 .filter((c) => !query.hiddenColumns?.includes(c))
                 .join(', ')}${source ? ` from ${source}` : ''}`
         }

@@ -6,6 +6,10 @@
     height: 100%;
     overflow: hidden;
 
+    &:fullscreen {
+        background-color: var(--color-bg-surface-primary);
+    }
+
     .SessionRecordingPlayer__sidebar {
         position: relative;
         display: flex;
@@ -88,9 +92,6 @@
     }
 
     &--fullscreen {
-        position: fixed;
-        inset: 0;
-        z-index: var(--z-modal);
         overflow-y: auto;
         background-color: var(--color-bg-surface-primary);
         border: none;
@@ -131,5 +132,32 @@
         &--forward {
             transform: rotateY(180deg);
         }
+    }
+}
+
+.SkipToNextButton {
+    position: relative;
+
+    &--animating {
+        &::after {
+            position: absolute;
+            inset: -2px;
+            content: '';
+            border: 2px solid var(--primary);
+            border-radius: 4px;
+            animation: SkipToNextButton__Countdown 3s linear forwards;
+        }
+    }
+}
+
+@keyframes SkipToNextButton__Countdown {
+    0% {
+        clip-path: inset(0 0 0 0);
+        opacity: 1;
+    }
+
+    100% {
+        clip-path: inset(0 0 0 100%);
+        opacity: 1;
     }
 }

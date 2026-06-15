@@ -1,0 +1,156 @@
+name: Proto CI
+on:
+    workflow_dispatch:
+    push:
+        branches: [master]
+    pull_request:
+    merge_group:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+    pull-requests: read
+
+jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run proto checks
+        outputs:
+            proto: ${{ steps.filter.outputs.proto || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      proto:
+                        - 'proto/**'
+                        - 'posthog/personhog_client/proto/generated/**'
+                        - 'bin/generate_personhog_proto.sh'
+                        - '.github/workflows/ci-proto.yml'
+
+    lint:
+        name: Lint proto definitions (depot-ubuntu-22.04-4)
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 5
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install buf
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
+              with:
+                  setup_only: true
+                  version: '1.50.0'
+
+            - name: Lint protos
+              run: buf lint proto/
+
+    breaking:
+        name: Check for breaking changes (depot-ubuntu-22.04-4)
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 5
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install buf
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
+              with:
+                  setup_only: true
+                  version: '1.50.0'
+
+            - name: Check for breaking changes
+              run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
+
+    python-codegen:
+        name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
+        needs: changes
+        if: needs.changes.outputs.proto == 'true'
+        runs-on: depot-ubuntu-22.04-4
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
+
+            - name: Install codegen tools
+              run: pip install grpcio-tools protoletariat ruff
+
+            - name: Regenerate Python proto stubs
+              run: bash bin/generate_personhog_proto.sh
+
+            - name: Check for diff
+              run: |
+                  if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
+                    echo ""
+                    echo "ERROR: Generated Python proto stubs are out of date."
+                    echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."
+                    exit 1
+                  fi
+                  echo "Generated Python proto stubs are up to date."
+
+    proto_checks:
+        needs: [changes, lint, breaking, python-codegen]
+        name: Proto Checks Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - name: Check all proto jobs
+              run: |
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.proto }}" != "true" ]]; then
+                    echo "Proto checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
+                    echo "Proto lint failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
+                    echo "Proto breaking change check failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ]]; then
+                    echo "Python proto codegen staleness check failed."
+                    exit 1
+                  fi
+
+                  echo "All proto checks passed."

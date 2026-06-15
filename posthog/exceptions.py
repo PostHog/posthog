@@ -6,10 +6,10 @@ from django.http.response import JsonResponse
 import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException
+from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -32,21 +32,8 @@ class QuotaLimitExceeded(APIException):
 class EnterpriseFeatureException(APIException):
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     default_code = "payment_required"
-    SCALE_ADD_ONS_FEATURES = {AvailableFeature.INGESTION_TAXONOMY}
 
     def __init__(self, feature: Optional[str] = None) -> None:
-        if feature in self.SCALE_ADD_ONS_FEATURES:
-            super().__init__(
-                detail=(
-                    f"{feature.capitalize().replace('_', ' ')} is part of the PostHog Cloud Scale add-on. "
-                    + (
-                        "To use it, please subscribe to the add-on."
-                        if is_cloud()
-                        else "Self-hosted licenses are no longer available for purchase. Please contact sales@posthog.com to discuss options."
-                    )
-                )
-            )
-            return
         super().__init__(
             detail=(
                 f"{feature.capitalize().replace('_', ' ') if feature else 'This feature'} is part of the premium PostHog offering. "
@@ -57,6 +44,15 @@ class EnterpriseFeatureException(APIException):
                 )
             )
         )
+
+
+class PaidFeatureException(APIException):
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    default_code = "payment_required"
+
+    def __init__(self, feature: Optional[str] = None) -> None:
+        feature_name = feature.capitalize().replace("_", " ") if feature else "This feature"
+        super().__init__(detail=f"{feature_name} requires a paid PostHog plan. Please upgrade to access this feature.")
 
 
 class Conflict(APIException):
@@ -71,12 +67,12 @@ class ClickHouseAtCapacity(APIException):
     )
 
 
-class EstimatedQueryExecutionTimeTooLong(APIException):
+class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
 
 
-class QuerySizeExceeded(APIException):
+class ClickHouseQuerySizeExceeded(APIException):
     default_detail = "Query size exceeded."
 
 
@@ -127,3 +123,27 @@ def generate_exception_response(
         tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
+
+
+def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Response]:
+    """
+    Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
+    metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
+    can bootstrap from a stock 401.
+    """
+    # Imported lazily: exceptions_hog calls a non-lazy gettext at module import time,
+    # which raises AppRegistryNotReady when posthog.exceptions is imported during
+    # manage.py bootstrap (before Django apps are loaded).
+    from exceptions_hog import exception_handler as _exceptions_hog_handler
+
+    # Imported lazily to avoid pulling settings into module import.
+    from posthog.utils import absolute_uri
+
+    response = _exceptions_hog_handler(exc, context)
+    if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
+        # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
+        # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
+        # attacker-controlled origin.
+        metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
+        response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    return response

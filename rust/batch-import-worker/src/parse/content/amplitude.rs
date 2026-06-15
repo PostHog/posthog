@@ -30,9 +30,21 @@ pub struct AmplitudeData {
         deserialize_with = "crate::parse::serialization::deserialize_flexible_bool"
     )]
     pub user_properties_updated: bool,
-    #[serde(rename = "group_first_event", default)]
+    // Amplitude emits `null` (rather than omitting the field) for absent
+    // object-typed columns; `deserialize_null_as_default` lets us accept
+    // both shapes — missing and explicit-`null` — into the empty default.
+    // Same reasoning applies to every map-typed field on `AmplitudeEvent`.
+    #[serde(
+        rename = "group_first_event",
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub group_first_event: HashMap<String, Value>,
-    #[serde(rename = "group_ids", default)]
+    #[serde(
+        rename = "group_ids",
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub group_ids: HashMap<String, Value>,
 }
 
@@ -55,7 +67,10 @@ pub struct AmplitudeEvent {
     pub client_event_time: Option<String>,
     pub client_upload_time: Option<String>,
     pub country: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub data: AmplitudeData,
     pub data_type: Option<String>,
     pub device_brand: Option<String>,
@@ -68,14 +83,23 @@ pub struct AmplitudeEvent {
     pub dma: Option<String>,
     #[serde(default)]
     pub event_id: i64,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub event_properties: HashMap<String, Value>,
     pub event_time: Option<String>,
     pub event_type: Option<String>,
     pub global_user_properties: Option<Value>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub group_properties: HashMap<String, HashMap<String, HashMap<String, Value>>>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub groups: HashMap<String, Vec<String>>,
     pub idfa: Option<String>,
     pub ip_address: Option<String>,
@@ -96,7 +120,10 @@ pub struct AmplitudeEvent {
         deserialize_with = "crate::parse::serialization::deserialize_flexible_option_bool"
     )]
     pub paying: Option<bool>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub plan: HashMap<String, Value>,
     pub platform: Option<String>,
     pub processed_time: Option<String>,
@@ -110,7 +137,10 @@ pub struct AmplitudeEvent {
     pub start_version: Option<String>,
     pub user_creation_time: Option<String>,
     pub user_id: Option<String>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::parse::serialization::deserialize_null_as_default"
+    )]
     pub user_properties: HashMap<String, Value>,
     pub uuid: Option<String>,
     pub version_name: Option<String>,
@@ -338,7 +368,9 @@ impl AmplitudeEvent {
             };
 
             let event_type = match event_type_raw.as_str() {
-                "session_start" => return Ok(vec![]),
+                // Amplitude generates synthetic session_start and session_end events as markers.
+                // PostHog calculates sessions from timestamp gaps, so these have no meaning and should be filtered.
+                "session_start" | "session_end" => return Ok(vec![]),
                 "[Amplitude] Page Viewed" => "$pageview".to_string(),
                 "[Amplitude] Element Clicked" | "[Amplitude] Element Changed" => {
                     "$autocapture".to_string()
@@ -708,15 +740,23 @@ fn parse_timestamp_string(time_str: &str) -> Result<chrono::DateTime<Utc>, chron
 }
 
 fn parse_timestamp(amp: &AmplitudeEvent) -> Result<chrono::DateTime<Utc>, Error> {
+    let now = Utc::now();
+
+    // Prefer event_time / client_event_time,
+    // fall back to server_received_time if they resolve to a future timestamp.
     if let Some(event_time) = &amp.event_time {
         if let Ok(timestamp) = parse_timestamp_string(event_time) {
-            return Ok(timestamp);
+            if timestamp <= now {
+                return Ok(timestamp);
+            }
         }
     }
 
     if let Some(client_event_time) = &amp.client_event_time {
         if let Ok(timestamp) = parse_timestamp_string(client_event_time) {
-            return Ok(timestamp);
+            if timestamp <= now {
+                return Ok(timestamp);
+            }
         }
     }
 
@@ -727,7 +767,7 @@ fn parse_timestamp(amp: &AmplitudeEvent) -> Result<chrono::DateTime<Utc>, Error>
     }
 
     // If all timestamp parsing fails, use current time as last resort
-    Ok(Utc::now())
+    Ok(now)
 }
 
 #[cfg(test)]
@@ -841,17 +881,21 @@ mod tests {
     }
 
     #[test]
-    fn test_session_start_filtered_out() {
-        let amp_event = AmplitudeEvent {
-            event_type: Some("session_start".to_string()),
-            user_id: Some("user123".to_string()),
-            ..Default::default()
-        };
+    fn test_synthetic_session_events_filtered_out() {
+        // Amplitude generates synthetic session_start and session_end events.
+        // PostHog calculates sessions from timestamp gaps, so these should be filtered.
+        for event_type in ["session_start", "session_end"] {
+            let amp_event = AmplitudeEvent {
+                event_type: Some(event_type.to_string()),
+                user_id: Some("user123".to_string()),
+                ..Default::default()
+            };
 
-        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
-        let result = parser(amp_event).unwrap();
+            let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+            let result = parser(amp_event).unwrap();
 
-        assert!(result.is_empty());
+            assert!(result.is_empty(), "{} should be filtered out", event_type);
+        }
     }
 
     #[test]
@@ -981,6 +1025,44 @@ mod tests {
                 assert!(data.timestamp.is_some());
             }
         }
+    }
+
+    #[test]
+    fn test_parse_timestamp_falls_back_to_server_time_when_event_time_is_in_future() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2099-01-01 00:00:00".to_string()),
+            client_event_time: Some("2099-01-01 00:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:00".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
+    }
+
+    #[test]
+    fn test_parse_timestamp_prefers_event_time_when_valid() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2024-06-01 12:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:05".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
+    }
+
+    #[test]
+    fn test_parse_timestamp_falls_back_to_client_event_time_when_event_time_is_in_future() {
+        let amp_event = AmplitudeEvent {
+            event_time: Some("2099-01-01 00:00:00".to_string()),
+            client_event_time: Some("2024-06-01 12:00:00".to_string()),
+            server_received_time: Some("2024-06-01 12:00:05".to_string()),
+            ..Default::default()
+        };
+
+        let ts = parse_timestamp(&amp_event).unwrap();
+        assert_eq!(ts, parse_timestamp_string("2024-06-01 12:00:00").unwrap());
     }
 
     #[test]
@@ -2117,5 +2199,68 @@ mod tests {
             serialized["now"].is_string(),
             "now must be a string in serialized output"
         );
+    }
+
+    /// Amplitude exports the full column set on every row, emitting `null`
+    /// for absent object-typed fields like `plan`, `event_properties`,
+    /// `user_properties`, `group_properties`, `groups`, and `data`. Bare
+    /// `#[serde(default)]` only covers the missing-field case — this pins
+    /// the present-and-null case that `deserialize_null_as_default` handles.
+    #[test]
+    fn test_amplitude_event_with_null_map_fields_parses() {
+        let json = r#"{
+            "$insert_id": "abc",
+            "event_type": "Test Event",
+            "user_id": "user-1",
+            "event_time": "2023-10-15 14:30:00",
+            "data": null,
+            "event_properties": null,
+            "user_properties": null,
+            "group_properties": null,
+            "groups": null,
+            "plan": null,
+            "global_user_properties": null
+        }"#;
+
+        let event: AmplitudeEvent = serde_json::from_str(json)
+            .expect("null map-typed fields must deserialize as empty defaults");
+
+        assert!(event.event_properties.is_empty());
+        assert!(event.user_properties.is_empty());
+        assert!(event.group_properties.is_empty());
+        assert!(event.groups.is_empty());
+        assert!(event.plan.is_empty());
+        assert!(event.data.group_first_event.is_empty());
+        assert!(event.data.group_ids.is_empty());
+        assert_eq!(event.event_type.as_deref(), Some("Test Event"));
+    }
+
+    /// The same fields with real values must still deserialize normally —
+    /// the null-tolerance must not regress the happy path.
+    #[test]
+    fn test_amplitude_event_with_populated_map_fields_parses() {
+        let json = r#"{
+            "event_type": "Test Event",
+            "user_id": "user-1",
+            "event_properties": {"action": "click"},
+            "user_properties": {"plan_tier": "pro"},
+            "groups": {"customer": ["880"]},
+            "plan": {"branch": "main"},
+            "data": {"path": "/checkout", "group_first_event": {"customer": true}, "group_ids": {"customer": 1}}
+        }"#;
+
+        let event: AmplitudeEvent =
+            serde_json::from_str(json).expect("populated map fields must deserialize");
+
+        assert_eq!(event.event_properties.get("action"), Some(&json!("click")));
+        assert_eq!(event.user_properties.get("plan_tier"), Some(&json!("pro")));
+        assert_eq!(event.groups.get("customer"), Some(&vec!["880".to_string()]));
+        assert_eq!(event.plan.get("branch"), Some(&json!("main")));
+        assert_eq!(event.data.path.as_deref(), Some("/checkout"));
+        assert_eq!(
+            event.data.group_first_event.get("customer"),
+            Some(&json!(true))
+        );
+        assert_eq!(event.data.group_ids.get("customer"), Some(&json!(1)));
     }
 }

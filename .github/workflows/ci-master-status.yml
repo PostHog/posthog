@@ -4,22 +4,21 @@ on:
     workflow_run:
         workflows:
             - 'Backend CI'
-            - 'Container Images CI'
             - 'Node.js CI'
             - 'Frontend CI'
             - 'Storybook'
             - 'Security'
-            - 'shellcheck'
             - 'Dagster CI'
             - 'E2E CI Playwright'
             - 'Rust CI'
+            - 'LLM Services CI'
         branches: [master]
         types: [completed]
 
 env:
     SLACK_CHANNEL: 'C09ADEV3AJD'
     # Keep in sync with workflow_run.workflows trigger above
-    REQUIRED_WORKFLOWS: 'Backend CI,Container Images CI,Node.js CI,Frontend CI,Storybook,Security,shellcheck,Dagster CI,E2E CI Playwright,Rust CI'
+    REQUIRED_WORKFLOWS: 'Backend CI,Node.js CI,Frontend CI,Storybook,Security,Dagster CI,E2E CI Playwright,Rust CI,LLM Services CI'
 
 permissions:
     contents: read
@@ -28,15 +27,18 @@ permissions:
 jobs:
     check-master-status:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: github.event.workflow_run.event == 'push'
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Restore incident state
-              uses: actions/cache/restore@v4
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
+                  # Use prefix matching to get the most recently saved cache
+                  key: master-ci-incident-${{ github.run_id }}
+                  restore-keys: master-ci-incident-
 
             - name: Read incident state
               id: incident
@@ -51,7 +53,7 @@ jobs:
 
             - name: Process workflow event
               id: process
-              uses: actions/github-script@v7
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const script = require('./.github/scripts/master-ci-status.js');
@@ -59,7 +61,7 @@ jobs:
 
             - name: Get commit info
               id: commit
-              uses: actions/github-script@v7
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
                       const sha = '${{ github.event.workflow_run.head_sha }}';
@@ -69,7 +71,10 @@ jobs:
                         ref: sha
                       });
                       core.setOutput('short_sha', sha.substring(0, 7));
-                      core.setOutput('message', commit.commit.message.split('\n')[0].substring(0, 50));
+                      const message = commit.commit.message.split('\n')[0].substring(0, 50);
+                      // Escape quotes and backslashes for YAML
+                      const escapedMessage = message.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+                      core.setOutput('message', escapedMessage);
                       core.setOutput('author', commit.author?.login || commit.commit.author.name);
                       core.setOutput('url', commit.html_url);
 
@@ -78,7 +83,7 @@ jobs:
             - name: Post new incident to Slack
               if: steps.process.outputs.action == 'create'
               id: slack_new
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -111,10 +116,13 @@ jobs:
 
             - name: Save Slack info to state
               if: steps.process.outputs.action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_new.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_new.outputs.ts }}
               run: |
                   jq \
-                    --arg channel "${{ steps.slack_new.outputs.channel_id }}" \
-                    --arg ts "${{ steps.slack_new.outputs.ts }}" \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
                     '. + {channel: $channel, ts: $ts}' \
                     .master-ci-incident > .master-ci-incident.tmp
                   mv .master-ci-incident.tmp .master-ci-incident
@@ -123,7 +131,7 @@ jobs:
 
             - name: Update Slack message
               if: steps.process.outputs.action == 'update'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -157,7 +165,7 @@ jobs:
 
             - name: Thread reply with failure
               if: steps.process.outputs.action == 'update'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -170,7 +178,7 @@ jobs:
 
             - name: Thread reply with recovery
               if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'false'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -180,18 +188,20 @@ jobs:
                       text: ":white_check_mark: Resolved: *${{ steps.process.outputs.recovered_workflow }}* (${{ steps.commit.outputs.short_sha }})"
 
             - name: Calculate duration
-              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
+              if: steps.process.outputs.resolved == 'true'
               id: duration
+              env:
+                  INCIDENT_SINCE: ${{ steps.process.outputs.since }}
               run: |
-                  since="${{ steps.process.outputs.since }}"
+                  since="$INCIDENT_SINCE"
                   now=$(date +%s)
                   then=$(date -d "$since" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$since" +%s 2>/dev/null || echo "$now")
                   mins=$(( (now - then) / 60 ))
                   echo "mins=$mins" >> $GITHUB_OUTPUT
 
             - name: Update Slack to resolved
-              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              if: steps.process.outputs.resolved == 'true'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.update
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -217,8 +227,8 @@ jobs:
                             text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
 
             - name: Thread reply with resolution
-              if: steps.process.outputs.action == 'resolve' && steps.process.outputs.resolved == 'true'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              if: steps.process.outputs.resolved == 'true'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -227,29 +237,27 @@ jobs:
                       thread_ts: "${{ steps.process.outputs.ts }}"
                       text: ":white_check_mark: Resolved: *${{ github.event.workflow_run.name }}* passed (${{ steps.commit.outputs.short_sha }})"
 
-            - name: Clear state on full resolution
-              if: steps.process.outputs.resolved == 'true'
-              run: rm -f .master-ci-incident
-
             # ============ CACHE ============
+            # Use unique keys to avoid race conditions where concurrent runs
+            # delete the cache before saving (see logs showing "Cache not found")
 
-            - name: Delete old cache
-              if: steps.process.outputs.save_cache == 'true'
+            - name: Delete old caches on new incident
+              if: steps.process.outputs.delete_old_caches == 'true'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
-              run: gh cache delete master-ci-incident || true
+              run: |
+                  # Delete ALL old incident caches to prevent divergent cache branches
+                  # This ensures the new incident cache becomes the single source of truth
+                  echo "Deleting old incident caches..."
+                  gh cache list --key master-ci-incident- --json id,key -q '.[] | "\(.id) \(.key)"' | while read id key; do
+                    echo "Deleting cache: $key"
+                    gh cache delete "$id" || true
+                  done
 
             - name: Save incident to cache
               if: steps.process.outputs.save_cache == 'true'
-              uses: actions/cache/save@v4
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
-
-            - name: Delete cache on full resolution
-              if: steps.process.outputs.resolved == 'true'
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: gh cache delete master-ci-incident || true
+                  key: master-ci-incident-${{ github.run_id }}

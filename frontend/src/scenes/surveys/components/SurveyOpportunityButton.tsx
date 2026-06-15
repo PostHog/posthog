@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,7 +14,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -25,9 +25,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
-import { QuickSurveyModal } from '../QuickSurveyModal'
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
+import { QuickSurveyModal } from '../QuickSurveyModal'
 import { captureMaxAISurveyCreationException } from '../utils'
 import { SurveyableFunnelInsight, extractFunnelContext } from '../utils/opportunityDetection'
 
@@ -36,7 +36,8 @@ export interface SurveyOpportunityButtonProps {
     disableAutoPromptSubmit?: boolean
     source: SURVEY_CREATED_SOURCE
     fromProduct: ProductKey
-    _cardWidth?: number // injected by insight card meta
+    showLabel?: boolean
+    tooltip?: string
 }
 
 export function SurveyOpportunityButton({
@@ -44,9 +45,9 @@ export function SurveyOpportunityButton({
     disableAutoPromptSubmit,
     source,
     fromProduct,
-    _cardWidth,
+    showLabel,
+    tooltip,
 }: SurveyOpportunityButtonProps): JSX.Element | null {
-    const showLabel = !_cardWidth || _cardWidth > 480
     const [modalOpen, setModalOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -80,7 +81,7 @@ export function SurveyOpportunityButton({
             insight_id: insight.id,
             ...funnelContext,
         },
-        callback: (toolOutput: { survey_id?: string; survey_name?: string; error?: string }) => {
+        callback: (toolOutput: { survey_id?: string; survey_name?: string; survey_type?: string; error?: string }) => {
             addProductIntent({
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEY_CREATED,
@@ -95,7 +96,11 @@ export function SurveyOpportunityButton({
                 return captureMaxAISurveyCreationException(toolOutput.error, source)
             }
 
-            router.actions.push(urls.survey(toolOutput.survey_id))
+            if (toolOutput.survey_type === 'popover') {
+                router.actions.push(urls.surveyWizard(toolOutput.survey_id))
+            } else {
+                router.actions.push(urls.survey(toolOutput.survey_id) + '?edit=true')
+            }
         },
     })
 
@@ -117,11 +122,15 @@ export function SurveyOpportunityButton({
         return null
     }
 
+    const askUsersButton = (
+        <LemonButton size="xsmall" type="primary" icon={<IconMessage />} onClick={handleClick}>
+            {showLabel && 'Ask users why'}
+        </LemonButton>
+    )
+
     return (
         <>
-            <LemonButton size="xsmall" type="primary" icon={<IconMessage />} onClick={handleClick}>
-                {showLabel && 'Ask users why'}
-            </LemonButton>
+            {tooltip ? <Tooltip title={tooltip}>{askUsersButton}</Tooltip> : askUsersButton}
             {shouldUseQuickCreate && (
                 <QuickSurveyModal
                     context={{ type: QuickSurveyType.FUNNEL, funnel: funnelContext }}

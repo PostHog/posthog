@@ -11,10 +11,20 @@ const _commonActionFields = {
     updated_at: z.number(),
     filters: z.any(), // TODO: Correct to the right type
     output_variable: z // The Hogflow-level variable to store the output of this action into
-        .object({
-            key: z.string(),
-            result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
-        })
+        .union([
+            z.object({
+                key: z.string(),
+                result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
+                spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+            }),
+            z.array(
+                z.object({
+                    key: z.string(),
+                    result_path: z.string().optional().nullable(),
+                    spread: z.boolean().optional().nullable(),
+                })
+            ),
+        ])
         .optional()
         .nullable(),
 }
@@ -30,41 +40,34 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('webhook'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('manual'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('tracking_pixel'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_uuid: z.string().optional(), // May be used later to specify a specific template version
         template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
+        inputs: z.record(z.string(), CyclotronInputSchema),
     }),
     z.object({
         type: z.literal('schedule'),
-        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
-        template_id: z.string(),
-        inputs: z.record(CyclotronInputSchema),
-        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
-        // Future: recurring schedule fields can be added here
     }),
     z.object({
         type: z.literal('batch'),
         filters: z.object({
             properties: z.array(z.any()),
         }),
-        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
-        // Future: recurring schedule fields can be added here
     }),
 ])
 
-const HogFlowActionSchema = z.discriminatedUnion('type', [
+export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
@@ -115,6 +118,14 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: z.any(), // type this stronger
                 name: z.string().optional(), // Custom name for the condition
             }),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),
@@ -124,6 +135,10 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         type: z.literal('wait_until_time_window'),
         config: z.object({
             timezone: z.string().nullable(),
+            // When true, use the person's $geoip_time_zone property for timezone
+            use_person_timezone: z.boolean().optional(),
+            // Fallback timezone when use_person_timezone is true but person has no timezone set
+            fallback_timezone: z.string().nullable().optional(),
             // Date can be special values "weekday", "weekend" or a list of days of the week e.g. 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
             day: z.union([
                 z.literal('any'),
@@ -144,10 +159,11 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category_id: z.string().uuid().optional(),
+            message_category_id: z.string().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
@@ -157,9 +173,9 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function'),
         config: z.object({
-            template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+            template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.string(),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
@@ -167,10 +183,11 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_sms'),
         config: z.object({
-            message_category_id: z.string().uuid().optional(),
-            template_uuid: z.string().uuid().optional(),
+            message_category_id: z.string().optional(),
+            message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            template_uuid: z.string().optional(),
             template_id: z.literal('template-twilio'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
             mappings: z.array(CyclotronInputMappingSchema).optional(),
         }),
     }),
@@ -210,8 +227,17 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number(),
+            window_minutes: z.number().nullable(),
             filters: z.any(),
+            bytecode: z.array(z.union([z.string(), z.number()])),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
         })
         .optional(),
     exit_condition: z.enum([
@@ -224,6 +250,7 @@ export const HogFlowSchema = z.object({
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),
+    billable_action_types: z.array(z.string()).optional().nullable(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen

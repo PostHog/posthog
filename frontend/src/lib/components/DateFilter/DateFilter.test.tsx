@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
@@ -27,31 +28,31 @@ describe('DateFilter', () => {
 
     it('Can set the date filter and show the right grouping interval', async () => {
         const dateFilter = screen.getByTestId('date-filter')
-        userEvent.click(dateFilter)
+        await userEvent.click(dateFilter)
 
         const yesterdayButton = screen.getByText('Yesterday')
-        userEvent.click(yesterdayButton)
+        await userEvent.click(yesterdayButton)
 
         expect(onChange).toHaveBeenCalledWith('-1dStart', '-1dEnd', false)
     })
 
     it('can set a custom rolling date range', async () => {
         const dateFilter = screen.getByTestId('date-filter')
-        userEvent.click(dateFilter)
+        await userEvent.click(dateFilter)
 
         const rollingInput = screen.getByTestId('rolling-date-range-input')
-        userEvent.clear(rollingInput)
-        userEvent.type(rollingInput, '5')
-        userEvent.keyboard('{Enter}')
+        await userEvent.clear(rollingInput)
+        await userEvent.type(rollingInput, '5')
+        await userEvent.keyboard('{Enter}')
 
         const dateOptionsSelector = screen.getByTestId('rolling-date-range-date-options-selector')
-        userEvent.click(dateOptionsSelector)
+        await userEvent.click(dateOptionsSelector)
 
         const rollingLabel = screen.getByTestId('rolling-date-range-filter')
         expect(rollingLabel).toHaveTextContent('In the last')
-        userEvent.click(rollingLabel)
+        await userEvent.click(rollingLabel)
 
-        await waitFor(() => expect(onChange).toHaveBeenCalledWith('-5d', '', false))
+        await waitFor(() => expect(onChange).toHaveBeenCalledWith('-5d', null, false))
     })
 })
 
@@ -71,20 +72,31 @@ describe('DateFilter with allowFixedRangeWithTime', () => {
         cleanup()
     })
 
-    it('shows custom fixed date range with time option', async () => {
+    it('shows include time toggle in custom fixed date range', async () => {
         const dateFilter = screen.getByTestId('date-filter')
-        userEvent.click(dateFilter)
+        await userEvent.click(dateFilter)
 
-        expect(screen.getByText(/custom fixed date range with time/i)).toBeInTheDocument()
-        expect(screen.getByText(/custom fixed date range…$/i)).toBeInTheDocument()
+        const fixedRangeOption = screen.getByText(/custom fixed date range…$/i)
+        await userEvent.click(fixedRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText(/include time\?/i)).toBeInTheDocument()
+        })
     })
 
-    it('opens the time range picker when clicking custom fixed date range with time', async () => {
+    it('opens the time range picker when toggling include time', async () => {
         const dateFilter = screen.getByTestId('date-filter')
-        userEvent.click(dateFilter)
+        await userEvent.click(dateFilter)
 
-        const timeRangeOption = screen.getByText(/custom fixed date range with time/i)
-        userEvent.click(timeRangeOption)
+        const fixedRangeOption = screen.getByText(/custom fixed date range…$/i)
+        await userEvent.click(fixedRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText(/include time\?/i)).toBeInTheDocument()
+        })
+
+        const timeToggle = screen.getByRole('switch')
+        await userEvent.click(timeToggle)
 
         await waitFor(() => {
             expect(screen.getByText(/select a date and time range/i)).toBeInTheDocument()

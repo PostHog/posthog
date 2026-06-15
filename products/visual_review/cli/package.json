@@ -1,0 +1,29 @@
+{
+    "name": "@posthog/visual-review-cli",
+    "version": "0.0.1",
+    "private": true,
+    "bin": {
+        "vr": "./dist/cli/src/index.js"
+    },
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsx src/index.ts",
+        "test": "vitest run",
+        "typecheck": "tsc --noEmit",
+        "typecheck:tsgo": "tsgo --noEmit"
+    },
+    "dependencies": {
+        "@napi-rs/blake-hash": "^1.3.6",
+        "commander": "^12.0.0",
+        "sharp": "^0.34.5",
+        "yaml": "^2.3.0"
+    },
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "@types/sharp": "^0.31.1",
+        "tsx": "^4.0.0",
+        "typescript": "6.0.3",
+        "vitest": "^4.1.0"
+    }
+}

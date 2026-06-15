@@ -1,0 +1,95 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+    "$schema": "node_modules/wrangler/config-schema.json",
+    "name": "mcp1",
+    "main": "src/index.ts",
+    "build": {
+        "command": "npx tsx scripts/copy-instructions.ts",
+        "watch_dir": "src",
+    },
+    "compatibility_date": "2025-03-10",
+    "compatibility_flags": ["nodejs_compat"],
+    "migrations": [
+        {
+            "new_sqlite_classes": ["MyMCP"],
+            "tag": "v1",
+        },
+        {
+            "renamed_classes": [
+                {
+                    "from": "MyMCP",
+                    "to": "MCP",
+                },
+            ],
+            "tag": "v2",
+        },
+        {
+            // The worker now proxies all /mcp traffic to the Hono runtime, so the
+            // MCP durable object is no longer instantiated. Drop the class and its
+            // (ephemeral per-user cache) storage.
+            "deleted_classes": ["MCP"],
+            "tag": "v3",
+        },
+    ],
+    "kv_namespaces": [
+        {
+            "binding": "MCP_KV",
+            "id": "30a887fff4d04c4fbf979208293ce012",
+        },
+    ],
+    "observability": {
+        "enabled": true,
+        "head_sampling_rate": 0.1,
+        "logs": {
+            "enabled": true,
+            "destinations": ["posthog"],
+            "head_sampling_rate": 0.1,
+            "persist": true, // Keep showing logs in Cloudflare dashboard
+        },
+    },
+    "rules": [
+        {
+            "type": "Text",
+            "globs": ["**/*.md"],
+            "fallthrough": true,
+        },
+    ],
+    /**
+     * Smart Placement
+     * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+     */
+    // "placement": { "mode": "smart" },
+    /**
+     * Environment Variables
+     * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
+     */
+    "vars": {
+        "MCP_APPS_BASE_URL": "https://mcp.posthog.com",
+    },
+    /**
+     * Note: Use secrets to store sensitive data.
+     * https://developers.cloudflare.com/workers/configuration/secrets/
+     */
+    /**
+     * Static Assets
+     * https://developers.cloudflare.com/workers/static-assets/binding/
+     */
+    "assets": {
+        "directory": "./public/",
+        // `binding: "ASSETS"` exposes `env.ASSETS.fetch(request)` so the Worker
+        // can serve static files programmatically. We use it in src/index.ts
+        // to short-circuit `/ui-apps/*` paths before the OAuth gate —
+        // production's Cloudflare edge routes these to assets before the
+        // Worker, but `wrangler dev` runs the Worker first and the gate 401s
+        // before assets get a chance.
+        "binding": "ASSETS",
+    },
+    /**
+     * Service Bindings (communicate between multiple Workers)
+     * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
+     */
+    // "services": [{ "binding": "MY_SERVICE", "service": "my-service" }]
+}

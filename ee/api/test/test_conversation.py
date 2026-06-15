@@ -1,10 +1,11 @@
 import uuid
 import datetime
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -21,14 +22,17 @@ from posthog.schema import (
     MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
     MaxProductInfo,
+    SpendHistoryItem,
 )
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
+from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
+
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.api.conversation import ConversationViewSet
-from ee.models.assistant import Conversation
 
 
 async def _async_generator():
@@ -81,10 +85,12 @@ class TestConversation(APIBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-    def _get_streaming_content(self, response):
+    def _get_streaming_content(self, response: Any) -> bytes:
         return b"".join(response.streaming_content)
 
-    def _create_mock_streaming_response(self, streaming_content, *args, **kwargs):
+    def _create_mock_streaming_response(
+        self, streaming_content: Any, *args: Any, **kwargs: Any
+    ) -> StreamingHttpResponse:
         """Helper to create a mock StreamingHttpResponse that actually processes the streaming content."""
 
         # Actually consume the generator to ensure the mocked methods are called
@@ -95,8 +101,8 @@ class TestConversation(APIBaseTest):
             # If there's an issue with the async generator, use fallback
             content = _generator_serialized_value
 
-        mock_response = HttpResponse(content, content_type="text/event-stream")
-        mock_response.streaming_content = [content]
+        mock_response = StreamingHttpResponse([content], content_type="text/event-stream")
+        cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
     def test_create_conversation(self):
@@ -115,7 +121,8 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 self.assertEqual(Conversation.objects.count(), 1)
-                conversation: Conversation = Conversation.objects.first()
+                conversation = Conversation.objects.first()
+                assert conversation is not None
                 self.assertEqual(conversation.user, self.user)
                 self.assertEqual(conversation.team, self.team)
                 # Check that the method was called with workflow_inputs
@@ -407,8 +414,11 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    def test_cancel_idle_conversation_noop(self):
-        """Test that canceling an idle conversation is a no-op."""
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    def test_cancel_idle_conversation_still_cleans_up(self, mock_cancel):
+        """Test that canceling an idle conversation still attempts cleanup,
+        because queued workflows may be running even when status is IDLE
+        (during the transition between main and queued workflows)."""
         conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
@@ -422,9 +432,7 @@ class TestConversation(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        conversation.refresh_from_db()
-        # Status should remain idle
-        self.assertEqual(conversation.status, Conversation.Status.IDLE)
+        mock_cancel.assert_called_once()
 
     def test_cancel_nonexistent_conversation(self):
         """Test canceling a conversation that doesn't exist."""
@@ -509,7 +517,7 @@ class TestConversation(APIBaseTest):
         Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
         Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -518,8 +526,9 @@ class TestConversation(APIBaseTest):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["id"], str(conversation1.id))
             self.assertEqual(results[0]["title"], "Conversation 1")
-            self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
+            self.assertNotIn("messages", results[0])
+            mock_get_state.assert_not_awaited()
 
     def test_list_conversations_only_returns_own_conversations(self):
         """Test that listing conversations only returns the current user's conversations"""
@@ -549,7 +558,13 @@ class TestConversation(APIBaseTest):
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
+            data = response.json()
+            self.assertEqual(data["id"], str(conversation.id))
+            self.assertIn("messages", data)
+            self.assertIn("has_unsupported_content", data)
+            self.assertIn("agent_mode", data)
+            self.assertIn("is_sandbox", data)
+            self.assertIn("pending_approvals", data)
 
     def test_retrieve_other_users_conversation_succeeds(self):
         """Test that user can retrieve another user's conversation in the same team"""
@@ -604,26 +619,163 @@ class TestConversation(APIBaseTest):
             self.assertEqual(results[1]["title"], "Older conversation")
 
     @override_settings(DEBUG=False)
-    def test_get_throttles_applies_rate_limits_for_create_action(self):
-        """Test that rate limits are applied for create action in non-debug, non-exempt conditions."""
+    def test_get_throttles_returns_empty_for_create_action(self):
+        """Test that get_throttles returns empty list for create action (throttling is handled in check_throttles)."""
 
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
+        viewset.organization = self.organization
         throttles = viewset.get_throttles()
-        self.assertIsInstance(throttles[0], AIBurstRateThrottle)
-        self.assertIsInstance(throttles[1], AISustainedRateThrottle)
+        # For create action, throttles are handled in check_throttles() for conditional logic
+        self.assertEqual(throttles, [])
 
     @override_settings(DEBUG=True)
-    def test_get_throttles_skips_rate_limits_for_debug_mode(self):
-        """Test that rate limits are skipped in debug mode."""
+    def test_get_throttles_returns_empty_for_create_action_in_debug_mode(self):
+        """Test that get_throttles returns empty list for create action in debug mode."""
 
         viewset = ConversationViewSet()
         viewset.action = "create"
         viewset.team_id = 12345
+        viewset.organization = self.organization
         throttles = viewset.get_throttles()
-        self.assertNotIsInstance(throttles[0], AIBurstRateThrottle)
-        self.assertNotIsInstance(throttles[1], AISustainedRateThrottle)
+        # For create action, throttles are handled in check_throttles()
+        self.assertEqual(throttles, [])
+
+    @override_settings(DEBUG=False)
+    def test_research_rate_limit_burst(self):
+        """Test that research conversations have more aggressive burst rate limits."""
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First 3 requests should succeed (3/minute limit)
+                for i in range(3):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {
+                            "content": f"test query {i}",
+                            "trace_id": str(uuid.uuid4()),
+                            "conversation": str(uuid.uuid4()),
+                            "agent_mode": AgentMode.RESEARCH.value,
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+                # 4th request should be rate limited
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query 4",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                # Check that the response contains the research-specific message
+                response_data = response.json()
+                self.assertIn("Research mode", response_data["detail"])
+                self.assertIn("beta", response_data["detail"])
+
+    @override_settings(DEBUG=False)
+    def test_research_rate_limit_applies_to_new_research_conversations(self):
+        """Test that research rate limits apply to new DEEP_RESEARCH conversations (before conversion)."""
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First 3 new research conversations should succeed (3/minute limit)
+                for i in range(3):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {
+                            "content": f"test query {i}",
+                            "trace_id": str(uuid.uuid4()),
+                            "conversation": str(uuid.uuid4()),
+                            "agent_mode": AgentMode.RESEARCH.value,
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+                # 4th request should be rate limited
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query 4",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                response_data = response.json()
+                self.assertIn("Research mode", response_data["detail"])
+
+    @override_settings(DEBUG=False)
+    @patch("posthog.utils.get_instance_region", return_value="US")
+    def test_research_rate_limit_exempt_team_bypasses_throttle(self, _mock_region):
+        """Test that teams listed in the posthog-ai-rate-limit-exemptions flag bypass research rate limits."""
+        with patch(
+            "posthoganalytics.get_feature_flag_payload",
+            return_value={"US": [self.team.id]},
+        ):
+            with patch(
+                "ee.hogai.core.executor.AgentExecutor.astream",
+                return_value=_async_generator(),
+            ):
+                with patch(
+                    "ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response
+                ):
+                    # Should exceed the 3/minute burst limit without being throttled
+                    for i in range(5):
+                        response = self.client.post(
+                            f"/api/environments/{self.team.id}/conversations/",
+                            {
+                                "content": f"test query {i}",
+                                "trace_id": str(uuid.uuid4()),
+                                "conversation": str(uuid.uuid4()),
+                                "agent_mode": AgentMode.RESEARCH.value,
+                            },
+                        )
+                        self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+    @override_settings(DEBUG=False)
+    def test_normal_ai_has_standard_rate_limits(self):
+        """Test that normal AI conversations have standard rate limits (10/minute)."""
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First 10 requests should succeed (10/minute limit)
+                for i in range(10):
+                    response = self.client.post(
+                        f"/api/environments/{self.team.id}/conversations/",
+                        {
+                            "content": f"test query {i}",
+                            "trace_id": str(uuid.uuid4()),
+                            "conversation": str(uuid.uuid4()),
+                            # No agent_mode or agent_mode != RESEARCH
+                        },
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
+
+                # 11th request should be rate limited
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query 11",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                # Check that the response does NOT contain research-specific message
+                response_data = response.json()
+                self.assertNotIn("Research mode", response_data["detail"])
 
     def test_billing_context_validation_valid_data(self):
         """Test that valid billing context data is accepted."""
@@ -715,3 +867,382 @@ class TestConversation(APIBaseTest):
 
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 mock_is_team_limited.assert_called_once()
+
+    def test_create_conversation_with_research_agent_mode(self):
+        """Test that agent_mode=RESEARCH routes to ResearchAgentWorkflow."""
+
+        conversation_id = str(uuid.uuid4())
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                trace_id = str(uuid.uuid4())
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": trace_id,
+                        "conversation": conversation_id,
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                mock_start_workflow_and_stream.assert_called_once()
+                call_args = mock_start_workflow_and_stream.call_args
+
+                # Verify workflow class is ResearchAgentWorkflow
+                workflow_class = call_args[0][0]
+                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+
+                # Verify workflow_inputs is ResearchAgentWorkflowInputs
+                workflow_inputs = call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
+
+                # Verify is_agent_billable=False for research mode
+                self.assertEqual(workflow_inputs.is_agent_billable, False)
+                # Verify is_impersonated is False (not an impersonated session)
+                self.assertEqual(workflow_inputs.is_impersonated, False)
+
+                # Verify agent_mode and contextual_tools are NOT passed in research mode
+                self.assertFalse(hasattr(workflow_inputs, "agent_mode"))
+                self.assertFalse(hasattr(workflow_inputs, "contextual_tools"))
+
+    def test_research_mode_billing_is_always_false(self):
+        """Test that research mode is always non-billable, even when not impersonated."""
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # Not patching is_impersonated_session, so it defaults to False (not impersonated)
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "agent_mode": AgentMode.RESEARCH.value,
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_start_workflow_and_stream.call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
+                # Even without impersonation, research mode is non-billable
+                self.assertEqual(workflow_inputs.is_agent_billable, False)
+
+    def test_deep_research_converts_to_assistant_on_followup_message(self):
+        """Test that an idle DEEP_RESEARCH conversation converts to ASSISTANT when user sends a follow-up."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IDLE,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "follow-up question",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.ASSISTANT)
+
+                call_args = mock_astream.call_args
+                workflow_class = call_args[0][0]
+                self.assertEqual(workflow_class, ChatAgentWorkflow)
+
+                workflow_inputs = call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ChatAgentWorkflowInputs)
+
+    def test_deep_research_stays_research_when_not_idle(self):
+        """Test that an in-progress DEEP_RESEARCH conversation stays as research."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IN_PROGRESS,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": None,
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.DEEP_RESEARCH)
+
+                workflow_class = mock_astream.call_args[0][0]
+                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+
+    def test_deep_research_stays_research_when_resume_payload_present(self):
+        """Test that an idle DEEP_RESEARCH conversation stays as research when resume_payload is present (auto-rejecting approval)."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IDLE,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "new question",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                        "resume_payload": {"action": "reject"},
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.DEEP_RESEARCH)
+
+                workflow_class = mock_astream.call_args[0][0]
+                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+
+    @override_settings(DEBUG=False)
+    def test_converted_conversation_rate_limits_as_regular(self):
+        """Test that after conversion from DEEP_RESEARCH to ASSISTANT, _is_research_request returns False."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IDLE,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First message converts DEEP_RESEARCH → ASSISTANT
+                self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "follow-up",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.ASSISTANT)
+
+                # Subsequent messages should not be rate-limited as research
+                viewset = ConversationViewSet()
+                viewset.team = self.team
+                mock_request = type("Request", (), {"data": {"conversation": str(conversation.id)}})()
+                self.assertFalse(viewset._is_research_request(mock_request))
+
+    def test_chat_mode_uses_chat_agent_workflow(self):
+        """Test that non-research modes use ChatAgentWorkflow."""
+
+        conversation_id = str(uuid.uuid4())
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_start_workflow_and_stream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": conversation_id,
+                        "agent_mode": AgentMode.SQL.value,  # Not RESEARCH
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                call_args = mock_start_workflow_and_stream.call_args
+
+                # Verify workflow class is ChatAgentWorkflow
+                workflow_class = call_args[0][0]
+                self.assertEqual(workflow_class, ChatAgentWorkflow)
+
+                # Verify workflow_inputs is ChatAgentWorkflowInputs
+                workflow_inputs = call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ChatAgentWorkflowInputs)
+
+                # Verify agent_mode is passed for chat mode
+                self.assertEqual(workflow_inputs.agent_mode, AgentMode.SQL)
+
+    def _make_spend_history(self, count: int) -> list[dict]:
+        return [
+            SpendHistoryItem(
+                id=i,
+                label=f"item_{i}",
+                data=[float(i)],
+                dates=["2023-01-01"],
+            ).model_dump()
+            for i in range(count)
+        ]
+
+    def test_billing_context_strips_large_spend_history(self):
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                billing_data = self.billing_context.model_dump()
+                billing_data["spend_history"] = self._make_spend_history(21)
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "billing_context": billing_data,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_astream.call_args[0][1]
+                self.assertIsNone(workflow_inputs.billing_context.spend_history)
+
+    def test_billing_context_keeps_small_spend_history(self):
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                billing_data = self.billing_context.model_dump()
+                billing_data["spend_history"] = self._make_spend_history(20)
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "test query",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(uuid.uuid4()),
+                        "billing_context": billing_data,
+                    },
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                workflow_inputs = mock_astream.call_args[0][1]
+                self.assertIsNotNone(workflow_inputs.billing_context.spend_history)
+                self.assertEqual(len(workflow_inputs.billing_context.spend_history), 20)
+
+
+class TestConversationSoftDelete(APIBaseTest):
+    def _make_conversation(self, **overrides) -> Conversation:
+        defaults: dict[str, Any] = {
+            "user": self.user,
+            "team": self.team,
+            "title": "A chat",
+            "type": Conversation.Type.ASSISTANT,
+        }
+        defaults.update(overrides)
+        return Conversation.objects.create(**defaults)
+
+    def test_delete_marks_row_soft_deleted(self):
+        conversation = self._make_conversation()
+
+        before = timezone.now()
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+        after = timezone.now()
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        refreshed = Conversation.objects.get(pk=conversation.pk)
+        self.assertTrue(refreshed.deleted)
+        assert refreshed.deleted_at is not None
+        self.assertGreaterEqual(refreshed.deleted_at, before)
+        self.assertLessEqual(refreshed.deleted_at, after)
+
+    def test_delete_other_users_conversation_returns_404(self):
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="other-softdelete@posthog.com",
+            password="password",
+            first_name="Other",
+        )
+        conversation = self._make_conversation(user=other_user)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        refreshed = Conversation.objects.get(pk=conversation.pk)
+        self.assertFalse(refreshed.deleted)
+
+    def test_delete_already_deleted_returns_404(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_excludes_soft_deleted(self):
+        kept = self._make_conversation(title="kept")
+        self._make_conversation(title="gone", deleted=True, deleted_at=timezone.now())
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [c["id"] for c in response.json()["results"]]
+        self.assertEqual(ids, [str(kept.id)])
+
+    def test_retrieve_soft_deleted_returns_404(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_with_deleted_id_does_not_resurrect(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "content": "hello",
+                "trace_id": str(uuid.uuid4()),
+                "conversation": str(conversation.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        still_deleted = Conversation.objects.get(pk=conversation.pk)
+        self.assertTrue(still_deleted.deleted)
+        self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)

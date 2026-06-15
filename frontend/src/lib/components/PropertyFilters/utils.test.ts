@@ -2,8 +2,12 @@ import {
     breakdownFilterToTaxonomicFilterType,
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
+    createDefaultPropertyFilter,
+    isGroupCardFilterKey,
     isValidPropertyFilter,
+    normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
+    taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
@@ -19,7 +23,24 @@ import {
     PropertyOperator,
     SessionPropertyFilter,
 } from '../../../types'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+
+describe('isGroupCardFilterKey()', () => {
+    it.each([
+        { key: '$group_key', type: PropertyFilterType.Group, expected: true },
+        { key: 'id', type: PropertyFilterType.Group, expected: true },
+        // 'id' is also the Cohort key — must not match there.
+        { key: 'id', type: PropertyFilterType.Cohort, expected: false },
+        // Group *property* filters use other keys.
+        { key: 'industry', type: PropertyFilterType.Group, expected: false },
+        // '$group_key' only makes sense for a Group-type filter.
+        { key: '$group_key', type: PropertyFilterType.Event, expected: false },
+        { key: '$group_key', type: undefined, expected: false },
+        { key: undefined, type: PropertyFilterType.Group, expected: false },
+    ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
+        expect(isGroupCardFilterKey(key, type)).toBe(expected)
+    })
+})
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
@@ -197,5 +218,236 @@ describe('convertPropertiesToPropertyGroup', () => {
             type: FilterLogicalOperator.And,
             values: [],
         })
+    })
+})
+
+describe('normalizePropertyFilterValue()', () => {
+    it('wraps string values in arrays for multi-select operators', () => {
+        expect(normalizePropertyFilterValue('test', PropertyOperator.Exact)).toEqual(['test'])
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IsNot)).toEqual(['test'])
+    })
+
+    it('wraps number values in arrays for multi-select operators', () => {
+        expect(normalizePropertyFilterValue(123, PropertyOperator.Exact)).toEqual([123])
+    })
+
+    it('does not wrap values that are already arrays', () => {
+        expect(normalizePropertyFilterValue(['test'], PropertyOperator.Exact)).toEqual(['test'])
+        expect(normalizePropertyFilterValue(['a', 'b'], PropertyOperator.Exact)).toEqual(['a', 'b'])
+    })
+
+    it('wraps values for multi-select contains operators', () => {
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IContainsMulti)).toEqual(['test'])
+        expect(normalizePropertyFilterValue('test', PropertyOperator.NotIContainsMulti)).toEqual(['test'])
+    })
+
+    it('does not wrap values for non-multi-select operators', () => {
+        expect(normalizePropertyFilterValue('test', PropertyOperator.Regex)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IsSet)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.GreaterThan)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.IContains)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', PropertyOperator.NotIContains)).toEqual('test')
+    })
+
+    it('handles null and undefined values', () => {
+        expect(normalizePropertyFilterValue(null, PropertyOperator.Exact)).toEqual(null)
+        expect(normalizePropertyFilterValue(undefined, PropertyOperator.Exact)).toEqual(undefined)
+    })
+
+    it('handles null and undefined operators', () => {
+        expect(normalizePropertyFilterValue('test', null)).toEqual('test')
+        expect(normalizePropertyFilterValue('test', undefined)).toEqual('test')
+    })
+})
+
+describe('type mapping round-trip', () => {
+    it.each([
+        [PropertyFilterType.Event, TaxonomicFilterGroupType.EventProperties],
+        [PropertyFilterType.Person, TaxonomicFilterGroupType.PersonProperties],
+        [PropertyFilterType.Cohort, TaxonomicFilterGroupType.Cohorts],
+        [PropertyFilterType.Element, TaxonomicFilterGroupType.Elements],
+        [PropertyFilterType.Session, TaxonomicFilterGroupType.SessionProperties],
+        [PropertyFilterType.HogQL, TaxonomicFilterGroupType.HogQLExpression],
+    ])('PropertyFilterType.%s round-trips through both mapping functions', (propertyType, expectedTaxonomicType) => {
+        const filter = {
+            type: propertyType,
+            key: 'test_key',
+            value: 'test_value',
+            operator: PropertyOperator.Exact,
+        } as AnyPropertyFilter
+        const taxonomicType = propertyFilterTypeToTaxonomicFilterType(filter)
+        expect(taxonomicType).toEqual(expectedTaxonomicType)
+
+        const backToPropertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicType)
+        expect(backToPropertyType).toEqual(propertyType)
+    })
+
+    it('Group type round-trips with group_type_index preserved', () => {
+        const filter = {
+            type: PropertyFilterType.Group,
+            key: 'test_key',
+            value: 'test_value',
+            operator: PropertyOperator.Exact,
+            group_type_index: 2,
+        } as AnyPropertyFilter
+        const taxonomicType = propertyFilterTypeToTaxonomicFilterType(filter)
+        expect(taxonomicType).toEqual('groups_2')
+
+        const backToPropertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicType)
+        expect(backToPropertyType).toEqual(PropertyFilterType.Group)
+    })
+})
+
+describe('createDefaultPropertyFilter()', () => {
+    const noopDescribeProperty = (): null => null
+    const makeGroup = (type: TaxonomicFilterGroupType, groupTypeIndex?: number): TaxonomicFilterGroup =>
+        ({
+            type,
+            groupTypeIndex,
+        }) as TaxonomicFilterGroup
+
+    it('creates a cohort filter with parseInt value', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            '42',
+            PropertyFilterType.Cohort,
+            makeGroup(TaxonomicFilterGroupType.Cohorts),
+            noopDescribeProperty
+        )
+        expect(result).toEqual({
+            key: 'id',
+            value: 42,
+            type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.In,
+        })
+    })
+
+    it('creates a HogQL filter with null value', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            "event = 'click'",
+            PropertyFilterType.HogQL,
+            makeGroup(TaxonomicFilterGroupType.HogQLExpression),
+            noopDescribeProperty
+        )
+        expect(result).toEqual({
+            type: PropertyFilterType.HogQL,
+            key: "event = 'click'",
+            value: null,
+        })
+    })
+
+    it('creates a flag filter with default true value and FlagEvaluatesTo operator', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'my-flag',
+            PropertyFilterType.Flag,
+            makeGroup(TaxonomicFilterGroupType.FeatureFlags),
+            noopDescribeProperty
+        )
+        expect(result).toEqual({
+            type: PropertyFilterType.Flag,
+            key: 'my-flag',
+            value: true,
+            operator: PropertyOperator.FlagEvaluatesTo,
+        })
+    })
+
+    it('creates a group name filter with $group_key as key and the selection as value', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'my-company',
+            PropertyFilterType.Group,
+            makeGroup('name_groups_0' as TaxonomicFilterGroupType, 0),
+            noopDescribeProperty
+        )
+        expect(result).toEqual(
+            expect.objectContaining({
+                key: '$group_key',
+                value: 'my-company',
+                type: PropertyFilterType.Group,
+                group_type_index: 0,
+            })
+        )
+    })
+
+    it.each([
+        ['$browser', PropertyOperator.Exact],
+        ['$current_url', PropertyOperator.IContains],
+        ['$pathname', PropertyOperator.IContains],
+    ])('defaults the %s event property filter to the %s operator', (propertyKey, expectedOperator) => {
+        const result = createDefaultPropertyFilter(
+            null,
+            propertyKey,
+            PropertyFilterType.Event,
+            makeGroup(TaxonomicFilterGroupType.EventProperties),
+            noopDescribeProperty
+        )
+        expect(result).toEqual(
+            expect.objectContaining({
+                key: propertyKey,
+                value: null,
+                type: PropertyFilterType.Event,
+                operator: expectedOperator,
+            })
+        )
+    })
+
+    it('preserves existing operator from previous filter when valid', () => {
+        const existingFilter: AnyPropertyFilter = {
+            key: '$browser',
+            value: 'Chrome',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.IsNot,
+        }
+        const result = createDefaultPropertyFilter(
+            existingFilter,
+            '$os',
+            PropertyFilterType.Event,
+            makeGroup(TaxonomicFilterGroupType.EventProperties),
+            noopDescribeProperty
+        )
+        expect(result).toEqual(expect.objectContaining({ operator: PropertyOperator.IsNot }))
+    })
+
+    it('pre-fills value from selectedItem.matchedValue when matchedOn is "value"', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'user.email',
+            'log_attribute' as PropertyFilterType,
+            makeGroup('log_attributes' as TaxonomicFilterGroupType),
+            noopDescribeProperty,
+            { matchedOn: 'value', matchedValue: 'frank@posthog.com' }
+        )
+        expect(result).toEqual(
+            expect.objectContaining({
+                key: 'user.email',
+                value: ['frank@posthog.com'],
+                operator: PropertyOperator.Exact,
+            })
+        )
+    })
+
+    it('does not pre-fill value when matchedOn is "key"', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'user.email',
+            'log_attribute' as PropertyFilterType,
+            makeGroup('log_attributes' as TaxonomicFilterGroupType),
+            noopDescribeProperty,
+            { matchedOn: 'key', matchedValue: 'frank@posthog.com' }
+        )
+        expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
+    })
+
+    it('does not pre-fill value when selectedItem is omitted', () => {
+        const result = createDefaultPropertyFilter(
+            null,
+            'user.email',
+            'log_attribute' as PropertyFilterType,
+            makeGroup('log_attributes' as TaxonomicFilterGroupType),
+            noopDescribeProperty
+        )
+        expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
     })
 })

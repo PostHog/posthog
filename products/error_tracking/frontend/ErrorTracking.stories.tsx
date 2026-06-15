@@ -4,7 +4,6 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema/schema-general'
 
 import {
     errorTrackingEventsQueryResponse,
@@ -29,19 +28,16 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': async (req, res, ctx) => {
-                    const query = (await req.clone().json()).query
-                    if (query.kind === NodeKind.ErrorTrackingQuery) {
-                        return res(ctx.json(errorTrackingQueryResponse))
-                    }
-                    return res(ctx.json(errorTrackingEventsQueryResponse))
-                },
+                '/api/environments/:team_id/query/ErrorTrackingQuery': async (_, res, ctx) =>
+                    res(ctx.json(errorTrackingQueryResponse)),
+                '/api/environments/:team_id/query/EventsQuery': async (_, res, ctx) =>
+                    res(ctx.json(errorTrackingEventsQueryResponse)),
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const ListPage: Story = {}
 export const GroupPage: Story = { parameters: { pageUrl: urls.errorTrackingIssue('id') } }

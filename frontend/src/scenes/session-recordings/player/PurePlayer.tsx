@@ -3,32 +3,33 @@ import './SessionRecordingPlayer.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { BuilderHog2 } from 'lib/components/hedgehogs'
+import { BuilderHog2, WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { Link } from 'lib/lemon-ui/Link'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
+import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
+import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
 import { urls } from 'scenes/urls'
 
+import { ClipOverlay } from './controller/ClipRecording'
+import { PlayerController } from './controller/PlayerController'
+import { PlayerMetaBar } from './player-meta/PlayerMetaBar'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameMetaOverlay } from './PlayerFrameMetaOverlay'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { ClipOverlay } from './controller/ClipRecording'
-import { PlayerController } from './controller/PlayerController'
-import { PlayerMeta } from './player-meta/PlayerMeta'
-import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from './sessionRecordingDataCoordinatorLogic'
 import {
-    ONE_FRAME_MS,
+    ONE_SECOND_MS,
     PLAYBACK_SPEEDS,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
@@ -38,7 +39,6 @@ import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecording
 export interface PurePlayerProps {
     noMeta?: boolean
     noBorder?: boolean
-    playerRef: React.RefObject<HTMLDivElement>
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -48,7 +48,13 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
     )
 }
 
-export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: PurePlayerProps): JSX.Element {
+export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
+    const playerRef = useRef<HTMLDivElement | null>(null)
+    const [playerContainer, setPlayerContainer] = useState<HTMLDivElement | null>(null)
+    const playerCallbackRef = useCallback((el: HTMLDivElement | null) => {
+        playerRef.current = el
+        setPlayerContainer(el)
+    }, [])
     const {
         incrementClickCount,
         setIsFullScreen,
@@ -67,6 +73,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         setQuickEmojiIsOpen,
         setShowingClipParams,
         setPlayNextAnimationInterrupted,
+        setPlayerActive,
     } = useActions(sessionRecordingPlayerLogic)
 
     const {
@@ -80,23 +87,40 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         quickEmojiIsOpen,
         showingClipParams,
         isMuted,
+        endReached,
     } = useValues(sessionRecordingPlayerLogic)
 
-    const { isNotFound, isRecentAndInvalid } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
+    const {
+        isNotFound,
+        loadMetaError,
+        isRecentAndInvalid,
+        isOldAndInvalid,
+        isRecordingDeleted,
+        recordingDeletedAt,
+        recordingDeletedBy,
+    } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
 
-    const { isCinemaMode, showMetadataFooter } = useValues(playerSettingsLogic)
-    const { setIsCinemaMode } = useActions(playerSettingsLogic)
+    const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
+    const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hidePlayerElements =
-        mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
+        mode === SessionRecordingPlayerMode.Screenshot ||
+        mode === SessionRecordingPlayerMode.Video ||
+        mode === SessionRecordingPlayerMode.Kiosk
 
     useEffect(() => {
-        if (hidePlayerElements) {
+        setPlayerActive(true)
+        return () => setPlayerActive(false)
+    }, [setPlayerActive])
+
+    useEffect(() => {
+        // Disable skipping inactivity when exporting, but keep it if we are displaying metadata footer (export for analysis purposes)
+        if (hidePlayerElements && !showMetadataFooter) {
             setSkipInactivitySetting(false)
         }
-    }, [mode, setSkipInactivitySetting, hidePlayerElements])
+    }, [mode, setSkipInactivitySetting, hidePlayerElements, showMetadataFooter])
 
     useEffect(
         () => {
@@ -110,6 +134,26 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isRecentAndInvalid]
     )
+
+    useEffect(
+        () => {
+            if (isOldAndInvalid) {
+                posthog.capture('session loaded old and invalid', {
+                    viewedSessionRecording: sessionRecordingId,
+                    recordingStartTime: sessionPlayerData?.start,
+                })
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [isOldAndInvalid]
+    )
+
+    // Track if the recording has ended to be able to reliably get it from the BE and stop the recording
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            ;(window as any).__POSTHOG_RECORDING_ENDED__ = endReached
+        }
+    }, [endReached])
 
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
 
@@ -131,7 +175,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                 action: () => setShowingClipParams(!showingClipParams),
             },
             t: {
-                action: () => setIsCinemaMode(!isCinemaMode),
+                action: () => setPlaylistCollapsed(!isPlaylistCollapsed),
             },
             m: {
                 action: () => setMuted(!isMuted),
@@ -146,7 +190,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                     }
                     e.preventDefault()
                     e.altKey && setPause()
-                    seekBackward(e.altKey ? ONE_FRAME_MS : undefined)
+                    seekBackward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
             },
@@ -157,7 +201,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                     }
                     e.preventDefault()
                     e.altKey && setPause()
-                    seekForward(e.altKey ? ONE_FRAME_MS : undefined)
+                    seekForward(e.altKey ? ONE_SECOND_MS : undefined)
                 },
                 willHandleEvent: true,
             },
@@ -205,14 +249,32 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
     if (isNotFound) {
         return (
             <div className="flex-1 w-full flex justify-center">
-                <RecordingNotFound />
+                <RecordingNotFound sessionRecordingId={sessionRecordingId} />
+            </div>
+        )
+    }
+
+    if (loadMetaError) {
+        return (
+            <div className="flex-1 w-full flex justify-center items-center p-4">
+                <LemonBanner type="error" className="max-w-xl">
+                    There was an error loading this recording. Please try again later.
+                </LemonBanner>
+            </div>
+        )
+    }
+
+    if (isRecordingDeleted) {
+        return (
+            <div className="flex-1 w-full flex justify-center items-center">
+                <RecordingDeleted deletedAt={recordingDeletedAt} deletedBy={recordingDeletedBy} />
             </div>
         )
     }
 
     return (
         <div
-            ref={playerRef}
+            ref={playerCallbackRef}
             className={clsx(
                 'SessionRecordingPlayer',
                 {
@@ -226,7 +288,7 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
             onMouseMove={() => setPlayNextAnimationInterrupted(true)}
             onMouseOut={() => setPlayNextAnimationInterrupted(false)}
         >
-            <FloatingContainerContext.Provider value={playerRef}>
+            <FloatingContainerContext.Provider value={playerContainer}>
                 {explorerMode ? (
                     <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                 ) : (
@@ -243,20 +305,27 @@ export function PurePlayer({ noMeta = false, noBorder = false, playerRef }: Pure
                                     Reload
                                 </LemonButton>
                             </div>
+                        ) : isOldAndInvalid ? (
+                            <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
+                                <WarningHog height={200} width={200} />
+                                <h1>This recording can't be played</h1>
+                                <p className="max-w-120">
+                                    The snapshot of the screen taken when this recording started never reached PostHog,
+                                    so there is nothing to play back. This usually happens when the browser is closed or
+                                    goes offline before the recording finishes uploading.{' '}
+                                    <Link to="https://posthog.com/docs/session-replay/troubleshooting">Learn more</Link>
+                                </p>
+                                <LemonButton type="secondary" onClick={loadSnapshots}>
+                                    Reload
+                                </LemonButton>
+                            </div>
                         ) : (
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
-                                    <div className="relative">
-                                        {showMeta ? (
-                                            <>
-                                                <PlayerMeta />
-                                                <PlayerMetaTopSettings />
-                                            </>
-                                        ) : null}
-                                    </div>
+                                    <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
                                     <div
                                         className="SessionRecordingPlayer__body"
-                                        draggable={draggable}
+                                        draggable={draggable && !isCommenting}
                                         {...elementProps}
                                     >
                                         <PlayerFrame />

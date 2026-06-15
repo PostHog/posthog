@@ -1,6 +1,27 @@
 import pytest
 
-from posthog.clickhouse.client.connection import Workload, get_pool, make_ch_pool, set_default_clickhouse_workload_type
+from posthog.clickhouse.client.connection import (
+    Workload,
+    get_http_client,
+    get_pool,
+    make_ch_pool,
+    set_default_clickhouse_workload_type,
+)
+from posthog.clickhouse.client.execute import sync_execute
+
+
+def test_insert_with_http_client():
+    sync_execute("DROP TABLE IF EXISTS _test_http_insert")
+    sync_execute("CREATE TABLE _test_http_insert (id UInt64) ENGINE = Memory")
+    try:
+        with get_http_client() as client:
+            result = sync_execute(
+                "INSERT INTO _test_http_insert SELECT number FROM numbers(3)",
+                sync_client=client,
+            )
+            assert result == 3
+    finally:
+        sync_execute("DROP TABLE IF EXISTS _test_http_insert")
 
 
 def test_connection_pool_creation_without_offline_cluster(settings):
@@ -42,7 +63,7 @@ def test_connection_pool_creation_with_team_id(settings):
     assert get_pool(Workload.DEFAULT, team_id=2) is team_pool
     assert get_pool(Workload.DEFAULT, team_id=3) is online_pool
 
-    assert online_pool.connection_args["host"] == "localhost"
+    assert online_pool.connection_args["host"] == settings.CLICKHOUSE_HOST
     assert team_pool.connection_args["host"] == "clicky"
 
 

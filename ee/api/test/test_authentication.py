@@ -2,6 +2,7 @@ import os
 import uuid
 import datetime
 from typing import cast
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from freezegun.api import freeze_time
@@ -13,7 +14,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
-from social_core.exceptions import AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
 
 from posthog.constants import AvailableFeature
@@ -63,7 +64,7 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json(),
-            {"sso_enforcement": "google-oauth2", "saml_available": False},
+            {"sso_enforcement": "google-oauth2", "saml_available": False, "webauthn_credentials": []},
         )
 
     def test_login_precheck_with_unverified_domain(self):
@@ -79,7 +80,9 @@ class TestEELoginPrecheckAPI(APILicensedTest):
                 "/api/login/precheck", {"email": "i_do_not_exist@witw.app"}
             )  # Note we didn't create a user that matches, only domain is matched
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
     def test_login_precheck_with_inexistent_account(self):
         OrganizationDomain.objects.create(
@@ -93,7 +96,9 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         with self.settings(**GITHUB_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "i_do_not_exist@anotherdomain.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "github", "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": "github", "saml_available": False, "webauthn_credentials": []}
+        )
 
     def test_login_precheck_with_enforced_sso_but_improperly_configured_sso(self):
         OrganizationDomain.objects.create(
@@ -108,7 +113,9 @@ class TestEELoginPrecheckAPI(APILicensedTest):
             "/api/login/precheck", {"email": "spain@witw.app"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
+        )
 
 
 class TestEEAuthenticationAPI(APILicensedTest):
@@ -317,6 +324,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
 
+    def _assert_saml_login_social_failure_redirect(self, response, error_detail_substring: str) -> None:
+        """SocialAuthExceptionMiddleware catches AuthFailed and redirects instead of propagating."""
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        parsed = urlparse(response["Location"])
+        self.assertEqual(parsed.path, "/login")
+        qs = parse_qs(parsed.query)
+        self.assertEqual(qs.get("error_code"), ["social_login_failure"])
+        self.assertIn(error_detail_substring, qs.get("error_detail", [""])[0])
+
     # SAML Metadata
 
     def test_can_get_saml_metadata(self):
@@ -351,7 +367,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             "/api/login/precheck", {"email": "helloworld@posthog.com"}
         )  # Note Google OAuth is not configured
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True})
+        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": True, "webauthn_credentials": []})
 
     # Initiate SAML flow
 
@@ -367,22 +383,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         """
         We need the email address to know how to route the SAML request.
         """
-        with self.assertRaises(AuthMissingParameter) as e:
-            self.client.get("/login/saml/")
-
-        self.assertEqual(str(e.exception), "Missing needed parameter email")
+        response = self.client.get("/login/saml/")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_cannot_initiate_saml_flow_for_unconfigured_domain(self):
         """
         SAML settings have not been configured for the domain.
         """
-        with self.assertRaises(AuthFailed) as e:
-            self.client.get("/login/saml/?email=hellohello@gmail.com")
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        response = self.client.get("/login/saml/?email=hellohello@gmail.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     def test_cannot_initiate_saml_flow_for_unverified_domain(self):
         """
@@ -392,13 +401,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.organization_domain.verified_at = None
         self.organization_domain.save()
 
-        with self.assertRaises(AuthFailed) as e:
-            self.client.get("/login/saml/?email=hellohello@gmail.com")
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: SAML not configured for this user.",
-        )
+        response = self.client.get("/login/saml/?email=hellohello@gmail.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
     # Finish SAML flow (i.e. actual log in)
 
@@ -584,18 +588,17 @@ YotAcSbU3p5bzd11wpyebYHB"""
 
         user_count = User.objects.count()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                format="multipart",
-                follow=True,
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
+            follow=False,
+        )
 
-        self.assertIn("Signature validation failed. SAML Response rejected", str(e.exception))
+        self._assert_saml_login_social_failure_redirect(response, "Signature validation failed. SAML Response rejected")
 
         self.assertEqual(User.objects.count(), user_count)
 
@@ -699,20 +702,19 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
 
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Authentication request is invalid. Invalid RelayState.",
+        self._assert_saml_login_social_failure_redirect(
+            response,
+            "Authentication request is invalid. Invalid RelayState.",
         )
 
         # Assert user is not logged in
@@ -755,7 +757,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         # Login precheck returns SAML info
         response = self.client.post("/api/login/precheck", {"email": "engineering@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "saml", "saml_available": True})
+        self.assertEqual(
+            response.json(), {"sso_enforcement": "saml", "saml_available": True, "webauthn_credentials": []}
+        )
 
     def test_cannot_use_saml_without_enterprise_license(self):
         self.organization.available_product_features = [
@@ -768,15 +772,13 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.save()
         response = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": None, "saml_available": False})
-
-        # Cannot start SAML flow
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+            response.json(), {"sso_enforcement": None, "saml_available": False, "webauthn_credentials": []}
         )
+
+        # Cannot start SAML flow - sso_login catches AuthFailed and redirects
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertRedirects(response, "/login?error_code=improperly_configured_sso", fetch_redirect_response=False)
 
         # Attempting to use SAML fails
         _session = self.client.session
@@ -789,21 +791,68 @@ YotAcSbU3p5bzd11wpyebYHB"""
         ) as f:
             saml_response = f.read()
 
-        with self.assertRaises(AuthFailed) as e:
-            response = self.client.post(
-                "/complete/saml/",
-                {
-                    "SAMLResponse": saml_response,
-                    "RelayState": str(self.organization_domain.id),
-                },
-                follow=True,
-                format="multipart",
-            )
-
-        self.assertEqual(
-            str(e.exception),
-            "Authentication failed: Your organization does not have the required license to use SAML.",
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            follow=False,
+            format="multipart",
         )
+
+        self._assert_saml_login_social_failure_redirect(
+            response,
+            "Your organization does not have the required license to use SAML.",
+        )
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_saml_login_rejects_email_domain_not_matching_organization_domain(self):
+        from posthog.models import Organization
+
+        User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_org.available_product_features = [{"key": AvailableFeature.SAML, "name": AvailableFeature.SAML}]
+        other_org.save()
+
+        other_domain = OrganizationDomain.objects.create(
+            domain="other.com",
+            verified_at=timezone.now(),
+            organization=other_org,
+            jit_provisioning_enabled=True,
+            saml_entity_id=self.organization_domain.saml_entity_id,
+            saml_acs_url=self.organization_domain.saml_acs_url,
+            saml_x509_cert=self.organization_domain.saml_x509_cert,
+        )
+
+        response = self.client.get("/login/saml/?email=engineering@posthog.com")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(other_domain.id),
+            },
+            follow=False,
+            format="multipart",
+        )
+
+        self._assert_saml_login_social_failure_redirect(response, "does not match the configured domain")
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     # Remove after we figure out saml / xmlsec issues
     # Test login with SAML on dev prod before removing
@@ -811,8 +860,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         import lxml
         import xmlsec
 
-        assert "1.3.14" == xmlsec.__version__
-        assert "5.2.1" == lxml.__version__
+        assert "1.3.17" == cast(str, getattr(xmlsec, "__version__", None))
+        assert "6.0.2" == lxml.__version__
 
 
 class TestCustomGoogleOAuth2(APILicensedTest):
@@ -822,38 +871,47 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         self.details = {"email": "test@posthog.com"}
         self.sub = "google-oauth2|123456789"
 
+    def _mock_strategy(self, get_params: dict[str, str]) -> object:
+        mock_strategy = type("MockStrategy", (), {})()
+        mock_strategy.request_get = lambda: get_params
+        mock_strategy.setting = lambda name, default=None, backend=None: default
+        return mock_strategy
+
     def test_auth_extra_arguments_without_email(self):
         """Test that auth_extra_arguments returns base arguments when no email is provided."""
-        # Mock strategy to return empty GET parameters
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
+        self.assertEqual(extra_args["prompt"], "select_account")
         # Should only contain base arguments from parent class, no login_hint
         self.assertNotIn("login_hint", extra_args)
 
     def test_auth_extra_arguments_with_email(self):
         """Test that auth_extra_arguments adds login_hint when email is provided."""
-        # Mock strategy to return email in GET parameters
-        mock_request = type("MockRequest", (), {})()
-        mock_request.GET = {"email": "test@posthog.com"}
-
-        mock_strategy = type("MockStrategy", (), {})()
-        mock_strategy.request = mock_request
-        mock_strategy.setting = lambda name, default=None, backend=None: default
-
-        self.google_oauth.strategy = mock_strategy
+        self.google_oauth.strategy = self._mock_strategy({"email": "test@posthog.com"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
         extra_args = self.google_oauth.auth_extra_arguments()
 
         self.assertEqual(extra_args["login_hint"], "test@posthog.com")
+        self.assertEqual(extra_args["prompt"], "select_account")
+
+    def test_auth_extra_arguments_reauth_does_not_force_select_account(self):
+        """Test that reauth flow does not force account picker prompt."""
+        self.google_oauth.strategy = self._mock_strategy({"reauth": "true"})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+        extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertNotIn("prompt", extra_args)
+
+    def test_auth_extra_arguments_preserves_existing_prompt(self):
+        """Test that auth_extra_arguments appends select_account to existing prompt values."""
+        self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+
+        with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
+            extra_args = self.google_oauth.auth_extra_arguments()
+
+        self.assertEqual(extra_args["prompt"], "consent select_account")
 
     def test_get_user_id_existing_user_with_sub(self):
         """Test that a user with sub as uid continues using that sub."""
@@ -993,18 +1051,11 @@ class TestSSOEnforcement(APILicensedTest):
     def test_saml_auth_flow_blocked_when_google_oauth2_enforced(self):
         """Integration test: Verify SAML auth flow is blocked when Google OAuth2 is enforced"""
 
-        OrganizationDomain.objects.create(
+        org_domain_saml = OrganizationDomain.objects.create(
             domain="posthog.com",
             organization=self.organization,
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
-        )
-
-        # Create SAML configuration for the same organization (needed for RelayState)
-        org_domain_saml = OrganizationDomain.objects.create(
-            domain="saml-posthog.com",  # Different domain for SAML config
-            organization=self.organization,
-            verified_at=timezone.now(),
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://my.posthog.app/complete/saml/",
             saml_x509_cert="""MIIDqDCCApCgAwIBAgIGAXtoc3o9MA0GCSqGSIb3DQEBCwUAMIGUMQswCQYDVQQGEwJVUzETMBEG

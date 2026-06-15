@@ -2,13 +2,20 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
 from langchain_core.messages import AIMessage as LangchainAIMessage
+from langchain_core.runnables import RunnableLambda
 
 from posthog.schema import HumanMessage
 
-from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
+from products.posthog_ai.backend.models.assistant import Conversation
+
+from ee.hogai.core.title_generator.nodes import TitleAndTopic, TitleGeneratorNode
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState
-from ee.models.assistant import Conversation
+from ee.hogai.utils.types.base import ConversationTitleAction
+
+
+def _raise(_):
+    raise RuntimeError("boom")
 
 
 class TestTitleGenerator(BaseTest):
@@ -20,7 +27,7 @@ class TestTitleGenerator(BaseTest):
         """Test that a title is generated and saved for a conversation without a title."""
         with patch(
             "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Test Title")]),
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Test title")]),
         ):
             node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
@@ -30,13 +37,13 @@ class TestTitleGenerator(BaseTest):
             self.assertIsNone(new_state)
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Test Title")
+            self.assertEqual(self.conversation.title, "Test title")
 
     def test_saves_a_long_title_truncated(self):
         """Test that if a title over our length is generated, it is truncated on save, without error."""
         with patch(
             "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " * 100).strip())]),
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content=("Long " + "long " * 99).strip())]),
         ):
             node = TitleGeneratorNode(self.team, self.user)
             new_state = node.run(
@@ -48,7 +55,7 @@ class TestTitleGenerator(BaseTest):
             self.conversation.refresh_from_db()
             self.assertEqual(
                 self.conversation.title,
-                "Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long Long",
+                "Long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long",
             )
 
     def test_title_already_set_should_stay_the_same(self):
@@ -72,7 +79,7 @@ class TestTitleGenerator(BaseTest):
 
     def test_two_messages_in_conversation_no_title_should_set_title(self):
         """Test that a title is generated when there are multiple messages in the conversation."""
-        mock_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="Conversation Title")])
+        mock_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="Conversation title")])
 
         with patch.object(TitleGeneratorNode, "_model", new=Mock(return_value=mock_model)):
             node = TitleGeneratorNode(self.team, self.user)
@@ -88,7 +95,7 @@ class TestTitleGenerator(BaseTest):
             self.assertIsNone(new_state)
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Conversation Title")
+            self.assertEqual(self.conversation.title, "Conversation title")
 
     def test_no_messages_should_skip(self):
         """Test that title generation is skipped when there are no messages in the conversation."""
@@ -101,6 +108,120 @@ class TestTitleGenerator(BaseTest):
         # Refresh from DB to ensure we get latest value
         self.conversation.refresh_from_db()
         self.assertIsNone(self.conversation.title)
+
+    def test_emits_conversation_title_action_to_stream_writer(self):
+        written = []
+        mock_writer = Mock(side_effect=lambda action: written.append(action))
+
+        with (
+            patch(
+                "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Stream title")]),
+            ),
+            patch("ee.hogai.core.title_generator.nodes.get_stream_writer", return_value=mock_writer),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+
+        self.assertEqual(len(written), 1)
+        action = written[0]
+        self.assertIsInstance(action, ConversationTitleAction)
+        self.assertEqual(action.title, "Stream title")
+
+    def test_does_not_raise_when_stream_writer_unavailable(self):
+        with (
+            patch(
+                "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
+                return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Some title")]),
+            ),
+            patch(
+                "ee.hogai.core.title_generator.nodes.get_stream_writer",
+                side_effect=RuntimeError("Not in streaming context"),
+            ),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            # Should not raise
+            result = node.run(
+                AssistantState(messages=[HumanMessage(content="Test Message")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+
+        self.assertIsNone(result)
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Some title")
+
+    def test_classifies_topic_when_flag_enabled(self):
+        fake = RunnableLambda(lambda _: TitleAndTopic(title="Traffic last week", topic="web_analytics"))
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=fake),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="How many people visited my site?")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Traffic last week")
+        self.assertEqual(self.conversation.topic, "web_analytics")
+
+    def test_does_not_classify_topic_when_flag_disabled(self):
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=False),
+            patch.object(
+                TitleGeneratorNode,
+                "_model",
+                new=RunnableLambda(lambda _: LangchainAIMessage(content="Plain title")),
+            ),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="How many people visited my site?")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Plain title")
+        self.assertIsNone(self.conversation.topic)
+
+    def test_emits_topic_in_conversation_title_action(self):
+        written = []
+        mock_writer = Mock(side_effect=lambda action: written.append(action))
+        fake = RunnableLambda(lambda _: TitleAndTopic(title="Survey responses", topic="surveys"))
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=fake),
+            patch("ee.hogai.core.title_generator.nodes.get_stream_writer", return_value=mock_writer),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="Show me my NPS")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.assertEqual(len(written), 1)
+        self.assertIsInstance(written[0], ConversationTitleAction)
+        self.assertEqual(written[0].topic, "surveys")
+
+    def test_falls_back_to_title_only_when_topic_generation_fails(self):
+        with (
+            patch("ee.hogai.core.title_generator.nodes.has_conversation_topic_feature_flag", return_value=True),
+            patch.object(TitleGeneratorNode, "_topic_model", new=RunnableLambda(_raise)),
+            patch.object(
+                TitleGeneratorNode,
+                "_model",
+                new=RunnableLambda(lambda _: LangchainAIMessage(content="Fallback title")),
+            ),
+        ):
+            node = TitleGeneratorNode(self.team, self.user)
+            node.run(
+                AssistantState(messages=[HumanMessage(content="How many people visited my site?")]),
+                {"configurable": {"thread_id": self.conversation.id}},
+            )
+        self.conversation.refresh_from_db()
+        self.assertEqual(self.conversation.title, "Fallback title")
+        self.assertIsNone(self.conversation.topic)
 
     def test_handles_json_content_without_error(self):
         """Test that title generation works when user message contains JSON with curly braces."""
@@ -124,7 +245,7 @@ The query below is currently set up as an SQL insight, but the visualization opt
 
         with patch(
             "ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model",
-            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Convert SQL to Trends")]),
+            return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Convert SQL to trends")]),
         ):
             node = TitleGeneratorNode(self.team, self.user)
 
@@ -136,4 +257,4 @@ The query below is currently set up as an SQL insight, but the visualization opt
 
             self.assertIsNone(new_state)
             self.conversation.refresh_from_db()
-            self.assertEqual(self.conversation.title, "Convert SQL to Trends")
+            self.assertEqual(self.conversation.title, "Convert SQL to trends")

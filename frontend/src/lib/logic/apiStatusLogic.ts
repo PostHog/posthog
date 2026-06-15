@@ -3,7 +3,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
@@ -60,16 +60,16 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    if (responseData.detail === 'This action requires you to be recently authenticated.') {
+                    if (responseData.code === 'sensitive_action_required_reauth') {
                         actions.setTimeSensitiveAuthenticationRequired(true)
                     } else if (
-                        responseData.detail === '2FA setup required' &&
+                        responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
                     ) {
                         twoFactorLogic.findMounted()?.actions.openTwoFactorSetupModal(true)
                     } else if (
-                        responseData.detail === '2FA verification required' &&
+                        responseData.code === 'two_factor_verification_required' &&
                         !values.twoFactorVerificationExpiredToastShown
                     ) {
                         actions.setTwoFactorVerificationExpiredToastShown(true)
@@ -79,7 +79,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 button: {
                                     label: 'Understood',
                                     action: () => {
-                                        userLogic.findMounted()?.actions.logout()
+                                        userLogic.findMounted()?.actions.logout(true)
                                     },
                                 },
                                 autoClose: false,
@@ -96,6 +96,14 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                     // We should only check and logout if we have a user
                     return
                 }
+
+                // During impersonation, don't auto-logout on 401.
+                // The ImpersonationNotice component handles session expiry
+                // via its countdown timer and shows a re-impersonation overlay.
+                if (userLogic.findMounted()?.values.user?.is_impersonated) {
+                    return
+                }
+
                 // api.ts calls this if we see a 401
                 const now = Date.now()
 
@@ -105,7 +113,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
 
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
-                            userLogic.findMounted()?.actions.logout()
+                            userLogic.findMounted()?.actions.logout(true)
                         }
                     })
                 }

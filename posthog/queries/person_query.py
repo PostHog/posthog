@@ -1,12 +1,9 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 from uuid import UUID
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -21,6 +18,10 @@ from posthog.queries.column_optimizer.column_optimizer import ColumnOptimizer
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.trends.util import COUNT_PER_ACTOR_MATH_FUNCTIONS
 from posthog.queries.util import PersonPropertiesMode
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from products.cohorts.backend.models.util import format_precalculated_cohort_query, format_static_cohort_query
 
 
 class PersonQuery:
@@ -242,7 +243,9 @@ class PersonQuery:
         # The same property might be present for both querying and filtering, and hence the Counter.
         properties_to_query = self._column_optimizer.used_properties_with_type("person")
         if self._inner_person_properties:
-            properties_to_query -= extract_tables_and_properties(self._inner_person_properties.flat)
+            properties_to_query -= extract_tables_and_properties(
+                self._inner_person_properties.flat, team_id=self._team_id
+            )
 
         columns = self._column_optimizer.columns_to_query("person", set(properties_to_query)) | set(self._extra_fields)
 
@@ -301,7 +304,7 @@ class PersonQuery:
             # TODO: doesn't support non-caclculated cohorts
             for index, property in enumerate(self._cohort_filters):
                 try:
-                    cohort = Cohort.objects.get(pk=property.value)
+                    cohort = Cohort.objects.get(pk=cast(str | int, property.value), team_id=self._team_id)
                     if property.type == "static-cohort":
                         subquery, subquery_params = format_static_cohort_query(cohort, index, prepend)
                     else:

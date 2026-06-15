@@ -3,15 +3,19 @@ import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { activityLogTransforms, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import {
+    activityLogTransforms,
+    describerFor,
+    ensureActivityDescribersLoaded,
+} from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
+import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { SidePanelSceneContext } from '../../types'
-import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 // ActivityScope values that should not appear in dropdowns
@@ -67,7 +71,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     }),
     reducers({
         activeTab: [
-            SidePanelActivityTab.Unread as SidePanelActivityTab,
+            SidePanelActivityTab.All as SidePanelActivityTab,
             { persist: true },
             {
                 setActiveTab: (_, { tab }) => tab,
@@ -93,7 +97,10 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                 loadAllActivity: async (_, breakpoint) => {
                     const filters = values.activeFilters ?? {}
                     const expandedFilters = activityLogTransforms.expandListScopes(filters)
-                    const response = await api.activity.list(expandedFilters)
+                    const [response] = await Promise.all([
+                        api.activity.list(expandedFilters),
+                        ensureActivityDescribersLoaded(),
+                    ])
 
                     breakpoint()
                     return response

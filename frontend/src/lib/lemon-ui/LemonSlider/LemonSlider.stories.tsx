@@ -1,9 +1,9 @@
 import { Meta } from '@storybook/react'
 import { useState } from 'react'
 
-import { LemonSlider } from './LemonSlider'
+import { LemonSlider, LemonSliderProps } from './LemonSlider'
 
-const meta: Meta<typeof LemonSlider> = {
+const meta: Meta<LemonSliderProps> = {
     title: 'Lemon UI/Lemon Slider',
     component: LemonSlider,
     tags: ['autodocs'],
@@ -21,5 +21,20 @@ export function Basic(): JSX.Element {
             <LemonSlider value={3000} min={0} max={100} step={1} onChange={setValue} />
             <LemonSlider value={-3000} min={0} max={100} step={1} onChange={setValue} />
         </>
+    )
+}
+
+export function Disabled(): JSX.Element {
+    const [value, setValue] = useState(42)
+
+    return (
+        <LemonSlider
+            value={value}
+            min={0}
+            max={100}
+            step={1}
+            onChange={setValue}
+            disabledReason="You don't have permission to change this value"
+        />
     )
 }

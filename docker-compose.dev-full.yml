@@ -19,6 +19,7 @@ services:
             - replay-capture
             - capture
             - feature-flags
+            - hypercache-server
             - web
     db:
         extends:
@@ -29,10 +30,10 @@ services:
         volumes:
             - postgres-15-data:/var/lib/postgresql/data
 
-    redis:
+    redis7:
         extends:
             file: docker-compose.base.yml
-            service: redis
+            service: redis7
         ports:
             - '6379:6379'
 
@@ -78,6 +79,10 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
+        # Fresh named volume so the swap starts clean; data on the previous volume
+        # stays salvageable via `hogli deploy:upgrade-objectstorage`.
+        volumes:
+            - objectstorage-data:/data
 
     maildev:
         extends:
@@ -88,12 +93,12 @@ services:
             - '1025:1025'
 
     webhook-tester:
-        image: tarampampam/webhook-tester:1.1.0
+        image: tarampampam/webhook-tester:2.2.6
         restart: on-failure
         ports:
-            - '2080:2080'
+            - '2080:8080'
         environment:
-            - PORT=2080
+            - AUTO_CREATE_SESSIONS=true
             - OTEL_SDK_DISABLED=true
 
     worker:
@@ -124,7 +129,7 @@ services:
             - JS_URL=http://localhost:8000
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
         links:
@@ -137,7 +142,7 @@ services:
         environment:
             - DEBUG=1
         depends_on:
-            - redis
+            - redis7
             - kafka
 
     replay-capture:
@@ -145,7 +150,7 @@ services:
             file: docker-compose.base.yml
             service: replay-capture
         depends_on:
-            - redis
+            - redis7
             - kafka
 
     property-defs-rs:
@@ -160,21 +165,30 @@ services:
             file: docker-compose.base.yml
             service: feature-flags
         depends_on:
-            - redis
+            - redis7
             - db
+
+    hypercache-server:
+        extends:
+            file: docker-compose.base.yml
+            service: hypercache-server
+        depends_on:
+            - redis7
 
     plugins:
         extends:
             file: docker-compose.base.yml
             service: plugins
-        build: .
+        build:
+            context: .
+            dockerfile: Dockerfile.node
         volumes:
             - .:/app/posthog
         environment:
             - DOCKER=1
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage
@@ -228,7 +242,7 @@ services:
             - .:/app/posthog
         depends_on:
             - db
-            - redis
+            - redis7
             - clickhouse
             - kafka
             - objectstorage
@@ -272,3 +286,4 @@ networks:
 volumes:
     postgres-15-data:
     redpanda-data:
+    objectstorage-data:

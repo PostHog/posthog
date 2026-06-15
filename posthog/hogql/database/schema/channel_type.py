@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 from functools import cache
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
-from posthog.schema import CustomChannelField, CustomChannelOperator, CustomChannelRule, DefaultChannelTypes
+from posthog.schema_enums import CustomChannelField, CustomChannelOperator, DefaultChannelTypes
+
+if TYPE_CHECKING:
+    from posthog.schema import CustomChannelRule
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
@@ -80,7 +83,7 @@ if(
 
 def create_initial_channel_type(
     name: str,
-    custom_rules: Optional[list[CustomChannelRule]] = None,
+    custom_rules: Optional[list["CustomChannelRule"]] = None,
     timings: Optional[HogQLTimings] = None,
     properties_path: Optional[list[str]] = None,
 ) -> ExpressionField:
@@ -96,7 +99,7 @@ def create_initial_channel_type(
                 referring_domain=ast.Call(
                     name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
                 ),
-                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_url"])]),
+                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]),
                 hostname=ast.Call(
                     name="domain",
                     args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_hostname"])])],
@@ -189,7 +192,7 @@ def custom_condition_to_expr(
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
-def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTypeExprs) -> ast.Expr:
+def custom_rule_to_expr(custom_rule: "CustomChannelRule", source_exprs: ChannelTypeExprs) -> ast.Expr:
     conditions: list[Union[ast.Expr | ast.Call]] = []
     for condition in custom_rule.items:
         if condition.key == CustomChannelField.UTM_SOURCE:
@@ -229,7 +232,7 @@ def custom_rule_to_expr(custom_rule: CustomChannelRule, source_exprs: ChannelTyp
 
 
 def create_channel_type_expr(
-    custom_rules: Optional[list[CustomChannelRule]],
+    custom_rules: Optional[list["CustomChannelRule"]],
     source_exprs: ChannelTypeExprs,
     timings: Optional[HogQLTimings] = None,
 ) -> ast.Expr:

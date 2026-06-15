@@ -24,6 +24,7 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
@@ -40,8 +41,8 @@ interface VisualizationArtifactAnswerProps {
     activeSceneId?: string | null
 }
 
-function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
-    const { insight } = useValues(insightSceneLogic({ tabId }))
+function InsightSuggestionButton(): JSX.Element {
+    const { insight } = useValues(insightSceneLogic)
     const insightProps = { dashboardItemId: insight?.short_id }
     const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
     const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
@@ -65,6 +66,8 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
         </>
     )
 }
+
+const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 
 export const VisualizationArtifactAnswer = React.memo(function VisualizationArtifactAnswer({
     message,
@@ -115,27 +118,31 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
         <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
             {!isCollapsed && (
                 <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
-                    <Query query={query} readOnly embedded />
+                    <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
                 </div>
             )}
             <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
+                {isInsightVizNode(query) ? (
+                    <div className="flex items-center gap-1.5">
+                        <LemonButton
+                            sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                            onClick={() => setIsSummaryShown(!isSummaryShown)}
+                            size="xsmall"
+                            className="-m-1 shrink"
+                            tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                        >
+                            <h5 className="m-0 leading-none">
+                                <TopHeading query={query} />
+                            </h5>
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <h5 className="m-0 leading-none">
+                        <TopHeading query={query} />
+                    </h5>
+                )}
                 <div className="flex items-center gap-1.5">
-                    <LemonButton
-                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setIsSummaryShown(!isSummaryShown)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                    >
-                        <h5 className="m-0 leading-none">
-                            <TopHeading query={query} />
-                        </h5>
-                    </LemonButton>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
-                        <InsightSuggestionButton tabId={activeTabId} />
-                    )}
+                    {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && <InsightSuggestionButton />}
                     {!isEditingInsight && (
                         <LemonButton
                             to={
@@ -145,6 +152,7 @@ export const VisualizationArtifactAnswer = React.memo(function VisualizationArti
                                           query: query as InsightVizNode | DataVisualizationNode,
                                       })
                             }
+                            targetBlank
                             icon={<IconOpenInNew />}
                             size="xsmall"
                             tooltip={isSavedInsight ? 'Open insight' : 'Open as new insight'}

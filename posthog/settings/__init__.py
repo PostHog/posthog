@@ -25,6 +25,7 @@ from posthog.settings.activity_log import *
 from posthog.settings.async_migrations import *
 from posthog.settings.batch_exports import *
 from posthog.settings.celery import *
+from posthog.settings.kafka import *
 from posthog.settings.data_stores import *
 from posthog.settings.dagster import *
 from posthog.settings.demo import *
@@ -46,7 +47,10 @@ from posthog.settings.session_replay import *
 from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
+from posthog.settings.personhog import *
 from posthog.settings.ses import *
+from posthog.settings.email import *
+from posthog.settings.exports import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -57,13 +61,21 @@ from posthog.settings.web import INSTALLED_APPS
 # https://posthog.com/docs/self-host/configure/environment-variables
 debug_queries: bool = get_from_env("DEBUG_QUERIES", False, type_cast=str_to_bool)
 disable_paid_fs: bool = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_cast=str_to_bool)
+cloudflare_proxy_enabled: bool = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
 INSTANCE_PREFERENCES = {
     "debug_queries": debug_queries,
     "disable_paid_fs": disable_paid_fs,
+    "cloudflare_proxy_enabled": cloudflare_proxy_enabled,
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
+
+# Vapi voice-AI integration (used by user_interviews to host public interview pages).
+VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
+VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
+VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
@@ -92,9 +104,6 @@ NPM_TOKEN: str | None = os.getenv("NPM_TOKEN", None)
 # Whether to capture time-to-see-data metrics
 CAPTURE_TIME_TO_SEE_DATA: bool = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_cast=str_to_bool)
 
-# Whether kea should be act in verbose mode
-KEA_VERBOSE_LOGGING: bool = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_to_bool)
-
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE: bool = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
@@ -113,6 +122,8 @@ OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
+
+QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

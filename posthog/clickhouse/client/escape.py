@@ -28,7 +28,7 @@ from clickhouse_driver.context import Context
 from clickhouse_driver.util.escape import escape_param
 
 
-def substitute_params(query, params):
+def substitute_params(query: str, params: dict[str, Any]) -> str:
     """
     This is a copy of clickhouse-driver's `substitute_params` function without
     the dependency that you need to connect to the server before you can escape
@@ -51,7 +51,7 @@ def substitute_params(query, params):
     return query % escaped
 
 
-def escape_params(params):
+def escape_params(params: dict[str, Any]) -> dict[str, str]:
     """
     This is a copy of clickhouse-driver's `escape_params` function without the
     dependency that you need to connect to the server before you can escape
@@ -93,3 +93,32 @@ def escape_param_for_clickhouse(param: Any) -> str:
         timezone="UTC",
     )
     return escape_param(param, context=context)
+
+
+def substitute_params_for_display(query: str, params: dict[str, Any]) -> str:
+    """
+    Substitute query parameters for display/debug purposes.
+
+    This function is for generating SQL output shown to users in debug panels.
+    Parameters marked with '_sensitive' suffix are replaced with '[HIDDEN]'.
+
+    DO NOT use this function for query execution - use substitute_params instead.
+
+    Args:
+        query: SQL query string with %(param_name)s placeholders
+        params: Dictionary of parameter values
+
+    Returns:
+        Query string with parameters substituted
+    """
+    if not isinstance(params, dict):
+        raise ValueError("Parameters are expected in dict form")
+
+    escaped = {}
+    for key, value in params.items():
+        if key.endswith("_sensitive"):
+            escaped[key] = "'[HIDDEN]'"
+        else:
+            escaped[key] = escape_param_for_clickhouse(value)
+
+    return query % escaped

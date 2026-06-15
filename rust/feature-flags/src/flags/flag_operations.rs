@@ -1,6 +1,4 @@
-use crate::api::errors::FlagError;
 use crate::flags::flag_models::*;
-use crate::utils::graph_utils::{DependencyProvider, DependencyType};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -38,60 +36,109 @@ impl FeatureFlag {
     /// OR if the flag has a cohort filter
     /// OR if the flag has a property filter and the property filter is not present in the overrides
     pub fn requires_db_preparation(&self, overrides: &HashMap<String, Value>) -> bool {
-        self.filters.requires_db_properties(overrides) || self.filters.requires_cohort_filters()
+        self.filters.requires_db_properties(overrides, &self.key)
+            || self.filters.requires_cohort_filters()
+    }
+
+    /// Returns true if this flag has experience continuity enabled and is eligible for it.
+    ///
+    /// Experience continuity is only supported for person-based flags using distinct_id bucketing.
+    /// Group-based flags and device_id bucketing flags are not eligible.
+    pub fn has_experience_continuity(&self) -> bool {
+        self.ensure_experience_continuity.unwrap_or(false)
+            && self.get_group_type_index().is_none()
+            && self.get_bucketing_identifier() == BucketingIdentifier::DistinctId
+    }
+
+    /// Returns true if the flag has multivariate variants that depend on hashing.
+    ///
+    /// A flag with no variants or any variant at 100% is effectively not multivariate,
+    /// since the variant assignment doesn't depend on hashing. When any variant has
+    /// 100% rollout, that variant wins for everyone regardless of their hash bucket.
+    pub fn has_hash_dependent_variants(&self) -> bool {
+        match &self.filters.multivariate {
+            None => false,
+            Some(multivariate) => {
+                let variants = &multivariate.variants;
+                // No variants = not multivariate
+                if variants.is_empty() {
+                    return false;
+                }
+                // Any variant at 100% wins for everyone, making hashing irrelevant
+                if variants.iter().any(|v| v.rollout_percentage >= 100.0) {
+                    return false;
+                }
+                // Multiple variants with partial rollouts = truly multivariate
+                true
+            }
+        }
+    }
+
+    /// Returns true if any condition group has less than 100% rollout.
+    ///
+    /// When all groups are at 100%, the hash doesn't affect the result since
+    /// everyone in each group gets the flag enabled.
+    pub fn has_partial_rollout(&self) -> bool {
+        self.filters
+            .groups
+            .iter()
+            .any(|group| group.rollout_percentage_unwrapped() < 100.0)
+    }
+
+    /// Returns true if this flag requires a hash key override lookup for experience continuity.
+    ///
+    /// Experience continuity lookups are only meaningful when the hash affects the result:
+    /// - Partial rollouts need consistent bucketing across distinct_id changes
+    /// - Multivariate flags need consistent variant assignment
+    ///
+    /// For flags at 100% rollout with no hash-dependent variants, everyone gets the same
+    /// result regardless of their hash, so the lookup is unnecessary.
+    pub fn needs_hash_key_override(&self) -> bool {
+        // Must have experience continuity enabled and be eligible for it
+        if !self.has_experience_continuity() {
+            return false;
+        }
+
+        // If flag has hash-dependent variants, need hash for consistent variant assignment
+        if self.has_hash_dependent_variants() {
+            return true;
+        }
+
+        // If any condition group has < 100% rollout, need hash for consistent bucketing
+        if self.has_partial_rollout() {
+            return true;
+        }
+
+        // Flag is 100% rollout with no hash-dependent variants - skip the lookup
+        false
     }
 }
 
-/// Returns the set of flags that require DB preparation
+/// Returns the set of non-filtered flags that require DB preparation.
+/// Filtered-out flags (inactive, deleted, runtime/tag mismatches) are skipped
+/// since they won't be evaluated.
 pub fn flags_require_db_preparation<'a>(
-    flags: &'a [FeatureFlag],
+    flags: &[&'a FeatureFlag],
     overrides: &HashMap<String, Value>,
+    filtered_out_flag_ids: &HashSet<i32>,
 ) -> Vec<&'a FeatureFlag> {
     flags
         .iter()
-        .filter(|flag| flag.requires_db_preparation(overrides))
+        .filter(|flag| {
+            !filtered_out_flag_ids.contains(&flag.id) && flag.requires_db_preparation(overrides)
+        })
+        .copied()
         .collect()
-}
-
-impl DependencyProvider for FeatureFlag {
-    type Id = FeatureFlagId;
-    type Error = FlagError;
-
-    fn get_id(&self) -> Self::Id {
-        self.id
-    }
-
-    fn extract_dependencies(&self) -> Result<HashSet<Self::Id>, Self::Error> {
-        let mut dependencies = HashSet::new();
-        for group in &self.filters.groups {
-            if let Some(properties) = &group.properties {
-                for filter in properties {
-                    if filter.depends_on_feature_flag() {
-                        if let Some(feature_flag_id) = filter.get_feature_flag_id() {
-                            dependencies.insert(feature_flag_id);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(dependencies)
-    }
-
-    fn dependency_type() -> DependencyType {
-        DependencyType::Flag
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        flags::{
-            flag_models::*,
-            test_helpers::{
-                create_simple_flag, create_simple_property_filter, get_flags_from_redis,
-            },
-        },
+        api::errors::FlagError,
+        flags::test_helpers::get_flags_from_redis,
+        mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
+        utils::mock::MockInto,
     };
     use serde_json::{json, Value};
     use std::time::Instant;
@@ -201,183 +248,14 @@ mod tests {
     // TODO: Also make sure old flag data is handled, or everything is migrated to new style in production
 
     #[test]
-    fn test_extract_dependencies() {
-        use crate::utils::graph_utils::DependencyProvider;
-        use std::collections::HashSet;
-
-        // Test flag with no dependencies
-        let flag_no_deps = FeatureFlag {
-            id: 1,
-            team_id: 1,
-            name: Some("No Dependencies".to_string()),
-            key: "no_deps".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
-        let deps = flag_no_deps.extract_dependencies().unwrap();
-        assert!(deps.is_empty());
-
-        // Test flag with feature flag dependency
-        let flag_with_dep = FeatureFlag {
-            id: 2,
-            team_id: 1,
-            name: Some("With Dependency".to_string()),
-            key: "with_dep".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![PropertyFilter {
-                        key: "100".to_string(), // Feature flag ID as string
-                        value: Some(json!("true")),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: PropertyType::Flag,
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
-        let deps = flag_with_dep.extract_dependencies().unwrap();
-        assert_eq!(deps, HashSet::from([100]));
-
-        // Test flag with multiple dependencies
-        let flag_with_multiple_deps = FeatureFlag {
-            id: 3,
-            team_id: 1,
-            name: Some("Multiple Dependencies".to_string()),
-            key: "multiple_deps".to_string(),
-            filters: FlagFilters {
-                groups: vec![
-                    FlagPropertyGroup {
-                        properties: Some(vec![PropertyFilter {
-                            key: "200".to_string(), // Feature flag ID as string
-                            value: Some(json!("true")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Flag,
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(50.0),
-                        variant: None,
-                    },
-                    FlagPropertyGroup {
-                        properties: Some(vec![PropertyFilter {
-                            key: "300".to_string(), // Feature flag ID as string
-                            value: Some(json!("false")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Flag,
-                            group_type_index: None,
-                            negation: None,
-                        }]),
-                        rollout_percentage: Some(50.0),
-                        variant: None,
-                    },
-                ],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
-        let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
-        assert_eq!(deps, HashSet::from([200, 300]));
-
-        // Test flag with mixed property types (feature flag + regular properties)
-        let flag_with_mixed_props = FeatureFlag {
-            id: 4,
-            team_id: 1,
-            name: Some("Mixed Properties".to_string()),
-            key: "mixed_props".to_string(),
-            filters: FlagFilters {
-                groups: vec![FlagPropertyGroup {
-                    properties: Some(vec![
-                        PropertyFilter {
-                            key: "400".to_string(), // Feature flag ID as string
-                            value: Some(json!("true")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Flag,
-                            group_type_index: None,
-                            negation: None,
-                        },
-                        PropertyFilter {
-                            key: "regular_property".to_string(),
-                            value: Some(json!("value")),
-                            operator: Some(OperatorType::Exact),
-                            prop_type: PropertyType::Person,
-                            group_type_index: None,
-                            negation: None,
-                        },
-                    ]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            },
-            deleted: false,
-            active: true,
-            ensure_experience_continuity: Some(false),
-            version: None,
-            evaluation_runtime: Some("all".to_string()),
-            evaluation_tags: None,
-            bucketing_identifier: None,
-        };
-
-        let deps = flag_with_mixed_props.extract_dependencies().unwrap();
-        assert_eq!(deps, HashSet::from([400]));
-    }
-
-    #[test]
     fn test_operator_type_deserialization() {
         let operators = vec![
             ("exact", OperatorType::Exact),
             ("is_not", OperatorType::IsNot),
             ("icontains", OperatorType::Icontains),
             ("not_icontains", OperatorType::NotIcontains),
+            ("icontains_multi", OperatorType::IcontainsMulti),
+            ("not_icontains_multi", OperatorType::NotIcontainsMulti),
             ("regex", OperatorType::Regex),
             ("not_regex", OperatorType::NotRegex),
             ("gt", OperatorType::Gt),
@@ -646,98 +524,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_flag_with_super_groups() {
-        let redis_client = setup_redis_client(None).await;
-        let context = TestContext::new(None).await;
-        let team = context
-            .insert_new_team(None)
-            .await
-            .expect("Failed to insert team in pg");
-
-        let flag_with_super_groups = json!({
-            "id": 1,
-            "team_id": team.id,
-            "name": "Flag with Super Groups",
-            "key": "flag_with_super_groups",
-            "filters": {
-                "groups": [
-                    {
-                        "properties": [],
-                        "rollout_percentage": 50
-                    }
-                ],
-                "super_groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "country",
-                                "value": "US",
-                                "type": "person",
-                                "operator": "exact"
-                            }
-                        ],
-                        "rollout_percentage": 100
-                    }
-                ]
-            },
-            "active": true,
-            "deleted": false
-        });
-
-        // Insert into Redis
-        insert_flags_for_team_in_redis(
-            redis_client.clone(),
-            team.id,
-            Some(json!([flag_with_super_groups]).to_string()),
-        )
-        .await
-        .expect("Failed to insert flag in Redis");
-
-        // Insert into Postgres
-        context
-            .insert_flag(
-                team.id,
-                Some(FeatureFlagRow {
-                    id: 1,
-                    team_id: team.id,
-                    name: Some("Flag with Super Groups".to_string()),
-                    key: "flag_with_super_groups".to_string(),
-                    filters: flag_with_super_groups["filters"].clone(),
-                    deleted: false,
-                    active: true,
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                }),
-            )
-            .await
-            .expect("Failed to insert flag in Postgres");
-
-        // Fetch and verify from Redis
-        let redis_flags = get_flags_from_redis(redis_client, team.id)
-            .await
-            .expect("Failed to fetch flags from Redis");
-
-        assert_eq!(redis_flags.flags.len(), 1);
-        let redis_flag = &redis_flags.flags[0];
-        assert_eq!(redis_flag.key, "flag_with_super_groups");
-        assert!(redis_flag.filters.super_groups.is_some());
-        assert_eq!(redis_flag.filters.super_groups.as_ref().unwrap().len(), 1);
-
-        // Fetch and verify from Postgres
-        let pg_flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
-            .await
-            .expect("Failed to fetch flags from Postgres");
-        assert_eq!(pg_flags.len(), 1);
-        let pg_flag = &pg_flags[0];
-        assert_eq!(pg_flag.key, "flag_with_super_groups");
-        assert!(pg_flag.filters.super_groups.is_some());
-        assert_eq!(pg_flag.filters.super_groups.as_ref().unwrap().len(), 1);
-    }
-
-    #[tokio::test]
     async fn test_flags_with_different_property_types() {
         let redis_client = setup_redis_client(None).await;
         let context = TestContext::new(None).await;
@@ -913,22 +699,24 @@ mod tests {
         let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string())).await;
         let context = TestContext::new(None).await;
 
-        // Test malformed JSON in Redis
+        // Test malformed JSON in Redis (using Django-compatible hypercache key format)
         let team = context
             .insert_new_team(None)
             .await
             .expect("Failed to insert team in pg");
 
+        // Use Django-compatible key format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
+        let django_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
         redis_client
-            .set(
-                format!("{}{}", TEAM_FLAGS_CACHE_PREFIX, team.id),
-                "not a json".to_string(),
-            )
+            .set(django_key, "not a json".to_string())
             .await
             .expect("Failed to set malformed JSON in Redis");
 
         let result = get_flags_from_redis(redis_client, team.id).await;
-        assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
+        assert!(matches!(
+            result,
+            Err(FlagError::DataParsingErrorWithContext(_))
+        ));
 
         // Test database query error (using a non-existent table)
         let result = sqlx::query("SELECT * FROM non_existent_table")
@@ -1245,25 +1033,27 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let mut redis_flags = get_flags_from_redis(redis_client, team.id)
+        let redis_flags = get_flags_from_redis(redis_client, team.id)
             .await
             .expect("Failed to fetch flags from Redis");
         let mut pg_flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        // Sort flags by key to ensure consistent order
-        redis_flags.flags.sort_by(|a, b| a.key.cmp(&b.key));
+        // `redis_flags.flags` is `Arc<[FeatureFlag]>` (immutable), so sort into a
+        // local Vec for the comparison below.
+        let mut redis_flag_list: Vec<_> = redis_flags.flags.iter().cloned().collect();
+        redis_flag_list.sort_by(|a, b| a.key.cmp(&b.key));
         pg_flags.sort_by(|a, b| a.key.cmp(&b.key));
 
         // Compare results
         assert_eq!(
-            redis_flags.flags.len(),
+            redis_flag_list.len(),
             pg_flags.len(),
             "Number of flags mismatch"
         );
 
-        for (redis_flag, pg_flag) in redis_flags.flags.iter().zip(pg_flags.iter()) {
+        for (redis_flag, pg_flag) in redis_flag_list.iter().zip(pg_flags.iter()) {
             assert_eq!(redis_flag.key, pg_flag.key, "Flag key mismatch");
             assert_eq!(
                 redis_flag.name, pg_flag.name,
@@ -1368,7 +1158,13 @@ mod tests {
             .expect("Failed to fetch flags from Postgres");
 
         // Verify rollout percentages
-        for flags in &[redis_flags, FeatureFlagList { flags: pg_flags }] {
+        for flags in &[
+            redis_flags,
+            FeatureFlagList {
+                flags: pg_flags.into(),
+                ..Default::default()
+            },
+        ] {
             assert!(flags
                 .flags
                 .iter()
@@ -1401,20 +1197,14 @@ mod tests {
         assert!(flag.filters.multivariate.is_none());
         assert!(flag.filters.aggregation_group_type_index.is_none());
         assert!(flag.filters.payloads.is_none());
-        assert!(flag.filters.super_groups.is_none());
-        assert!(flag.filters.holdout_groups.is_none());
+        assert!(flag.filters.holdout.is_none());
     }
 
     #[test]
     fn test_require_db_preparation_if_group_type_index() {
-        let mut flag = create_simple_flag(
-            vec![create_simple_property_filter(
-                "some_property",
-                PropertyType::Person,
-                OperatorType::Exact,
-            )],
-            100.0,
-        );
+        let mut flag = mock!(FeatureFlag, filters: vec![
+            mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact))
+        ].mock_into());
 
         let overrides = HashMap::from([(
             "some_property".to_string(),
@@ -1432,14 +1222,9 @@ mod tests {
 
     #[test]
     fn test_requires_db_preparation_if_cohort_filter_set() {
-        let flag = create_simple_flag(
-            vec![create_simple_property_filter(
-                "some_property",
-                PropertyType::Cohort,
-                OperatorType::Exact,
-            )],
-            100.0,
-        );
+        let flag = mock!(FeatureFlag, filters: vec![
+            mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact))
+        ].mock_into());
 
         // Even though override matches the cohort filter, we still need to prepare the DB
         let overrides = HashMap::from([(
@@ -1452,21 +1237,12 @@ mod tests {
 
     #[test]
     fn test_requires_db_preparation_if_not_enough_overrides() {
-        let flag = create_simple_flag(
-            vec![
-                create_simple_property_filter(
-                    "some_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-                create_simple_property_filter(
-                    "another_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                ),
-            ],
-            1.0,
-        );
+        let flag = mock!(FeatureFlag, filters: mock!(FlagFilters, groups: vec![
+            mock!(FlagPropertyGroup, properties: Some(vec![
+                mock!(crate::properties::property_models::PropertyFilter, key: "some_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact)),
+                mock!(crate::properties::property_models::PropertyFilter, key: "another_property".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact)),
+            ]), rollout_percentage: Some(1.0))
+        ]));
 
         {
             let overrides = HashMap::from([
@@ -1495,26 +1271,310 @@ mod tests {
     }
 
     #[test]
-    fn test_does_not_require_db_preparation_if_holdout_groups_set() {
-        let mut flag = create_simple_flag(vec![], 100.0);
-        flag.filters.holdout_groups = Some(vec![
-            FlagPropertyGroup {
-                properties: Some(vec![]),
-                variant: Some("holdout-1".to_string()),
-                rollout_percentage: Some(10.0),
-            },
-            // Ignored, but here for testing.
-            FlagPropertyGroup {
-                properties: Some(vec![create_simple_property_filter(
-                    "some_property",
-                    PropertyType::Person,
-                    OperatorType::Exact,
-                )]),
-                rollout_percentage: Some(100.0),
-                variant: Some("holdout-2".to_string()),
-            },
-        ]);
+    fn test_does_not_require_db_preparation_if_holdout_set() {
+        use crate::flags::flag_models::Holdout;
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.holdout = Some(mock!(Holdout));
 
         assert!(!flag.requires_db_preparation(&HashMap::new()));
+    }
+
+    // ======== Tests for experience continuity optimization helper methods ========
+
+    #[test]
+    fn test_has_hash_dependent_variants_none() {
+        let flag = mock!(FeatureFlag);
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_empty() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions { variants: vec![] });
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_single_100_percent() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![MultivariateFlagVariant {
+                key: "control".to_string(),
+                name: Some("Control".to_string()),
+                rollout_percentage: 100.0,
+            }],
+        });
+        // Single variant at 100% is effectively not multivariate
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_two_variants() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        });
+        assert!(flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_multiple_with_one_at_100_percent() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 100.0, // This variant wins for everyone
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 0.0,
+                },
+            ],
+        });
+        // When any variant is at 100%, hashing doesn't matter - that variant always wins
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_partial_rollout_100_percent() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(100.0),
+            variant: None,
+            ..Default::default()
+        }];
+        assert!(!flag.has_partial_rollout());
+    }
+
+    #[test]
+    fn test_has_partial_rollout_50_percent() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(50.0),
+            variant: None,
+            ..Default::default()
+        }];
+        assert!(flag.has_partial_rollout());
+    }
+
+    #[test]
+    fn test_has_partial_rollout_none_defaults_to_100() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: None, // Defaults to 100%
+            variant: None,
+            ..Default::default()
+        }];
+        assert!(!flag.has_partial_rollout());
+    }
+
+    #[test]
+    fn test_has_partial_rollout_mixed_groups() {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.groups = vec![
+            FlagPropertyGroup {
+                properties: None,
+                rollout_percentage: Some(100.0),
+                variant: None,
+                ..Default::default()
+            },
+            FlagPropertyGroup {
+                properties: None,
+                rollout_percentage: Some(50.0),
+                variant: None,
+                ..Default::default()
+            },
+        ];
+        assert!(flag.has_partial_rollout());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_no_continuity() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(false);
+        assert!(!flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_continuity_none() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = None;
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(50.0),
+            variant: None,
+            ..Default::default()
+        }];
+        // None defaults to false, so no continuity means no lookup needed
+        assert!(!flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_100_percent_no_variants() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(100.0),
+            variant: None,
+            ..Default::default()
+        }];
+        // 100% rollout with no variants -> doesn't need lookup
+        assert!(!flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_partial_rollout() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(50.0),
+            variant: None,
+            ..Default::default()
+        }];
+        // Partial rollout needs consistent bucketing
+        assert!(flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_with_variants() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(100.0),
+            variant: None,
+            ..Default::default()
+        }];
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: None,
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: None,
+                    rollout_percentage: 50.0,
+                },
+            ],
+        });
+        // Has variants -> needs consistent variant assignment
+        assert!(flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_group_based_flag() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.aggregation_group_type_index = Some(0); // Group-based flag
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(50.0),
+            variant: None,
+            ..Default::default()
+        }];
+        // Group-based flags don't use hash key overrides
+        assert!(!flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_device_id_bucketing() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.bucketing_identifier = Some("device_id".to_string());
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(50.0),
+            variant: None,
+            ..Default::default()
+        }];
+        // Device ID bucketing doesn't use hash key overrides
+        assert!(!flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_empty_groups() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.groups = vec![];
+        // Empty groups means no partial rollout, doesn't need lookup
+        assert!(!flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_needs_hash_key_override_both_partial_and_variants() {
+        let mut flag = mock!(FeatureFlag);
+        flag.ensure_experience_continuity = Some(true);
+        flag.filters.groups = vec![FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(50.0), // Partial rollout
+            variant: None,
+            ..Default::default()
+        }];
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: None,
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: None,
+                    rollout_percentage: 50.0,
+                },
+            ],
+        });
+        // Both conditions satisfied -> needs lookup
+        assert!(flag.needs_hash_key_override());
+    }
+
+    #[test]
+    fn test_flags_require_db_preparation_skips_filtered_out() {
+        let person_property = mock!(crate::properties::property_models::PropertyFilter, key: "email".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
+        let mut flag_a = mock!(FeatureFlag, filters: vec![person_property.clone()].mock_into());
+        flag_a.id = 1;
+        flag_a.key = "flag_a".to_string();
+        let mut flag_b = mock!(FeatureFlag, filters: vec![person_property].mock_into());
+        flag_b.id = 2;
+        flag_b.key = "flag_b".to_string();
+
+        let flags: Vec<&FeatureFlag> = vec![&flag_a, &flag_b];
+        let overrides = HashMap::new();
+
+        // Without filtering, both flags require DB preparation
+        let result = flags_require_db_preparation(&flags, &overrides, &HashSet::new());
+        assert_eq!(result.len(), 2);
+
+        // With flag_a filtered out, only flag_b requires preparation
+        let filtered = HashSet::from([1]);
+        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key, "flag_b");
+
+        // With both filtered, none require preparation
+        let filtered = HashSet::from([1, 2]);
+        let result = flags_require_db_preparation(&flags, &overrides, &filtered);
+        assert!(result.is_empty());
     }
 }

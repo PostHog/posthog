@@ -5,6 +5,7 @@ use std::sync::Arc;
 use feature_flags::{
     cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
+        flag_group_type_mapping::GroupTypeCacheManager,
         flag_match_reason::FeatureFlagMatchReason,
         flag_matching::{FeatureFlagMatch, FeatureFlagMatcher},
     },
@@ -112,8 +113,8 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
+        let reader = setup_pg_reader_client(None);
+        let writer = setup_pg_writer_client(None);
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
         let distinct_id = format!("distinct_id_{i}");
@@ -125,9 +126,18 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(distinct_id, None, 1, router, cohort_cache, None, None)
+            let group_type_cache = Arc::new(GroupTypeCacheManager::new(reader.clone(), None, None));
+            FeatureFlagMatcher::new(
+                distinct_id,
+                None,
+                1,
+                router,
+                cohort_cache,
+                group_type_cache,
+                None,
+            )
         }
-        .get_match(&flags[0], None, None)
+        .get_match(&flags[0], None, None, None, &None)
         .unwrap();
 
         if *result {
@@ -1211,8 +1221,8 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
     ];
 
     for (i, result) in results.iter().enumerate().take(1000) {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
+        let reader = setup_pg_reader_client(None);
+        let writer = setup_pg_writer_client(None);
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
         let distinct_id = format!("distinct_id_{i}");
 
@@ -1223,9 +1233,18 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                 reader.clone(),
                 writer.clone(),
             );
-            FeatureFlagMatcher::new(distinct_id, None, 1, router, cohort_cache, None, None)
+            let group_type_cache = Arc::new(GroupTypeCacheManager::new(reader.clone(), None, None));
+            FeatureFlagMatcher::new(
+                distinct_id,
+                None,
+                1,
+                router,
+                cohort_cache,
+                group_type_cache,
+                None,
+            )
         }
-        .get_match(&flags[0], None, None)
+        .get_match(&flags[0], None, None, None, &None)
         .unwrap();
 
         if let Some(variant) = &result {

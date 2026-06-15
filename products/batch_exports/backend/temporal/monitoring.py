@@ -7,13 +7,14 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExport, BatchExportRun
-from posthog.batch_exports.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
-from posthog.batch_exports.sql import EVENT_COUNT_BY_INTERVAL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
+from products.batch_exports.backend.temporal.sql import EVENT_COUNT_BY_INTERVAL
 
 LOGGER = get_logger(__name__)
 
@@ -326,7 +327,7 @@ def _log_warning_for_missing_events(batch_export_id: UUID, missing_events: list[
     bind_contextvars(batch_export_id=batch_export_id)
     logger = LOGGER.bind()
 
-    message = f"Batch Exports Monitoring: Found missing events:\n"
+    message = "Batch Exports Monitoring: Found missing events:\n"
     for event in missing_events:
         message += f"- {event.count} events missing in interval {event.interval_start} to {event.interval_end}\n"
 

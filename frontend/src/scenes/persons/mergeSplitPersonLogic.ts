@@ -13,23 +13,28 @@ import { personsLogic } from './personsLogic'
 
 export interface SplitPersonLogicProps {
     person: PersonType
+    urlId: string
 }
 
 export type PersonUuids = NonNullable<PersonType['uuid']>[]
 
+export type SplitMode = 'all' | 'partial'
+
 export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
     props({} as SplitPersonLogicProps),
-    key((props) => props.person.id ?? 'new'),
+    key((props) => `${props.person.id ?? 'new'}`),
     path((key) => ['scenes', 'persons', 'mergeSplitPersonLogic', key]),
-    connect(() => ({
+    connect((props: SplitPersonLogicProps) => ({
         actions: [
-            personsLogic({ syncWithUrl: true }),
+            personsLogic({ syncWithUrl: true, urlId: props.urlId }),
             ['setListFilters', 'loadPersons', 'setPerson', 'setSplitMergeModalShown'],
         ],
-        values: [personsLogic({ syncWithUrl: true }), ['persons']],
+        values: [personsLogic({ syncWithUrl: true, urlId: props.urlId }), ['persons']],
     })),
     actions({
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),
+        setSplitMode: (mode: SplitMode) => ({ mode }),
+        setDistinctIdsToSplit: (ids: string[]) => ({ ids }),
         cancel: true,
     }),
     loaders(({ values, actions }) => ({
@@ -37,12 +42,13 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
             false,
             {
                 execute: async () => {
-                    const splitAction = await api.create(
-                        'api/person/' + values.person.id + '/split/',
-                        values.selectedPersonToAssignSplit
-                            ? { main_distinct_id: values.selectedPersonToAssignSplit }
-                            : {}
-                    )
+                    const payload =
+                        values.splitMode === 'partial'
+                            ? { distinct_ids_to_split: values.distinctIdsToSplit }
+                            : values.selectedPersonToAssignSplit
+                              ? { main_distinct_id: values.selectedPersonToAssignSplit }
+                              : {}
+                    const splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
                     if (splitAction.success) {
                         lemonToast.success(
                             'Person succesfully split. This may take up to a couple of minutes to complete.'
@@ -63,6 +69,18 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
             null as null | string,
             {
                 setSelectedPersonToAssignSplit: (_, { id }) => id,
+            },
+        ],
+        splitMode: [
+            'all' as SplitMode,
+            {
+                setSplitMode: (_, { mode }) => mode,
+            },
+        ],
+        distinctIdsToSplit: [
+            [] as string[],
+            {
+                setDistinctIdsToSplit: (_, { ids }) => ids,
             },
         ],
     })),

@@ -16,6 +16,7 @@ def populate_instance_settings(apps, schema_editor):
         with connection.cursor() as cursor:
             cursor.execute("SELECT key, value FROM constance_config")
             for key, pickled_value in cursor.fetchall():
+                # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (migration code, reads trusted DB data once)
                 value = pickle.loads(b64decode(pickled_value.encode())) if pickled_value is not None else None
                 InstanceSetting.objects.create(key=key, raw_value=json.dumps(value))
     except utils.ProgrammingError:

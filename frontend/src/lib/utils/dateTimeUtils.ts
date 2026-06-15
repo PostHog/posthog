@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { IntervalType } from '~/types'
 
 export interface DayJSDateRange {
     start: dayjs.Dayjs
@@ -48,6 +49,44 @@ export function getConstrainedWeekRange(
     }
 }
 
+// When an insight is grouped by month, the query's WHERE clause uses
+// toStartOfInterval(date_from, month), so the first and last chart buckets cover the
+// whole month. Expand the resolved range we show in the tooltip to match — otherwise
+// "Last 12 months" from April 7 looks like it excludes April 1–6, which it doesn't.
+// Scoped to month for now; weekly grouping has the same drift but is less visually
+// jarring and isn't handled here.
+const TZ_SUFFIX_RE = /([+-]\d{2}:\d{2}|Z)$/
+
+function splitTimezoneSuffix(iso: string): [string, string] {
+    const match = iso.match(TZ_SUFFIX_RE)
+    if (!match) {
+        return [iso, '']
+    }
+    const suffix = match[0] === 'Z' ? '+00:00' : match[0]
+    return [iso.slice(0, -match[0].length), suffix]
+}
+
+export function alignResolvedDateRangeToInterval(
+    resolvedDateRange: ResolvedDateRangeResponse | null | undefined,
+    interval: IntervalType | null | undefined
+): ResolvedDateRangeResponse | undefined {
+    if (!resolvedDateRange?.date_from || !resolvedDateRange?.date_to) {
+        return undefined
+    }
+    if (interval !== 'month') {
+        return resolvedDateRange
+    }
+    // Parse the wall-clock portion only, so manipulation stays in the original tz.
+    const [fromWall, fromTz] = splitTimezoneSuffix(resolvedDateRange.date_from)
+    const [toWall, toTz] = splitTimezoneSuffix(resolvedDateRange.date_to)
+    const from = dayjs.utc(fromWall).startOf('month')
+    const to = dayjs.utc(toWall).endOf('month')
+    return {
+        date_from: from.format('YYYY-MM-DDTHH:mm:ss') + fromTz,
+        date_to: to.format('YYYY-MM-DDTHH:mm:ss') + toTz,
+    }
+}
+
 export function formatResolvedDateRange(
     resolvedDateRange: ResolvedDateRangeResponse | null | undefined
 ): string | undefined {
@@ -74,4 +113,31 @@ export function formatLocalizedDate(): string {
     const usDateLocales = ['en-US', 'en-CA']
 
     return usDateLocales.some((usLocale) => localLang.startsWith(usLocale)) ? 'MMM DD' : 'DD MMM'
+}
+
+/** Parse a date string into a Dayjs in the given timezone, browser-tz-independent.
+ *
+ * - Strings without explicit timezone info ("2026-03-08", "2026-03-08 14:00:00")
+ *   are treated as wall-clock time in the given timezone. Strings from ClickHouse
+ *   already have wall-clock digits in the project timezone because ClickHouse applies
+ *   toTimeZone before truncation, and date-only buckets from the trends backend
+ *   have no time component to convert.
+ * - Strings with explicit timezone info (trailing "Z" or "±HH:MM") are real instants;
+ *   parse them as such and convert into the requested timezone.
+ *
+ * Don't use the `dayjs.utc(...).tz(timezone, true)` shape: keepLocalTime reads the
+ * **system** local representation of the underlying instant, not the UTC
+ * representation, so when the browser tz is east of UTC (e.g. Berlin, Tokyo) the
+ * calendar date shifts back by one day. */
+export function parseDateInTimezone(dateStr: string, timezone: string): dayjs.Dayjs {
+    const hasExplicitTz = /([Zz]|[+-]\d{2}:?\d{2})$/.test(dateStr)
+    try {
+        if (hasExplicitTz) {
+            const instant = dayjs(dateStr)
+            return instant.isValid() ? instant.tz(timezone) : dayjs(null)
+        }
+        return dayjs.tz(dateStr, timezone)
+    } catch {
+        return dayjs(null)
+    }
 }

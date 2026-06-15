@@ -1,11 +1,74 @@
 {
     "products": [
         {
-            "path": "Data pipelines",
+            "path": "LLM analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_analytics",
+            "intents": ["llm_analytics", "llm_evaluations", "llm_datasets", "llm_prompts", "llm_clusters"]
+        },
+        {
+            "path": "Playground",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_playground",
+            "intents": ["llm_analytics"]
+        },
+        {
+            "path": "Clusters",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_clusters",
+            "intents": ["llm_clusters"]
+        },
+        {
+            "path": "Datasets",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_datasets",
+            "intents": ["llm_datasets"]
+        },
+        {
+            "path": "Evaluations",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_evaluations",
+            "intents": ["llm_evaluations"]
+        },
+        {
+            "path": "Taggers",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_tags",
+            "intents": ["llm_analytics"]
+        },
+        {
+            "path": "Prompts",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_prompts",
+            "intents": ["llm_prompts"]
+        },
+        {
+            "path": "Business knowledge",
+            "category": "AI engineering",
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
+        },
+        {
+            "path": "Web scripts",
             "category": "Tools",
             "iconType": "data_pipeline",
             "type": "hog_function",
-            "intents": []
+            "intents": ["site_apps"]
+        },
+        {
+            "path": "Support",
+            "category": "Behavior",
+            "iconType": "conversations",
+            "type": "conversations",
+            "intents": ["conversations"]
         },
         {
             "path": "Customer analytics",
@@ -44,14 +107,14 @@
         },
         {
             "path": "Endpoints",
-            "category": "Unreleased",
+            "category": "Tools",
             "iconType": "endpoints",
             "type": "endpoints",
             "intents": ["endpoints"]
         },
         {
             "path": "Error tracking",
-            "category": "Behavior",
+            "category": "App monitoring",
             "iconType": null,
             "type": "error_tracking",
             "intents": ["error_tracking"]
@@ -78,14 +141,7 @@
             "type": "live_debugger",
             "intents": ["live_debugger"]
         },
-        {
-            "path": "LLM analytics",
-            "category": "Analytics",
-            "iconType": null,
-            "type": null,
-            "intents": ["llm_analytics"]
-        },
-        { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
+        { "path": "Logs", "category": "App monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
             "category": "Analytics",
@@ -94,19 +150,33 @@
             "intents": ["marketing_analytics"]
         },
         {
+            "path": "MCP analytics",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "mcp_analytics",
+            "intents": ["llm_analytics"]
+        },
+        { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
+        {
             "path": "Product analytics",
             "category": "Analytics",
             "iconType": "product_analytics",
             "type": "insight",
             "intents": ["product_analytics"]
         },
-        { "path": "Notebooks", "category": "Tools", "iconType": "notebook", "type": "notebook", "intents": [] },
+        {
+            "path": "Notebooks",
+            "category": "Tools",
+            "iconType": "notebook",
+            "type": "notebook",
+            "intents": ["notebooks"]
+        },
         {
             "path": "Product tours",
             "category": "Behavior",
             "iconType": "product_tour",
             "type": "product_tour",
-            "intents": []
+            "intents": ["product_tours"]
         },
         {
             "path": "Session replay",
@@ -117,20 +187,42 @@
         },
         { "path": "Heatmaps", "category": "Behavior", "iconType": "heatmap", "type": null, "intents": ["heatmaps"] },
         {
+            "path": "Replay vision",
+            "category": "Behavior",
+            "iconType": null,
+            "type": "replay_vision",
+            "intents": ["replay_vision"]
+        },
+        {
             "path": "Revenue analytics",
             "category": "Analytics",
             "iconType": null,
             "type": "revenue",
             "intents": ["revenue_analytics"]
         },
+        { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["llm_prompts"] },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
-        { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
+        { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {
-            "path": "User interviews",
+            "path": "Tracing",
+            "category": "App monitoring",
+            "iconType": "tracing",
+            "type": null,
+            "intents": ["tracing"]
+        },
+        {
+            "path": "User research",
             "category": "Unreleased",
             "iconType": "user_interview",
             "type": "user_interview",
             "intents": ["user_interviews"]
+        },
+        {
+            "path": "Visual review",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": null,
+            "intents": ["visual_review"]
         },
         {
             "path": "Web analytics",
@@ -154,17 +246,17 @@
     "metadata": [
         { "path": "Actions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
-            "path": "Data pipelines",
-            "category": "Tools",
-            "iconType": "data_pipeline",
-            "type": "hog_function",
-            "intents": []
-        },
-        {
             "path": "Transformations",
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",
             "type": "hog_function/transformation",
+            "intents": []
+        },
+        {
+            "path": "Event ingestion filtering",
+            "category": "Pipeline",
+            "iconType": "data_pipeline_metadata",
+            "type": "event_filter",
             "intents": []
         },
         {
@@ -175,7 +267,7 @@
             "intents": []
         },
         {
-            "path": "Ingestion warnings",
+            "path": "Event ingestion warnings",
             "category": "Pipeline",
             "iconType": "ingestion_warning",
             "type": null,
@@ -189,6 +281,7 @@
             "type": "hog_function/source",
             "intents": []
         },
+        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Managed viewsets",
             "category": "Unreleased",
@@ -196,7 +289,8 @@
             "type": null,
             "intents": []
         },
-        { "path": "Endpoints", "category": "Unreleased", "iconType": null, "type": null, "intents": [] },
+        { "path": "Exports", "category": "Pipeline", "iconType": "exports", "type": null, "intents": [] },
+        { "path": "Endpoints", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Event definitions",
             "category": "Schema",
@@ -218,15 +312,9 @@
             "type": null,
             "intents": []
         },
+        { "path": "SQL variables", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         { "path": "Annotations", "category": "Metadata", "iconType": "annotation", "type": null, "intents": [] },
         { "path": "Comments", "category": "Metadata", "iconType": "comment", "type": null, "intents": [] },
-        { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
-        {
-            "path": "Marketing settings",
-            "category": "Unreleased",
-            "iconType": "marketing_settings",
-            "type": null,
-            "intents": []
-        }
+        { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] }
     ]
 }

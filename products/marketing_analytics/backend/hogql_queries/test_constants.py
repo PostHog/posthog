@@ -62,9 +62,9 @@ class TestMarketingAnalyticsConstantsCoverage:
         all_sources = set(NativeMarketingSource)
         covered_sources = set(NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS.keys())
         missing = all_sources - covered_sources
-        assert (
-            covered_sources == all_sources
-        ), f"Missing sources in NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: {missing}"
+        assert covered_sources == all_sources, (
+            f"Missing sources in NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: {missing}"
+        )
 
     def test_table_patterns_covers_all_sources(self):
         all_sources = set(NativeMarketingSource)

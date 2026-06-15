@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import pytest
 from freezegun import freeze_time
@@ -8,11 +8,13 @@ from posthog.test.base import APIBaseTest
 from django.db.utils import IntegrityError
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
+from posthog.api.test.test_property_definition import exclude_virtual_properties
 from posthog.models import ActivityLog, EventProperty, Tag
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition
@@ -138,7 +140,34 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
+        db_results = [r for r in response_data["results"] if not r.get("name", "").startswith("$virt_")]
+        self.assertEqual(len(db_results), 2)
+
+    @parameterized.expand(
+        [
+            ("verified_only", "true", ["verified_prop"]),
+            ("unverified_only", "false", ["unverified_prop"]),
+            ("all_when_not_specified", None, ["unverified_prop", "verified_prop"]),
+        ]
+    )
+    def test_filter_property_definitions_by_verified(
+        self, _name: str, verified_param: Optional[str], expected_names: list[str]
+    ):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+        )
+
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="verified_prop", verified=True)
+        EnterprisePropertyDefinition.objects.create(team=self.team, name="unverified_prop", verified=False)
+
+        url = "/api/projects/@current/property_definitions/"
+        if verified_param is not None:
+            url += f"?verified={verified_param}"
+
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted([r["name"] for r in exclude_virtual_properties(response.json()["results"])]) == expected_names
 
     def test_update_property_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -162,12 +191,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="PropertyDefinition").first()
         assert activity_log is not None
+        detail = cast(dict[str, Any], activity_log.detail)
+        changes = cast(list[dict[str, Any]], detail["changes"])
         self.assertEqual(activity_log.scope, "PropertyDefinition")
         self.assertEqual(activity_log.activity, "changed")
-        self.assertEqual(activity_log.detail["name"], "enterprise property")
-        self.assertEqual(activity_log.detail["type"], "event")
+        self.assertEqual(detail["name"], "enterprise property")
+        self.assertEqual(detail["type"], "event")
         self.assertEqual(activity_log.user, self.user)
-        assert sorted(activity_log.detail["changes"], key=lambda x: x["field"]) == [
+        assert sorted(changes, key=lambda x: x["field"]) == [
             {
                 "action": "changed",
                 "after": "This is a description.",
@@ -220,30 +251,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["is_numerical"], False)
         self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
 
-    def test_update_property_description_without_license(self):
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_update_property_tags_without_license(self):
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"tags": ["test"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
     def test_can_update_property_type_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
@@ -270,33 +277,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
         self.assertEqual(response_data["property_type"], "DateTime")
-
-    def test_cannot_update_more_than_property_type_without_license(self):
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"property_type": "DateTime", "tags": ["test"]},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
-
-    def test_with_expired_license(self):
-        super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2010, 1, 19, 3, 14, 7)
-        )
-        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
-        response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/",
-            data={"description": "test"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn(
-            "Self-hosted licenses are no longer available for purchase.",
-            response.json()["detail"],
-        )
 
     def test_filter_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -541,9 +521,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], len(properties))
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", False, None),
             ("2_when_verified", False, None),
             ("3_when_verified", False, None),
@@ -561,7 +541,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("1_when_verified", True, None),
             ("2_when_verified", True, None),
             ("3_when_verified", True, None),
@@ -576,7 +557,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
         response = self.client.get("/api/projects/@current/property_definitions/?event_names=%5B%22%24pageview%22%5D")
 
-        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]] == [
+        db_results = exclude_virtual_properties(response.json()["results"])
+        assert [(r["name"], r["verified"], r["is_seen_on_filtered_events"]) for r in db_results] == [
             ("3_when_verified", True, True),
             ("4_when_verified", False, True),
             ("1_when_verified", True, False),
@@ -597,23 +579,6 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         EnterprisePropertyDefinition.objects.create(
             team=self.team, name="hidden_property2", property_type="String", hidden=True
         )
-
-        # Test without enterprise taxonomy - hidden properties should still be shown even with exclude_hidden=true
-        self.organization.available_features = []
-        self.organization.save()
-
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        property_names = {p["name"] for p in response.json()["results"]}
-        self.assertIn("visible_property", property_names)
-        self.assertIn("hidden_property1", property_names)
-        self.assertIn("hidden_property2", property_names)
-
-        # Test with enterprise taxonomy enabled - hidden properties should be excluded when exclude_hidden=true
-        self.team.organization.available_product_features = [
-            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
-        ]
-        self.team.organization.save()
 
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_hidden=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

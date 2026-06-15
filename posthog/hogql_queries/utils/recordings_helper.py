@@ -5,13 +5,15 @@ from datetime import datetime
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
-from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.models.user import User
 
 
 class RecordingsHelper:
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, user: User | None = None):
         self.team = team
+        self.user = user
 
     def _matching_clickhouse_recordings(
         self,
@@ -33,6 +35,12 @@ class RecordingsHelper:
             op=ast.CompareOperationOp.GtEq, left=ast.Field(chain=["expiry_time"]), right=ast.Constant(value=current_now)
         )
 
+        not_deleted = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(name="max", args=[ast.Field(chain=["is_deleted"])]),
+            right=ast.Constant(value=0),
+        )
+
         query = """
                 SELECT
                     session_id,
@@ -49,25 +57,20 @@ class RecordingsHelper:
                     {having_predicates}
                 """
 
+        tag_queries(team_id=self.team.id, product=Product.REPLAY, feature=Feature.QUERY)
         response = execute_hogql_query(
             query,
             placeholders={
                 "where_predicates": matches_provided_session_ids,
-                "having_predicates": not_expired,
+                "having_predicates": ast.And(exprs=[not_expired, not_deleted]),
             },
             team=self.team,
+            user=self.user,
         )
         if not response.results:
             return set()
 
         return {str(result[0]) for result in response.results}
-
-    def _deleted_session_recordings(self, session_ids) -> set[str]:
-        return set(
-            SessionRecording.objects.filter(team_id=self.team.pk, session_id__in=session_ids, deleted=True).values_list(
-                "session_id", flat=True
-            )
-        )
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
         mapped_events = defaultdict(list)
@@ -75,9 +78,7 @@ class RecordingsHelper:
             mapped_events[event[2]].append(event)
 
         raw_session_ids = mapped_events.keys()
-        valid_session_ids = self._matching_clickhouse_recordings(raw_session_ids) - self._deleted_session_recordings(
-            raw_session_ids
-        )
+        valid_session_ids = self._matching_clickhouse_recordings(raw_session_ids)
 
         return {
             str(session_id): [

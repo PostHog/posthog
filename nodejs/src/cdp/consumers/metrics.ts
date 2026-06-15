@@ -6,20 +6,20 @@ export const counterParseError = new Counter({
     labelNames: ['error'],
 })
 
-export const counterQuotaLimited = new Counter({
-    name: 'cdp_function_quota_limited',
-    help: 'A function invocation was quota limited',
-    labelNames: ['team_id'],
-})
-
 export const counterRateLimited = new Counter({
     name: 'cdp_function_rate_limited',
     help: 'A function invocation was rate limited',
-    labelNames: ['kind'],
+    labelNames: ['kind', 'function_id'],
 })
 
 export const counterHogFunctionStateOnEvent = new Counter({
     name: 'cdp_hog_function_state_on_event',
     help: 'Metric the state of a hog function that matched an event',
     labelNames: ['state', 'kind'],
+})
+
+export const counterBatchHogFlowTriggerFailed = new Counter({
+    name: 'cdp_batch_hog_flow_trigger_failed',
+    help: 'A batch hog flow run failed during audience resolution and was skipped',
+    labelNames: ['hog_flow_id', 'reason'],
 })

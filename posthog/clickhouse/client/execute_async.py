@@ -20,9 +20,9 @@ from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
     from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -33,7 +33,7 @@ QUERY_WAIT_TIME = Histogram(
     "query_wait_time_seconds",
     "Time from query creation to pick-up",
     labelnames=["team", "mode"],
-    buckets=Histogram.DEFAULT_BUCKETS[2:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
+    buckets=(*Histogram.DEFAULT_BUCKETS[2:-1], 20, 30, 60, 120, 300, 600, float("inf")),
 )
 
 QUERY_PROCESS_TIME = Histogram(
@@ -52,6 +52,8 @@ class QueryRetrievalError(Exception):
 class QueryStatusManager:
     STATUS_TTL_SECONDS = 60 * 20  # 20 minutes
     DEDUP_TTL_SECONDS = 60 * 20  # 20 minutes
+    POLL_INTERVAL_SECONDS = 20
+    HEARTBEAT_TTL_SECONDS = POLL_INTERVAL_SECONDS * 3
     KEY_PREFIX_ASYNC_RESULTS = "query_async"
     KEY_PREFIX_RUNNING_QUERIES = "running_queries"
 
@@ -67,6 +69,10 @@ class QueryStatusManager:
     @property
     def clickhouse_query_status_key(self) -> str:
         return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:status"
+
+    @property
+    def heartbeat_key(self) -> str:
+        return f"{self.KEY_PREFIX_ASYNC_RESULTS}:{self.team_id}:{self.query_id}:heartbeat"
 
     @property
     def running_queries_key(self) -> str:
@@ -108,6 +114,7 @@ class QueryStatusManager:
         for clickhouse_query_progress in clickhouse_query_progresses:
             clickhouse_query_progress_dict[clickhouse_query_progress["query_id"]] = clickhouse_query_progress
         self._store_clickhouse_query_progress_dict(clickhouse_query_progress_dict)
+        self.redis_client.set(self.heartbeat_key, "1", ex=self.HEARTBEAT_TTL_SECONDS)
 
     def has_results(self) -> bool:
         return self.redis_client.exists(self.results_key) == 1
@@ -173,6 +180,7 @@ def execute_process_query(
     query_json: dict,
     limit_context: Optional[LimitContext],
     is_query_service: bool = False,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ):
     tag_queries(client_query_id=query_id, team_id=team_id, user_id=user_id)
     manager = QueryStatusManager(query_id, team_id)
@@ -218,6 +226,7 @@ def execute_process_query(
             dashboard_id=query_status.dashboard_id,
             user=user,
             is_query_service=is_query_service,
+            analytics_props=analytics_props,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -270,6 +279,8 @@ def enqueue_process_query_task(
     force: bool = False,
     _test_only_bypass_celery: bool = False,
     is_query_service: bool = False,
+    is_posthog_ai: bool = False,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -288,16 +299,24 @@ def enqueue_process_query_task(
             existing_query_id = manager.get_running_query_by_cache_key(cache_key)
             if existing_query_id:
                 query_status = get_query_status(team.id, existing_query_id)
-                posthoganalytics.capture(
-                    "query duplicate found",
-                    distinct_id=user_id,
-                    properties={
-                        "cache_key": cache_key,
-                        "query_id": existing_query_id,
-                        "query_json": query_json,
-                    },
-                )
-                return query_status
+                if not query_status.complete:
+                    # Only deduplicate against a query that is still in progress
+                    posthoganalytics.capture(
+                        "query duplicate found",
+                        distinct_id=user_id,
+                        properties={
+                            "cache_key": cache_key,
+                            "query_id": existing_query_id,
+                            "query_json": query_json,
+                        },
+                    )
+                    return query_status
+                # The previous task finished (or failed) — clean up the stale mapping and enqueue a new one
+                manager.unregister_cache_key_mapping(cache_key)
+    except QueryNotFoundError:
+        # The status for the mapped query_id expired before we could check it — clean up and re-enqueue
+        if cache_key:
+            manager.unregister_cache_key_mapping(cache_key)
     except Exception as e:
         capture_exception(e, {"cache_key": cache_key})
 
@@ -318,8 +337,20 @@ def enqueue_process_query_task(
         except Exception as e:
             capture_exception(e, {"cache_key": cache_key})
 
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport), and this
+    # module loads at django.setup() via posthog.clickhouse.client — keep the task graph off it.
+    from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
+
+    limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
-        team.id, user_id, query_id, query_json, query_tags, is_query_service, LimitContext.QUERY_ASYNC
+        team.id,
+        user_id,
+        query_id,
+        query_json,
+        query_tags,
+        is_query_service,
+        limit_context,
+        analytics_props=analytics_props,
     )
 
     if _test_only_bypass_celery:

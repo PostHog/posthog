@@ -1,28 +1,35 @@
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SuggestedTable,
 )
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+    FieldType,
+    ResumableSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedditAdsSourceConfig
-from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
+from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsResumeConfig, reddit_ads_source
 from posthog.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
+class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REDDITADS
@@ -36,7 +43,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             name=SchemaExternalDataSourceType.REDDIT_ADS,
             label="Reddit Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Reddit Ads. Ensure you have granted PostHog access to your Reddit Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/reddit-ads).",
-            betaSource=True,
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/reddit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/reddit-ads",
             fields=cast(
@@ -48,6 +55,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Reddit Ads account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="reddit_integration_id",
@@ -57,9 +65,21 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
+            suggestedTables=[
+                SuggestedTable(
+                    table="campaigns",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+                SuggestedTable(
+                    table="campaign_report",
+                    tooltip=MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
+                ),
+            ],
         )
 
-    def validate_credentials(self, config: RedditAdsSourceConfig, team_id: int) -> tuple[bool, str | None]:
+    def validate_credentials(
+        self, config: RedditAdsSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         if not config.account_id or not config.reddit_integration_id:
             return False, "Account ID and Reddit Ads integration are required"
 
@@ -70,8 +90,15 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             capture_exception(e)
             return False, f"Failed to validate Reddit Ads credentials: {str(e)}"
 
-    def get_schemas(self, config: RedditAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self,
+        config: RedditAdsSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=str(endpoint_config.resource["name"]),
                 supports_incremental=endpoint_config.incremental_fields is not None,
@@ -81,7 +108,21 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             for endpoint_config in REDDIT_ADS_CONFIG.values()
         ]
 
-    def source_for_pipeline(self, config: RedditAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        if names:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RedditAdsResumeConfig]:
+        return ResumableSourceManager[RedditAdsResumeConfig](inputs, RedditAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: RedditAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[RedditAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.reddit_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -93,6 +134,7 @@ class RedditAdsSource(SimpleSource[RedditAdsSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

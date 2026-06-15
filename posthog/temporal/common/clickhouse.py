@@ -10,19 +10,20 @@ import asyncio
 import datetime as dt
 import contextlib
 import collections.abc
+from string import Formatter
 from urllib.parse import urljoin
 
 from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
-import requests
 from structlog import get_logger
 from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.security.outbound_proxy import internal_requests_session
 
 LOGGER = get_logger(__name__)
 
@@ -130,16 +131,21 @@ class ClickHouseClientNotConnected(Exception):
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
-    def __init__(self, query, error_message):
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
         self.query = query
+        self.query_id = query_id
         super().__init__(error_message)
 
 
 class ClickHouseAllReplicasAreStaleError(ClickHouseError):
-    """Exception raised when all replicas are stale."""
+    """Exception raised when all replicas are stale.
 
-    def __init__(self, query, error_message):
-        super().__init__(query, error_message)
+    This can happen when using max_replica_delay_for_distributed_queries
+    and fallback_to_stale_replicas_for_distributed_queries=0.
+    """
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
 
 
 class ClickHouseClientTimeoutError(ClickHouseError):
@@ -149,23 +155,49 @@ class ClickHouseClientTimeoutError(ClickHouseError):
     """
 
     def __init__(self, query, query_id: str):
-        self.query_id = query_id
-        super().__init__(query, f"Timed-out waiting for response running query '{query_id}'")
+        super().__init__(f"Timed-out waiting for response running query '{query_id}'", query, query_id)
+
+
+class ClickHouseQueryTimeoutError(ClickHouseError):
+    """Exception raised when a query exceeds the server-side max execution time."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
 
 
 class ClickHouseQueryNotFound(ClickHouseError):
     """Exception raised when a query with a given ID is not found."""
 
-    def __init__(self, query, query_id: str):
-        self.query_id = query_id
-        super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
+    def __init__(self, query_id: str):
+        super().__init__(f"Query with ID '{query_id}' was not found in query log", query_id=query_id)
 
 
 class ClickHouseMemoryLimitExceededError(ClickHouseError):
     """Exception raised when a query exceeds the memory limit."""
 
-    def __init__(self, query, error_message):
-        super().__init__(query, error_message)
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
+class ClickHouseTooManyBytesError(ClickHouseError):
+    """Exception raised when a query exceeds the limit on bytes read."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
+class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
+    """Exception raised when ClickHouse has too many simultaneous queries running."""
+
+    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+        super().__init__(error_message, query, query_id)
+
+
+class ClickHouseCheckQueryStatusError(ClickHouseError):
+    """Exception raised when checking the status of a query fails."""
+
+    def __init__(self, error_message: str, query_id: str | None = None):
+        super().__init__(error_message, query_id=query_id)
 
 
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
@@ -215,6 +247,23 @@ def add_log_comment_param(params: dict[str, typing.Any], query_tags: typing.Opti
     params[param_name] = query_tags.to_json()
 
 
+class KeywordOnlyFormatter(Formatter):
+    """Formatter supporting only keyword arguments.
+
+    Positional arguments are unchanged, missing keys are also left unchanged.
+    """
+
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, int):
+            # Returns '{n}' unchanged, where n is a numerical index.
+            return f"{{{key}}}"
+        try:
+            return kwargs[key]
+        except KeyError:
+            # Returns '{key}' unchanged
+            return f"{{{key}}}"
+
+
 class ClickHouseClient:
     """An asynchronous client to access ClickHouse via HTTP.
 
@@ -251,6 +300,8 @@ class ClickHouseClient:
             self.headers["X-ClickHouse-Key"] = password
         if database:
             self.params["database"] = database
+
+        self.params["max_query_size"] = "1048576"  # 1MB
 
         self.params.update(kwargs)
 
@@ -306,7 +357,7 @@ class ClickHouseClient:
         query = query % format_parameters
 
         if has_format_placeholders:
-            query = query.format(**format_parameters)
+            query = KeywordOnlyFormatter().format(query, **format_parameters)
 
         return query
 
@@ -322,43 +373,31 @@ class ClickHouseClient:
             request_data = None
         return request_data
 
-    async def acheck_response(self, response, query) -> None:
-        """Asynchronously check the HTTP response received from ClickHouse.
+    @staticmethod
+    def raise_clickhouse_error(error_message: str, query: str | None = None) -> typing.NoReturn:
+        """Raise the appropriate ClickHouseError subclass based on the error message."""
+        ERROR_CODE_TO_EXCEPTION: dict[str, type[ClickHouseError]] = {
+            "ALL_REPLICAS_ARE_STALE": ClickHouseAllReplicasAreStaleError,
+            "MEMORY_LIMIT_EXCEEDED": ClickHouseMemoryLimitExceededError,
+            "TOO_MANY_BYTES": ClickHouseTooManyBytesError,
+            "TOO_MANY_SIMULTANEOUS_QUERIES": ClickHouseTooManySimultaneousQueriesError,
+            "TIMEOUT_EXCEEDED": ClickHouseQueryTimeoutError,
+        }
+        for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
+            if error_code in error_message:
+                raise exc_class(error_message, query=query)
+        raise ClickHouseError(error_message, query=query)
 
-        Raises:
-            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
-                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
-                and fallback_to_stale_replicas_for_distributed_queries=0
-            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
-                "MEMORY_LIMIT_EXCEEDED".
-            ClickHouseError: If the status code is not 200.
-        """
+    async def acheck_response(self, response, query) -> None:
+        """Asynchronously check the HTTP response received from ClickHouse."""
         if response.status != 200:
             error_message = await response.text()
-            if "ALL_REPLICAS_ARE_STALE" in error_message:
-                raise ClickHouseAllReplicasAreStaleError(query, error_message)
-            if "MEMORY_LIMIT_EXCEEDED" in error_message:
-                raise ClickHouseMemoryLimitExceededError(query, error_message)
-            raise ClickHouseError(query, error_message)
+            self.raise_clickhouse_error(error_message, query=query)
 
     def check_response(self, response, query) -> None:
-        """Check the HTTP response received from ClickHouse.
-
-        Raises:
-            ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
-                "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
-                and fallback_to_stale_replicas_for_distributed_queries=0
-            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
-                "MEMORY_LIMIT_EXCEEDED".
-            ClickHouseError: If the status code is not 200.
-        """
+        """Check the HTTP response received from ClickHouse."""
         if response.status_code != 200:
-            error_message = response.text
-            if "ALL_REPLICAS_ARE_STALE" in error_message:
-                raise ClickHouseAllReplicasAreStaleError(query, error_message)
-            if "MEMORY_LIMIT_EXCEEDED" in error_message:
-                raise ClickHouseMemoryLimitExceededError(query, error_message)
-            raise ClickHouseError(query, error_message)
+            self.raise_clickhouse_error(response.text, query=query)
 
     @contextlib.asynccontextmanager
     async def aget_query(
@@ -489,6 +528,8 @@ class ClickHouseClient:
             The response received from the ClickHouse HTTP interface.
         """
         params = {**self.params}
+        # PyArrow reads response.raw directly in stream_query_as_arrow, so keep the HTTP body uncompressed.
+        params["enable_http_compression"] = "0"
         if query_id is not None:
             params["query_id"] = query_id
 
@@ -507,7 +548,7 @@ class ClickHouseClient:
                     params[f"param_{key}"] = str(value)
         add_log_comment_param(params)
 
-        with requests.Session() as s:
+        with internal_requests_session() as s:
             response = s.post(
                 url=self.url,
                 params=params,
@@ -540,6 +581,20 @@ class ClickHouseClient:
         async with self.aget_query(query, query_parameters=query_parameters, query_id=query_id) as response:
             return await response.content.read()
 
+    async def read_query_as_jsonl(
+        self, query, query_parameters=None, query_id: str | None = None
+    ) -> list[dict[typing.Any, typing.Any]]:
+        """Execute the given readonly query in ClickHouse and read the response as JSONL.
+
+        This will return a list of Python dictionaries (each one a JSON document).
+
+        NOTE: This method makes sense when running with FORMAT JSONEachRow, although we currently do not enforce this.
+        If the query is expected to return a large amount of data, it is preferable to use stream_query_as_jsonl.
+        """
+        resp = await self.read_query(query, query_parameters=query_parameters, query_id=query_id)
+        lines = resp.split(b"\n")
+        return [json.loads(line) for line in lines if line]
+
     async def acheck_query(
         self,
         query_id: str,
@@ -555,6 +610,11 @@ class ClickHouseClient:
             query_id: The ID of the query to check.
             raise_on_error: Whether to raise an exception if the query has
                 failed.
+
+        Raises:
+            ClickHouseQueryNotFound: If the query is not found in the query log or process list.
+            ClickHouseCheckQueryStatusError: If an error occurs while checking the query status.
+            ClickHouseError: If raise_on_error is True and the query has failed.
         """
         try:
             return await self.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
@@ -586,27 +646,36 @@ class ClickHouseClient:
                 FORMAT JSONEachRow
                 """
 
-        resp = await self.read_query(
-            query,
-            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK-QUERY-LOG",
-        )
+        try:
+            results = await self.read_query_as_jsonl(
+                query,
+                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_id=f"{query_id}-CHECK-QUERY-LOG",
+            )
+        except ClickHouseError as e:
+            error_message = f"Error checking for query '{query_id}' in query log: {str(e)}"
+            raise ClickHouseCheckQueryStatusError(error_message, query_id=query_id) from e
 
-        if not resp:
-            raise ClickHouseQueryNotFound(query, query_id)
-
-        lines = resp.split(b"\n")
+        num_rows = len(results)
+        if num_rows == 0:
+            raise ClickHouseQueryNotFound(query_id)
 
         events = set()
         error = None
-        for line in lines:
-            if not line:
+        for row in results:
+            if not row:
                 continue
 
-            loaded = json.loads(line)
-            events.add(loaded["type"])
+            # In some circumstances, ClickHouse returns errors as inside the query result, using a single "exception"
+            # key, therefore, if this is the case, raise an error.
+            if "type" not in row:
+                error = row.get("exception", "Neither 'type' nor 'exception' keys found in result")
+                error_message = f"Error checking for query '{query_id}' in query log: {error}"
+                raise ClickHouseCheckQueryStatusError(error_message, query_id=query_id)
 
-            error_value = loaded.get("exception", None)
+            events.add(row["type"])
+
+            error_value = row.get("exception", None)
             if error_value:
                 error = error_value
 
@@ -614,17 +683,15 @@ class ClickHouseClient:
             return ClickHouseQueryStatus.FINISHED
         elif "ExceptionWhileProcessing" in events or "ExceptionBeforeStart" in events:
             if raise_on_error:
-                if error is not None:
-                    error_message = error
-                else:
-                    error_message = f"Unknown query error in query with ID: {query_id}"
-                raise ClickHouseError(query, error_message=error_message)
+                error_message = error or f"Unknown query error in query with ID: {query_id}"
+                # we don't have the original query here so just use the query id
+                raise ClickHouseError(error_message, query_id=query_id)
 
             return ClickHouseQueryStatus.ERROR
         elif "QueryStart" in events:
             return ClickHouseQueryStatus.RUNNING
         else:
-            raise ClickHouseQueryNotFound(query, query_id)
+            raise ClickHouseQueryNotFound(query_id)
 
     async def acheck_query_in_process_list(self, query_id: str) -> bool:
         """Check if a query is running in the ClickHouse process list.
@@ -643,11 +710,16 @@ class ClickHouseClient:
                 LIMIT 1
                 """
 
-        resp = await self.read_query(
-            query,
-            query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
-            query_id=f"{query_id}-CHECK-PROCESS-LIST",
-        )
+        try:
+            resp = await self.read_query(
+                query,
+                query_parameters={"query_id": query_id, "cluster_name": settings.CLICKHOUSE_CLUSTER},
+                query_id=f"{query_id}-CHECK-PROCESS-LIST",
+            )
+        except ClickHouseError as e:
+            error_message = f"Error checking for query '{query_id}' in process list: {str(e)}"
+            raise ClickHouseCheckQueryStatusError(error_message, query_id=query_id) from e
+
         if not resp:
             return False
 
@@ -677,7 +749,7 @@ class ClickHouseClient:
         query_parameters=None,
         query_id: str | None = None,
         line_separator=b"\n",
-    ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any], None]:
+    ) -> typing.AsyncGenerator[dict[typing.Any, typing.Any]]:
         """Execute the given query in ClickHouse and stream back the response as one JSON per line.
 
         This method makes sense when running with FORMAT JSONEachRow, although we currently do not enforce this.
@@ -686,14 +758,13 @@ class ClickHouseClient:
         buffer = b""
         async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
             async for chunk in response.content.iter_any():
-                lines = chunk.split(line_separator)
-
-                yield json.loads(buffer + lines[0])
-
-                buffer = lines.pop(-1)
-
-                for line in lines[1:]:
-                    yield json.loads(line)
+                buffer += chunk
+                while line_separator in buffer:
+                    line, buffer = buffer.split(line_separator, 1)
+                    if line.strip():
+                        yield json.loads(line)
+            if buffer.strip():
+                yield json.loads(buffer)
 
     def stream_query_as_arrow(
         self,
@@ -701,7 +772,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
-    ) -> typing.Generator[pa.RecordBatch, None, None]:
+    ) -> typing.Generator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStreaming, although we currently do not enforce this.
@@ -717,7 +788,7 @@ class ClickHouseClient:
         *data,
         query_parameters=None,
         query_id: str | None = None,
-    ) -> typing.AsyncGenerator[pa.RecordBatch, None]:
+    ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
@@ -775,7 +846,8 @@ class ClickHouseClient:
             return sock
 
         self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
-        self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout)
+        # nosemgrep: aiohttp-missing-trust-env (internal ClickHouse connection, must bypass HTTP proxy)
+        self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout, trust_env=False)
         return self
 
     async def __aexit__(self, exc_type, exc_value, tb):

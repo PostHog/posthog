@@ -1,19 +1,25 @@
 import { connect, kea, path, selectors } from 'kea'
 
 import { isNotNil } from 'lib/utils'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 
 import {
     CompareFilter,
     ConversionGoalFilter,
+    CurrencyCode,
     DataTableNode,
     DataWarehouseNode,
     IntegrationFilter,
+    MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MARKETING_ANALYTICS_SCHEMA,
-    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     NodeKind,
+    getEffectiveExcludedColumns,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
 
@@ -22,6 +28,7 @@ import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import {
     getOrderBy,
+    rawColumnsForTiles,
     getSortedColumnsByArray,
     isDraftConversionGoalColumn,
     orderArrayByPreference,
@@ -29,6 +36,15 @@ import {
 } from './utils'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
+
+const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
+    column !== 'roas' && column !== 'cost_per_reported_conversion'
+
+const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => ({
+    dashboardItemId: getDashboardItemId(tile, tab, false),
+    loadPriority: loadPriorityMap[tile],
+    dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+})
 
 export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsTilesLogic']),
@@ -44,153 +60,162 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'chartDisplayType',
                 'tileColumnSelection',
                 'integrationFilter',
+                'drillDownLevel',
+                'baseCurrency',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
         ],
     })),
     selectors({
-        tiles: [
+        // One selector per tile so an input change only invalidates the tile that uses
+        // it — entries keep identity in `tiles` below, so `dataNodeLogic` doesn't refetch.
+        overviewTile: [
+            (s) => [s.compareFilter, s.dateFilter, s.draftConversionGoal, s.integrationFilter],
+            (
+                compareFilter: CompareFilter | null,
+                dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
+                draftConversionGoal: ConversionGoalFilter | null,
+                integrationFilter: IntegrationFilter
+            ): QueryTile => ({
+                kind: 'query',
+                tileId: TileId.MARKETING_OVERVIEW,
+                layout: {
+                    colSpanClassName: 'md:col-span-2 2xl:col-span-3' as `md:col-span-${number}`,
+                    orderWhenLargeClassName: '2xl:order-0',
+                },
+                query: {
+                    kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom,
+                        date_to: dateFilter.dateTo,
+                    },
+                    compareFilter: compareFilter || undefined,
+                    properties: [],
+                    draftConversionGoal: draftConversionGoal || undefined,
+                    integrationFilter: integrationFilter,
+                    tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                },
+                insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
+                canOpenInsight: false,
+            }),
+        ],
+        marketingChartTile: [
             (s) => [
                 s.compareFilter,
                 s.dateFilter,
                 s.createMarketingDataWarehouseNodes,
-                s.campaignCostsBreakdown,
                 s.chartDisplayType,
                 s.tileColumnSelection,
-                s.draftConversionGoal,
-                s.integrationFilter,
+                s.baseCurrency,
             ],
             (
                 compareFilter: CompareFilter | null,
-                dateFilter: {
-                    dateFrom: string | null
-                    dateTo: string | null
-                    interval: IntervalType
-                },
+                dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
                 createMarketingDataWarehouseNodes: DataWarehouseNode[],
-                campaignCostsBreakdown: DataTableNode,
                 chartDisplayType: ChartDisplayType,
                 tileColumnSelection: validColumnsForTiles,
-                draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
-            ) => {
-                const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
-                    return {
-                        dashboardItemId: getDashboardItemId(tile, tab, false),
-                        loadPriority: loadPriorityMap[tile],
-                        dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                    }
-                }
-
+                baseCurrency: CurrencyCode
+            ): QueryTile => {
                 const isCurrency =
-                    tileColumnSelection && MARKETING_ANALYTICS_SCHEMA[tileColumnSelection]
+                    tileColumnSelection && isSchemaBackedMarketingColumn(tileColumnSelection)
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
-
+                const { symbol: currencySymbol, isPrefix: currencyIsPrefix } = getCurrencySymbol(baseCurrency)
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
-
-                const tiles: QueryTile[] = [
-                    {
-                        kind: 'query',
-                        tileId: TileId.MARKETING_OVERVIEW,
-                        layout: {
-                            colSpanClassName: 'md:col-span-2 xxl:col-span-3' as `md:col-span-${number}`,
-                            orderWhenLargeClassName: 'xxl:order-0',
-                        },
-                        query: {
-                            kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                return {
+                    kind: 'query',
+                    tileId: TileId.MARKETING,
+                    layout: {
+                        colSpanClassName: 'md:col-span-2',
+                        orderWhenLargeClassName: '2xl:order-1',
+                    },
+                    title: `Marketing ${tileColumnSelectionName}`,
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        embedded: true,
+                        hidePersonsModal: true,
+                        hideTooltipOnScroll: true,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            compareFilter: compareFilter || undefined,
+                            series:
+                                createMarketingDataWarehouseNodes.length > 0
+                                    ? createMarketingDataWarehouseNodes
+                                    : [
+                                          // Fallback when no sources are configured
+                                          {
+                                              kind: NodeKind.EventsNode,
+                                              event: 'no_sources_configured',
+                                              custom_name: 'No marketing sources configured',
+                                              math: BaseMathType.TotalCount,
+                                          },
+                                      ],
+                            interval: dateFilter.interval,
                             dateRange: {
                                 date_from: dateFilter.dateFrom,
                                 date_to: dateFilter.dateTo,
                             },
-                            compareFilter: compareFilter || undefined,
-                            properties: [],
-                            draftConversionGoal: draftConversionGoal || undefined,
-                            integrationFilter: integrationFilter,
-                        },
-                        insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
-                        canOpenInsight: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: TileId.MARKETING,
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                            orderWhenLargeClassName: 'xxl:order-1',
-                        },
-                        title: `Marketing ${tileColumnSelectionName}`,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            embedded: true,
-                            hidePersonsModal: true,
-                            hideTooltipOnScroll: true,
-                            source: {
-                                kind: NodeKind.TrendsQuery,
-                                compareFilter: compareFilter || undefined,
-                                series:
-                                    createMarketingDataWarehouseNodes.length > 0
-                                        ? createMarketingDataWarehouseNodes
-                                        : [
-                                              // Fallback when no sources are configured
-                                              {
-                                                  kind: NodeKind.EventsNode,
-                                                  event: 'no_sources_configured',
-                                                  custom_name: 'No marketing sources configured',
-                                                  math: BaseMathType.TotalCount,
-                                              },
-                                          ],
-                                interval: dateFilter.interval,
-                                dateRange: {
-                                    date_from: dateFilter.dateFrom,
-                                    date_to: dateFilter.dateTo,
-                                },
-                                trendsFilter: {
-                                    display: chartDisplayType,
-                                    aggregationAxisFormat: 'numeric',
-                                    aggregationAxisPrefix: isCurrency ? '$' : undefined,
-                                },
+                            trendsFilter: {
+                                display: chartDisplayType,
+                                aggregationAxisFormat: 'numeric',
+                                aggregationAxisPrefix: isCurrency && currencyIsPrefix ? currencySymbol : undefined,
+                                aggregationAxisPostfix:
+                                    isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
                             },
-                        },
-                        showIntervalSelect: true,
-                        insightProps: createInsightProps(
-                            TileId.MARKETING,
-                            `${chartDisplayType}-${tileColumnSelection}`
-                        ),
-                        canOpenInsight: true,
-                        canOpenModal: false,
-                        docs: {
-                            title: `Marketing ${tileColumnSelectionName}`,
-                            description:
-                                createMarketingDataWarehouseNodes.length > 0
-                                    ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
-                                    : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
+                            tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     },
-                    campaignCostsBreakdown
-                        ? {
-                              kind: 'query',
-                              tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                                  orderWhenLargeClassName: 'xxl:order-2',
-                              },
-                              title: 'Campaign costs breakdown',
-                              query: campaignCostsBreakdown,
-                              insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
-                              canOpenModal: true,
-                              canOpenInsight: false,
-                              docs: {
-                                  title: 'Campaign costs breakdown',
-                                  description:
-                                      'Breakdown of marketing costs by individual campaign names across all ad platforms.',
-                              },
-                          }
-                        : null,
-                ].filter(isNotNil) as QueryTile[]
-
-                return tiles
+                    showIntervalSelect: true,
+                    insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}-${tileColumnSelection}`),
+                    canOpenInsight: true,
+                    canOpenModal: false,
+                    docs: {
+                        title: `Marketing ${tileColumnSelectionName}`,
+                        description:
+                            createMarketingDataWarehouseNodes.length > 0
+                                ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
+                                : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
+                    },
+                }
             },
+        ],
+        campaignBreakdownTile: [
+            (s) => [s.campaignCostsBreakdown, s.drillDownLevel],
+            (
+                campaignCostsBreakdown: DataTableNode | null,
+                drillDownLevel: MarketingAnalyticsDrillDownLevel
+            ): QueryTile | null =>
+                campaignCostsBreakdown
+                    ? {
+                          kind: 'query',
+                          tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                          layout: {
+                              colSpanClassName: 'md:col-span-2',
+                              orderWhenLargeClassName: '2xl:order-2',
+                          },
+                          title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
+                          query: campaignCostsBreakdown,
+                          insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                          canOpenModal: true,
+                          canOpenInsight: false,
+                          docs: {
+                              title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
+                              description:
+                                  drillDownLevel === MarketingAnalyticsDrillDownLevel.Campaign
+                                      ? 'Breakdown of marketing costs by individual campaign names across all ad platforms.'
+                                      : `Breakdown of marketing data by ${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias.toLowerCase()}.`,
+                          },
+                      }
+                    : null,
+        ],
+        tiles: [
+            (s) => [s.overviewTile, s.marketingChartTile, s.campaignBreakdownTile],
+            (
+                overviewTile: QueryTile,
+                marketingChartTile: QueryTile,
+                campaignBreakdownTile: QueryTile | null
+            ): QueryTile[] => [overviewTile, marketingChartTile, campaignBreakdownTile].filter(isNotNil) as QueryTile[],
         ],
         campaignCostsBreakdown: [
             (s) => [
@@ -201,6 +226,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.defaultColumns,
                 s.compareFilter,
                 s.integrationFilter,
+                s.drillDownLevel,
             ],
             (
                 loading: boolean,
@@ -209,21 +235,70 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 draftConversionGoal: ConversionGoalFilter | null,
                 defaultColumns: string[],
                 compareFilter: CompareFilter,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                drillDownLevel: MarketingAnalyticsDrillDownLevel
             ): DataTableNode | null => {
                 if (loading) {
                     return null
                 }
                 const marketingQuery = query?.source as MarketingAnalyticsTableQuery | undefined
+
+                // Determine the correct grouping column alias for the current drill-down level
+                const drillDownConfig = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
+                const groupingAlias = drillDownConfig.columnAlias
+                const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
+                    (c) => c.columnAlias
+                )
+                // Effective excluded set = user-config + auto-excluded hierarchy columns at
+                // non-hierarchy levels. Without this filter, switching drill-down levels leaves
+                // stale columns in the select, and the stale response data renders as raw JSON
+                // (no matching context.columns render fn).
+                const excludedColumns = new Set<string>(getEffectiveExcludedColumns(drillDownLevel))
+                // A grouping alias is "stale" only when it isn't a valid base column at the new level.
+                // At AD_GROUP / AD, Campaign and Source are valid context columns, not stale. Without
+                // this guard, switching from Channel → Ad group would remap Campaign / Source onto
+                // the new grouping column and erase them from the select. Same idea also covers
+                // master's Source-vs-SOURCE collision case.
+                const validBaseColumnsAtLevel = new Set<string>(
+                    Object.values(MarketingAnalyticsBaseColumns).filter((c) => !excludedColumns.has(c))
+                )
+                const staleGroupingColumns = allGroupingAliases.filter(
+                    (c) => c !== groupingAlias && !validBaseColumnsAtLevel.has(c)
+                )
+
+                // Same rule as marketingAnalyticsTableLogic: at UTM levels the Cost metric is excluded
+                // so cost-per-conversion for the draft goal must be excluded too.
+                const costAvailable = !excludedColumns.has(MarketingAnalyticsBaseColumns.Cost)
+
+                // At levels where conversion goals are excluded (AD_GROUP / AD), the previous
+                // select may carry conversion-goal column names from another level — those names
+                // pass through the base-column filter (they aren't grouping aliases or base
+                // columns, so the filter doesn't strip them). Force defaultColumns at those
+                // levels so we don't request columns the backend won't produce — without this
+                // the table flashes JSON cells while the new response is loading.
+                const previousSelect = drillDownConfig.excludesConversionGoals
+                    ? defaultColumns
+                    : marketingQuery?.select?.length
+                      ? marketingQuery.select
+                      : defaultColumns
+
                 const columnsWithDraftConversionGoal = [
-                    ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns).filter(
-                        (column) => !isDraftConversionGoalColumn(column, draftConversionGoal)
-                    ),
-                    ...(draftConversionGoal
-                        ? [
-                              draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsHelperForColumnNames.CostPer} ${draftConversionGoal.conversion_goal_name}`,
-                          ]
+                    ...previousSelect
+                        .filter((column) => !isDraftConversionGoalColumn(column, draftConversionGoal))
+                        .map((column) => (staleGroupingColumns.includes(column) ? groupingAlias : column))
+                        .filter((column) => column === groupingAlias || !excludedColumns.has(column))
+                        .filter((column, index, arr) => arr.indexOf(column) === index),
+                    // Skip the draft goal entirely when the level can't attribute events
+                    // to a specific row (ad-group / ad). This mirrors the same gate in
+                    // marketingAnalyticsTableLogic.defaultColumns; without it the user
+                    // sees a phantom column the backend won't produce.
+                    ...(draftConversionGoal && !drillDownConfig.excludesConversionGoals
+                        ? costAvailable
+                            ? [
+                                  draftConversionGoal.conversion_goal_name,
+                                  `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                              ]
+                            : [draftConversionGoal.conversion_goal_name]
                         : []),
                 ]
                 const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)
@@ -248,6 +323,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         select: orderedColumns,
                         compareFilter: compareFilter || undefined,
                         integrationFilter: integrationFilter,
+                        drillDownLevel: drillDownLevel,
                     },
                     full: true,
                     embedded: false,

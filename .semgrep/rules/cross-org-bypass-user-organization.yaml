@@ -1,0 +1,30 @@
+rules:
+    - id: cross-org-bypass-user-organization
+      pattern-either:
+          # A: request.user.organization in permission has_permission methods
+          - patterns:
+                - pattern: $REQ.user.organization
+                - pattern-inside: |
+                      def has_permission(self, $REQ, $VIEW):
+                          ...
+          # B: self.context["request"].user.organization (almost always wrong in serializers)
+          - pattern: self.context["request"].user.organization
+          # C: self.request.user.organization in viewsets with TeamAndOrgViewSetMixin
+          - patterns:
+                - pattern: self.request.user.organization
+                - pattern-inside: |
+                      class $CLASS(..., TeamAndOrgViewSetMixin, ...):
+                          ...
+      message: >
+          Do not use `request.user.organization` to determine the current org in
+          org-scoped views. The user's "active" organization may differ from the
+          org in the URL, allowing cross-org access. Use
+          `get_organization_from_view(view)` in permission classes,
+          `self.context["view"].organization` in serializers, or
+          `self.organization` in viewsets with TeamAndOrgViewSetMixin.
+      severity: ERROR
+      languages: [python]
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/.semgrep/**'

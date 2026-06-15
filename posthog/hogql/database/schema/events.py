@@ -1,3 +1,9 @@
+from posthog.hogql.database.lazy_join_tags import (
+    EVENTS_TO_SESSIONS_V1,
+    GROUP_N,
+    PERSON_DISTINCT_IDS,
+    PERSONS_REVENUE_ANALYTICS,
+)
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
@@ -11,16 +17,10 @@ from posthog.hogql.database.models import (
     Table,
     VirtualTable,
 )
-from posthog.hogql.database.schema.groups import GroupsTable, join_with_group_n_table
-from posthog.hogql.database.schema.person_distinct_ids import (
-    PersonDistinctIdsTable,
-    join_with_person_distinct_ids_table,
-)
-from posthog.hogql.database.schema.persons_revenue_analytics import (
-    PersonsRevenueAnalyticsTable,
-    join_with_persons_revenue_analytics_table,
-)
-from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, join_events_table_to_sessions_table
+from posthog.hogql.database.schema.groups import GroupsTable
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
+from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 
 
 class EventsPersonSubTable(VirtualTable):
@@ -31,7 +31,7 @@ class EventsPersonSubTable(VirtualTable):
         "revenue_analytics": LazyJoin(
             from_field=["person_id"],
             join_table=PersonsRevenueAnalyticsTable(),
-            join_function=join_with_persons_revenue_analytics_table,
+            resolver=PERSONS_REVENUE_ANALYTICS,
         ),
     }
 
@@ -80,7 +80,7 @@ class EventsTable(Table):
         "pdi": LazyJoin(
             from_field=["distinct_id"],
             join_table=PersonDistinctIdsTable(),
-            join_function=join_with_person_distinct_ids_table,
+            resolver=PERSON_DISTINCT_IDS,
         ),
         # Person and group fields on the event itself. Should not be used directly.
         "poe": EventsPersonSubTable(),
@@ -96,36 +96,41 @@ class EventsTable(Table):
         "group_0": LazyJoin(
             from_field=["$group_0"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(0),
+            resolver=GROUP_N,
+            resolver_params={"group_index": 0},
         ),
         "$group_1": StringDatabaseField(name="$group_1", nullable=False),
         "group_1": LazyJoin(
             from_field=["$group_1"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(1),
+            resolver=GROUP_N,
+            resolver_params={"group_index": 1},
         ),
         "$group_2": StringDatabaseField(name="$group_2", nullable=False),
         "group_2": LazyJoin(
             from_field=["$group_2"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(2),
+            resolver=GROUP_N,
+            resolver_params={"group_index": 2},
         ),
         "$group_3": StringDatabaseField(name="$group_3", nullable=False),
         "group_3": LazyJoin(
             from_field=["$group_3"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(3),
+            resolver=GROUP_N,
+            resolver_params={"group_index": 3},
         ),
         "$group_4": StringDatabaseField(name="$group_4", nullable=False),
         "group_4": LazyJoin(
             from_field=["$group_4"],
             join_table=GroupsTable(),
-            join_function=join_with_group_n_table(4),
+            resolver=GROUP_N,
+            resolver_params={"group_index": 4},
         ),
         "session": LazyJoin(
             from_field=["$session_id"],
             join_table=SessionsTableV1(),
-            join_function=join_events_table_to_sessions_table,
+            resolver=EVENTS_TO_SESSIONS_V1,
         ),
         "elements_chain_href": StringDatabaseField(name="elements_chain_href", nullable=False),
         "elements_chain_texts": StringArrayDatabaseField(name="elements_chain_texts", nullable=False),
@@ -140,4 +145,16 @@ class EventsTable(Table):
         return "events"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        return ["$session_id_uuid"]
+        return [
+            "$session_id_uuid",
+            "$virt_is_bot",
+            "$virt_traffic_type",
+            "$virt_traffic_category",
+            "$virt_bot_name",
+            "$virt_bot_operator",
+        ]
+
+
+# All table types that represent the events table (including virtual subtables like poe/goe).
+# Use in isinstance() checks when you need to match any events-family table.
+EVENTS_TABLE_TYPES = (EventsTable, EventsPersonSubTable, EventsGroupSubTable)

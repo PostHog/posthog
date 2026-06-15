@@ -19,5 +19,5 @@ with open(filename, "w") as json_file:
     json.dump(with_comment, json_file, indent=4, sort_keys=True)
 
 subprocess.run(
-    ["pnpm", "prettier", "--write", filename],
+    ["pnpm", "exec", "oxfmt", filename],
 )

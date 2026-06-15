@@ -4,8 +4,10 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
@@ -13,9 +15,13 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 export function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     return (
         <Integration kind="gitlab">
-            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
+            <LemonButton type="secondary" onClick={() => setIsOpen(true)} disabledReason={restrictedReason}>
                 Connect project
             </LemonButton>
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
@@ -23,23 +29,44 @@ export function GitLabIntegration(): JSX.Element {
     )
 }
 
-export function LinearIntegration(): JSX.Element {
-    return <OAuthIntegration kind="linear" connectText="Connect workspace" />
+export function LinearIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="linear" connectText="Connect workspace" next={next} />
 }
 
-export function GithubIntegration(): JSX.Element {
-    return <OAuthIntegration kind="github" connectText="Connect organization" />
+export function GithubIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="github" connectText="Connect organization" next={next} />
 }
 
-const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connectText: string }): JSX.Element => {
+export function JiraIntegration({ next }: { next?: string }): JSX.Element {
+    return <OAuthIntegration kind="jira" connectText="Connect site" next={next} />
+}
+
+const OAuthIntegration = ({
+    kind,
+    connectText,
+    next,
+}: {
+    kind: IntegrationKind
+    connectText: string
+    next?: string
+}): JSX.Element => {
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' }),
+        next: next ?? urls.settings('environment-integrations'),
         kind,
     })
 
     return (
         <Integration kind={kind}>
-            <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
+            <LemonButton
+                type="secondary"
+                disableClientSideRouting
+                to={authorizationUrl}
+                disabledReason={restrictedReason}
+            >
                 {connectText}
             </LemonButton>
         </Integration>

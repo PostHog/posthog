@@ -1,10 +1,18 @@
+import hmac
+import json
+import math
+import hashlib
 import datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase, override_settings
+
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
@@ -12,8 +20,15 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
-from ee.billing.billing_manager import BillingManager, _get_user_organization_role, build_billing_token
-from ee.billing.billing_types import Product
+from ee.billing.billing_manager import (
+    BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER,
+    BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
+    BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
+    BillingManager,
+    _get_user_organization_role,
+    build_billing_token,
+)
+from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
 
 
@@ -160,6 +175,9 @@ class TestBillingManager(BaseTest):
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
+            "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
+            "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
+            "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "survey_responses": {
                 "usage": 10,
@@ -190,6 +208,9 @@ class TestBillingManager(BaseTest):
                     "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
                     "survey_responses": {"usage": 10, "limit": 100},
                     "cdp_trigger_events": {"usage": 10, "limit": 100},
+                    "workflow_emails": {"usage": 100, "limit": 10000},
+                    "workflow_destinations_dispatched": {"usage": 50, "limit": 10000},
+                    "logs_mb_ingested": {"usage": 5500, "limit": 50000},
                 },
                 "billing_period": {
                     "current_period_start": "2024-01-01T00:00:00Z",
@@ -198,7 +219,7 @@ class TestBillingManager(BaseTest):
             }
         }
 
-        BillingManager(license).update_org_details(organization, billing_status)
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
 
         assert organization.usage == {
@@ -225,6 +246,9 @@ class TestBillingManager(BaseTest):
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
+            "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
+            "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
+            "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
@@ -235,6 +259,249 @@ class TestBillingManager(BaseTest):
                 "quota_limiting_suspended_until": 1611705600,
             },
         }
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(status_code=200, json=MagicMock(return_value={"success": True})),
+    )
+    def test_deauthorize_calls_billing_service(self, billing_post_request_mock: MagicMock):
+        """Deauthorize should call the billing service uninstall endpoint."""
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        result = BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert result == {"success": True}
+        billing_post_request_mock.assert_called_once()
+
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/activate/authorize/uninstall")
+        assert call_args[1]["json"] == {"billing_provider": "vercel"}
+        assert "Authorization" in call_args[1]["headers"]
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=400,
+            json=MagicMock(return_value={"error": "Customer billing provider mismatch"}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_handles_billing_service_error(self, billing_post_request_mock: MagicMock):
+        """Deauthorize should raise an exception when billing service returns an error."""
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "400" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=404,
+            json=MagicMock(return_value={"detail": "Not found."}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_raises_on_404(self, billing_post_request_mock: MagicMock):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "404" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(
+                return_value={
+                    "success": False,
+                    "error_message": "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first.",
+                    "code": "open_invoices_error",
+                }
+            ),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_raises_open_invoices_error_on_409(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "unpaid invoice" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0)),
+            text="Not JSON",
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_no_json_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "some_other_error", "error_message": "Something else"}),
+            text='{"code": "some_other_error"}',
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_different_code_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "open_invoices_error"}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_open_invoices_missing_message_uses_default(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "Open invoices must be resolved first" in str(context.exception)
+
+
+class TestBillingProviderWebhookSigning(SimpleTestCase):
+    def setUp(self):
+        self.license = SimpleNamespace(key="license_id::license_secret")
+        self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+
+    @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
+    @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(status_code=200, ok=True, text="", json=MagicMock(return_value={"status": "ok"})),
+    )
+    def test_handle_billing_provider_webhook_signs_forwarded_body(
+        self, billing_post_request_mock: MagicMock, mock_time: MagicMock
+    ):
+        BillingManager(self.license).handle_billing_provider_webhook(
+            event_type="marketplace.invoice.paid",
+            event_data={"installationId": "icfg_123", "invoiceId": "mi_123"},
+            organization=self.organization,
+            billing_provider="vercel",
+        )
+
+        billing_post_request_mock.assert_called_once()
+        call_kwargs = billing_post_request_mock.call_args.kwargs
+        body = call_kwargs["data"]
+        expected_body = (
+            b'{"event_type":"marketplace.invoice.paid",'
+            b'"event_data":{"installationId":"icfg_123","invoiceId":"mi_123"},'
+            b'"billing_provider":"vercel"}'
+        )
+        expected_signature = hmac.new(
+            b"test_webhook_secret",
+            b"1700000000." + expected_body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        assert body == expected_body
+        assert call_kwargs["headers"][BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER] == "1700000000"
+        assert (
+            call_kwargs["headers"][BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER]
+            == f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={expected_signature}"
+        )
+        assert call_kwargs["headers"]["Content-Type"] == "application/json"
+        assert "Authorization" in call_kwargs["headers"]
+
+    @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_handle_billing_provider_webhook_requires_signature_secret(self, billing_post_request_mock: MagicMock):
+        with self.assertRaises(ValueError) as context:
+            BillingManager(self.license).handle_billing_provider_webhook(
+                event_type="marketplace.invoice.paid",
+                event_data={"installationId": "icfg_123", "invoiceId": "mi_123"},
+                organization=self.organization,
+                billing_provider="vercel",
+            )
+
+        assert "BILLING_PROVIDER_WEBHOOK_SECRET" in str(context.exception)
+        billing_post_request_mock.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("nan", math.nan),
+            ("infinity", math.inf),
+            ("negative_infinity", -math.inf),
+        ]
+    )
+    @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_handle_billing_provider_webhook_rejects_non_finite_numbers(
+        self, _name: str, non_finite_number: float, billing_post_request_mock: MagicMock
+    ):
+        with self.assertRaises(ValueError) as context:
+            BillingManager(self.license).handle_billing_provider_webhook(
+                event_type="marketplace.invoice.paid",
+                event_data={"installationId": "icfg_123", "amount": non_finite_number},
+                organization=self.organization,
+                billing_provider="vercel",
+            )
+
+        assert "Out of range float values are not JSON compliant" in str(context.exception)
+        billing_post_request_mock.assert_not_called()
 
 
 class TestBuildBillingToken(BaseTest):
@@ -341,8 +608,10 @@ class TestBuildBillingToken(BaseTest):
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         assert call_kwargs["event"] == "$billing_privilege_escalation"
-        assert call_kwargs["distinct_id"] == str(member_user.distinct_id)
-        assert call_kwargs["properties"]["authorizer_actor_id"] == admin_authorizer.id
+        assert call_kwargs["distinct_id"] == str(admin_authorizer.distinct_id)
+        assert call_kwargs["properties"]["target_user_id"] == member_user.id
+        assert call_kwargs["properties"]["target_distinct_id"] == str(member_user.distinct_id)
+        assert call_kwargs["properties"]["target_email"] == member_user.email
         assert call_kwargs["properties"]["action"] == "update_billing"
 
     def test_build_billing_token_raises_when_authorizer_actor_not_in_organization(self):
@@ -392,8 +661,10 @@ class TestBuildBillingToken(BaseTest):
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
         assert call_kwargs["event"] == "$billing_privilege_escalation"
-        assert call_kwargs["distinct_id"] == str(non_member_user.distinct_id)
-        assert call_kwargs["properties"]["authorizer_actor_id"] == valid_authorizer.id
+        assert call_kwargs["distinct_id"] == str(valid_authorizer.distinct_id)
+        assert call_kwargs["properties"]["target_user_id"] == non_member_user.id
+        assert call_kwargs["properties"]["target_distinct_id"] == str(non_member_user.distinct_id)
+        assert call_kwargs["properties"]["target_email"] == non_member_user.email
 
     @parameterized.expand(
         [
@@ -534,8 +805,10 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
         assert capture_kwargs["event"] == "$billing_privilege_escalation"
-        assert capture_kwargs["distinct_id"] == str(member.distinct_id)
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == owner.id
+        assert capture_kwargs["distinct_id"] == str(owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == member.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == member.email
         assert capture_kwargs["properties"]["action"] == "update_billing"
 
     @patch("ee.billing.billing_manager.requests.patch")
@@ -618,7 +891,10 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         # Verify that the capture was called with the newer owner as authorizer
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == newer_owner.id
+        assert capture_kwargs["distinct_id"] == str(newer_owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == member.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == member.email
 
     @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
@@ -658,8 +934,10 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
 
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
-        assert capture_kwargs["distinct_id"] == str(admin.distinct_id)
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == owner.id
+        assert capture_kwargs["distinct_id"] == str(owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == admin.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(admin.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == admin.email
 
     @patch("ee.billing.billing_manager.capture_exception")
     @patch("ee.billing.billing_manager.requests.patch")
@@ -788,4 +1066,182 @@ class TestUserUpdateBillingOrganizationUsers(BaseTest):
         mock_capture.assert_called_once()
         capture_kwargs = mock_capture.call_args[1]
         assert capture_kwargs["event"] == "$billing_privilege_escalation"
-        assert capture_kwargs["properties"]["authorizer_actor_id"] == owner.id
+        assert capture_kwargs["distinct_id"] == str(owner.distinct_id)
+        assert capture_kwargs["properties"]["target_user_id"] == member.id
+        assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
+        assert capture_kwargs["properties"]["target_email"] == member.email
+
+
+class TestParamSerialization(BaseTest):
+    @parameterized.expand(
+        [
+            ("teams_map", {"1": "Team A", "2": "Team B"}, '{"1": "Team A", "2": "Team B"}'),
+            ("usage_types", ["events", "recordings"], '["events", "recordings"]'),
+            ("team_ids", [1, 2, 3], "[1, 2, 3]"),
+            ("breakdowns", ["product"], '["product"]'),
+        ]
+    )
+    def test_to_query_params_serializes_complex_types(self, field_name, native_value, expected_json):
+        params = {field_name: native_value}
+        result = BillingManager._to_query_params(params)
+        assert json.loads(result[field_name]) == json.loads(expected_json)
+
+    def test_to_query_params_passes_through_scalars(self):
+        params = {"start_date": "2025-01-01", "end_date": "2025-01-31"}
+        result = BillingManager._to_query_params(params)
+        assert result == {"start_date": "2025-01-01", "end_date": "2025-01-31"}
+
+    def test_to_query_params_stringifies_uuids(self):
+        from uuid import UUID
+
+        org_id = UUID("12345678-1234-5678-1234-567812345678")
+        result = BillingManager._to_query_params({"organization_id": org_id, "teams_map": {"1": "A"}})
+        assert result["organization_id"] == "12345678-1234-5678-1234-567812345678"
+        assert result["teams_map"] == '{"1": "A"}'
+
+    def test_to_post_body_converts_organization_id_to_string(self):
+        from uuid import UUID
+
+        org_id = UUID("12345678-1234-5678-1234-567812345678")
+        result = BillingManager._to_post_body({"organization_id": org_id, "teams_map": {"1": "A"}})
+        assert result["organization_id"] == str(org_id)
+        assert result["teams_map"] == {"1": "A"}
+
+    def test_to_post_body_preserves_native_types(self):
+        params = {"teams_map": {"1": "Team A"}, "start_date": "2025-01-01"}
+        result = BillingManager._to_post_body(params)
+        assert result == params
+
+    @parameterized.expand(
+        [
+            ("json_list", '["event_count_in_period", "recordings"]', ["event_count_in_period", "recordings"]),
+            ("json_int_list", "[1, 2, 3]", [1, 2, 3]),
+            ("json_dict", '{"1": "Team A"}', {"1": "Team A"}),
+            ("plain_string", "2025-01-01", "2025-01-01"),
+            ("json_number_string", "42", "42"),
+            ("json_bool_string", "true", "true"),
+        ]
+    )
+    def test_to_post_body_parses_json_encoded_strings(self, _name, input_value, expected):
+        result = BillingManager._to_post_body({"field": input_value})
+        assert result["field"] == expected
+
+
+class TestRequestWithPostFallback(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        self.manager = BillingManager(self.license)
+
+    @parameterized.expand(
+        [
+            ("get_usage_data", 414),
+            ("get_usage_data", 431),
+            ("get_spend_data", 414),
+            ("get_spend_data", 431),
+        ]
+    )
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_falls_back_to_post_on_uri_too_large(self, method_name, status_code, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=status_code)
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
+
+        params = {
+            "start_date": "2025-01-01",
+            "teams_map": {"1": "Team A"},
+        }
+        result = getattr(self.manager, method_name)(self.organization, params)
+
+        assert result == {"results": []}
+
+        mock_get.assert_called_once()
+        get_params = mock_get.call_args[1]["params"]
+        assert get_params["teams_map"] == '{"1": "Team A"}'
+        assert get_params["start_date"] == "2025-01-01"
+
+        mock_post.assert_called_once()
+        post_json = mock_post.call_args[1]["json"]
+        assert post_json["teams_map"] == {"1": "Team A"}
+        assert post_json["start_date"] == "2025-01-01"
+
+    @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_post_fallback_parses_json_encoded_strings(self, method_name, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=414)
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
+
+        params = {
+            "start_date": "2025-01-01",
+            "usage_types": '["event_count_in_period", "recordings"]',
+            "team_ids": "[1, 2]",
+            "teams_map": {"1": "Team A"},
+        }
+        getattr(self.manager, method_name)(self.organization, params)
+
+        post_json = mock_post.call_args[1]["json"]
+        assert post_json["usage_types"] == ["event_count_in_period", "recordings"]
+        assert post_json["team_ids"] == [1, 2]
+        assert post_json["teams_map"] == {"1": "Team A"}
+        assert post_json["start_date"] == "2025-01-01"
+
+    @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_does_not_fall_back_on_success(self, method_name, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
+
+        result = getattr(self.manager, method_name)(self.organization, {"start_date": "2025-01-01"})
+
+        assert result == {"results": []}
+        mock_get.assert_called_once()
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("get_usage_data", 400),
+            ("get_usage_data", 500),
+            ("get_spend_data", 400),
+            ("get_spend_data", 500),
+        ]
+    )
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_does_not_fall_back_on_non_uri_errors(self, method_name, status_code, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=status_code, text="error")
+
+        with self.assertRaises(Exception):
+            getattr(self.manager, method_name)(self.organization, {"start_date": "2025-01-01"})
+
+        mock_get.assert_called_once()
+        mock_post.assert_not_called()
+
+    @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_post_fallback_error_propagates(self, method_name, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=414)
+        mock_post.return_value = MagicMock(status_code=500, text="internal error")
+
+        with self.assertRaises(Exception):
+            getattr(self.manager, method_name)(self.organization, {"teams_map": {"1": "A"}})
+
+        mock_get.assert_called_once()
+        mock_post.assert_called_once()
+
+    @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_with_empty_params(self, method_name, mock_get, mock_post):
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
+
+        result = getattr(self.manager, method_name)(self.organization, {})
+
+        assert result == {"results": []}
+        mock_get.assert_called_once()
+        mock_post.assert_not_called()

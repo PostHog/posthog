@@ -9,6 +9,7 @@ from semantic_version.base import Version
 
 from posthog.async_migrations.runner import complete_migration, is_migration_dependency_fulfilled, start_async_migration
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS, setup_async_migrations, setup_model
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import (
     AsyncMigration,
@@ -58,17 +59,18 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        setup_async_migrations(ignore_posthog_version=True)
-        necessary_migrations = get_necessary_migrations()
+        with tags_context(product=Product.INTERNAL, feature=Feature.MIGRATION):
+            setup_async_migrations(ignore_posthog_version=True)
+            necessary_migrations = get_necessary_migrations()
 
-        if options["check"]:
-            handle_check(necessary_migrations)
-        elif options["plan"]:
-            handle_plan(necessary_migrations)
-        elif options["complete_noop_migrations"]:
-            handle_complete_noop_migrations()
-        else:
-            handle_run(necessary_migrations)
+            if options["check"]:
+                handle_check(necessary_migrations)
+            elif options["plan"]:
+                handle_plan(necessary_migrations)
+            elif options["complete_noop_migrations"]:
+                handle_complete_noop_migrations()
+            else:
+                handle_run(necessary_migrations)
 
 
 def handle_check(necessary_migrations: Sequence[AsyncMigration]):
@@ -137,8 +139,9 @@ def handle_plan(necessary_migrations: Sequence[AsyncMigration]):
         logger.info("Async migrations up to date!")
     else:
         logger.warning(
-            f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:\n"
-            "\n".join(f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations)
+            f"Required async migration{' is' if len(necessary_migrations) == 1 else 's are'} not completed:\n\n".join(
+                f"- {migration.get_name_with_requirements()}" for migration in necessary_migrations
+            )
         )
 
 

@@ -13,6 +13,13 @@ import (
 
 const ExpectedScope = "posthog:livestream"
 
+type AuthClaims struct {
+	TeamID         int
+	UserID         int
+	OrganizationID string
+	Token          string
+}
+
 func GetAuth(header http.Header) (jwt.MapClaims, error) {
 	authHeader := header.Get("Authorization")
 	if authHeader == "" {
@@ -26,27 +33,61 @@ func GetAuth(header http.Header) (jwt.MapClaims, error) {
 	return claims, nil
 }
 
-func getDataFromClaims(claims jwt.MapClaims) (teamID int, token string, err error) {
+func ParseAuthClaims(header http.Header) (*AuthClaims, error) {
+	claims, err := GetAuth(header)
+	if err != nil {
+		return nil, err
+	}
+
 	team, ok := claims["team_id"].(float64)
 	if !ok {
-		return 0, "", errors.New("invalid team_id")
+		return nil, errors.New("invalid team_id")
 	}
-	token, ok = claims["api_token"].(string)
+	token, ok := claims["api_token"].(string)
 	if !ok {
-		return 0, "", errors.New("invalid api_token")
+		return nil, errors.New("invalid api_token")
 	}
-	teamID = int(team)
-	return teamID, token, nil
+
+	result := &AuthClaims{
+		TeamID: int(team),
+		Token:  token,
+	}
+
+	// user_id and organization_id are optional for backward compatibility.
+	// TODO: make required after rollout (all tokens refreshed within 7-day TTL)
+	if user, ok := claims["user_id"].(float64); ok {
+		result.UserID = int(user)
+	}
+	if orgID, ok := claims["organization_id"].(string); ok {
+		result.OrganizationID = orgID
+	}
+
+	return result, nil
 }
 
 func GetAuthClaims(header http.Header) (teamID int, token string, err error) {
-	claims, err := GetAuth(header)
+	c, err := ParseAuthClaims(header)
 	if err != nil {
 		return 0, "", err
 	}
+	return c.TeamID, c.Token, nil
+}
 
-	return getDataFromClaims(claims)
-
+// verificationKeys returns the active signing secret plus any fallback secrets still
+// accepted for verification. Mirrors Django's JWT_SIGNING_KEY_FALLBACKS so tokens
+// signed with a previous key keep working mid-rotation until they expire.
+// Fallbacks come from jwt.secret_fallbacks — a YAML list or a comma-separated string
+// (the env var LIVESTREAM_JWT_SECRET_FALLBACKS form).
+func verificationKeys() jwt.VerificationKeySet {
+	keys := []jwt.VerificationKey{[]byte(viper.GetString("jwt.secret"))}
+	for _, entry := range viper.GetStringSlice("jwt.secret_fallbacks") {
+		for _, fallback := range strings.Split(entry, ",") {
+			if fallback = strings.TrimSpace(fallback); fallback != "" {
+				keys = append(keys, []byte(fallback))
+			}
+		}
+	}
+	return jwt.VerificationKeySet{Keys: keys}
 }
 
 func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
@@ -68,8 +109,7 @@ func decodeAuthToken(authHeader string) (jwt.MapClaims, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		// Here you should specify the secret used to sign your JWTs.
-		return []byte(viper.GetString("jwt.secret")), nil
+		return verificationKeys(), nil
 	})
 
 	if err != nil {

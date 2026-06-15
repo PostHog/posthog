@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '~/queries/schema/schema-general'
@@ -24,6 +26,10 @@ export function CustomSourceMappingsConfiguration({
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCustomSourceMappings } = useActions(marketingAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
     const [inputValues, setInputValues] = useState<Record<string, string>>(() =>
@@ -165,13 +171,14 @@ export function CustomSourceMappingsConfiguration({
                                                     placeholder="Add custom sources"
                                                     size="small"
                                                     className="w-40"
+                                                    disabledReason={restrictedReason}
                                                 />
                                                 <LemonButton
                                                     type="primary"
                                                     size="small"
                                                     icon={<IconPlusSmall />}
                                                     onClick={() => addMapping(integration)}
-                                                    disabledReason={validationError || undefined}
+                                                    disabledReason={validationError || restrictedReason}
                                                     tooltip={!validationError ? 'Add custom sources' : undefined}
                                                 />
                                             </div>

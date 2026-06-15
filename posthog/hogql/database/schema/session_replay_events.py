@@ -2,6 +2,12 @@ from datetime import datetime
 
 from posthog.hogql.ast import JoinExpr, SelectQuery
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import (
+    PERSON_DISTINCT_IDS,
+    REPLAY_TO_CONSOLE_LOGS,
+    REPLAY_TO_EVENTS,
+    REPLAY_TO_SESSIONS_V1,
+)
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
@@ -17,10 +23,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
-from posthog.hogql.database.schema.person_distinct_ids import (
-    PersonDistinctIdsTable,
-    join_with_person_distinct_ids_table,
-)
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
 from posthog.hogql.database.schema.sessions_v2 import (
     select_from_sessions_table_v2,
@@ -206,30 +209,35 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
     "event_count": IntegerDatabaseField(name="event_count", nullable=False),
     "message_count": IntegerDatabaseField(name="message_count", nullable=False),
     "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
+    "snapshot_library": StringDatabaseField(name="snapshot_library", nullable=True),
     "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
+    "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+    "ai_tags_fixed": DatabaseField(name="ai_tags_fixed", nullable=True),
+    "ai_tags_freeform": DatabaseField(name="ai_tags_freeform", nullable=True),
+    "ai_highlighted": IntegerDatabaseField(name="ai_highlighted", nullable=False),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
-        join_function=join_with_events_table,
+        resolver=REPLAY_TO_EVENTS,
     ),
     # this is so that HogQL properties e.g. on test account filters can find the correct column
     "properties": FieldTraverser(chain=["events", "properties"]),
     "pdi": LazyJoin(
         from_field=["distinct_id"],
         join_table=PersonDistinctIdsTable(),
-        join_function=join_with_person_distinct_ids_table,
+        resolver=PERSON_DISTINCT_IDS,
     ),
     "console_logs": LazyJoin(
         from_field=["session_id"],
         join_table=ReplayConsoleLogsLogEntriesTable(),
-        join_function=join_with_console_logs_log_entries_table,
+        resolver=REPLAY_TO_CONSOLE_LOGS,
     ),
     "person": FieldTraverser(chain=["pdi", "person"]),
     "person_id": FieldTraverser(chain=["pdi", "person_id"]),
     "session": LazyJoin(
         from_field=["session_id"],
         join_table=SessionsTableV1(),
-        join_function=join_replay_table_to_sessions_table_v1,
+        resolver=REPLAY_TO_SESSIONS_V1,
     ),
 }
 
@@ -241,6 +249,7 @@ class RawSessionReplayEventsTable(Table):
         "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp", nullable=False),
         "first_url": DatabaseField(name="first_url", nullable=True),
         "_timestamp": DateTimeDatabaseField(name="_timestamp", nullable=False),
+        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
     }
 
     def avoid_asterisk_fields(self) -> list[str]:
@@ -274,6 +283,12 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
         "size": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "size"])]),
         "event_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "event_count"])]),
         "message_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "message_count"])]),
+        "is_deleted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "is_deleted"])]),
+        "ai_tags_fixed": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_fixed"])]),
+        "ai_tags_freeform": ast.Call(
+            name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "ai_tags_freeform"])]
+        ),
+        "ai_highlighted": ast.Call(name="max", args=[ast.Field(chain=[table_name, "ai_highlighted"])]),
     }
 
     select_fields: list[ast.Expr] = []
@@ -303,6 +318,7 @@ class SessionReplayEventsTable(LazyTable):
         "start_time": DateTimeDatabaseField(name="start_time", nullable=False),
         "end_time": DateTimeDatabaseField(name="end_time", nullable=False),
         "first_url": StringDatabaseField(name="first_url", nullable=True),
+        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

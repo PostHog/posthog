@@ -27,9 +27,10 @@ tiktoken-rs.workspace = true
 leaky-bucket = "1.1.2" # Arguably we should just implement this, but :shrug:
 moka.workspace = true
 serde.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
-
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

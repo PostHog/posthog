@@ -1,7 +1,6 @@
 from collections.abc import Callable
 from typing import Literal
 
-from ee.hogai.chat_agent.loop_graph.graph import ChatAgentLoopGraph
 from ee.hogai.chat_agent.memory.nodes import (
     MemoryCollectorNode,
     MemoryCollectorToolsNode,
@@ -12,13 +11,19 @@ from ee.hogai.chat_agent.memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
+from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.chat_agent.slash_commands.nodes import SlashCommandHandlerNode
+from ee.hogai.core.loop_graph.graph import AgentLoopGraph
 from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState
 
 
-class AssistantGraph(ChatAgentLoopGraph):
+class AssistantGraph(AgentLoopGraph):
+    @property
+    def mode_manager_class(self) -> type[ChatAgentModeManager]:
+        return ChatAgentModeManager
+
     @property
     def graph_name(self) -> AssistantGraphName:
         return AssistantGraphName.ASSISTANT

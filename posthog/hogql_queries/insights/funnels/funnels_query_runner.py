@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional
@@ -20,11 +21,20 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnel_time_to_convert_udf import FunnelTimeToConvertUDF
+from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
+from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
+    RequireAtLeastTwoFunnelSteps,
+    ValidateFunnelExclusions,
+    ValidateFunnelStepRange,
+    ValidateOptionalFunnelSteps,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 
 
 class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
@@ -39,14 +49,29 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
-        **kwargs,
+        just_summarize: bool = False,
+        user: Optional[User] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
+        self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
-            query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+            query=self.query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
         )
-        self.kwargs = kwargs
+
+    def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
+        return (
+            RequireAtLeastTwoFunnelSteps(),
+            ValidateFunnelStepRange(),
+            ValidateFunnelExclusions(),
+            ValidateOptionalFunnelSteps(),
+            DisallowUnsupportedDataWarehouseSettings(),
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -82,13 +107,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             settings=HogQLGlobalSettings(
                 # Make sure funnel queries never OOM
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-                allow_experimental_analyzer=True,
             ),
         )
 
@@ -98,7 +123,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(
-            isUdf=self._use_udf,
             results=results,
             timings=timings,
             hogql=hogql,
@@ -110,10 +134,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         )
 
     @cached_property
-    def _use_udf(self):
-        return True
-
-    @cached_property
     def funnel_order_class(self):
         return FunnelUDF(context=self.context)
 
@@ -122,7 +142,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         funnelVizType = self.context.funnelsFilter.funnelVizType
 
         if funnelVizType == FunnelVizType.TRENDS:
-            return FunnelTrendsUDF(context=self.context, **self.kwargs)
+            return FunnelTrendsUDF(context=self.context, just_summarize=self.just_summarize)
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvertUDF(context=self.context)
         else:

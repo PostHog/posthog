@@ -14,15 +14,22 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
-import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
-import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { notebookLogic } from './Notebook/notebookLogic'
+import {
+    NotebookCollabStatus,
+    NotebookExpandButton,
+    NotebookKernelInfoButton,
+    NotebookSyncInfo,
+    NotebookTableOfContentsButton,
+} from './Notebook/NotebookMeta'
+import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
+import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
@@ -40,9 +47,10 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, conflictWarningVisible, accessDeniedToNotebook } = useValues(
+    const { notebook, content, conflictWarningVisible, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
@@ -74,7 +82,6 @@ export function NotebookScene(): JSX.Element {
         type: 'notebook',
         ref: notebook?.short_id,
         enabled: Boolean(notebook?.short_id && notebookId !== 'new' && !loading && !conflictWarningVisible),
-        deps: [notebook?.short_id, notebookId, loading, conflictWarningVisible],
     })
 
     if (accessDeniedToNotebook) {
@@ -120,6 +127,7 @@ export function NotebookScene(): JSX.Element {
                 </div>
 
                 <div className="flex gap-2 items-center">
+                    <NotebookCollabStatus shortId={notebookId} />
                     <NotebookSyncInfo shortId={notebookId} />
 
                     <NotebookMenu shortId={notebookId} />
@@ -142,7 +150,9 @@ export function NotebookScene(): JSX.Element {
                         Guide
                     </LemonButton>
                     <NotebookTableOfContentsButton type="secondary" size="small" />
-                    <NotebookExpandButton type="secondary" size="small" />
+                    <NotebookKernelInfoButton type="secondary" size="small" />
+                    {/* Markdown notebooks have no width toggle — they always fill the content width. */}
+                    {!isMarkdownNotebook && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -151,14 +161,15 @@ export function NotebookScene(): JSX.Element {
                         }}
                         tooltip={
                             <>
-                                Opens the notebook in a side panel, that can be accessed from anywhere in the PostHog
+                                Opens the notebook in a context panel, that can be accessed from anywhere in the PostHog
                                 app. This is great for dragging and dropping elements like insights, recordings or even
                                 feature flags into your active notebook.
                             </>
                         }
+                        aria-label="Open in context panel"
                         sideIcon={<IconOpenSidebar />}
                     >
-                        Open in side panel
+                        <span className="hidden lg:inline">Open in context panel</span>
                     </LemonButton>
                 </div>
             </div>

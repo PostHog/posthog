@@ -1,29 +1,35 @@
-from typing import Literal
+from typing import Any, Literal, TypedDict, cast
 
 from django.db import transaction
 
 import structlog
 from pydantic import BaseModel, Field
 
-from posthog.schema import ArtifactSource, DataTableNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
+from posthog.schema import DataTableNode, DataVisualizationNode, HogQLQuery, InsightVizNode, QuerySchemaRoot
 
-from posthog.models import Dashboard, DashboardTile, Insight
-from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
+from posthog.utils import pluralize
 
-from ee.hogai.artifacts.manager import ArtifactManager, DatabaseArtifactResult, ModelArtifactResult, StateArtifactResult
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.hogai.artifacts.types import ModelArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
-from ee.hogai.tool import MaxTool, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.tools.upsert_dashboard.prompts import (
     CREATE_NO_INSIGHTS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
-    MISSING_INSIGHTS_NOTE_PROMPT,
-    NO_PERMISSION_PROMPT,
+    MISSING_INSIGHT_IDS_PROMPT,
+    PERMISSION_REQUEST_PROMPT,
     UPDATE_NO_CHANGES_PROMPT,
     UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE,
     UPSERT_DASHBOARD_TOOL_PROMPT,
 )
+from ee.hogai.utils.prompt import format_prompt_string
 
 logger = structlog.get_logger(__name__)
 
@@ -47,12 +53,12 @@ class UpdateDashboardToolArgs(BaseModel):
     action: Literal["update"] = "update"
     dashboard_id: str = Field(description="Provide the ID of the dashboard to be update it.")
     insight_ids: list[str] | None = Field(
-        description="The IDs of the insights to be included in the dashboard. It might be a mix of existing and new insights.",
+        description="The IDs of the insights for the dashboard. Replaces all existing insights.",
         default=None,
     )
-    replace_insights: bool | None = Field(
-        description="When False (default), appends provided insights to existing ones. When True, the dashboard will contain exactly the insights in insight_ids (others are removed).",
-        default=False,
+    layout_mode: Literal["preserve_existing", "reflow_all"] = Field(
+        description="How to handle existing tile layouts when insight_ids are provided. Use preserve_existing by default. Use reflow_all only when the user explicitly asks to rearrange or reorder tiles.",
+        default="preserve_existing",
     )
     name: str | None = Field(
         description="A short and concise (3-7 words) name of the dashboard. If not provided, the dashboard name will not be updated.",
@@ -74,89 +80,165 @@ class UpsertDashboardToolArgs(BaseModel):
     )
 
 
+class UpdateDiff(TypedDict):
+    created: list[VisualizationWithSourceResult]
+    deleted: list[DashboardTile]
+
+
+class ReflowRowItem(TypedDict):
+    tile: DashboardTile
+    h: int
+    w: int
+
+
+class ReflowTileLayoutUpdate(TypedDict):
+    tile: DashboardTile
+    layouts: dict[str, dict[str, int]]
+
+
 class UpsertDashboardTool(MaxTool):
     name: Literal["upsert_dashboard"] = "upsert_dashboard"
     description: str = UPSERT_DASHBOARD_TOOL_PROMPT
     context_prompt_template: str = UPSERT_DASHBOARD_CONTEXT_PROMPT_TEMPLATE
-
     args_schema: type[BaseModel] = UpsertDashboardToolArgs
+    _cached_update_diff: UpdateDiff | None = None
 
     def get_required_resource_access(self):
         return [("dashboard", "editor")]
 
-    async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, ToolMessagesArtifact | None]:
+    async def is_dangerous_operation(self, *, action: UpsertDashboardAction, **kwargs) -> bool:
+        """Update operations that delete existing insights are dangerous."""
+        if isinstance(action, UpdateDashboardToolArgs) and action.insight_ids:
+            dashboard = await self._get_dashboard(action.dashboard_id)
+            sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+            diff = await self._get_update_diff(sorted_tiles, action.insight_ids)
+            return len(diff["deleted"]) > 0
+        return False
+
+    async def format_dangerous_operation_preview(self, *, action: UpsertDashboardAction, **kwargs) -> str:
+        """
+        Build a rich preview showing dashboard details and what will be modified.
+        """
+        if isinstance(action, CreateDashboardToolArgs):
+            raise MaxToolFatalError("Create dashboard operation is not dangerous.")
+
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        diff = await self._get_update_diff(sorted_tiles, action.insight_ids or [])
+
+        def get_insight_name(insight: Insight) -> str:
+            return insight.name or insight.derived_name or f"Insight #{insight.short_id or insight.id}"
+
+        def get_artifact_name(artifact: VisualizationWithSourceResult) -> str:
+            return artifact.content.name or "Insight"
+
+        def join(items: list[str]) -> str:
+            return "\n".join(f"- {item}" for item in items)
+
+        created_list = [get_artifact_name(artifact) for artifact in diff["created"]]
+        deleted_list = [get_insight_name(tile.insight) for tile in diff["deleted"] if tile.insight is not None]
+
+        return format_prompt_string(
+            PERMISSION_REQUEST_PROMPT,
+            dashboard_name=dashboard.name or f"Dashboard #{dashboard.id}",
+            new_dashboard_name=action.name,
+            new_dashboard_description=action.description,
+            deleted_insights=join(deleted_list),
+            deleted_count=pluralize(len(deleted_list), "insight"),
+            new_insights=join(created_list),
+            added_count=pluralize(len(created_list), "insight"),
+        )
+
+    async def _arun_impl(self, action: UpsertDashboardAction) -> tuple[str, dict | None]:
         if isinstance(action, CreateDashboardToolArgs):
             return await self._handle_create(action)
         else:
             return await self._handle_update(action)
 
-    async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _handle_create(self, action: CreateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle CREATE action: create a new dashboard with insights."""
-        insights, missing_ids = await self._resolve_insights(action.insight_ids)
+        artifacts = await self._context_manager.artifacts.aget_visualizations(self._state.messages, action.insight_ids)
+
+        missing_ids = [insight_id for insight_id, artifact in zip(action.insight_ids, artifacts) if artifact is None]
+        if missing_ids:
+            raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=missing_ids))
+
+        validated_artifacts = cast(list[VisualizationWithSourceResult], artifacts)
+        insights = self._resolve_insights(validated_artifacts)
 
         if not insights:
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
-        output = await self._format_dashboard_output(dashboard, insights, missing_ids)
+        # AI dashboards are always built from scratch (no template, no duplicate); set the same provenance
+        # props the serializer create() path emits so `from_template`/`duplicated` filters include AI traffic.
+        await self._report_dashboard_action(
+            dashboard,
+            "dashboard created",
+            {
+                "from_template": False,
+                "template_key": None,
+                "duplicated": False,
+                "duplicated_from_dashboard_id": None,
+            },
+        )
+        await self._report_new_insights(validated_artifacts, insights)
+        output = await self._format_dashboard_output(dashboard, insights)
 
-        return output, None
+        return output, {"dashboard_id": dashboard.id}
 
-    async def _handle_update(self, action: UpdateDashboardToolArgs) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _handle_update(self, action: UpdateDashboardToolArgs) -> tuple[str, dict | None]:
         """Handle UPDATE action: update an existing dashboard."""
-        try:
-            dashboard = await Dashboard.objects.aget(id=action.dashboard_id, team=self._team, deleted=False)
-        except Dashboard.DoesNotExist:
-            return DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=action.dashboard_id), None
-
-        permission_result = await self._check_user_permissions(dashboard)
-        if not permission_result:
-            return NO_PERMISSION_PROMPT, None
-
-        insights, missing_ids = await self._resolve_insights(action.insight_ids or [])
-
-        if not insights and not action.name and action.description is None:
+        dashboard = await self._get_dashboard(action.dashboard_id)
+        has_changes = action.insight_ids or action.name is not None or action.description is not None
+        if not has_changes:
             return UPDATE_NO_CHANGES_PROMPT, None
 
-        dashboard = await self._update_dashboard_with_tiles(
-            dashboard, insights, action.replace_insights or False, action.name, action.description
+        insight_ids = action.insight_ids or []
+        artifacts = await self._get_visualization_artifacts(insight_ids) if insight_ids else []
+
+        dashboard, resolved_insights = await self._update_dashboard_with_tiles(
+            dashboard,
+            action.name,
+            action.description,
+            insight_ids,
+            artifacts,
+            action.layout_mode,
         )
+        await self._report_dashboard_action(dashboard, "dashboard updated")
 
-        all_insights = [
-            i
-            async for i in Insight.objects.filter(
-                team=self._team, dashboard_tiles__dashboard=dashboard, dashboard_tiles__deleted=False, deleted=False
-            )
-        ]
+        if artifacts:
+            await self._report_new_insights(cast(list[VisualizationWithSourceResult], artifacts), resolved_insights)
 
-        output = await self._format_dashboard_output(dashboard, all_insights, missing_ids)
+        # Re-fetch sorted tiles to get the latest state
+        sorted_tiles = await self._get_dashboard_sorted_tiles(dashboard)
+        insights = [tile.insight for tile in sorted_tiles if tile.insight is not None]
 
-        return output, None
+        output = await self._format_dashboard_output(dashboard, insights)
 
-    async def _resolve_insights(self, insight_ids: list[str]) -> tuple[list[Insight], list[str]]:
+        return output, {"dashboard_id": dashboard.id}
+
+    def _resolve_insights(self, artifacts: list[VisualizationWithSourceResult]) -> list[Insight]:
         """
-        Resolve insight_ids using ArtifactManager.aget_insights_with_source.
+        Resolve insight_ids using VisualizationHandler.
         Returns (resolved_insights, missing_ids) in same order as input.
 
         For State/Artifact sources, creates and saves new Insights before adding to dashboard.
         """
-        artifact_manager = ArtifactManager(self._team, self._user, self._config)
-        results = await artifact_manager.aget_insights_with_source(self._state.messages, insight_ids)
-
         resolved: list[Insight] = []
-        missing: list[str] = []
 
-        for insight_id, result in zip(insight_ids, results):
-            if result is None:
-                missing.append(insight_id)
-            elif isinstance(result, ModelArtifactResult) and result.source == ArtifactSource.INSIGHT:
+        for result in artifacts:
+            if isinstance(result, ModelArtifactResult):
                 resolved.append(result.model)
-            elif isinstance(result, StateArtifactResult | DatabaseArtifactResult):
-                # Need to create and save insight from artifact content
+            else:
+                # State or Artifact source - need to create and save insight from artifact content
                 content = result.content
                 # Coerce query to the QuerySchema union
                 coerced_query = QuerySchemaRoot.model_validate(content.query.model_dump(mode="json")).root
-                if isinstance(coerced_query, HogQLQuery):
+                if isinstance(coerced_query, DataVisualizationNode):
+                    # SQL-backed insight: already a top-level query node, keep its display/chart settings as-is.
+                    converted = coerced_query.model_dump(exclude_none=True)
+                elif isinstance(coerced_query, HogQLQuery):
                     converted = DataTableNode(source=coerced_query).model_dump(exclude_none=True)
                 else:
                     converted = InsightVizNode(source=coerced_query).model_dump(exclude_none=True)
@@ -171,21 +253,46 @@ class UpsertDashboardTool(MaxTool):
                 )
                 resolved.append(insight)
 
-        return resolved, missing
+        return resolved
+
+    async def _report_dashboard_action(
+        self, dashboard: Dashboard, event: str, extra_properties: dict[str, Any] | None = None
+    ) -> None:
+        await database_sync_to_async(report_user_action)(
+            self._user,
+            event,
+            {
+                **await database_sync_to_async(dashboard.get_analytics_metadata)(),
+                "source": EventSource.POSTHOG_AI,
+                **(extra_properties or {}),
+            },
+            team=self._team,
+        )
+
+    async def _report_new_insights(
+        self, artifacts: list[VisualizationWithSourceResult], insights: list[Insight]
+    ) -> None:
+        for artifact, insight in zip(artifacts, insights):
+            if not isinstance(artifact, ModelArtifactResult):
+                await database_sync_to_async(report_user_action)(
+                    self._user,
+                    "insight created",
+                    {
+                        "insight_id": insight.short_id,
+                        "source": EventSource.POSTHOG_AI,
+                    },
+                    team=self._team,
+                )
 
     def _create_resolved_insights(self, results: list[Insight]) -> list[Insight]:
+        """
+        Create insights that are not yet saved.
+        """
         for insight in results:
             if getattr(insight, "pk", None):
                 continue
             insight.save()
         return results
-
-    @database_sync_to_async
-    def _check_user_permissions(self, dashboard: Dashboard) -> bool | None:
-        """Check if user has permission to edit the dashboard."""
-        user_access_control = UserAccessControl(user=self._user, team=self._team)
-        access_level = user_access_control.get_user_access_level(dashboard)
-        return access_level and access_level_satisfied_for_resource("dashboard", access_level, "editor")
 
     @database_sync_to_async
     @transaction.atomic
@@ -199,7 +306,10 @@ class UpsertDashboardTool(MaxTool):
         )
         insights = self._create_resolved_insights(insights)
         DashboardTile.objects.bulk_create(
-            [DashboardTile(dashboard=dashboard, insight=insight, layouts={}) for insight in insights]
+            [
+                DashboardTile(dashboard=dashboard, team_id=dashboard.team_id, insight=insight, layouts={})
+                for insight in insights
+            ]
         )
         return dashboard
 
@@ -208,12 +318,26 @@ class UpsertDashboardTool(MaxTool):
     def _update_dashboard_with_tiles(
         self,
         dashboard: Dashboard,
-        insights: list[Insight],
-        replace: bool,
         name: str | None,
         description: str | None,
-    ) -> Dashboard:
-        """Update an existing dashboard with new tiles."""
+        insight_ids: list[str],
+        artifacts: list[VisualizationWithSourceResult],
+        layout_mode: Literal["preserve_existing", "reflow_all"],
+    ) -> tuple[Dashboard, list[Insight]]:
+        """Update dashboard tiles based on provided insight IDs.
+
+        Args:
+            dashboard: The dashboard to update
+            name: New dashboard name (if provided)
+            description: New dashboard description (if provided)
+            insight_ids: Ordered list of insight IDs for the dashboard
+            artifacts: Resolved visualization artifacts matching insight_ids order
+            layout_mode: Layout strategy for existing tiles
+
+        Returns:
+            Tuple of (dashboard, resolved_insights) where resolved_insights
+            corresponds 1:1 with artifacts in the same order.
+        """
         if name is not None:
             dashboard.name = name
         if description is not None:
@@ -221,46 +345,206 @@ class UpsertDashboardTool(MaxTool):
         if name is not None or description is not None:
             dashboard.save(update_fields=["name", "description"])
 
-        # Create new insights if they don't exist
-        insights = self._create_resolved_insights(insights)
+        if not insight_ids:
+            return dashboard, []
 
-        insight_ids = {i.id for i in insights}
-        # Fetch all existing tiles (including soft-deleted) in one query
-        existing_tiles = {
-            tile.insight_id: tile for tile in DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard)
-        }
+        # 1. Get all existing tiles including soft deleted
+        all_tiles = list(
+            DashboardTile.objects_including_soft_deleted.filter(dashboard=dashboard).select_related("insight")
+        )
 
-        if replace:
-            # Soft-delete tiles for insights not in the new set
-            tiles_to_soft_delete = [t for iid, t in existing_tiles.items() if iid not in insight_ids and not t.deleted]
-            if tiles_to_soft_delete:
-                DashboardTile.objects_including_soft_deleted.filter(id__in=[t.id for t in tiles_to_soft_delete]).update(
-                    deleted=True
+        # Build lookup: short_id -> tile (for matching by artifact ID)
+        short_id_to_tile: dict[str, DashboardTile] = {}
+        for tile in all_tiles:
+            if tile.insight and tile.insight.short_id:
+                short_id_to_tile[tile.insight.short_id] = tile
+
+        # Resolve artifacts to insights
+        resolved_insights = self._create_resolved_insights(self._resolve_insights(artifacts))
+
+        # Track tiles that will be active after update
+        active_tile_ids: set[int] = set()
+        tiles_to_update: list[DashboardTile] = []
+        restored_tile_ids: list[int] = []
+
+        # 2. Create new tiles or restore soft deleted
+        for insight_id, insight in zip(insight_ids, resolved_insights):
+            existing_tile = short_id_to_tile.get(insight_id)
+
+            if existing_tile:
+                # Restore if soft deleted
+                if existing_tile.deleted:
+                    existing_tile.deleted = False
+                    restored_tile_ids.append(existing_tile.id)
+                active_tile_ids.add(existing_tile.id)
+                tiles_to_update.append(existing_tile)
+            else:
+                # Create new tile
+                new_tile = DashboardTile.objects.create(
+                    dashboard=dashboard,
+                    team_id=dashboard.team_id,
+                    insight=insight,
+                    layouts={},
                 )
+                active_tile_ids.add(new_tile.id)
+                tiles_to_update.append(new_tile)
 
-        # Un-delete existing soft-deleted tiles
-        tiles_to_undelete = [
-            existing_tiles[i.id] for i in insights if i.id in existing_tiles and existing_tiles[i.id].deleted
+        # 3. Soft delete insight tiles not in the new list (preserve text tiles)
+        tiles_to_delete = [
+            t.id for t in all_tiles if t.id not in active_tile_ids and not t.deleted and t.insight_id is not None
         ]
-        if tiles_to_undelete:
-            DashboardTile.objects_including_soft_deleted.filter(id__in=[t.id for t in tiles_to_undelete]).update(
-                deleted=False
-            )
+        if tiles_to_delete:
+            # nosemgrep: idor-lookup-without-team
+            DashboardTile.objects.filter(id__in=tiles_to_delete).update(deleted=True)
 
-        # Bulk create new tiles
-        new_insights = [i for i in insights if i.id not in existing_tiles]
-        if new_insights:
-            DashboardTile.objects.bulk_create(
-                [
-                    DashboardTile(dashboard=dashboard, insight=insight, deleted=False, layouts={})
-                    for insight in new_insights
-                ]
-            )
+        if layout_mode == "preserve_existing":
+            if restored_tile_ids:
+                DashboardTile.objects_including_soft_deleted.filter(id__in=restored_tile_ids).update(deleted=False)
+            return dashboard, resolved_insights
 
-        return dashboard
+        fixed_non_insight_vertical_spans: list[tuple[int, int]] = []
+        for tile in all_tiles:
+            if tile.deleted or tile.insight_id is not None:
+                continue
+            sm_layout = (tile.layouts or {}).get("sm", {})
+            raw_y = sm_layout.get("y")
+            raw_h = sm_layout.get("h")
+            if not isinstance(raw_y, int | float) or not isinstance(raw_h, int | float):
+                continue
+            y_start = int(raw_y)
+            height = int(raw_h)
+            if y_start < 0 or height <= 0:
+                continue
+            fixed_non_insight_vertical_spans.append((y_start, y_start + height))
+
+        # 4. Reflow insight tile layouts when requested.
+        layout_updates = self._compute_reflow_layout_updates(tiles_to_update, fixed_non_insight_vertical_spans)
+        for layout_update in layout_updates:
+            row_tile = layout_update["tile"]
+            row_tile.layouts = layout_update["layouts"]
+            row_tile.save(update_fields=["layouts", "deleted"])
+
+        return dashboard, resolved_insights
+
+    @staticmethod
+    def _compute_reflow_layout_updates(
+        tiles_to_update: list[DashboardTile], fixed_non_insight_vertical_spans: list[tuple[int, int]]
+    ) -> list[ReflowTileLayoutUpdate]:
+        # Reflow is intentionally row-based and simple:
+        # - preserve tile order
+        # - normalize row heights
+        # - fill row gaps using equal widths
+        # - allow local adaptation for inserted middle tiles
+        # - avoid vertical overlap with fixed non-insight tiles (e.g. text)
+        column_count = 12
+        xs_y = 0  # For xs breakpoint (single column)
+        rows: list[list[ReflowRowItem]] = []
+        current_row: list[ReflowRowItem] = []
+        current_row_width = 0
+
+        for tile in tiles_to_update:
+            sm_layout = (tile.layouts or {}).get("sm", {})
+
+            # Use original sizes as the baseline, falling back to defaults.
+            raw_h = sm_layout.get("h")
+            raw_w = sm_layout.get("w")
+
+            h = int(raw_h) if isinstance(raw_h, int | float) and raw_h > 0 else 5
+            w = int(raw_w) if isinstance(raw_w, int | float) and raw_w > 0 else 6
+            w = min(w, column_count)
+
+            if current_row and current_row_width + w > column_count:
+                # Generic local adaptation for insert/reorder:
+                # If the row starts with a small tile, we can keep an overflowing
+                # tile in this row only when equal-splitting still respects the
+                # smallest baseline tile width in the proposed row.
+                proposed_row_widths = [int(item["w"]) for item in current_row] + [w]
+                proposed_tile_count = len(proposed_row_widths)
+                proposed_equalized_base_width = column_count // proposed_tile_count
+                smallest_baseline_width = min(proposed_row_widths)
+                row_is_already_full = current_row_width >= column_count
+                can_adapt_overflow_in_row = (
+                    current_row[0]["w"] <= column_count // 2
+                    and w < column_count
+                    and proposed_equalized_base_width >= smallest_baseline_width
+                    and not (row_is_already_full and len(current_row) >= 3)
+                )
+                has_single_full_width_tile = len(current_row) == 1 and current_row[0]["w"] == column_count
+
+                if not has_single_full_width_tile and can_adapt_overflow_in_row:
+                    # Keep this tile in the same row; widths will be equalized later.
+                    current_row.append({"tile": tile, "h": h, "w": w})
+                    current_row_width += w
+                    continue
+
+                rows.append(current_row)
+                current_row = []
+                current_row_width = 0
+
+            current_row.append({"tile": tile, "h": h, "w": w})
+            current_row_width += w
+
+        if current_row:
+            rows.append(current_row)
+
+        def _find_next_row_y(candidate_y: int, row_height: int) -> int:
+            """Push a row down until it no longer overlaps fixed non-insight tiles."""
+            y_position = candidate_y
+            while True:
+                conflicting_bottom: int | None = None
+                row_bottom = y_position + row_height
+                for span_start, span_end in fixed_non_insight_vertical_spans:
+                    if y_position < span_end and row_bottom > span_start:
+                        conflicting_bottom = (
+                            span_end if conflicting_bottom is None else max(conflicting_bottom, span_end)
+                        )
+                if conflicting_bottom is None:
+                    return y_position
+                y_position = conflicting_bottom
+
+        y = 0
+        layout_updates: list[ReflowTileLayoutUpdate] = []
+        for row in rows:
+            row_height = max(item["h"] for item in row)
+            row_width = sum(item["w"] for item in row)
+            has_single_full_width_tile = len(row) == 1 and row[0]["w"] == column_count
+            y = _find_next_row_y(y, row_height)
+
+            target_widths: list[int]
+            if has_single_full_width_tile:
+                target_widths = [row[0]["w"]]
+            elif row_width != column_count:
+                tile_count = len(row)
+                base_width = column_count // tile_count
+                remainder = column_count % tile_count
+                target_widths = [base_width + (1 if index < remainder else 0) for index in range(tile_count)]
+            else:
+                target_widths = [item["w"] for item in row]
+
+            x = 0
+
+            for item, target_width in zip(row, target_widths):
+                row_tile = item["tile"]
+                h = item["h"] if has_single_full_width_tile else row_height
+                w = target_width
+                raw_xs_h = ((row_tile.layouts or {}).get("xs") or {}).get("h")
+                # Keep existing mobile height for existing tiles; default only for new/invalid layouts.
+                xs_h = int(raw_xs_h) if isinstance(raw_xs_h, int | float) and raw_xs_h > 0 else 5
+                layouts = {
+                    "sm": {"h": h, "w": w, "x": x, "y": y, "minH": 1, "minW": 1},
+                    "xs": {"h": xs_h, "w": 1, "x": 0, "y": xs_y, "minH": 1, "minW": 1},
+                }
+                layout_updates.append({"tile": row_tile, "layouts": layouts})
+                x += w
+                xs_y += xs_h
+            y += row_height
+
+        return layout_updates
 
     async def _format_dashboard_output(
-        self, dashboard: Dashboard, insights: list[Insight], missing_ids: list[str] | None = None
+        self,
+        dashboard: Dashboard,
+        insights: list[Insight],
     ) -> str:
         """Format dashboard output using DashboardContext for consistency."""
         insights_data: list[DashboardInsightContext] = []
@@ -286,9 +570,66 @@ class UpsertDashboardTool(MaxTool):
             dashboard_id=str(dashboard.id),
         )
 
-        result = await context.format_schema()
+        return await context.format_schema()
 
-        if missing_ids:
-            result += "\n\n" + MISSING_INSIGHTS_NOTE_PROMPT.format(missing_ids=", ".join(missing_ids))
+    async def _get_dashboard(self, dashboard_id: Any) -> Dashboard:
+        """Get the dashboard and sorted tiles for the given dashboard ID."""
+        # LLMs sometimes output IDs as floats (e.g., "642161.0"), so we parse to int
+        try:
+            parsed_id = int(float(dashboard_id))
+        except (ValueError, TypeError):
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+        try:
+            dashboard = await Dashboard.objects.aget(id=parsed_id, team=self._team, deleted=False)
+        except Dashboard.DoesNotExist:
+            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
-        return result
+        await self.check_object_access(dashboard, "editor", action="edit")
+
+        return dashboard
+
+    async def _get_dashboard_sorted_tiles(self, dashboard: Dashboard) -> list[DashboardTile]:
+        """
+        Get the sorted tiles for the given dashboard.
+        """
+        sorted_tiles = DashboardTile.sort_tiles_by_layout(
+            [tile async for tile in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")]
+        )
+        return sorted_tiles
+
+    async def _get_update_diff(self, dashboard_tiles: list[DashboardTile], insight_ids: list[str]) -> UpdateDiff:
+        """
+        Get the update diff for the given dashboard tiles and insight IDs. Returns a list of deleted tiles, created insights, and replaced tiles with their corresponding visualization artifacts.
+        """
+        if self._cached_update_diff is not None:
+            return self._cached_update_diff
+
+        if not insight_ids:
+            return UpdateDiff(
+                deleted=[],
+                created=[],
+            )
+
+        existing_ids = {tile.insight.short_id for tile in dashboard_tiles if tile.insight is not None}
+        new_ids = set(insight_ids)
+        deleted_ids = list(existing_ids - new_ids)
+        created_ids = list(new_ids - existing_ids)
+
+        self._cached_update_diff = UpdateDiff(
+            deleted=[
+                tile for tile in dashboard_tiles if tile.insight is not None and tile.insight.short_id in deleted_ids
+            ],
+            created=await self._get_visualization_artifacts(created_ids),
+        )
+
+        return self._cached_update_diff
+
+    async def _get_visualization_artifacts(self, insight_ids: list[str]) -> list[VisualizationWithSourceResult]:
+        """
+        Fetch and validate visualization artifacts for the given insight IDs.
+        """
+        artifacts = await self._context_manager.artifacts.aget_visualizations(self._state.messages, insight_ids)
+        not_found = [insight_id for insight_id, artifact in zip(insight_ids, artifacts) if artifact is None]
+        if not_found:
+            raise MaxToolRetryableError(format_prompt_string(MISSING_INSIGHT_IDS_PROMPT, missing_ids=not_found))
+        return cast(list[VisualizationWithSourceResult], artifacts)

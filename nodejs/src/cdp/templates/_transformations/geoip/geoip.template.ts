@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'alpha', // TODO: change to beta once we want to enable it by default for every project.
+    status: 'stable',
     type: 'transformation',
     id: 'template-geoip',
     name: 'GeoIP',
@@ -35,7 +35,8 @@ if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
     return event
 }
 let ip := event.properties.$ip
-if (ip == '127.0.0.1') {
+// Check for localhost and common private network IPs
+if (ip == '127.0.0.1' or substring(ip, 1, 8) == '192.168.') {
     print('spoofing ip for local development', ip)
     ip := '89.160.20.129'
 }

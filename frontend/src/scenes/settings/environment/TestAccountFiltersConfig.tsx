@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -63,6 +65,10 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
     const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
     const { cohortsById } = useValues(cohortsModel)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
 
@@ -77,9 +83,12 @@ function TestAccountFiltersConfig(): JSX.Element {
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4 flex flex-col gap-2">
                 <LemonBanner type="info">
-                    When filtering out internal users by person properties, like email, we recommend creating a Cohort
-                    with those properties, and then adding that cohort with a "not in" operator in your ‘Filter out
-                    internal and test users’ settings.
+                    When filtering out internal users, inline person property filters (e.g., "email does not contain
+                    your-domain.com") work everywhere, including real-time CDP destinations. Alternatively, you can
+                    create a cohort and add it with a "not in" operator - this works well for analytics queries
+                    (insights, dashboards) and also works in CDP destinations if the cohort contains{' '}
+                    <strong>exclusively person property filters</strong>. Cohorts with behavioral filters or no
+                    properties defined will cause CDP destinations to error.
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
@@ -123,6 +132,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        disabledReason={restrictedReason ?? undefined}
                     />
                 )}
             </div>
@@ -133,6 +143,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 }}
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}
+                disabledReason={restrictedReason}
                 label="Enable this filter on all new insights"
                 bordered
             />
@@ -140,6 +151,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 onChange={updateFilterTestAccounts}
                 checked={filterTestAccounts}
                 disabled={currentTeamLoading}
+                disabledReason={restrictedReason}
                 label="Filter out internal and test users from revenue analytics"
                 bordered
             />
@@ -148,27 +160,5 @@ function TestAccountFiltersConfig(): JSX.Element {
 }
 
 export function ProjectAccountFiltersSetting(): JSX.Element {
-    return (
-        <>
-            <p>
-                These filters apply only to queries when the toggle is enabled. Adding filters here does not prevent
-                events or recordings being ingested.{' '}
-                <Link to="https://posthog.com/tutorials/filter-internal-users">Learn more in our docs</Link>.
-            </p>
-            <div className="mt-4">
-                <strong>Example filters</strong>
-                <ul className="list-disc pl-4 mb-2">
-                    <li>
-                        Add a cohort where "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to
-                        exclude your team.
-                    </li>
-                    <li>
-                        Add "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude local
-                        environments.
-                    </li>
-                </ul>
-            </div>
-            <TestAccountFiltersConfig />
-        </>
-    )
+    return <TestAccountFiltersConfig />
 }

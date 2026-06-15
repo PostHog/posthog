@@ -1,9 +1,10 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { connect, kea, key, listeners, path, props, selectors } from 'kea'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
-import { multitabEditorLogic } from '../multitabEditorLogic'
+import { sqlEditorLogic } from '../sqlEditorLogic'
 import type { infoTabLogicType } from './infoTabLogicType'
 
 export interface InfoTableRow {
@@ -16,21 +17,24 @@ export interface InfoTableRow {
 
 export interface InfoTabLogicProps {
     tabId: string
+    viewId?: string
 }
 
 export const infoTabLogic = kea<infoTabLogicType>([
     path(['data-warehouse', 'editor', 'sidebar', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
-    key((props) => props.tabId),
+    key((props) => `${props.tabId}-${props.viewId ?? 'new'}`),
     connect((props: InfoTabLogicProps) => ({
         values: [
-            multitabEditorLogic({ tabId: props.tabId }),
+            sqlEditorLogic({ tabId: props.tabId }),
             ['metadata'],
             databaseTableListLogic,
             ['posthogTablesMap', 'dataWarehouseTablesMap'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMap'],
         ],
+        actions: [sqlEditorLogic({ tabId: props.tabId }), ['loadUpstream']],
+        logic: props.viewId ? [materializationJobsLogic({ viewId: props.viewId })] : [],
     })),
     selectors({
         sourceTableItems: [
@@ -62,5 +66,18 @@ export const infoTabLogic = kea<infoTabLogicType>([
                 )
             },
         ],
+    }),
+    listeners(({ actions, props }) => {
+        if (!props.viewId) {
+            return {}
+        }
+        const jobsLogic = materializationJobsLogic({ viewId: props.viewId })
+        return {
+            [jobsLogic.actionTypes.loadDataModelingJobsSuccess]: () => {
+                if (props.viewId) {
+                    actions.loadUpstream(props.viewId)
+                }
+            },
+        }
     }),
 ])

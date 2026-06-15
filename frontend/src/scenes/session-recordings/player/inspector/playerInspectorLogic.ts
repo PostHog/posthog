@@ -2,20 +2,21 @@ import equal from 'fast-deep-equal'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-
 import {
     EventType as RRWebEventType,
     customEvent,
     eventWithTime,
     fullSnapshotEvent,
     pluginEvent,
-} from '@posthog/rrweb-types'
+} from 'posthog-js/rrweb-types'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -32,7 +33,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
-import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { LogMessage, RecordingsQuery } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     CommentType,
@@ -44,8 +45,13 @@ import {
 } from '~/types'
 
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
-import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import {
+    DoctorDiagnostics,
+    SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
+} from '../sessionRecordingPlayerLogic'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
+import { playerInspectorLogsLogic } from './playerInspectorLogsLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -77,7 +83,7 @@ export type RecordingComment = {
     timeInRecording: number
 }
 
-const _filterableItemTypes = ['events', 'console', 'network', 'comment', 'doctor'] as const
+const _filterableItemTypes = ['events', 'console', 'network', 'comment', 'doctor', 'logs'] as const
 const _itemTypes = [
     ..._filterableItemTypes,
     'performance',
@@ -164,6 +170,11 @@ export type InspectorListItemAppState = InspectorListItemBase & {
     stateEvent?: Record<string, any>
 }
 
+export type InspectorListItemLog = InspectorListItemBase & {
+    type: 'logs'
+    data: LogMessage
+}
+
 export type InspectorListItemSummary = InspectorListItemBase & {
     type: 'inspector-summary'
     clickCount: number | null
@@ -184,9 +195,58 @@ export type InspectorListItem =
     | InspectorListItemInactivity
     | InspectorListItemAppState
     | InspectorListSessionChange
+    | InspectorListItemLog
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
+}
+
+/** Merges adjacent inactivity items into one with a combined duration. */
+function mergeAdjacentInactivity(items: InspectorListItem[]): InspectorListItem[] {
+    return items.reduce((acc, item) => {
+        const previousItem = acc[acc.length - 1]
+        if (item.type === 'inactivity' && previousItem?.type === 'inactivity') {
+            acc[acc.length - 1] = { ...previousItem, durationMs: previousItem.durationMs + item.durationMs }
+            return acc
+        }
+        acc.push(item)
+        return acc
+    }, [] as InspectorListItem[])
+}
+
+export type DisplayGroup = { indices: number[] }
+
+function canGroup(current: InspectorListItem, next: InspectorListItem): boolean {
+    if (current.type !== next.type || current.highlightColor !== next.highlightColor) {
+        return false
+    }
+    switch (current.type) {
+        case 'events':
+            return next.type === 'events' && current.data.event === next.data.event && current.search === next.search
+        case 'console':
+            return next.type === 'console' && current.data.content === next.data.content
+        default:
+            return false
+    }
+}
+
+/** Groups adjacent identical events and console logs into display rows. */
+export function computeDisplayGroups(items: InspectorListItem[], groupSimilar: boolean): DisplayGroup[] {
+    const groups: DisplayGroup[] = []
+
+    for (let i = 0; i < items.length; i++) {
+        if (groupSimilar && groups.length > 0) {
+            const lastGroup = groups[groups.length - 1]
+            if (canGroup(items[lastGroup.indices[0]], items[i])) {
+                lastGroup.indices.push(i)
+                continue
+            }
+        }
+
+        groups.push({ indices: [i] })
+    }
+
+    return groups
 }
 
 function _isCustomSnapshot(x: unknown): x is customEvent {
@@ -289,10 +349,19 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['loadFullEventData', 'setTrackedWindow', 'registerWindowId', 'loadEventsSuccess'],
             sessionRecordingPlayerLogic(props),
             ['seekToTime', 'setSkippingToMatchingEvent'],
+            playerInspectorLogsLogic(props),
+            ['loadLogs', 'loadMoreLogs', 'markLogsInitialLoadRequested'],
         ],
         values: [
             miniFiltersLogic,
-            ['showOnlyMatching', 'miniFiltersByKey', 'searchQuery', 'miniFiltersForTypeByKey', 'miniFilters'],
+            [
+                'showOnlyMatching',
+                'groupRepeatedItems',
+                'miniFiltersByKey',
+                'searchQuery',
+                'miniFiltersForTypeByKey',
+                'miniFilters',
+            ],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'sessionPlayerData',
@@ -314,11 +383,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'uuidToIndex',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime', 'skipToFirstMatchingEvent'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent', 'doctorDiagnostics'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
             ['featureFlags'],
+            playerInspectorLogsLogic(props),
+            [
+                'logs',
+                'logsLoading',
+                'logsHasMore',
+                'logsNextCursor',
+                'logsLoadError',
+                'logsInitialLoadRequested',
+                'readyToLoadLogs',
+            ],
         ],
     })),
     actions(() => ({
@@ -429,12 +508,18 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        collapseInspectorItems: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_COLLAPSE_INSPECTOR_ITEMS],
+        ],
+
         processedSnapshotData: [
-            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID, s.collapseInspectorItems],
             (
                 start,
                 sessionPlayerData,
-                windowNumberForID
+                windowNumberForID,
+                collapseInspectorItems
             ): {
                 offlineStatusChanges: InspectorListOfflineStatusChange[]
                 browserVisibilityChanges: InspectorListBrowserVisibility[]
@@ -593,8 +678,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             if (!consoleLogSeenCache.has(cacheKey)) {
                                 consoleLogSeenCache.add(cacheKey)
 
+                                const collapseConsole = !collapseInspectorItems
                                 const lastLogLine = consoleLogs[consoleLogs.length - 1]
-                                if (lastLogLine?.content === content) {
+                                if (collapseConsole && lastLogLine?.content === content) {
                                     if (lastLogLine.count === undefined) {
                                         lastLogLine.count = 1
                                     } else {
@@ -736,9 +822,58 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
+        runtimeDoctorEvents: [
+            (s) => [s.start, s.doctorDiagnostics],
+            (start: Dayjs | null, doctorDiagnostics: DoctorDiagnostics | null): InspectorListItemDoctor[] => {
+                if (!start) {
+                    return []
+                }
+
+                const items: InspectorListItemDoctor[] = []
+
+                if (doctorDiagnostics && doctorDiagnostics.assetErrorTotal > 0) {
+                    items.push({
+                        type: 'doctor',
+                        timestamp: start,
+                        timeInRecording: 0,
+                        tag: `asset errors (${doctorDiagnostics.assetErrorTotal} total)`,
+                        search: `asset errors ${doctorDiagnostics.assetErrorTypeNames}`,
+                        data: doctorDiagnostics.assetErrors,
+                        highlightColor: 'warning',
+                        key: 'doctor-asset-errors',
+                    })
+                }
+
+                const warningCount = doctorDiagnostics?.rrwebWarningCount ?? 0
+                if (doctorDiagnostics && warningCount > 0) {
+                    const summary = doctorDiagnostics.rrwebWarningSummary ?? {}
+                    items.push({
+                        type: 'doctor',
+                        timestamp: start,
+                        timeInRecording: 0,
+                        tag: `rrweb warnings (${warningCount})`,
+                        search: 'rrweb warnings',
+                        data: Object.keys(summary).length > 0 ? summary : { total: warningCount },
+                        highlightColor: 'warning',
+                        key: 'doctor-rrweb-warnings',
+                    })
+                }
+
+                return items
+            },
+            { resultEqualityCheck: equal },
+        ],
+
         allContextItems: [
-            (s) => [s.start, s.processedSnapshotData, s.windowNumberForID, s.sessionPlayerMetaData, s.segments],
-            (start, processedSnapshotData, windowNumberForID, sessionPlayerMetaData, segments) => {
+            (s) => [
+                s.start,
+                s.processedSnapshotData,
+                s.windowNumberForID,
+                s.sessionPlayerMetaData,
+                s.segments,
+                s.runtimeDoctorEvents,
+            ],
+            (start, processedSnapshotData, windowNumberForID, sessionPlayerMetaData, segments, runtimeDoctorEvents) => {
                 const items: InspectorListItem[] = []
 
                 segments
@@ -763,6 +898,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 // Add all pre-processed context items at once
                 items.push(...(processedSnapshotData?.contextItems || []))
+
+                // Add runtime doctor events (asset errors, rrweb warnings)
+                items.push(...runtimeDoctorEvents)
 
                 // now we've calculated everything else,
                 // we always start with a context row
@@ -802,6 +940,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.sessionPlayerData,
                 s.miniFiltersByKey,
                 s.uuidToIndex,
+                s.logs,
             ],
             (
                 start,
@@ -815,7 +954,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 notebookCommentItems,
                 sessionPlayerData,
                 miniFiltersByKey,
-                uuidToIndex
+                uuidToIndex,
+                logs
             ): {
                 items: InspectorListItem[]
                 itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
@@ -853,6 +993,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     'performance-other': [],
                     comment: [],
                     doctor: [],
+                    'logs-info': [],
+                    'logs-warn': [],
+                    'logs-error': [],
                 }
                 const itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]> = {
                     ['events']: [],
@@ -860,6 +1003,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     ['network']: [],
                     ['doctor']: [],
                     ['comment']: [],
+                    ['logs']: [],
                     context: [],
                 }
                 let summaryItem: InspectorListItemSummary | undefined
@@ -875,7 +1019,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     // Categorize by type
-                    const itemType = ['events', 'console', 'network', 'doctor', 'comment'].includes(
+                    const itemType = ['events', 'console', 'network', 'doctor', 'comment', 'logs'].includes(
                         item.type as FilterableInspectorListItemTypes
                     )
                         ? (item.type as FilterableInspectorListItemTypes | 'context')
@@ -904,7 +1048,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         highlightColor: (responseStatus || 0) >= 400 ? 'danger' : undefined,
                         windowId,
                         windowNumber: windowNumberForID(windowId),
-                        key: `performance-${event.uuid}`,
+                        key: `performance-${event.uuid ?? event.name ?? 'unknown'}-${timestamp.valueOf()}`,
                     })
                 }
 
@@ -979,6 +1123,29 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     addItem(stateLogItem)
                 }
 
+                for (const logEntry of logs || []) {
+                    const logTimestamp = dayjs(logEntry.timestamp)
+                    if (!logTimestamp.isValid()) {
+                        continue
+                    }
+                    const timeInRecording = logTimestamp.valueOf() - (start?.valueOf() || 0)
+                    const level = logEntry.level || 'info'
+                    addItem({
+                        type: 'logs',
+                        timestamp: logTimestamp,
+                        timeInRecording,
+                        search: logEntry.body || '',
+                        data: logEntry,
+                        highlightColor:
+                            level === 'error' || level === 'fatal'
+                                ? 'danger'
+                                : level === 'warn'
+                                  ? 'warning'
+                                  : undefined,
+                        key: `log-${logEntry.uuid}`,
+                    } satisfies InspectorListItemLog)
+                }
+
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
@@ -1026,19 +1193,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     hasEventsToDisplay,
                 })
 
-                // need to collapse adjacent inactivity items
-                // they look wrong next to each other
-                return filteredItems.reduce((acc, item, index) => {
-                    if (item.type === 'inactivity') {
-                        const previousItem = filteredItems[index - 1]
-                        if (previousItem?.type === 'inactivity') {
-                            previousItem.durationMs += item.durationMs
-                            return acc
-                        }
-                    }
-                    acc.push(item)
-                    return acc
-                }, [] as InspectorListItem[])
+                return mergeAdjacentInactivity(filteredItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1140,6 +1295,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allPerformanceEvents,
                 s.sessionComments,
                 s.sessionCommentsLoading,
+                s.logsLoading,
+                s.logs,
             ],
             (
                 sessionEventsDataLoading: boolean,
@@ -1155,7 +1312,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 } | null,
                 performanceEvents: PerformanceEvent[] | null,
                 sessionComments: CommentType[] | null,
-                sessionCommentsLoading: boolean
+                sessionCommentsLoading: boolean,
+                logsLoading: boolean,
+                logs: LogMessage[]
             ): Record<FilterableInspectorListItemTypes, 'loading' | 'ready' | 'empty'> => {
                 const dataForEventsState = sessionEventsDataLoading ? 'loading' : events?.length ? 'ready' : 'empty'
                 const dataForConsoleState =
@@ -1184,12 +1343,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                       ? 'ready'
                       : 'empty'
 
+                const dataForLogsState = logsLoading ? 'loading' : logs?.length ? 'ready' : 'empty'
+
                 return {
                     ['events']: dataForEventsState,
                     ['console']: dataForConsoleState,
                     ['network']: dataForNetworkState,
                     ['comment']: dataForCommentState,
                     ['doctor']: dataForDoctorState,
+                    ['logs']: dataForLogsState,
                 }
             },
         ],
@@ -1205,28 +1367,28 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         playbackIndicatorIndex: [
-            (s) => [s.currentPlayerTime, s.items],
-            (playerTime, items): number => {
-                // Returns the index of the event that the playback is closest to
+            (s) => [s.currentPlayerTime, s.items, s.displayGroups],
+            (playerTime, items, displayGroups): number => {
                 if (!playerTime) {
                     return 0
                 }
-
                 const timeSeconds = Math.floor(playerTime / 1000)
-                return items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
+                return displayGroups.findIndex(
+                    (g) => Math.floor(items[g.indices[0]].timeInRecording / 1000) >= timeSeconds
+                )
             },
         ],
 
         playbackIndicatorIndexStop: [
-            (s) => [s.playbackIndicatorIndex, s.items],
-            (playbackIndicatorIndex, items): number => (items.length + playbackIndicatorIndex) % items.length,
+            (s) => [s.playbackIndicatorIndex, s.displayGroups],
+            (playbackIndicatorIndex, displayGroups): number =>
+                (displayGroups.length + playbackIndicatorIndex) % displayGroups.length,
         ],
 
         fuse: [
             (s) => [s.filteredItems],
             (filteredItems): Fuse =>
-                new FuseClass<InspectorListItem>(filteredItems, {
-                    threshold: 0.3,
+                createFuse<InspectorListItem>(filteredItems, {
                     keys: ['search'],
                     findAllMatches: true,
                     ignoreLocation: true,
@@ -1242,6 +1404,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     return filteredItems
                 }
                 return fuse.search(searchQuery).map((x) => x.item)
+            },
+            { resultEqualityCheck: equal },
+        ],
+
+        displayGroups: [
+            (s) => [s.items, s.groupRepeatedItems, s.collapseInspectorItems],
+            (items, groupRepeatedItems, collapseInspectorItems): DisplayGroup[] => {
+                if (!collapseInspectorItems) {
+                    return items.map((_, i) => ({ indices: [i] }))
+                }
+                return computeDisplayGroups(items, groupRepeatedItems)
             },
             { resultEqualityCheck: equal },
         ],
@@ -1273,11 +1446,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     listeners(({ values, actions }) => ({
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
-                const item = values.items[index]
+                const group = values.displayGroups[index]
+                const item = values.items[group.indices[0]]
                 actions.reportRecordingInspectorItemExpanded(item.type, index)
 
                 if (item.type === 'events') {
-                    actions.loadFullEventData(item.data)
+                    const eventsToLoad = group.indices.map((i) => (values.items[i] as InspectorListItemEvent).data)
+                    actions.loadFullEventData(eventsToLoad)
                 }
             }
         },
@@ -1289,6 +1464,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 if (windowId && !(windowId in values.uuidToIndex)) {
                     actions.registerWindowId(windowId)
                 }
+            }
+
+            if (!values.logsInitialLoadRequested && values.readyToLoadLogs) {
+                actions.markLogsInitialLoadRequested()
+                actions.loadLogs()
             }
         },
     })),

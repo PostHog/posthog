@@ -1,19 +1,29 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useEffect } from 'react'
+import { isValidElement, ReactNode, useEffect } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { sessionSummaryProgressLogic } from 'scenes/session-recordings/player/player-meta/sessionSummaryProgressLogic'
 import { UnwatchedIndicator } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
+import { selectOutcome, sessionRecordingInfoLogic, SummaryOutcome } from './sessionRecordingInfoLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
+
+export enum ViewRecordingButtonVariant {
+    Button = 'button',
+    Link = 'link',
+}
 
 export enum RecordingPlayerType {
     NewTab = 'new_tab',
@@ -29,7 +39,25 @@ type ViewRecordingProps = {
     openPlayerIn?: RecordingPlayerType
     matchingEvents?: MatchedRecording[]
     hasRecording?: boolean
+    /** If true, automatically check if a recording exists for this session via batched API call */
+    checkRecordingExists?: boolean
+    /** Opt in to fetching the AI summary outcome and surfacing it as a tooltip. Also gated on REPLAY_VIDEO_BASED_SUMMARIZATION. */
+    checkSummaryOutcome?: boolean
+    /** When provided, short-circuits the kea fetch (e.g. parent list already has the outcome on each row). */
+    summaryOutcome?: SummaryOutcome | null
 }
+
+export type ViewRecordingButtonProps = Pick<
+    LemonButtonProps,
+    'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'
+> &
+    ViewRecordingProps & {
+        checkIfViewed?: boolean
+        label?: ReactNode
+        variant?: ViewRecordingButtonVariant
+        iconOnly?: boolean
+        noPadding?: boolean
+    }
 
 export default function ViewRecordingButton({
     sessionId,
@@ -42,12 +70,36 @@ export default function ViewRecordingButton({
     checkIfViewed = false,
     matchingEvents,
     hasRecording,
+    checkRecordingExists = false,
+    checkSummaryOutcome = false,
+    summaryOutcome,
+    variant = ViewRecordingButtonVariant.Button,
+    iconOnly = false,
+    noPadding = false,
     ...props
-}: Pick<LemonButtonProps, 'size' | 'type' | 'data-attr' | 'fullWidth' | 'className' | 'loading'> &
-    ViewRecordingProps & {
-        checkIfViewed?: boolean
-        label?: ReactNode
-    }): JSX.Element {
+}: ViewRecordingButtonProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const summaryFlagEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VIDEO_BASED_SUMMARIZATION]
+    const summaryOutcomeEnabled = checkSummaryOutcome && summaryFlagEnabled
+    const shouldFetchSummaryOutcome = summaryOutcomeEnabled && !summaryOutcome
+
+    const { summaryBySessionId } = useValues(sessionSummaryProgressLogic)
+    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
+    const { getRecordingExists, getSummaryOutcome } = useValues(sessionRecordingInfoLogic)
+
+    useEffect(() => {
+        if (!sessionId) {
+            return
+        }
+        if (checkRecordingExists || shouldFetchSummaryOutcome) {
+            checkRecordingInfo(sessionId, { includeOutcome: shouldFetchSummaryOutcome })
+        }
+    }, [checkRecordingExists, shouldFetchSummaryOutcome, sessionId, checkRecordingInfo])
+
+    if (hasRecording === undefined && checkRecordingExists && sessionId) {
+        hasRecording = getRecordingExists(sessionId)
+    }
+
     const { onClick, disabledReason, warningReason } = useRecordingButton({
         sessionId,
         recordingStatus,
@@ -58,6 +110,16 @@ export default function ViewRecordingButton({
         openPlayerIn,
         hasRecording,
     })
+
+    // Outcome precedence: live progress beats parent-supplied prop beats persisted fetch.
+    // Live is freshest mid-summarisation; the prop is a parent-list short-circuit; persisted is the kea-cached fallback.
+    const liveOutcome = summaryOutcomeEnabled && sessionId ? summaryBySessionId[sessionId]?.session_outcome : null
+    const persistedOutcome = shouldFetchSummaryOutcome && sessionId ? getSummaryOutcome(sessionId) : null
+    const isInteractive = !disabledReason && !props.loading
+    const outcomeTooltip =
+        summaryOutcomeEnabled && isInteractive
+            ? (selectOutcome([liveOutcome, summaryOutcome, persistedOutcome])?.description ?? undefined)
+            : undefined
 
     const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
@@ -87,8 +149,78 @@ export default function ViewRecordingButton({
         <IconPlayCircle />
     )
 
+    if (variant === ViewRecordingButtonVariant.Link) {
+        const linkContent = (
+            <Link
+                onClick={disabledReason || props.loading ? undefined : onClick}
+                disabledReason={
+                    typeof disabledReason === 'string'
+                        ? disabledReason
+                        : disabledReason
+                          ? 'Recording unavailable'
+                          : null
+                }
+                className={clsx(
+                    props.className,
+                    props.loading && 'opacity-50',
+                    props.fullWidth && 'w-full',
+                    disabledReason && 'opacity-50'
+                )}
+                data-attr={props['data-attr']}
+            >
+                {props.loading ? <Spinner className="text-sm" /> : null}
+                {label ?? 'View recording'}
+                {sideIcon}
+                {maybeUnwatchedIndicator}
+            </Link>
+        )
+        if (outcomeTooltip) {
+            return (
+                <Tooltip title={outcomeTooltip}>
+                    <span
+                        className="inline-flex items-center"
+                        data-ph-capture-attribute-view-recording-checked-existence={checkRecordingExists}
+                        data-ph-capture-attribute-view-recording-has-outcome={true}
+                    >
+                        {linkContent}
+                    </span>
+                </Tooltip>
+            )
+        }
+        return linkContent
+    }
+
+    const captureAttrs = {
+        'data-ph-capture-attribute-view-recording-checked-existence': checkRecordingExists,
+        'data-ph-capture-attribute-view-recording-has-outcome': !!outcomeTooltip,
+    }
+
+    if (iconOnly) {
+        return (
+            <LemonButton
+                disabledReason={disabledReason}
+                disabledReasonInteractive={isValidElement(disabledReason)}
+                onClick={onClick}
+                icon={sideIcon}
+                tooltip={outcomeTooltip ?? 'View recording'}
+                aria-label="View recording"
+                noPadding={noPadding}
+                {...captureAttrs}
+                {...props}
+            />
+        )
+    }
+
     return (
-        <LemonButton disabledReason={disabledReason} onClick={onClick} sideIcon={sideIcon} {...props}>
+        <LemonButton
+            disabledReason={disabledReason}
+            disabledReasonInteractive={isValidElement(disabledReason)}
+            onClick={onClick}
+            sideIcon={sideIcon}
+            tooltip={outcomeTooltip}
+            {...captureAttrs}
+            {...props}
+        >
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
                 {maybeUnwatchedIndicator}
@@ -102,7 +234,9 @@ export const recordingDisabledReason = (
     recordingStatus: string | undefined,
     hasRecording?: boolean
 ): JSX.Element | string | null => {
-    if (!sessionId) {
+    if (!sessionId && hasRecording === false) {
+        return 'No recording for this event'
+    } else if (!sessionId) {
         return (
             <>
                 No session ID associated with this event.{' '}

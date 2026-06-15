@@ -4,7 +4,6 @@ import { useActions, useValues } from 'kea'
 import { LemonCard } from '@posthog/lemon-ui'
 
 import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
-import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -93,35 +92,17 @@ export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
 
 export function GenericDisplayWithLongFrames(): JSX.Element {
     return (
-        <ExceptionLogicWrapper eventName="node_long_frame" showAllFrames={true}>
+        <ExceptionLogicWrapper eventName="node_long_frame">
             <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
 
-///////////////////// Text stacktraces
-
-export function TextDisplayEmpty(): JSX.Element {
+export function GenericDisplayWithNestedExceptions(): JSX.Element {
     return (
-        <ExceptionLogicWrapper eventName="javascript_empty">
-            <StackTraceRawDisplay />
+        <ExceptionLogicWrapper eventName="python_multierror">
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
-    )
-}
-
-export function TextDisplayPropertiesLoading(): JSX.Element {
-    return (
-        <ExceptionLogicWrapper eventName="javascript_resolved">
-            <StackTraceRawDisplay />
-        </ExceptionLogicWrapper>
-    )
-}
-
-export function TextDisplayWithStacktrace(): JSX.Element {
-    return (
-        <StacktraceWrapperAllEvents>
-            <StackTraceRawDisplay />
-        </StacktraceWrapperAllEvents>
     )
 }
 
@@ -145,19 +126,13 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
 }
 
 function StackTraceGenericDisplay({ className }: { className?: string }): JSX.Element {
-    const { showAllFrames } = useValues(exceptionCardLogic)
-    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { expandedFrameRawIds } = useValues(exceptionCardLogic)
+    const { setFrameExpanded } = useActions(exceptionCardLogic)
     return (
         <CollapsibleExceptionList
-            showAllFrames={showAllFrames}
-            setShowAllFrames={setShowAllFrames}
+            expandedFrameRawIds={expandedFrameRawIds}
+            onFrameExpandedChange={setFrameExpanded}
             className={className}
         />
     )
-}
-
-function StackTraceRawDisplay({ className }: { className?: string }): JSX.Element {
-    const { showAllFrames } = useValues(exceptionCardLogic)
-    const { setShowAllFrames } = useActions(exceptionCardLogic)
-    return <RawExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} className={className} />
 }

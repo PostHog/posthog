@@ -12,8 +12,11 @@ from posthog.schema import (
     OrderDirection,
 )
 
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.document_embeddings_query_runner import DocumentEmbeddingsQueryRunner
 from posthog.models.team.team import Team
+
+from products.ai_observability.backend.models.llm_traces_summaries import LLMTraceSummary
 
 from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
@@ -21,7 +24,6 @@ from ee.hogai.llm_traces_summaries.constants import (
     LLM_TRACES_SUMMARIES_SEARCH_QUERY_DOCUMENT_TYPE,
 )
 from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
-from ee.models.llm_traces_summaries import LLMTraceSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -66,7 +68,7 @@ class LLMTracesSummarizerFinder:
             ),
         )
         runner = DocumentEmbeddingsQueryRunner(query=similarity_query, team=self._team)
-        response = runner.run()
+        response = runner.run(analytics_props={"source": EventSource.POSTHOG_AI})
         if not isinstance(response, CachedDocumentSimilarityQueryResponse):
             raise ValueError(
                 f'Failed to get similarity results for query "{query}" ({request_id}) '

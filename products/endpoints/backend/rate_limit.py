@@ -1,6 +1,15 @@
 from django.core.cache import cache
 
-from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
+from rest_framework.throttling import SimpleRateThrottle
+
+from posthog.rate_limit import (
+    APIQueriesBurstThrottle,
+    APIQueriesSustainedThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
+
+from products.endpoints.backend.metrics import ENDPOINT_RATE_LIMITED_TOTAL
 
 MATERIALIZED_ENDPOINT_CACHE_KEY = "endpoint_materialized_ready:{team_id}:{endpoint_name}"
 MATERIALIZED_ENDPOINT_CACHE_TTL = 3600  # 1 hour fallback TTL
@@ -53,20 +62,19 @@ def _check_and_cache_materialization_status(team_id: int, endpoint_name: str) ->
     Check materialization status from DB and populate cache.
     Called on cache miss for lazy loading.
 
-    Returns True if endpoint is ready for materialized execution.
+    Returns True if endpoint's current version is ready for materialized execution.
     """
-    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
     from products.endpoints.backend.models import Endpoint
 
     try:
-        endpoint = Endpoint.objects.select_related("saved_query").get(
-            team_id=team_id, name=endpoint_name, is_active=True
-        )
+        endpoint = Endpoint.objects.get(team_id=team_id, name=endpoint_name, is_active=True, deleted=False)
+        version = endpoint.get_version()
 
         is_ready = (
-            endpoint.is_materialized
-            and endpoint.saved_query is not None
-            and endpoint.saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
+            version.is_materialized
+            and version.saved_query is not None
+            and version.saved_query.status == DataWarehouseSavedQuery.Status.COMPLETED
         )
 
         set_endpoint_materialization_ready(team_id, endpoint_name, is_ready)
@@ -90,33 +98,71 @@ def _is_materialized_endpoint_request(request, view) -> bool:
     return cached_status
 
 
-class EndpointBurstThrottle(APIQueriesBurstThrottle):
+class _MaterializedRateMixin(SimpleRateThrottle):
+    """Swaps in the higher materialized-endpoint rate and records 429s, on top of any base throttle.
+
+    Mix in before a SimpleRateThrottle subclass — `allow_request` adjusts the rate/scope for
+    materialized endpoints, then defers to the base throttle's own gating (which sits between
+    this mixin and SimpleRateThrottle in the MRO).
     """
-    Adaptive burst throttle for endpoints.
+
+    materialized_rate: str
+    materialized_scope: str
+
+    def allow_request(self, request, view):
+        if _is_materialized_endpoint_request(request, view):
+            self.rate = self.materialized_rate
+            self.scope = self.materialized_scope
+            self.num_requests, self.duration = self.parse_rate(self.rate)
+
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            try:
+                ENDPOINT_RATE_LIMITED_TOTAL.labels(scope=self.scope).inc()
+            except Exception:
+                pass
+        return allowed
+
+
+class EndpointBurstThrottle(_MaterializedRateMixin, PersonalOrProjectSecretApiKeyRateThrottle, APIQueriesBurstThrottle):
+    """
+    Adaptive burst throttle for endpoints, keyed per credential (personal API key or PSAK).
     Uses higher rate limit for materialized endpoints.
     Non-materialized endpoints share the api_queries_burst bucket.
     """
 
-    def allow_request(self, request, view):
-        if _is_materialized_endpoint_request(request, view):
-            self.rate = "1200/minute"
-            self.scope = "materialized_endpoint_burst"
-            self.num_requests, self.duration = self.parse_rate(self.rate)
-
-        return super().allow_request(request, view)
+    materialized_rate = "1200/minute"
+    materialized_scope = "materialized_endpoint_burst"
 
 
-class EndpointSustainedThrottle(APIQueriesSustainedThrottle):
+class EndpointSustainedThrottle(
+    _MaterializedRateMixin, PersonalOrProjectSecretApiKeyRateThrottle, APIQueriesSustainedThrottle
+):
     """
-    Adaptive sustained throttle for endpoints.
+    Adaptive sustained throttle for endpoints, keyed per credential (personal API key or PSAK).
     Uses higher rate limit for materialized endpoints.
     Non-materialized endpoints share the api_queries_sustained bucket.
     """
 
-    def allow_request(self, request, view):
-        if _is_materialized_endpoint_request(request, view):
-            self.rate = "12000/hour"
-            self.scope = "materialized_endpoint_sustained"
-            self.num_requests, self.duration = self.parse_rate(self.rate)
+    materialized_rate = "12000/hour"
+    materialized_scope = "materialized_endpoint_sustained"
 
-        return super().allow_request(request, view)
+
+class EndpointProjectSecretApiKeyTeamBurstThrottle(_MaterializedRateMixin, ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs — same size as the per-key
+    budget, so minting extra keys never multiplies a project's total burst capacity."""
+
+    # Own scope (not api_queries_burst) so 429 metrics and cache keys name the bucket that tripped.
+    scope = "endpoint_psak_team_burst"
+    rate = APIQueriesBurstThrottle.rate
+    materialized_rate = EndpointBurstThrottle.materialized_rate
+    materialized_scope = "materialized_endpoint_psak_team_burst"
+
+
+class EndpointProjectSecretApiKeyTeamSustainedThrottle(_MaterializedRateMixin, ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs."""
+
+    scope = "endpoint_psak_team_sustained"
+    rate = APIQueriesSustainedThrottle.rate
+    materialized_rate = EndpointSustainedThrottle.materialized_rate
+    materialized_scope = "materialized_endpoint_psak_team_sustained"

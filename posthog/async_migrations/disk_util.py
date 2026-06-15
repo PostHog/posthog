@@ -9,6 +9,7 @@ def analyze_enough_disk_space_free_for_table(table_name: str, required_ratio: fl
     This is done by checking whether there's at least ratio times space free to resize table_name with.
     """
 
+    # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
     current_ratio, _, required_space_pretty = sync_execute(
         f"""
         WITH (

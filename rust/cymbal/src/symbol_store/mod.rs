@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::async_trait;
+use async_trait::async_trait;
 
 use chunk_id::OrChunkId;
 use reqwest::Url;
@@ -10,23 +10,28 @@ use crate::{
     error::ResolveError,
     langs::hermes::HermesRef,
     symbol_store::{
+        apple::AppleRef,
         hermesmap::ParsedHermesMap,
+        native::ParsedNativeSymbols,
         proguard::{FetchedMapping, ProguardRef},
     },
 };
 
+pub mod apple;
 pub mod caching;
 pub mod chunk_id;
 pub mod concurrency;
+pub mod dart_minified_names;
 pub mod hermesmap;
+pub mod native;
 pub mod proguard;
 pub mod saving;
 pub mod sourcemap;
 
 mod s3;
+pub use s3::BlobClient;
 #[cfg(test)]
-pub use s3::MockS3Impl as S3Client;
-#[cfg(not(test))]
+pub use s3::MockBlobClient as MockS3Client;
 pub use s3::S3Impl as S3Client;
 
 #[async_trait]
@@ -71,6 +76,9 @@ pub struct Catalog {
     // Proguard map provider
     pub pg:
         Box<dyn Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>>,
+    // Apple dSYM provider
+    pub apple:
+        Box<dyn Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>>,
 }
 
 impl Catalog {
@@ -78,11 +86,13 @@ impl Catalog {
         smp: impl Provider<Ref = OrChunkId<Url>, Set = OwnedSourceMapCache, Err = ResolveError>,
         hmp: impl Provider<Ref = OrChunkId<HermesRef>, Set = ParsedHermesMap, Err = ResolveError>,
         pg: impl Provider<Ref = OrChunkId<ProguardRef>, Set = FetchedMapping, Err = ResolveError>,
+        apple: impl Provider<Ref = OrChunkId<AppleRef>, Set = ParsedNativeSymbols, Err = ResolveError>,
     ) -> Self {
         Self {
             smp: Box::new(smp),
             hmp: Box::new(hmp),
             pg: Box::new(pg),
+            apple: Box::new(apple),
         }
     }
 }
@@ -125,6 +135,17 @@ impl SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping> for Catalog {
         r: OrChunkId<ProguardRef>,
     ) -> Result<Arc<FetchedMapping>, ResolveError> {
         self.pg.lookup(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl SymbolCatalog<OrChunkId<AppleRef>, ParsedNativeSymbols> for Catalog {
+    async fn lookup(
+        &self,
+        team_id: i32,
+        r: OrChunkId<AppleRef>,
+    ) -> Result<Arc<ParsedNativeSymbols>, ResolveError> {
+        self.apple.lookup(team_id, r).await
     }
 }
 

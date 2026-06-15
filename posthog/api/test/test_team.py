@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -9,6 +9,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
@@ -17,26 +18,36 @@ from parameterized import parameterized
 from rest_framework import status, test
 from temporalio.service import RPCError
 
-from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.api.team import (
+    TEAM_CONFIG_FIELDS_SET,
+    TEAM_CONFIG_MEMBER_FIELDS_SET,
+    _default_data_color_theme_id,
+    _reset_default_data_color_theme_id_cache,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.dashboard import Dashboard
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    cached_group_types_for_team,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.common.test_utils import start_test_worker
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
@@ -46,18 +57,31 @@ def team_api_test_factory():
     class TestTeamAPI(APIBaseTest, QueryMatchingTest):
         """Tests for /api/environments/."""
 
+        def setUp(self):
+            super().setUp()
+            OrganizationMembership.objects.filter(pk=self.organization_membership.pk).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+            self.organization_membership.refresh_from_db()
+
         def _assert_activity_log(self, expected: list[dict], team_id: int | None = None) -> None:
             if not team_id:
                 team_id = self.team.pk
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
             starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
@@ -86,7 +110,6 @@ def team_api_test_factory():
             self.assertEqual(response_data["name"], self.team.name)
             self.assertEqual(response_data["timezone"], "UTC")
             self.assertEqual(response_data["is_demo"], False)
-            self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(
                 response_data["person_on_events_querying_enabled"],
@@ -119,6 +142,10 @@ def team_api_test_factory():
             create_group_type_mapping_without_created_at(
                 project=self.project, team=other_team, group_type="place", group_type_index=1
             )
+
+            # Clear both cache keys so the next request fetches from DB
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+            cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
 
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
@@ -158,6 +185,53 @@ def team_api_test_factory():
                 ],
             )
 
+        def test_group_types_graceful_degradation_on_db_failure(self):
+            """When the persons DB is unreachable and no stale data exists, the
+            endpoint still returns 200 with empty group types rather than a 500."""
+            with patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects:
+                mock_objects.filter.return_value.order_by.return_value.values.side_effect = OperationalError(
+                    "could not connect to server"
+                )
+                cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+                cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+                response = self.client.get("/api/environments/@current/")
+                response_data = response.json()
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+                self.assertEqual(response_data["has_group_types"], False)
+                self.assertEqual(response_data["group_types"], [])
+
+        def test_group_types_stale_cache_survives_prolonged_db_outage(self):
+            """After the primary 5-minute cache expires during a prolonged DB outage,
+            the stale fallback key (24h TTL) keeps serving last known good data."""
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
+            create_group_type_mapping_without_created_at(
+                project=self.project, team=other_team, group_type="company", group_type_index=0
+            )
+
+            # First request populates both primary and stale cache
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+            cache.delete(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{self.team.project_id}")
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["has_group_types"], True)
+
+            # Simulate prolonged outage: primary cache expired, but stale key remains
+            cache.delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{self.team.project_id}")
+
+            with patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects:
+                mock_objects.filter.return_value.order_by.return_value.values.side_effect = OperationalError(
+                    "could not connect to server"
+                )
+
+                response = self.client.get("/api/environments/@current/")
+                response_data = response.json()
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+                self.assertEqual(response_data["has_group_types"], True)
+                self.assertEqual(response_data["group_types"][0]["group_type"], "company")
+
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -165,86 +239,6 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{team.pk}/")
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
             self.assertEqual(response.json(), self.not_found_response())
-
-        @patch("posthog.api.project.get_geoip_properties")
-        @patch("posthog.api.team.get_geoip_properties")
-        def test_ip_location_is_used_for_new_team_week_day_start(
-            self, get_geoip_properties_mock: MagicMock, get_geoip_properties_legacy_endpoint: MagicMock
-        ):
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                get_geoip_properties_mock = get_geoip_properties_legacy_endpoint
-
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS},
-                {"key": AvailableFeature.ENVIRONMENTS, "name": AvailableFeature.ENVIRONMENTS},
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            get_geoip_properties_mock.return_value = {}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test World"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test World", "week_start_day": None}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "US"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test US"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test US", "week_start_day": 0}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "PL"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test PL"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test PL", "week_start_day": 1}.items(), response.json().items())
-
-            get_geoip_properties_mock.return_value = {"$geoip_country_code": "IR"}
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Test IR"})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-            self.assertLessEqual({"name": "Test IR", "week_start_day": 0}.items(), response.json().items())
-
-        def test_cant_create_team_without_license_on_selfhosted(self):
-            with self.is_cloud(False):
-                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-                self.assertEqual(Team.objects.count(), 1)
-                response = self.client.post("/api/projects/@current/environments/", {"name": "Test"})
-                self.assertEqual(Team.objects.count(), 1)
-
-        def test_cant_create_a_second_team_without_license(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.assertEqual(Team.objects.count(), 1)
-
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
-            self.assertEqual(response.status_code, 403)
-            response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
-            )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
-
-            # another request without the is_demo parameter
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
-            self.assertEqual(response.status_code, 403)
-            response_data = response.json()
-            self.assertEqual(
-                response_data.get("detail"),
-                (
-                    "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                    if self.client_class is not EnvironmentToProjectRewriteClient
-                    else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-                ),
-            )
-            self.assertEqual(response_data.get("type"), "authentication_error")
-            self.assertEqual(response_data.get("code"), "permission_denied")
-            self.assertEqual(Team.objects.count(), 1)
 
         @freeze_time("2022-02-08")
         def test_update_team_timezone(self):
@@ -380,38 +374,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
-        @parameterized.expand(
-            [
-                ("null_value", None, True),
-                ("empty_string", "", True),
-                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
-                ("valid_external_url", "https://example.com/webhook", True),
-                ("localhost", "http://localhost/webhook", False),
-                ("localhost_with_port", "http://localhost:8080/webhook", False),
-                ("loopback_ip", "http://127.0.0.1/webhook", False),
-                ("internal_ip_192", "http://192.168.1.1/webhook", False),
-                ("internal_ip_10", "http://10.0.0.1/webhook", False),
-                ("internal_ip_172", "http://172.16.0.1/webhook", False),
-            ]
-        )
-        @override_settings(DEBUG=False)
-        def test_slack_incoming_webhook_ssrf_validation(
-            self, _name: str, webhook_url: str | None, should_succeed: bool
-        ):
-            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/",
-                {"slack_incoming_webhook": webhook_url},
-            )
-            if should_succeed:
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.team.refresh_from_db()
-                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
-            else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                response_data = response.json()
-                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
-
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -476,7 +438,9 @@ def team_api_test_factory():
                         "short_id": None,
                         "trigger": None,
                     },
+                    "client": None,
                     "created_at": ANY,
+                    "ip_address": None,
                 },
                 {
                     "_state": ANY,
@@ -498,6 +462,8 @@ def team_api_test_factory():
                     "scope": "Team",
                     "user_id": self.user.pk,
                     "was_impersonated": False,
+                    "client": None,
+                    "ip_address": "127.0.0.1",
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -523,51 +489,43 @@ def team_api_test_factory():
                         "scope": "Project",
                         "user_id": self.user.pk,
                         "was_impersonated": False,
+                        "client": None,
+                        "ip_address": "127.0.0.1",
                     },
                 )
             assert activity == expected_activity
 
-        @patch("posthog.api.project.delete_bulky_postgres_data")
-        @patch("posthog.api.team.delete_bulky_postgres_data")
+        @patch("posthog.api.project.delete_project_data_and_notify_task")
+        @patch("posthog.tasks.tasks.delete_project_data_and_notify_task")
         @patch("posthoganalytics.capture")
         def test_delete_team_own_second(
             self,
             mock_capture: MagicMock,
-            mock_delete_bulky_postgres_data: MagicMock,
-            mock_delete_bulky_postgres_data_legacy_endpoint: MagicMock,
+            mock_delete_task_team: MagicMock,
+            mock_delete_task_project: MagicMock,
         ):
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_delete_bulky_postgres_data = mock_delete_bulky_postgres_data_legacy_endpoint
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
+            # NOTE: the factory-level setUp already bumps to ADMIN (without firing the
+            # "membership level changed" event because it uses .update() to bypass signals),
+            # so this test no longer needs to bump the level itself. It also no longer asserts
+            # the membership-level-changed capture event since the bump now happens before
+            # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+            team_pk = team.pk
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
             response = self.client.delete(f"/api/environments/{team.id}")
 
             self.assertEqual(response.status_code, 204)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-            self.assertEqual(
-                AsyncDeletion.objects.filter(
-                    team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)
-                ).count(),
-                1,
-            )
+            # Team deletion happens async in the (mocked) Celery task, so team still exists
+            # We only verify the task was queued correctly
             expected_capture_calls = [
                 call(
                     distinct_id=self.user.distinct_id,
-                    event="membership level changed",
-                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
-                    groups=mock.ANY,
-                ),
-                call(
-                    distinct_id=self.user.distinct_id,
                     event="team deleted",
-                    properties={},
+                    properties=mock.ANY,
                     groups=mock.ANY,
+                    send_feature_flags=False,
                 ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -575,12 +533,25 @@ def team_api_test_factory():
                     call(
                         distinct_id=self.user.distinct_id,
                         event="project deleted",
-                        properties={"project_name": "Default project"},
+                        properties=mock.ANY,
                         groups=mock.ANY,
+                        send_feature_flags=False,
                     )
                 )
+                mock_delete_task_project.delay.assert_called_once_with(
+                    team_ids=[team_pk],
+                    project_id=team_pk,
+                    user_id=self.user.id,
+                    project_name="Default project",
+                )
+            else:
+                mock_delete_task_team.delay.assert_called_once_with(
+                    team_ids=[team_pk],
+                    project_id=None,
+                    user_id=self.user.id,
+                    project_name="Default project",
+                )
             assert mock_capture.call_args_list == expected_capture_calls
-            mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
         def test_delete_bulky_postgres_data(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -589,12 +560,11 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-
-            from posthog.models.cohort import Cohort, CohortPeople
-            from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
-
             # from posthog.models.insight_caching_state import InsightCachingState
             from posthog.models.person import Person
+
+            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
             person = Person.objects.create(
@@ -607,7 +577,6 @@ def team_api_test_factory():
                 team=team,
                 name="test",
                 key="test",
-                rollout_percentage=50,
                 created_by=self.user,
             )
             FeatureFlagHashKeyOverride.objects.create(
@@ -657,7 +626,12 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(temporal):
+            with start_test_worker(
+                temporal,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+            ):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -676,6 +650,113 @@ def team_api_test_factory():
 
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
+
+        def test_delete_team_with_already_deleted_batch_export(self):
+            """Team deletion should succeed even if batch exports were already soft-deleted."""
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.organization.save()
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            destination_data = {
+                "type": "S3",
+                "config": {
+                    "bucket_name": "my-production-s3-bucket",
+                    "region": "us-east-1",
+                    "prefix": "posthog-events/",
+                    "aws_access_key_id": "abc123",
+                    "aws_secret_access_key": "secret",
+                },
+            }
+
+            batch_export_data = {
+                "name": "my-production-s3-bucket-destination",
+                "destination": destination_data,
+                "interval": "hour",
+            }
+
+            temporal = sync_connect()
+
+            with start_test_worker(
+                temporal,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+            ):
+                response = self.client.post(
+                    f"/api/environments/{team.id}/batch_exports",
+                    json.dumps(batch_export_data),
+                    content_type="application/json",
+                )
+                assert response.status_code == 201, response.json()
+
+                batch_export = response.json()
+                batch_export_id = batch_export["id"]
+
+                # Delete the batch export first (this soft-deletes it and removes the Temporal schedule)
+                response = self.client.delete(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
+                assert response.status_code == 204
+
+                # Verify the schedule is gone
+                with self.assertRaises(RPCError):
+                    describe_schedule(temporal, batch_export_id)
+
+                # Now delete the team - this should succeed
+                response = self.client.delete(f"/api/environments/{team.id}")
+                assert response.status_code == 204
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
+            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_scheduled_query",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
+
+            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
+            import temporalio.service
+
+            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_missing_schedule",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
+            mock_delete_schedule.side_effect = rpc_error
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -727,6 +808,8 @@ def team_api_test_factory():
             )
 
         def test_reset_token_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             self.team.api_token = "xyz"
             self.team.save()
 
@@ -962,6 +1045,8 @@ def team_api_test_factory():
             )
 
         def test_rotate_secret_token_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.secret_api_token_backup = None
             self.team.save()
@@ -973,6 +1058,8 @@ def team_api_test_factory():
             self.assertIsNone(self.team.secret_api_token_backup)
 
         def test_delete_secret_token_backup_insufficient_privileges(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
             self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
             self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
             self.team.save()
@@ -1018,27 +1105,6 @@ def team_api_test_factory():
             response = self.client.get(f"/api/environments/{self.team.id}/is_generating_demo_data/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response.json(), {"is_generating_demo_data": False})
-
-        @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
-        def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
-            self.organization.available_product_features = [
-                {
-                    "key": AvailableFeature.ENVIRONMENTS,
-                    "name": "Environments",
-                    "limit": 2,
-                },
-                {
-                    "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
-                    "name": "Projects",
-                    "limit": 2,
-                },
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            mock_create_data_for_demo_team.assert_called_once()
 
         @freeze_time("2022-02-08")
         def test_team_float_config_can_be_serialized_to_activity_log(self):
@@ -1273,7 +1339,7 @@ def team_api_test_factory():
         ) -> None:
             response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
 
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_recording_linked_flag",
                 "code": expected_code,
                 "detail": expected_error,
@@ -1405,7 +1471,7 @@ def team_api_test_factory():
             response = self._patch_session_replay_config(
                 {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
             )
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_replay_config",
                 "code": expected_code,
                 "detail": expected_error,
@@ -1516,6 +1582,71 @@ def team_api_test_factory():
                 {"id": "test", "channel_type": "Direct", "combiner": "AND", "items": []}
             ]
 
+        @parameterized.expand(
+            [
+                (1, True),
+                (-1, False),
+                (60, True),
+                (120, True),
+                (1.5, True),
+                (None, True),
+                (0, False),
+                (121, False),
+                (999999999, False),
+                ("not-a-number", False),
+            ]
+        )
+        def test_modifiers_bounceRateDurationSeconds_validation(self, value: Any, should_succeed: bool) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"bounceRateDurationSeconds": value}},
+            )
+
+            if should_succeed:
+                assert response.status_code == status.HTTP_200_OK, response.json()
+                assert response.json()["modifiers"]["bounceRateDurationSeconds"] == value
+            else:
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+        def test_modifiers_rejects_nested_objects(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"bounceRateDurationSeconds": {"nested": "object"}}},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        def test_modifiers_rejects_unknown_keys(self) -> None:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}",
+                {"modifiers": {"unknownField": True}},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
+        def test_promoted_product_intent_returns_helper_value(
+            self, mock_get_promoted_product_intent: MagicMock
+        ) -> None:
+            mock_get_promoted_product_intent.return_value = "session_replay"
+
+            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"product_key": "session_replay"}
+            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
+
+        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
+        def test_promoted_product_intent_returns_null_when_helper_returns_none(
+            self, mock_get_promoted_product_intent: MagicMock
+        ) -> None:
+            mock_get_promoted_product_intent.return_value = None
+
+            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"product_key": None}
+
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
@@ -1545,7 +1676,7 @@ def team_api_test_factory():
                 team=self.team,
             )
 
-        @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
+        @patch("posthog.api.team.enqueue_product_activation_calc_debounced", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -1616,14 +1747,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         @patch("posthog.api.project.report_user_action")
@@ -1672,14 +1802,13 @@ def team_api_test_factory():
                 "product onboarding completed",
                 {
                     "product_key": "product_analytics",
-                    "$current_url": "https://posthogtest.com/my-url",
-                    "$session_id": "test_session_id",
                     "intent_context": None,
                     "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
                     "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
                     "realm": get_instance_realm(),
                 },
                 team=self.team,
+                request=ANY,
             )
 
         def _create_other_org_and_team(
@@ -1775,35 +1904,6 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"session_recording_linked_flag": config})
             assert response.status_code == expected_status, response.json()
             return response
-
-        @patch("posthoganalytics.capture_exception")
-        def test_access_control_field_deprecated_on_create(self, mock_capture_exception):
-            """Test that access_control field is deprecated and cannot be used when creating a team."""
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "limit": 100},
-                {"key": AvailableFeature.ENVIRONMENTS, "limit": 100},
-            ]
-            self.organization.save()
-
-            response = self.client.post(
-                "/api/projects/@current/environments/",
-                {"name": "Test Environment", "access_control": True},
-            )
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            error_data = response.json()
-            self.assertIn("deprecated", error_data["detail"])
-            self.assertIn("https://posthog.com/docs/settings/access-control", error_data["detail"])
-
-            # Verify that the exception was captured
-            mock_capture_exception.assert_called_once()
-            call_args = mock_capture_exception.call_args
-            self.assertEqual(call_args[0][0].args[0], "Deprecated access control field used")
-            self.assertEqual(call_args[1]["properties"]["field"], "access_control")
-            self.assertEqual(call_args[1]["properties"]["value"], "True")
-            self.assertEqual(call_args[1]["properties"]["user_id"], self.user.id)
 
         @patch("posthoganalytics.capture_exception")
         def test_access_control_field_deprecated_on_update(self, mock_capture_exception):
@@ -1928,6 +2028,813 @@ def team_api_test_factory():
             else:
                 assert actual_value == expected_output
 
+        def test_conversations_settings_filters_null_widget_domains(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_domains": ["https://example.com", None, "https://test.com", None]}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_domains"] == [
+                "https://example.com",
+                "https://test.com",
+            ]
+
+        def test_conversations_settings_merges_with_existing(self):
+            self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_greeting_text": "Hello!"}},
+            )
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_color": "#ff0000"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_greeting_text"] == "Hello!"
+            assert settings["widget_color"] == "#ff0000"
+
+        def test_conversations_widget_position_setting(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"widget_position": "top_left"}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_position"] == "top_left"
+
+        def test_conversations_identification_settings(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "widget_require_email": True,
+                        "widget_collect_name": True,
+                        "widget_identification_form_title": "Before we start...",
+                        "widget_identification_form_description": "Please provide your details.",
+                        "widget_placeholder_text": "Type your message...",
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_require_email"] is True
+            assert settings["widget_collect_name"] is True
+            assert settings["widget_identification_form_title"] == "Before we start..."
+            assert settings["widget_identification_form_description"] == "Please provide your details."
+            assert settings["widget_placeholder_text"] == "Type your message..."
+
+        def test_enabling_conversations_auto_generates_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = None
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings is not None
+            assert settings.get("widget_public_token") is not None
+            assert len(settings["widget_public_token"]) > 20
+
+        def test_enabling_conversations_preserves_existing_token(self):
+            self.team.conversations_enabled = False
+            self.team.conversations_settings = {"widget_public_token": "existing_token_123"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["widget_public_token"] == "existing_token_123"
+
+        def test_disabling_conversations_clears_token(self):
+            self.team.conversations_enabled = True
+            self.team.conversations_settings = {"widget_public_token": "some_token", "widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is None
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token(self):
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            self.team.conversations_settings = {"widget_color": "#123456"}
+            self.team.save()
+
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_200_OK
+            settings = response.json()["conversations_settings"]
+            assert settings["widget_public_token"] is not None
+            assert len(settings["widget_public_token"]) > 20
+            assert settings["widget_color"] == "#123456"
+
+        def test_generate_conversations_public_token_requires_admin(self):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+
+        def test_logs_settings_retention_24_hour_restriction(self):
+            # Set initial retention - first update doesn't set retention_last_updated
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 30}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
+
+            # update retention, should set retention_last_updated
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 14}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["logs_settings"]["retention_last_updated"] is not None
+
+            # Try to update retention within 24 hours - should fail
+            with freeze_time("2025-01-01T12:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
+                assert "24 hours" in response.json()["detail"]
+
+            # Try to update retention after 24 hours - should succeed
+            with freeze_time("2025-01-02T00:00:01Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 90}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_invalid_values_rejected(self):
+            for invalid_days in [7, 15, 20, 45, 100]:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": invalid_days}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                    f"Expected 400 for retention_days={invalid_days}"
+                )
+                assert "retention_days must be one of" in response.json()["detail"]
+
+        def test_logs_settings_non_retention_changes_not_restricted(self):
+            # Set initial retention
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 30}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            with freeze_time("2025-01-01T00:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 14}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            # Change other settings within 24 hours - should succeed
+            with freeze_time("2025-01-01T12:00:00Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "logs_settings": {
+                            "retention_days": 14,  # Same retention
+                            "json_parse_logs": True,
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+            # Change retention after 24 hours - should succeed
+            with freeze_time("2025-01-02T00:00:01Z"):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {
+                        "logs_settings": {
+                            "retention_days": 30,
+                        }
+                    },
+                )
+                assert response.status_code == status.HTTP_200_OK
+
+        def test_read_only_api_key_cannot_update_team_config_fields(self):
+            """API keys with only project:read scope should not be able to modify config fields."""
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertIn("project:write", response.json().get("detail", ""))
+
+            # Verify no changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "UTC")
+
+        def test_write_api_key_can_update_team_config_fields(self):
+            """API keys with project:write scope should be able to modify config fields."""
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.timezone, "Europe/Lisbon")
+            self.assertEqual(self.team.session_recording_opt_in, True)
+
+        def _get_model_for_name_field(self):
+            """Returns the model whose 'name' field is updated by the current endpoint.
+
+            /api/environments/ updates Team.name, /api/projects/ updates Project.name.
+            This allows tests to work correctly when inherited by TestProjectAPI.
+            """
+            if isinstance(self.client, EnvironmentToProjectRewriteClient):
+                return self.project
+            return self.team
+
+        def test_read_only_api_key_cannot_update_team_non_config_fields(self):
+            """API keys with only project:read scope should not be able to modify non-config fields like name."""
+            api_key = self.create_personal_api_key_with_scopes(["project:read"])
+            model = self._get_model_for_name_field()
+            original_name = model.name
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "New Team Name"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+            # Verify no changes were made
+            model.refresh_from_db()
+            self.assertEqual(model.name, original_name)
+
+        def test_write_api_key_can_update_team_non_config_fields(self):
+            """API keys with project:write scope should be able to modify non-config fields like name."""
+            api_key = self.create_personal_api_key_with_scopes(["project:write"])
+            model = self._get_model_for_name_field()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"name": "New Team Name"},
+                headers={"authorization": f"Bearer {api_key}"},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            model.refresh_from_db()
+            self.assertEqual(model.name, "New Team Name")
+
+        def test_session_auth_member_can_still_update_member_safe_config_fields(self):
+            """Session-based auth (browser users) with member role can still update member-safe
+            config fields (the onboarding-style toggles the UI does not gate behind
+            TeamMembershipLevel.Admin). Admin-only fields are tested separately in
+            test_team_admin_authorization_vulnerability.py.
+            """
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"session_recording_opt_in": True, "surveys_opt_in": True},
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Verify changes were made
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.session_recording_opt_in, True)
+            self.assertEqual(self.team.surveys_opt_in, True)
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_true_creates_signal_source_config(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertTrue(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                    enabled=True,
+                ).exists()
+            )
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+                config={},
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertFalse(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).exists()
+            )
+
+        @override_settings(DEBUG=True)
+        def test_update_proactive_tasks_enabled_true_is_idempotent(self):
+            from products.signals.backend.models import SignalSourceConfig
+
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+                config={},
+            )
+
+            response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.assertEqual(
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).count(),
+                1,
+            )
+
+        def test_can_set_session_recording_trigger_groups(self):
+            """Test that we can create and update session_recording_trigger_groups field"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "test-group-1",
+                        "name": "Test Group",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 5000,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["pageview"],
+                            "flag": "test-flag-key",
+                        },
+                    }
+                ],
+            }
+
+            # Test creating with trigger groups
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+            # Test that it persisted
+            self.team.refresh_from_db()
+            assert self.team.session_recording_trigger_groups == trigger_groups
+
+            # Test updating
+            trigger_groups["groups"][0]["sampleRate"] = 1.0  # type: ignore
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["sampleRate"] == 1.0
+
+            # Test clearing (set to null)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": None},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] is None
+
+        @parameterized.expand(
+            [
+                (
+                    "missing_version",
+                    {"groups": []},
+                    "version",
+                ),
+                (
+                    "invalid_version",
+                    {"version": 1, "groups": []},
+                    "version",
+                ),
+                (
+                    "missing_groups",
+                    {"version": 2},
+                    "groups",
+                ),
+                (
+                    "invalid_sample_rate_above_one",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 1.5,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "negative_sample_rate",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": -0.1,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "invalid_match_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {"matchType": "invalid"},
+                            }
+                        ],
+                    },
+                    "matchtype",
+                ),
+                (
+                    "invalid_regex",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "urls": [{"url": "[invalid(regex", "matching": "regex"}],
+                                },
+                            }
+                        ],
+                    },
+                    "regex",
+                ),
+                (
+                    "invalid_min_duration_negative",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": -100,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_too_large",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": 40000,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_boolean",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": True,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "event_object_missing_name",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"properties": []}],
+                                },
+                            }
+                        ],
+                    },
+                    "name",
+                ),
+                (
+                    "event_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [123],
+                                },
+                            }
+                        ],
+                    },
+                    "string or object",
+                ),
+                (
+                    "event_property_missing_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"key": "amount", "operator": "gt", "value": 100}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "hogql", "operator": "gt", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_missing_key",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"type": "event", "operator": "exact", "value": "foo"}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "key",
+                ),
+                (
+                    "event_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "event", "operator": "banana", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+                (
+                    "group_level_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"name": "error"}],
+                                    "properties": [
+                                        {"key": "country", "type": "person", "operator": "banana", "value": "US"}
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+            ]
+        )
+        def test_session_recording_trigger_groups_validation_errors(
+            self, name: str, trigger_groups: dict, expected_error_fragment: str
+        ):
+            """Test various validation failures for trigger groups"""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert expected_error_fragment in str(response.json()).lower()
+
+        def test_session_recording_trigger_groups_complex_valid_config(self):
+            """Test that complex valid configurations pass validation"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "errors",
+                        "name": "Error Tracking",
+                        "sampleRate": 1.0,
+                        "minDurationMs": 0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["error", "crash"],
+                            "urls": [{"url": "/checkout.*", "matching": "regex"}],
+                        },
+                    },
+                    {
+                        "id": "feature-flag",
+                        "name": "Feature Flag Testing",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 10000,
+                        "conditions": {
+                            "matchType": "all",
+                            "flag": {"key": "variant-test", "variant": "control"},
+                        },
+                    },
+                    {
+                        "id": "simple-flag",
+                        "name": "Simple Flag",
+                        "sampleRate": 0.3,
+                        "conditions": {
+                            "matchType": "any",
+                            "flag": "simple-feature-flag",
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_event_objects_and_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "rich-events",
+                        "name": "Events with WHERE clauses",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "all",
+                            "events": [
+                                "simple_event",
+                                {
+                                    "name": "purchase",
+                                    "properties": [
+                                        {"key": "amount", "type": "event", "operator": "gt", "value": 100},
+                                        {"key": "currency", "type": "event", "operator": "exact", "value": "USD"},
+                                    ],
+                                },
+                                {"name": "$exception"},
+                            ],
+                            "urls": [
+                                {
+                                    "url": "/checkout.*",
+                                    "matching": "regex",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_group_level_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "us-errors",
+                        "name": "US errors on checkout",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": [{"name": "$exception"}, {"name": "purchase_error"}],
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "operator": "icontains",
+                                    "value": ["checkout.acme.com", "payments.acme.com"],
+                                },
+                                {"key": "country", "type": "person", "operator": "exact", "value": "US"},
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
     return TestTeamAPI
 
 
@@ -1985,16 +2892,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_teams=[other_team_in_project.id],
+            scopes=["*"],
         )
 
+        # Team-scoped keys cannot list all environments — they can only access specific teams directly
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {other_team_in_project.id},
-            "Only the scoped team listed here, the other two should be excluded",
+        # But they can access the scoped team directly
+        response = self.client.get(
+            f"/api/environments/{other_team_in_project.id}/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], other_team_in_project.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -2005,6 +2916,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_organizations=[other_org.id],
+            scopes=["*"],
         )
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
@@ -2016,12 +2928,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_teams_outside_oauth_scoped_teams_causes_403(self):
         # TODO: This should filter out the teams to the scoped teams, but it causes a 403 due to a bug in APIScopePermission for list endpoints.
         other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
@@ -2052,12 +2958,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_teams_outside_oauth_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
 
@@ -2089,132 +2989,6 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    def test_can_create_team_with_valid_environments_limit(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {
-                "key": AvailableFeature.ENVIRONMENTS,
-                "name": "Environments",
-                "limit": 5,
-            }
-        ]
-        self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-
-    def test_cant_create_team_when_at_environments_limit(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {
-                "key": AvailableFeature.ENVIRONMENTS,
-                "name": "Environments",
-                "limit": 1,
-            }
-        ]
-        self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 403)
-        response_data = response.json()
-        self.assertEqual(
-            response_data.get("detail"),
-            (
-                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
-                if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
-            ),
-        )
-        self.assertEqual(response_data.get("type"), "authentication_error")
-        self.assertEqual(response_data.get("code"), "permission_denied")
-        self.assertEqual(Team.objects.count(), 1)
-
-    def test_can_create_team_with_unlimited_environments_feature(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
-        ]
-        self.organization.save()
-        self.assertEqual(Team.objects.count(), 1)
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment 2"})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 3)
-
-    def test_new_team_inherits_org_ip_anonymization_default_when_true(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
-        ]
-        self.organization.default_anonymize_ips = True
-        self.organization.save()
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test IP Anonymization"})
-        assert response.status_code == 201
-
-        new_team = Team.objects.get(name="Test IP Anonymization")
-        self.assertTrue(new_team.anonymize_ips)
-
-    def test_new_team_inherits_org_ip_anonymization_default_when_false(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
-        ]
-        self.organization.default_anonymize_ips = False
-        self.organization.save()
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test No IP Anonymization"})
-        assert response.status_code == 201
-
-        new_team = Team.objects.get(name="Test No IP Anonymization")
-        self.assertFalse(new_team.anonymize_ips)
-
-    def test_new_team_explicit_anonymize_ips_overrides_org_default(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
-        ]
-        self.organization.default_anonymize_ips = False
-        self.organization.save()
-
-        response = self.client.post(
-            "/api/projects/@current/environments/",
-            {"name": "Explicit Anonymize IPs", "anonymize_ips": True},
-        )
-        assert response.status_code == 201
-        assert response.json()["anonymize_ips"] is True
-
-        new_team = Team.objects.get(name="Explicit Anonymize IPs")
-        self.assertTrue(new_team.anonymize_ips)
-
-    def test_new_team_defaults_to_false_when_org_default_is_none(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
-        ]
-        self.organization.default_anonymize_ips = False
-        self.organization.save()
-
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test Default Behavior"})
-        assert response.status_code == 201
-
-        new_team = Team.objects.get(name="Test Default Behavior")
-        self.assertFalse(new_team.anonymize_ips)
-
     @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
     def test_new_eu_organization_defaults_to_anonymize_ips_true(self):
         """New organizations on EU cloud should default to default_anonymize_ips=True"""
@@ -2245,8 +3019,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2280,8 +3054,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2305,32 +3079,52 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
-    def test_team_member_can_write_to_team_config_without_access_control(self):
+    def test_team_member_can_write_to_member_safe_team_config_without_access_control(self):
+        # Member-safe team config (e.g. session_recording_opt_in, which onboarding flips) must
+        # remain writable by org MEMBERs even without paid access control. Admin-only fields
+        # like `timezone` are exercised separately in
+        # posthog/api/test/test_team_admin_authorization_vulnerability.py.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
 
         response = self.client.patch(
             "/api/environments/@current/",
-            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            {"session_recording_opt_in": True, "surveys_opt_in": True},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
-        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
         self.assertEqual(response_data["session_recording_opt_in"], True)
+        self.assertEqual(response_data["surveys_opt_in"], True)
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+        self.assertEqual(self.team.surveys_opt_in, True)
+
+    def test_team_member_cannot_write_to_admin_team_config_without_access_control(self):
+        # Regression test for the admin-authorization bypass: members must NOT be able to
+        # change admin-only settings via the API even when the org has no paid access control,
+        # because the frontend gates these settings behind TeamMembershipLevel.Admin.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.team.refresh_from_db()
+        self.assertNotEqual(self.team.timezone, "Europe/Lisbon")
 
     def test_team_admin_can_write_to_team_patch_with_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -2338,8 +3132,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2372,8 +3166,8 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
@@ -2396,28 +3190,30 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
-    def test_team_member_can_write_to_team_patch_without_access_control(self):
+    def test_team_member_can_write_to_member_safe_team_patch_without_access_control(self):
+        # See test_team_member_can_write_to_member_safe_team_config_without_access_control above:
+        # member-safe fields stay writable; admin-only fields (timezone) are covered separately.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
         ]
         self.organization.save()
 
         response = self.client.patch(
             "/api/environments/@current/",
-            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+            {"session_recording_opt_in": True, "surveys_opt_in": True},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # Verify changes were made
         self.team.refresh_from_db()
-        self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+        self.assertEqual(self.team.surveys_opt_in, True)
 
     @freeze_time("2025-01-01T00:00:00Z")
     def test_settings_as_of_requires_at_param(self):
@@ -2495,3 +3291,447 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+    @parameterized.expand(
+        [
+            (
+                "missing_key",
+                [{"type": "person", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_type",
+                [{"key": "email", "type": "not_a_type", "operator": "exact", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_operator",
+                [{"key": "email", "type": "person", "operator": "not_an_operator", "value": "posthog.com"}],
+            ),
+            (
+                "invalid_cohort_value",
+                [{"key": "id", "type": "cohort", "operator": "in", "value": "not-a-cohort-id"}],
+            ),
+        ]
+    )
+    def test_validate_test_account_filters_rejects_invalid_filters(
+        self, _name: str, test_account_filters: list[dict[str, Any]]
+    ):
+        original_test_account_filters = self.team.test_account_filters
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": test_account_filters},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "test_account_filters")
+        self.assertIn("Must provide an array of valid property filters.", response.json()["detail"])
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.test_account_filters, original_test_account_filters)
+
+    def test_validate_test_account_filters_allows_is_set_filters_without_value(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"test_account_filters": [{"key": "email", "type": "person", "operator": "is_set"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["test_account_filters"],
+            [{"key": "email", "type": "person", "operator": "is_set"}],
+        )
+
+
+class TestTeamSerializerHomeViewWins(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        _reset_default_data_color_theme_id_cache()
+        self.addCleanup(_reset_default_data_color_theme_id_cache)
+
+    def test_cached_group_types_for_team_memoises_per_instance(self):
+        # has_group_types and group_types are sibling SerializerMethodFields; previously
+        # each hit Redis. They now share a request-scoped memo on the team instance,
+        # via the helper in posthog/models/group_type_mapping.py.
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_team(self.team)
+            cached_group_types_for_team(self.team)
+            cached_group_types_for_team(self.team)
+        assert mock_fetch.call_count == 1
+
+        # Different team instance bypasses the memo: a single mock spanning both
+        # instances must see exactly one fetch (the fresh one), not zero.
+        fresh_team = Team.objects.get(pk=self.team.pk)
+        with patch("posthog.models.group_type_mapping.get_group_types_for_project", return_value=[]) as mock_fetch:
+            cached_group_types_for_team(self.team)  # cached on self.team
+            cached_group_types_for_team(fresh_team)  # uncached on fresh
+        assert mock_fetch.call_count == 1
+        assert mock_fetch.call_args.args == (fresh_team.project_id,)
+
+    def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
+        # System-wide default DataColorTheme is a deploy-time fixture; cache for
+        # process lifetime to skip a per-render PG round-trip on the home view.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 42
+
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+            assert _default_data_color_theme_id() == 42
+
+        assert mock_objects.filter.call_count == 1
+
+    def test_default_data_color_theme_id_does_not_cache_none(self):
+        # If the very first call lands before the data migration is applied, a
+        # None must NOT be cached - subsequent calls should retry so we recover
+        # automatically once the row appears.
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = None
+
+            assert _default_data_color_theme_id() is None
+            assert _default_data_color_theme_id() is None
+
+        assert mock_objects.filter.call_count == 2
+
+        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+            chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
+            chained.first.return_value = 7
+
+            assert _default_data_color_theme_id() == 7
+            assert _default_data_color_theme_id() == 7
+
+        assert mock_objects.filter.call_count == 1
+
+
+class TestGetOrMintLiveEventsToken(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            ("authenticated_user", False),
+            ("anonymous_user", True),
+        ]
+    )
+    def test_returns_a_signed_jwt_with_expected_claims(self, _name: str, anonymous: bool) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.jwt import PosthogJwtAudience, decode_jwt
+
+        user_id = None if anonymous else self.user.id
+        token = get_or_mint_live_events_token(self.team, user_id)
+        claims = decode_jwt(token, PosthogJwtAudience.LIVESTREAM)
+        assert claims["team_id"] == self.team.id
+        assert claims["api_token"] == self.team.api_token
+        assert claims["user_id"] == user_id
+        assert claims["organization_id"] == str(self.team.organization_id)
+
+    @parameterized.expand(
+        [
+            ("authenticated_user", False),
+            ("anonymous_user", True),
+        ]
+    )
+    def test_second_call_returns_cached_token_without_re_signing(self, _name: str, anonymous: bool) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+
+        user_id = None if anonymous else self.user.id
+        first = get_or_mint_live_events_token(self.team, user_id)
+        with patch("posthog.api.team.encode_jwt") as mock_encode:
+            second = get_or_mint_live_events_token(self.team, user_id)
+        mock_encode.assert_not_called()
+        assert first == second
+
+    @parameterized.expand(
+        [
+            # name, mutation_callback (called with self) describing the cache-key
+            # component that should diverge between two calls
+            ("user_id changes", lambda self: {"first_user_id": self.user.id, "second_user_id": self.user.id + 9999}),
+            (
+                "anonymous vs authenticated diverge",
+                lambda self: {"first_user_id": None, "second_user_id": self.user.id},
+            ),
+            ("api_token rotates", lambda self: {"rotate_api_token": True}),
+        ]
+    )
+    def test_cache_key_component_changes_force_a_fresh_mint(self, _name: str, mutation_factory) -> None:
+        from posthog.api.team import get_or_mint_live_events_token
+
+        mutation = mutation_factory(self)
+        first_user_id = mutation.get("first_user_id", self.user.id)
+        second_user_id = mutation.get("second_user_id", self.user.id)
+        rotate_api_token = mutation.get("rotate_api_token", False)
+
+        token_before = get_or_mint_live_events_token(self.team, first_user_id)
+        if rotate_api_token:
+            self.team.api_token = "rotated_token_value"
+        token_after = get_or_mint_live_events_token(self.team, second_user_id)
+        assert token_before != token_after
+
+    def test_signing_key_rotation_partitions_the_cache_namespace(self) -> None:
+        # JWT signing-key rotation must invalidate cached tokens automatically — otherwise
+        # the livestream service would reject the cached old-key signatures for up
+        # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
+        # the namespace partitions cleanly on rotation.
+        from posthog.api.team import get_or_mint_live_events_token
+
+        token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
+        with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
+            token_new_key = get_or_mint_live_events_token(self.team, self.user.id)
+        assert token_old_key != token_new_key
+
+
+# Sensitive Team/Project settings the frontend gates behind
+# `TeamMembershipLevel.Admin` AND that ordinary members are not expected to flip
+# from any onboarding/dashboard surface. Each tuple is
+# (field, value_to_patch, attr_on_team_to_assert).
+# Values are chosen to differ from the Team-model default so a successful PATCH would
+# observably change the persisted state.
+_ADMIN_GATED_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
+    ("timezone", "Europe/Lisbon", "timezone"),
+    ("anonymize_ips", True, "anonymize_ips"),
+    ("autocapture_opt_out", True, "autocapture_opt_out"),
+    ("data_attributes", ["data-cy"], "data_attributes"),
+    ("week_start_day", 1, "week_start_day"),
+    ("path_cleaning_filters", [{"alias": "x", "regex": "/x/.*"}], "path_cleaning_filters"),
+    # capture_console_log_opt_in defaults to True, so patch with False to observe change.
+    ("capture_console_log_opt_in", False, "capture_console_log_opt_in"),
+    ("heatmaps_opt_in", True, "heatmaps_opt_in"),
+    ("recording_domains", ["https://evil.example.com"], "recording_domains"),
+    ("session_recording_sample_rate", "0.5", "session_recording_sample_rate"),
+    # capture_dead_clicks defaults to False so True is observable. Exposed by
+    # TeamSerializer but NOT by ProjectBackwardCompatSerializer — env-only.
+    ("capture_dead_clicks", True, "capture_dead_clicks"),
+]
+
+# Subset of _ADMIN_GATED_TEAM_CONFIG_FIELDS that are also patchable via /api/projects/
+# (i.e. listed in ProjectBackwardCompatSerializer.Meta.fields). Fields like
+# `capture_dead_clicks` and `onboarding_tasks` exist on Team but are not exposed by the
+# project serializer, so they're not part of the projects-side attack surface and don't
+# belong in the projects-side regression set.
+_ADMIN_GATED_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
+    f for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS if f[0] != "capture_dead_clicks"
+]
+
+# Settings ordinary members are EXPECTED to flip from the UI today (onboarding flow,
+# dashboards, primary-dashboard pinning, etc.). These should keep working for MEMBER
+# after the fix — captured as positive regression tests so the security fix doesn't
+# silently break onboarding for invitees.
+_MEMBER_SAFE_TEAM_CONFIG_FIELDS: list[tuple[str, Any, str]] = [
+    ("session_recording_opt_in", True, "session_recording_opt_in"),
+    ("autocapture_exceptions_opt_in", True, "autocapture_exceptions_opt_in"),
+    ("autocapture_web_vitals_opt_in", True, "autocapture_web_vitals_opt_in"),
+    ("surveys_opt_in", True, "surveys_opt_in"),
+    ("has_completed_onboarding_for", {"product_analytics": True}, "has_completed_onboarding_for"),
+    ("completed_snippet_onboarding", True, "completed_snippet_onboarding"),
+]
+
+# Subset of _MEMBER_SAFE_TEAM_CONFIG_FIELDS that are also exposed by the project serializer.
+# `onboarding_tasks` isn't in ProjectBackwardCompatSerializer.Meta.fields, so it can't be
+# patched through /api/projects/ regardless of permissions.
+_MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
+    f for f in _MEMBER_SAFE_TEAM_CONFIG_FIELDS if f[0] != "onboarding_tasks"
+]
+
+# Fields the frontend treats as admin-only that previously lacked a
+# `@field_access_control` annotation on the model. Captured as a regression so
+# anyone removing the decorator (or adding a new admin-UI-gated field without one)
+# gets a failing test pointing at the right place.
+_UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
+    ("is_demo", True, "is_demo"),
+    ("app_urls", ["https://evil.example.com"], "app_urls"),
+]
+
+
+class TestTeamAdminFieldAuthorization(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Demote the auto-logged-in user to a plain MEMBER. The frontend would hide
+        # every setting below behind useRestrictedArea(Admin), so the API must reject too.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    @parameterized.expand([(f[0], f[1], f[2]) for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS])
+    def test_member_cannot_patch_admin_gated_field_via_environments(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        # Every field in this list is a TEAM_CONFIG_FIELD that is NOT a member-safe field.
+        assert field in TEAM_CONFIG_FIELDS_SET, f"{field} not in TEAM_CONFIG_FIELDS_SET"
+        assert field not in TEAM_CONFIG_MEMBER_FIELDS_SET, (
+            f"{field} is in TEAM_CONFIG_MEMBER_FIELDS_SET — if intentionally member-safe, move"
+            " it to _MEMBER_SAFE_TEAM_CONFIG_FIELDS instead."
+        )
+
+        response = self.client.patch("/api/environments/@current/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching admin-gated field {field!r}, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value, (
+            f"Field {field!r} was persisted by a MEMBER (value={value!r}) — admin-only setting was modified."
+        )
+
+    @parameterized.expand([(f[0], f[1], f[2]) for f in _ADMIN_GATED_TEAM_CONFIG_FIELDS_FOR_PROJECTS])
+    def test_member_cannot_patch_admin_gated_field_via_projects(self, field: str, value: Any, team_attr: str) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching admin-gated field {field!r} via /api/projects/, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value, (
+            f"Field {field!r} was persisted via /api/projects/ by a MEMBER (value={value!r}) — "
+            "ProjectBackwardCompatSerializer is bypassing field-level access control."
+        )
+
+    @parameterized.expand(_UNANNOTATED_SENSITIVE_FIELDS)
+    def test_member_cannot_patch_unannotated_sensitive_field_via_environments(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        response = self.client.patch("/api/environments/@current/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching unannotated sensitive field {field!r}, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value, (
+            f"Unannotated field {field!r} was persisted by a MEMBER (value={value!r}). "
+            "Add @field_access_control on the Team model."
+        )
+
+    @parameterized.expand(_UNANNOTATED_SENSITIVE_FIELDS)
+    def test_member_cannot_patch_unannotated_sensitive_field_via_projects(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {field: value}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Expected 403 Forbidden for MEMBER patching unannotated sensitive field {field!r} via /api/projects/, "
+            f"got {response.status_code}: {response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) != value
+
+    @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS)
+    def test_member_can_still_patch_member_safe_field_via_environments(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        assert field in TEAM_CONFIG_MEMBER_FIELDS_SET, (
+            f"{field} is not declared member-safe in TEAM_CONFIG_MEMBER_FIELDS_SET. "
+            "If onboarding / dashboards rely on it, add it there; otherwise remove from this test list."
+        )
+        response = self.client.patch("/api/environments/@current/", {field: value}, format="json")
+        assert response.status_code == status.HTTP_200_OK, (
+            f"MEMBER unexpectedly blocked from patching member-safe field {field!r}: "
+            f"status={response.status_code}, body={response.json()}. "
+            "This would break onboarding / dashboard flows for invitee users."
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) == value
+
+    @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS)
+    def test_member_can_still_patch_member_safe_field_via_projects(
+        self, field: str, value: Any, team_attr: str
+    ) -> None:
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {field: value}, format="json")
+        assert response.status_code == status.HTTP_200_OK, (
+            f"MEMBER unexpectedly blocked from patching member-safe field {field!r} via /api/projects/: "
+            f"status={response.status_code}, body={response.json()}."
+        )
+        self.team.refresh_from_db()
+        assert getattr(self.team, team_attr) == value
+
+    def test_mixed_member_and_admin_fields_is_rejected_for_member(self) -> None:
+        # A member request that bundles a member-safe field with an admin-only field must
+        # be rejected as a whole — otherwise an attacker could hide admin writes behind a
+        # legitimate-looking onboarding patch.
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"surveys_opt_in": True, "timezone": "Europe/Lisbon"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"Mixed member-safe + admin-only patch should be rejected: "
+            f"status={response.status_code}, body={response.json()}"
+        )
+        self.team.refresh_from_db()
+        assert self.team.timezone != "Europe/Lisbon"
+        # Even the safe field must not be applied when the request is rejected.
+        assert self.team.surveys_opt_in is not True
+
+    def _enable_access_control_with_member_level(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        # Default project access for the org is "member" (not "admin"). The user is a MEMBER.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+    def test_member_with_member_access_control_is_blocked_on_environments_for_admin_field(self) -> None:
+        # Baseline: the existing field_access_control mixin enforces on /api/environments/
+        # when access_control is on. timezone is field_access_control(..., "project", "admin").
+        self._enable_access_control_with_member_level()
+
+        response = self.client.patch("/api/environments/@current/", {"timezone": "Europe/Lisbon"}, format="json")
+
+        assert response.status_code != status.HTTP_200_OK, (
+            "Regression: /api/environments/ should reject MEMBER-level project access for "
+            "field_access_control('project','admin') fields like timezone."
+        )
+        self.team.refresh_from_db()
+        assert self.team.timezone != "Europe/Lisbon"
+
+    def test_member_with_member_access_control_is_blocked_on_projects_for_admin_field(self) -> None:
+        # /api/projects/ must also enforce: ProjectBackwardCompatSerializer now mixes in
+        # UserAccessControlSerializerMixin (with a Team-aware validate override).
+        self._enable_access_control_with_member_level()
+
+        response = self.client.patch(f"/api/projects/{self.project.id}/", {"timezone": "Europe/Lisbon"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, (
+            f"/api/projects/ failed to enforce field_access_control on 'timezone' for a MEMBER "
+            f"(status={response.status_code}, body={response.json()}). "
+            "ProjectBackwardCompatSerializer needs UserAccessControlSerializerMixin."
+        )
+        self.team.refresh_from_db()
+        assert self.team.timezone != "Europe/Lisbon"
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="ro",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+        )
+        return token
+
+    def test_read_only_personal_api_key_cannot_patch_team_config(self) -> None:
+        token = self._personal_api_key(["project:read"])
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon"},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+        assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN), (
+            f"Read-only personal API key was allowed to patch team config: status={response.status_code}, "
+            f"body={response.json()}. The session-auth scope downgrade must remain session-only."
+        )
+
+    def test_member_cannot_delete_team(self) -> None:
+        # Create a second team in the same project so the org isn't left team-less.
+        other = Team.objects.create(organization=self.organization, project=self.project, name="other")
+        response = self.client.delete(f"/api/environments/{other.id}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN

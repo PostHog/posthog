@@ -7,7 +7,9 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { formatDateRange } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -81,17 +83,17 @@ export function CustomerAnalyticsFilters(): JSX.Element {
     const {
         businessType,
         dateFilter: { dateTo, dateFrom },
-        groupsEnabled,
         groupOptions,
         selectedGroupType,
+        filterTestAccounts,
     } = useValues(customerAnalyticsSceneLogic)
 
-    const { setBusinessType, setDates, setSelectedGroupType } = useActions(customerAnalyticsSceneLogic)
+    const { setBusinessType, setDates, setSelectedGroupType, setFilterTestAccounts } =
+        useActions(customerAnalyticsSceneLogic)
     const { reportCustomerAnalyticsDashboardBusinessModeChanged, reportCustomerAnalyticsDashboardDateFilterApplied } =
         useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
-    // TODO: Add CTA for cross sell
-    const b2bDisabledReason = groupsEnabled ? '' : 'Group analytics add-on is not enabled'
+    const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
 
     return (
         <FilterBar
@@ -119,7 +121,6 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                                 label: 'B2B',
                                 value: 'b2b',
                                 'data-attr': 'customer-analytics-b2b',
-                                disabledReason: b2bDisabledReason,
                             },
                         ]}
                         value={businessType}
@@ -132,7 +133,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                             })
                         }}
                     />
-                    {businessType === 'b2b' && (
+                    {businessType === 'b2b' && !shouldShowGroupsIntroduction && (
                         <LemonSelect
                             size="small"
                             data-attr="customer-analytics-group-type"
@@ -144,17 +145,20 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                 </div>
             }
             right={
-                <AppShortcut
-                    name="CustomerAnalyticsRefresh"
-                    keybind={[keyBinds.refresh]}
-                    intent="Refresh data"
-                    interaction="click"
-                    scope={Scene.CustomerAnalytics}
-                >
-                    <Tooltip title="Refresh data">
-                        <ReloadAll />
-                    </Tooltip>
-                </AppShortcut>
+                <div className="flex flex-row items-center gap-2">
+                    <TestAccountFilterSwitch checked={filterTestAccounts} onChange={setFilterTestAccounts} />
+                    <AppShortcut
+                        name="CustomerAnalyticsRefresh"
+                        keybind={[keyBinds.refresh]}
+                        intent="Refresh data"
+                        interaction="click"
+                        scope={Scene.CustomerAnalytics}
+                    >
+                        <Tooltip title="Refresh data">
+                            <ReloadAll />
+                        </Tooltip>
+                    </AppShortcut>
+                </div>
             }
         />
     )

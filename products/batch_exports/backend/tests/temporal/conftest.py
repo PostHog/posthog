@@ -17,16 +17,21 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
+from posthog.models.team.util import delete_batch_exports
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.batch_exports.backend.tests.temporal.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
+    PersonDistinctId2Values,
+    PersonValues,
+    generate_test_person_distinct_id2,
     generate_test_persons_in_clickhouse,
+    insert_person_distinct_id2_values_in_clickhouse,
 )
 
 
@@ -40,6 +45,8 @@ def clickhouse_create_db_and_tables():
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
 
     database.create_database()  # Create database if it doesn't exist
@@ -68,12 +75,12 @@ def team(organization):
     team.save()
 
     yield team
-
+    delete_batch_exports(team_ids=[team.pk])
     team.delete()
 
 
 @pytest_asyncio.fixture
-async def aorganization():
+async def aorganization(db):
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
 
@@ -88,7 +95,17 @@ async def ateam(aorganization):
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
 
     yield team
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
+    await sync_to_async(team.delete)()
 
+
+@pytest_asyncio.fixture
+async def another_ateam(aorganization):
+    name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
+    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+
+    yield team
+    await sync_to_async(delete_batch_exports)(team_ids=[team.pk])
     await sync_to_async(team.delete)()
 
 
@@ -115,49 +132,17 @@ async def clickhouse_client():
         yield client
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
         settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
-
     yield client
-
-
-@pytest_asyncio.fixture()
-async def workflows(request):
-    """Return Temporal workflows to initialize a test worker.
-
-    By default (no parametrization), we return all available workflows. Optionally,
-    with @pytest.mark.parametrize it is possible to customize which workflows the worker starts with.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        from products.batch_exports.backend.temporal import WORKFLOWS
-
-        return WORKFLOWS
-
-
-@pytest_asyncio.fixture()
-async def activities(request):
-    """Return Temporal activities to initialize a test worker.
-
-    By default (no parametrization), we return all available activities. Optionally,
-    with @pytest.mark.parametrize it is possible to customize which activities the worker starts with.
-    """
-    try:
-        return request.param
-    except AttributeError:
-        from products.batch_exports.backend.temporal import ACTIVITIES
-
-        return ACTIVITIES
 
 
 @pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
@@ -277,13 +262,13 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest_asyncio.fixture
-async def temporal_worker(temporal_client, workflows, activities):
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def temporal_worker(temporal_client):
     worker = temporalio.worker.Worker(
         temporal_client,
         task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-        workflows=workflows,
-        activities=activities,
+        workflows=WORKFLOWS,
+        activities=ACTIVITIES,
         interceptors=[BatchExportsMetricsInterceptor()],
         workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
     )
@@ -350,7 +335,13 @@ def test_properties(request, session_id):
         return {**{"$session_id": session_id}, **request.param}
     except AttributeError:
         pass
-    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value", "$session_id": session_id}
+    return {
+        "$browser": "Chrome",
+        "$os": "Mac OS X",
+        "prop": "value",
+        "$session_id": session_id,
+        "$current_url": "posthog.com",
+    }
 
 
 @pytest.fixture
@@ -389,6 +380,43 @@ def events_table(request) -> str | None:
     except AttributeError:
         pass
     return None
+
+
+async def _insert_person_distinct_ids_for_persons(
+    clickhouse_client: ClickHouseClient, team_id: int, persons: list[PersonValues]
+) -> list[PersonDistinctId2Values]:
+    person_distinct_ids: list[PersonDistinctId2Values] = []
+    other_team_person_distinct_ids: list[PersonDistinctId2Values] = []
+
+    for person in persons:
+        person_id = uuid.UUID(person["id"])
+        timestamp = dt.datetime.fromisoformat(person["_timestamp"])
+        distinct_id = f"distinct-id-{person_id}"
+
+        person_distinct_ids.append(
+            generate_test_person_distinct_id2(
+                count=1,
+                team_id=team_id,
+                person_id=person_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+            )
+        )
+        other_team_person_distinct_ids.append(
+            generate_test_person_distinct_id2(
+                count=1,
+                team_id=team_id + random.randint(1, 1000),
+                person_id=person_id,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+            )
+        )
+
+    await insert_person_distinct_id2_values_in_clickhouse(
+        client=clickhouse_client,
+        persons=person_distinct_ids + other_team_person_distinct_ids,
+    )
+    return person_distinct_ids
 
 
 @pytest.fixture
@@ -467,14 +495,8 @@ async def generate_test_data(
     )
 
     persons_to_export_created = []
-    for person in persons:
-        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            person_id=uuid.UUID(person["id"]),
-            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
-            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
-        )
+    person_distinct_ids = await _insert_person_distinct_ids_for_persons(clickhouse_client, ateam.pk, persons)
+    for person, person_distinct_id in zip(persons, person_distinct_ids, strict=True):
         person_to_export = {
             "team_id": person["team_id"],
             "person_id": person["id"],
@@ -501,14 +523,8 @@ async def generate_test_persons_data(ateam, clickhouse_client, data_interval_sta
     )
 
     persons_to_export_created = []
-    for person in persons:
-        person_distinct_id, _ = await generate_test_person_distinct_id2_in_clickhouse(
-            client=clickhouse_client,
-            team_id=ateam.pk,
-            person_id=uuid.UUID(person["id"]),
-            distinct_id=f"distinct-id-{uuid.UUID(person['id'])}",
-            timestamp=dt.datetime.fromisoformat(person["_timestamp"]),
-        )
+    person_distinct_ids = await _insert_person_distinct_ids_for_persons(clickhouse_client, ateam.pk, persons)
+    for person, person_distinct_id in zip(persons, person_distinct_ids, strict=True):
         person_to_export = {
             "team_id": person["team_id"],
             "person_id": person["id"],

@@ -8,6 +8,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -16,14 +17,20 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
-from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
+from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.taxonomy import (
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    PROPERTY_NAME_ALIASES,
+    PROPERTY_NAME_ALIASES_BY_TYPE,
+)
+
+tracer = trace.get_tracer(__name__)
 
 # list of all event properties defined in the taxonomy, that don't start with $
 EXCLUDED_EVENT_CORE_PROPERTIES = [
@@ -65,7 +72,11 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
     )
     # :TODO: Move this under `type`
     is_feature_flag = serializers.BooleanField(
-        help_text="Whether to return only (or excluding) feature flag properties",
+        help_text=(
+            "Whether to return only (or excluding) feature flag properties ($feature/*). "
+            "Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — "
+            "pass is_feature_flag=true to list them all."
+        ),
         required=False,
         allow_null=True,
         default=None,
@@ -75,7 +86,11 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         required=False,
     )
     filter_by_event_names = serializers.BooleanField(
-        help_text="Whether to return only properties for events in `event_names`",
+        help_text=(
+            "Whether to return only properties for events in `event_names`. "
+            "Note: this event scoping does not apply to feature flag properties ($feature/*), which are "
+            "global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead."
+        ),
         required=False,
         allow_null=True,
         default=None,
@@ -94,6 +109,19 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         help_text="Whether to exclude properties marked as hidden",
         required=False,
         default=False,
+    )
+
+    exclude_restricted = serializers.BooleanField(
+        help_text="Whether to exclude properties that the current user does not have read access to via field-level access control",
+        required=False,
+        default=False,
+    )
+
+    verified = serializers.BooleanField(
+        help_text="Filter by verified status. True returns only verified, false returns only unverified.",
+        required=False,
+        allow_null=True,
+        default=None,
     )
 
     def validate(self, attrs):
@@ -137,6 +165,8 @@ class QueryContext:
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
+    order_by_search_relevance: bool = False
+
     event_property_join_type: str = ""
     event_property_field: str = "NULL"
 
@@ -146,6 +176,10 @@ class QueryContext:
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
     params: dict = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self):
+        # Add limit and offset to params for parameterized query execution
+        self.params = {**self.params, "limit": self.limit, "offset": self.offset}
 
     def with_properties_to_filter(self, properties_to_filter: Optional[str]) -> Self:
         if properties_to_filter:
@@ -170,8 +204,11 @@ class QueryContext:
         if is_feature_flag is None:
             return self
         elif is_feature_flag:
+            # Paired with property-defs-rs skip of $feature/* writes to eventproperty.
+            # Do not revert without restoring those writes, or the flag picker empties.
             return dataclasses.replace(
                 self,
+                should_join_event_property=False,
                 is_feature_flag_filter="AND (name LIKE %(is_feature_flag_like)s)",
                 params={**self.params, "is_feature_flag_like": "$feature/%"},
             )
@@ -233,7 +270,7 @@ class QueryContext:
         if event_names:
             event_names = json.loads(event_names)
 
-        if event_names and len(event_names) > 0:
+        if event_names and len(event_names) > 0 and self.should_join_event_property:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 
@@ -247,10 +284,11 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: dict) -> Self:
+    def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
         return dataclasses.replace(
             self,
             search_query=search_query,
+            order_by_search_relevance=order_by_search_relevance,
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
@@ -298,6 +336,22 @@ class QueryContext:
             )
         return self
 
+    def with_verified_filter(self, verified: Optional[bool], use_enterprise_taxonomy: bool) -> Self:
+        if verified is not None and use_enterprise_taxonomy:
+            if verified:
+                verified_filter = " AND verified = true"
+            else:
+                verified_filter = " AND (verified IS NULL OR verified = false)"
+            return dataclasses.replace(
+                self,
+                excluded_properties_filter=(
+                    self.excluded_properties_filter + verified_filter
+                    if self.excluded_properties_filter
+                    else verified_filter
+                ),
+            )
+        return self
+
     def with_hidden_filter(self, exclude_hidden: bool, use_enterprise_taxonomy: bool) -> Self:
         if exclude_hidden and use_enterprise_taxonomy:
             hidden_filter = " AND (hidden IS NULL OR hidden = false)"
@@ -311,8 +365,28 @@ class QueryContext:
             )
         return self
 
+    def with_restricted_filter(self, restricted_property_names: set[str]) -> Self:
+        if not restricted_property_names:
+            return self
+        restricted_filter = f" AND NOT {self.property_definition_table}.name = ANY(%(restricted_properties)s)"
+        return dataclasses.replace(
+            self,
+            excluded_properties_filter=(
+                self.excluded_properties_filter + restricted_filter
+                if self.excluded_properties_filter
+                else restricted_filter
+            ),
+            params={
+                **self.params,
+                "restricted_properties": list(restricted_property_names),
+            },
+        )
+
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
+        length_ordering = (
+            f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
+        )
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -323,8 +397,8 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
-            LIMIT {self.limit} OFFSET {self.offset}
+            ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
+            LIMIT %(limit)s OFFSET %(offset)s
             """
 
         return query
@@ -358,38 +432,20 @@ class QueryContext:
         )
 
 
-def add_name_alias_to_search_query(search_term: str):
+def add_name_alias_to_search_query(search_term: str, prop_type: str = "event"):
     if not search_term:
         return ""
 
     normalised_search_term = search_term.lower()
     search_words = normalised_search_term.split()
 
-    entries = [
-        f"'{key}'"
-        for (key, value) in PROPERTY_NAME_ALIASES.items()
-        if all(word in value.lower() for word in search_words)
-    ]
+    aliases = PROPERTY_NAME_ALIASES_BY_TYPE.get(prop_type, PROPERTY_NAME_ALIASES)
+
+    entries = [f"'{key}'" for (key, value) in aliases.items() if all(word in value.lower() for word in search_words)]
 
     if not entries:
         return ""
     return f"""OR name = ANY(ARRAY[{", ".join(entries)}])"""
-
-
-def add_latest_means_not_initial(search_term: str):
-    trigger_word = "latest"
-    opposite_word = "initial"
-
-    if not search_term:
-        return ""
-
-    normalised_search_term = search_term.lower()
-    search_words = normalised_search_term.split()
-
-    if any(word in trigger_word for word in search_words):
-        return f" OR NOT name ilike '%%{opposite_word}%%'"
-
-    return ""
 
 
 # Event properties generated by ingestion we don't want to show to users
@@ -464,10 +520,6 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
 
             return super().update(property_definition, changed_fields)
         else:
-            # Any other fields require ingestion taxonomy feature
-            request = self.context.get("request")
-            if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
-                raise EnterpriseFeatureException()
             return super().update(property_definition, validated_data)
 
 
@@ -510,6 +562,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
         return list(queryset)
 
 
+@extend_schema(extensions={"x-product": "core"})
 class PropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,
@@ -528,51 +581,46 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
     queryset = PropertyDefinition.objects.all()
 
-    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"].items()
-        if val.get("virtual", False)
-    ]
+    @staticmethod
+    def _build_virtual_properties(group: str) -> list[dict]:
+        return [
+            {
+                "id": "$builtin_" + key,
+                "name": key,
+                "description": val.get("description", ""),
+                "is_numerical": val["type"] == "Numeric",
+                "property_type": val["type"],
+                "tags": val.get("tags", []),
+                "is_seen_on_filtered_events": True,
+                "verified": False,
+                "hidden": False,
+                "virtual": True,
+            }
+            for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items()
+            if val.get("virtual", False)
+        ]
 
-    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = [
-        {
-            "id": "$builtin_" + key,
-            "name": key,
-            "is_numerical": val["type"] == "Numeric",
-            "property_type": val["type"],
-            "tags": val.get("tags", []),
-            "virtual": True,
-        }
-        for (key, val) in CORE_FILTER_DEFINITIONS_BY_GROUP["groups"].items()
-        if val.get("virtual", False)
-    ]
+    _BUILTIN_VIRTUAL_PERSON_PROPERTIES = _build_virtual_properties("person_properties")
+    _BUILTIN_VIRTUAL_EVENT_PROPERTIES = _build_virtual_properties("event_properties")
+    _BUILTIN_VIRTUAL_GROUP_PROPERTIES = _build_virtual_properties("groups")
 
     def dangerously_get_queryset(self):
-        queryset: Union[QuerySet[PropertyDefinition], Manager[PropertyDefinition]] = PropertyDefinition.objects.all()
-        property_definition_fields = ", ".join(
-            [
-                f'posthog_propertydefinition."{f.column}"'
-                for f in PropertyDefinition._meta.get_fields()
-                if hasattr(f, "column")
-            ]
-        )
+        with tracer.start_as_current_span("property_definitions_get_queryset") as span:
+            span.set_attribute("team_id", self.team_id)
 
-        use_enterprise_taxonomy = (
-            isinstance(self.request.user, User)
-            and self.request.user.organization
-            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        )
-        order_by_verified = False
-        if use_enterprise_taxonomy:
-            try:
-                # noinspection PyUnresolvedReferences
+            queryset: Union[QuerySet[PropertyDefinition], Manager[PropertyDefinition]] = (
+                PropertyDefinition.objects.all()
+            )
+            property_definition_fields = ", ".join(
+                [
+                    f'posthog_propertydefinition."{f.column}"'
+                    for f in PropertyDefinition._meta.get_fields()
+                    if hasattr(f, "column")
+                ]
+            )
+
+            order_by_verified = False
+            if EE_AVAILABLE:
                 from ee.models.property_definition import EnterprisePropertyDefinition
 
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
@@ -589,81 +637,114 @@ class PropertyDefinitionViewSet(
                 queryset = EnterprisePropertyDefinition.objects
 
                 order_by_verified = True
-            except ImportError:
-                use_enterprise_taxonomy = False
 
-        assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
-        limit = self.paginator.get_limit(self.request)
-        offset = self.paginator.get_offset(self.request)
+            span.set_attribute("ee_available", EE_AVAILABLE)
 
-        query = PropertyDefinitionQuerySerializer(data=self.request.query_params)
-        query.is_valid(raise_exception=True)
+            assert isinstance(self.paginator, NotCountingLimitOffsetPaginator)
+            limit = self.paginator.get_limit(self.request)
+            offset = self.paginator.get_offset(self.request)
 
-        search = query.validated_data.get("search")
-        search_extra = add_name_alias_to_search_query(search)
+            query = PropertyDefinitionQuerySerializer(data=self.request.query_params)
+            query.is_valid(raise_exception=True)
 
-        if query.validated_data.get("type") == "person":
-            search_extra += add_latest_means_not_initial(search)
+            prop_type = query.validated_data.get("type")
+            search = query.validated_data.get("search")
+            event_names = query.validated_data.get("event_names")
+            filter_by_event_names = query.validated_data.get("filter_by_event_names")
 
-        search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
+            span.set_attribute("property_type", prop_type or "")
+            span.set_attribute("has_search", search is not None and search != "")
+            parsed_event_names = json.loads(event_names) if event_names else []
+            span.set_attribute("event_names_count", len(parsed_event_names))
+            span.set_attribute("filter_by_event_names", bool(filter_by_event_names))
+            span.set_attribute("limit", limit or 0)
+            span.set_attribute("offset", offset or 0)
 
-        query_context = (
-            QueryContext(
-                project_id=self.project_id,
-                table=(
-                    "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
-                    if use_enterprise_taxonomy
-                    else "posthog_propertydefinition"
-                ),
-                property_definition_fields=property_definition_fields,
-                property_definition_table="posthog_propertydefinition",
-                limit=limit,
-                offset=offset,
+            search_extra = add_name_alias_to_search_query(search, prop_type)
+            search_query, search_kwargs = term_search_filter_sql(self.search_fields, search, search_extra)
+
+            query_context = (
+                QueryContext(
+                    project_id=self.project_id,
+                    table=(
+                        "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                        if EE_AVAILABLE
+                        else "posthog_propertydefinition"
+                    ),
+                    property_definition_fields=property_definition_fields,
+                    property_definition_table="posthog_propertydefinition",
+                    limit=limit,
+                    offset=offset,
+                )
+                .with_type_filter(
+                    prop_type,
+                    query.validated_data.get("group_type_index"),
+                )
+                .with_properties_to_filter(query.validated_data.get("properties"))
+                .with_is_numerical_flag(query.validated_data.get("is_numerical"))
+                .with_feature_flags(query.validated_data.get("is_feature_flag"))
+                .with_event_property_filter(
+                    event_names=event_names,
+                    filter_by_event_names=filter_by_event_names,
+                )
+                .with_search(
+                    search_query,
+                    search_kwargs,
+                    order_by_search_relevance=bool(search and search.strip()),
+                )
+                .with_excluded_properties(query.validated_data.get("excluded_properties"))
+                .with_excluded_core_properties(
+                    query.validated_data.get("exclude_core_properties", False),
+                    type=prop_type,
+                )
+                .with_hidden_filter(
+                    query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=EE_AVAILABLE
+                )
+                .with_restricted_filter(
+                    self._get_restricted_property_names(prop_type)
+                    if query.validated_data.get("exclude_restricted", False)
+                    else set()
+                )
+                .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
             )
-            .with_type_filter(
-                query.validated_data.get("type"),
-                query.validated_data.get("group_type_index"),
-            )
-            .with_properties_to_filter(query.validated_data.get("properties"))
-            .with_is_numerical_flag(query.validated_data.get("is_numerical"))
-            .with_feature_flags(query.validated_data.get("is_feature_flag"))
-            .with_event_property_filter(
-                event_names=query.validated_data.get("event_names"),
-                filter_by_event_names=query.validated_data.get("filter_by_event_names"),
-            )
-            .with_search(search_query, search_kwargs)
-            .with_excluded_properties(query.validated_data.get("excluded_properties"))
-            .with_excluded_core_properties(
-                query.validated_data.get("exclude_core_properties", False),
-                type=query.validated_data.get("type"),
-            )
-            .with_hidden_filter(
-                query.validated_data.get("exclude_hidden", False), use_enterprise_taxonomy=use_enterprise_taxonomy
-            )
-        )
 
-        with connection.cursor() as cursor:
-            cursor.execute(query_context.as_count_sql(), query_context.params)
-            full_count = cursor.fetchone()[0]
+            span.set_attribute("joins_event_property", query_context.should_join_event_property)
 
-        self.paginator.set_count(full_count)
+            with tracer.start_as_current_span("property_definitions_count_query") as count_span:
+                with connection.cursor() as cursor:
+                    cursor.execute(query_context.as_count_sql(), query_context.params)
+                    full_count = cursor.fetchone()[0]
+                count_span.set_attribute("full_count", full_count)
 
-        return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
+            self.paginator.set_count(full_count)
+            span.set_attribute("full_count", full_count)
+
+            # nosemgrep: python.django.security.audit.custom-expression-as-sql.custom-expression-as-sql (all user input goes through query_context.params)
+            return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class: type[serializers.ModelSerializer] = self.serializer_class
-        if (
-            isinstance(self.request.user, User)
-            and self.request.user.organization
-            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        ):
-            try:
-                from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
-            except ImportError:
-                pass
-            else:
-                serializer_class = EnterprisePropertyDefinitionSerializer
+        if EE_AVAILABLE:
+            from ee.api.ee_property_definition import EnterprisePropertyDefinitionSerializer
+
+            serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
+
+    def _get_restricted_property_names(self, prop_type: str) -> set[str]:
+        """Returns the set of property names that are restricted for the current user and property type."""
+        from products.access_control.backend.property_access_control import get_restricted_property_names
+
+        type_map = {
+            "event": PropertyDefinition.Type.EVENT,
+            "person": PropertyDefinition.Type.PERSON,
+            "group": PropertyDefinition.Type.GROUP,
+            "session": PropertyDefinition.Type.SESSION,
+        }
+        pd_type = type_map.get(prop_type)
+        if pd_type is None:
+            return set()
+        user = self.request.user if self.request.user.is_authenticated else None
+        return get_restricted_property_names(team_id=self.team_id, user=user, property_type=pd_type)
 
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
@@ -674,32 +755,25 @@ class PropertyDefinitionViewSet(
             id=id,
             effective_project_id=self.project_id,
         )
-        if (
-            isinstance(self.request.user, User)
-            and self.request.user.organization
-            and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
-        ):
-            try:
-                # noinspection PyUnresolvedReferences
-                from ee.models.property_definition import EnterprisePropertyDefinition
-            except ImportError:
-                pass
-            else:
-                enterprise_property = (
-                    EnterprisePropertyDefinition.objects.alias(
-                        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                    )
-                    .filter(id=id, effective_project_id=self.project_id)
-                    .first()
+        if EE_AVAILABLE:
+            from ee.models.property_definition import EnterprisePropertyDefinition
+
+            enterprise_property = (
+                EnterprisePropertyDefinition.objects.alias(
+                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
                 )
-                if enterprise_property:
-                    return enterprise_property
-                new_enterprise_property = EnterprisePropertyDefinition(
-                    propertydefinition_ptr_id=non_enterprise_property.id, description=""
-                )
-                new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
-                new_enterprise_property.save()
-                return new_enterprise_property
+                .filter(id=id, effective_project_id=self.project_id)
+                .first()
+            )
+            if enterprise_property:
+                return enterprise_property
+            # Lazy-create enterprise row if it doesn't exist
+            new_enterprise_property = EnterprisePropertyDefinition(
+                propertydefinition_ptr_id=non_enterprise_property.id, description=""
+            )
+            new_enterprise_property.__dict__.update(non_enterprise_property.__dict__)
+            new_enterprise_property.save()
+            return new_enterprise_property
         return non_enterprise_property
 
     @extend_schema(parameters=[PropertyDefinitionQuerySerializer])
@@ -708,21 +782,29 @@ class PropertyDefinitionViewSet(
 
         event_type = request.query_params.get("type", "event")
 
-        # Inject virtual person/group properties to the end of the results
-        if event_type in ["person", "group"]:
+        # Inject virtual event/person/group properties to the end of the results
+        if event_type in ["event", "person", "group"]:
             paginator = self.paginator
             assert isinstance(paginator, NotCountingLimitOffsetPaginator)
 
             query = PropertyDefinitionQuerySerializer(data=request.query_params)
             query.is_valid(raise_exception=True)
 
-            virtual_properties = (
-                self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
-                if event_type == "person"
-                else self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
-            )
+            if event_type == "event":
+                virtual_properties = self._BUILTIN_VIRTUAL_EVENT_PROPERTIES
+            elif event_type == "person":
+                virtual_properties = self._BUILTIN_VIRTUAL_PERSON_PROPERTIES
+            else:
+                virtual_properties = self._BUILTIN_VIRTUAL_GROUP_PROPERTIES
 
-            matching_virtual_props = [p for p in virtual_properties if self._filter_virtual_property(p, query)]
+            restricted_virtual = (
+                self._get_restricted_property_names(event_type)
+                if query.validated_data.get("exclude_restricted", False)
+                else set()
+            )
+            matching_virtual_props = [
+                p for p in virtual_properties if self._filter_virtual_property(p, query, restricted_virtual)
+            ]
 
             db_count = response.data["count"]
             page_end_index = (paginator.offset or 0) + len(response.data["results"])
@@ -737,12 +819,17 @@ class PropertyDefinitionViewSet(
 
         return response
 
-    def _filter_virtual_property(self, prop: dict, q: PropertyDefinitionQuerySerializer) -> bool:
+    def _filter_virtual_property(
+        self,
+        prop: dict,
+        q: PropertyDefinitionQuerySerializer,
+        restricted: set[str] | None = None,
+    ) -> bool:
         # Reimplement filtering logic in python for virtual properties
         v = q.validated_data
 
-        # Virtual properties only exist for person and groups
-        if v.get("type") not in ["person", "group"]:
+        # Virtual properties exist for events, persons, and groups
+        if v.get("type") not in ["event", "person", "group"]:
             return False
 
         # explicit name filter  (?properties=a,b,c)
@@ -770,12 +857,23 @@ class PropertyDefinitionViewSet(
             words = search.split()
             if not all(w in prop["name"].lower() for w in words):
                 # fall back to alias match
-                alias = PROPERTY_NAME_ALIASES.get(prop["name"])
+                aliases = PROPERTY_NAME_ALIASES_BY_TYPE.get(v.get("type", "event"), PROPERTY_NAME_ALIASES)
+                alias = aliases.get(prop["name"])
                 if not (alias and all(w in alias.lower() for w in words)):
                     return False
 
         # hidden filter
         if v.get("exclude_hidden", False) and prop.get("hidden", False):
+            return False
+
+        # field-level access control filter
+        if v.get("exclude_restricted", False) and restricted and prop["name"] in restricted:
+            return False
+
+        # verified filter — virtual properties don't participate in the
+        # enterprise verification system, so exclude them whenever the
+        # caller explicitly filters by verified status.
+        if v.get("verified") is not None:
             return False
 
         # virtual feature flag filter (not supported anywhere yet but add the logic and tests anyway for completeness)
@@ -797,17 +895,20 @@ class PropertyDefinitionViewSet(
         serializer = SeenTogetherQuerySerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
+        event_names = serializer.validated_data["event_names"]
         matches = EventProperty.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         ).filter(
             effective_project_id=self.project_id,
-            event__in=serializer.validated_data["event_names"],
+            event__in=event_names,
             property=serializer.validated_data["property_name"],
         )
 
-        results = {}
-        for event_name in serializer.validated_data["event_names"]:
-            results[event_name] = matches.filter(event=event_name).exists()
+        # Single aggregated query instead of one EXISTS per event name — avoids an N+1
+        # pattern against posthog_eventproperty that can exceed gateway timeouts on
+        # projects with large event-property tables and multi-event filters.
+        seen_events = set(matches.values_list("event", flat=True).distinct())
+        results = {event_name: event_name in seen_events for event_name in event_names}
 
         return response.Response(results)
 
@@ -815,11 +916,12 @@ class PropertyDefinitionViewSet(
         instance: PropertyDefinition = self.get_object()
         instance_id = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
+            team=self.team,
+            request=request,
         )
 
         log_activity(

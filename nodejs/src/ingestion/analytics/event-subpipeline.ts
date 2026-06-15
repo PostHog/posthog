@@ -1,71 +1,130 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '~/plugin-scaffold'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
-import { EventPipelineRunnerOptions } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch'
+import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
-import { createEventPipelineRunnerV1Step } from '../event-processing/event-pipeline-runner-v1-step'
-import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
+import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
+import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
+import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
+import { createPrepareEventStep } from '../event-processing/prepare-event-step'
+import { createProcessGroupsStep } from '../event-processing/process-groups-step'
+import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
+import { createProcessPersonsStep } from '../event-processing/process-persons-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
+import { isDropResult } from '../pipelines/results'
+import { AsyncOutput, EVENTS_OUTPUT, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
 
 export interface EventSubpipelineInput {
     message: Message
-    event: PipelineEvent
+    event: PluginEvent
     team: Team
     headers: EventHeaders
+    personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
 }
 
 export interface EventSubpipelineConfig {
-    options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
-    }
+    options: EventPipelineRunnerOptions
+    outputs: IngestionOutputs<EventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
-    personsStore: PersonsStore
-    kafkaProducer: KafkaProducerWrapper
     groupId: string
+    topHog: TopHogWrapper
 }
 
 export function createEventSubpipeline<TInput extends EventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
-): PipelineBuilder<TInput, void, TContext> {
-    const { options, teamManager, groupTypeManager, hogTransformer, personsStore, kafkaProducer, groupId } = config
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, groupId, topHog } = config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
         .pipe(
-            createEventPipelineRunnerV1Step(
-                options,
-                kafkaProducer,
-                teamManager,
-                groupTypeManager,
-                hogTransformer,
-                personsStore
+            topHog(createHogTransformEventStep(hogTransformer), [
+                sumOk(
+                    'transformations_run',
+                    (output) => ({ team_id: String(output.team.id) }),
+                    (output) => output.transformationsRun
+                ),
+                sumOk(
+                    'transformations_run_per_partition',
+                    (output, input) => ({
+                        team_id: String(output.team.id),
+                        partition: String(input.message.partition),
+                    }),
+                    (output) => output.transformationsRun
+                ),
+                sumResult(
+                    'events_dropped_by_transformation',
+                    (_result, input) => ({ team_id: String(input.team.id) }),
+                    (result) => (isDropResult(result) ? 1 : 0)
+                ),
+                sumResult(
+                    'events_dropped_by_transformation_per_partition',
+                    (_result, input) => ({
+                        team_id: String(input.team.id),
+                        partition: String(input.message.partition),
+                    }),
+                    (result) => (isDropResult(result) ? 1 : 0)
+                ),
+            ])
+        )
+        .pipe(createNormalizeEventStep())
+        .pipe(createProcessPersonlessStep())
+        .pipe(
+            topHog(createProcessPersonsStep(options, outputs), [
+                timer('process_persons_time', (input) => ({
+                    team_id: String(input.team.id),
+                    distinct_id: input.normalizedEvent.distinct_id,
+                })),
+            ])
+        )
+        .pipe(createPrepareEventStep())
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(
+            topHog(
+                createEmitEventStep({
+                    outputs,
+                    groupId,
+                }),
+                [
+                    sum(
+                        'emitted_events',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_distinct_id',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_partition',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                ]
             )
-        )
-        .pipe(
-            createExtractHeatmapDataStep({
-                kafkaProducer,
-                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-            })
-        )
-        .pipe(createCreateEventStep())
-        .pipe(
-            createEmitEventStep({
-                kafkaProducer,
-                clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                groupId,
-            })
         )
 }

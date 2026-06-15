@@ -72,6 +72,7 @@ describe('master-ci-status', () => {
             expect(outputs.failing_count).toBe('1')
             expect(outputs.commit_count).toBe('1')
             expect(outputs.save_cache).toBe('true')
+            expect(outputs.delete_old_caches).toBe('true')
 
             // Verify state was written with timestamps
             const writtenState = JSON.parse(fs.writeFileSync.mock.calls[0][1])
@@ -150,6 +151,7 @@ describe('master-ci-status', () => {
             expect(outputs.failing_workflows).toBe('Backend CI')
             expect(outputs.failing_count).toBe('1')
             expect(outputs.commit_count).toBe('2')
+            expect(outputs.delete_old_caches).toBe('false') // Only delete on create
 
             const writtenState = JSON.parse(fs.writeFileSync.mock.calls[0][1])
             expect(writtenState.fail_ts['Backend CI']).toBe(T2) // Updated to newer
@@ -178,6 +180,7 @@ describe('master-ci-status', () => {
             expect(outputs.action).toBe('none')
             expect(outputs.resolved).toBe('false')
             expect(outputs.still_failing).toBe('Backend CI')
+            expect(outputs.save_cache).toBe('false') // Don't save on 'none' to prevent divergent branches
         })
 
         it('resolves when failing workflow succeeds on newer commit', async () => {
@@ -190,7 +193,7 @@ describe('master-ci-status', () => {
             expect(outputs.action).toBe('resolve')
             expect(outputs.resolved).toBe('true')
             expect(outputs.still_failing).toBe('')
-            expect(outputs.save_cache).toBe('false')
+            expect(outputs.save_cache).toBe('true') // Save to persist resolved state
         })
 
         it('does NOT resolve when failing workflow succeeds on older commit', async () => {

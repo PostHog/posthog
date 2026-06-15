@@ -171,6 +171,15 @@ ignore_custom_properties = [
     "_kx",  # klaviyo
 ]
 
+large_ai_properties = [
+    "$ai_input",
+    "$ai_input_state",
+    "$ai_output",
+    "$ai_output_choices",
+    "$ai_output_state",
+    "$ai_tools",
+]
+
 event_property_group_definitions = {
     "properties": {
         "custom": PropertyGroupDefinition(
@@ -178,11 +187,18 @@ event_property_group_definitions = {
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
             column_type_name="group",
         ),
-        # Please make sure that changing the ai property group won't affect the performance of the LLM Analytics Usage Report task.
+        # Please make sure that changing the ai property group won't affect the performance of the AI observability usage report task.
         "ai": PropertyGroupDefinition(
-            "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
-            lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
+            f"key LIKE '$ai_%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in large_ai_properties) + f")",
+            lambda key: key.startswith("$ai_") and key not in large_ai_properties,
             column_type_name="group",
+        ),
+        # Kept for backwards compatibility with migration 0197, dropped in migration 0198
+        "ai_large": PropertyGroupDefinition(
+            f"key IN (" + f", ".join(f"'{name}'" for name in large_ai_properties) + f")",
+            lambda key: key in large_ai_properties,
+            column_type_name="group",
+            hidden=True,
         ),
         "feature_flags": PropertyGroupDefinition(
             "key like '$feature/%'",
@@ -210,7 +226,38 @@ property_groups = PropertyGroupManager(
             }
             for column_name, column_group_definitions in event_property_group_definitions.items()
         },
-        "logs": {
+        "logs_distributed": {
+            "attributes": {
+                "str": PropertyGroupDefinition(
+                    "key like '%__str'",
+                    lambda key: key.endswith("__str"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+                "float": PropertyGroupDefinition(
+                    "key like '%__float'",
+                    lambda key: key.endswith("__float"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+                "datetime": PropertyGroupDefinition(
+                    "key like '%__datetime'",
+                    lambda key: key.endswith("__datetime"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+            },
+            "resource_attributes": {
+                "all": PropertyGroupDefinition(
+                    "true",
+                    lambda key: True,
+                    column_type_name="map",
+                    is_materialized=False,
+                    column_name="resource_attributes",
+                ),
+            },
+        },
+        "trace_spans_distributed": {
             "attributes": {
                 "str": PropertyGroupDefinition(
                     "key like '%__str'",

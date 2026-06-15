@@ -7,7 +7,7 @@ export const CdpInternalEventSchema = z.object({
         event: z.string(),
         // In this context distinct_id should be whatever we want to use if doing follow up things (like tracking a standard event)
         distinct_id: z.string(),
-        properties: z.record(z.any()),
+        properties: z.record(z.string(), z.any()),
         timestamp: z.string(),
         url: z.string().optional().nullable(),
     }),
@@ -15,7 +15,7 @@ export const CdpInternalEventSchema = z.object({
     person: z
         .object({
             id: z.string(),
-            properties: z.record(z.any()),
+            properties: z.record(z.string(), z.any()),
             name: z.string().optional().nullable(),
             url: z.string().optional().nullable(),
         })
@@ -28,6 +28,8 @@ export type CdpInternalEvent = z.infer<typeof CdpInternalEventSchema>
 
 export const CdpDataWarehouseEventSchema = z.object({
     team_id: z.number(),
+    // Deterministic id, unique per row per external data job run (see CDPProducer._build_event_id)
+    event_id: z.string(),
     properties: z.record(z.string(), z.any()),
 })
 

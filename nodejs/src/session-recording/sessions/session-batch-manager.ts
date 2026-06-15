@@ -1,9 +1,13 @@
+import { SessionFeatureStore } from '../../session-replay/shared/features/session-feature-store'
+import { SessionMetadataStore } from '../../session-replay/shared/metadata/session-metadata-store'
+import { KeyStore, RecordingEncryptor } from '../../session-replay/shared/types'
 import { logger } from '../../utils/logger'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionMetadataStore } from './session-metadata-store'
+import { SessionFilter } from './session-filter'
+import { SessionTracker } from './session-tracker'
 
 export interface SessionBatchManagerConfig {
     /** Maximum raw size (before compression) of a batch in bytes before it should be flushed */
@@ -20,6 +24,16 @@ export interface SessionBatchManagerConfig {
     metadataStore: SessionMetadataStore
     /** Manages storing console logs */
     consoleLogStore: SessionConsoleLogStore
+    /** Manages storing session features for ML scoring */
+    featureStore: SessionFeatureStore
+    /** Session tracker for new session detection */
+    sessionTracker: SessionTracker
+    /** Session filter for blocking and rate-limiting sessions */
+    sessionFilter: SessionFilter
+    /** Key store for session encryption keys */
+    keyStore: KeyStore
+    /** Encryptor for session recording data */
+    encryptor: RecordingEncryptor
 }
 
 /**
@@ -65,7 +79,12 @@ export class SessionBatchManager {
     private readonly fileStorage: SessionBatchFileStorage
     private readonly metadataStore: SessionMetadataStore
     private readonly consoleLogStore: SessionConsoleLogStore
+    private readonly featureStore: SessionFeatureStore
     private lastFlushTime: number
+    private readonly sessionTracker: SessionTracker
+    private readonly sessionFilter: SessionFilter
+    private readonly keyStore: KeyStore
+    private readonly encryptor: RecordingEncryptor
 
     constructor(config: SessionBatchManagerConfig) {
         this.maxBatchSizeBytes = config.maxBatchSizeBytes
@@ -75,12 +94,22 @@ export class SessionBatchManager {
         this.fileStorage = config.fileStorage
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
+        this.featureStore = config.featureStore
+        this.sessionTracker = config.sessionTracker
+        this.sessionFilter = config.sessionFilter
+        this.keyStore = config.keyStore
+        this.encryptor = config.encryptor
 
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
+            this.featureStore,
+            this.sessionTracker,
+            this.sessionFilter,
+            this.keyStore,
+            this.encryptor,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()
@@ -104,6 +133,11 @@ export class SessionBatchManager {
             this.fileStorage,
             this.metadataStore,
             this.consoleLogStore,
+            this.featureStore,
+            this.sessionTracker,
+            this.sessionFilter,
+            this.keyStore,
+            this.encryptor,
             this.maxEventsPerSessionPerBatch
         )
         this.lastFlushTime = Date.now()

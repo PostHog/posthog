@@ -28,7 +28,6 @@ use base64::Engine;
 use common_redis::MockRedisClient;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use health::HealthRegistry;
 use limiters::token_dropper::TokenDropper;
 use serde_json::{from_str, Number, Value};
 use time::format_description::well_known::{Iso8601, Rfc3339};
@@ -41,6 +40,7 @@ pub const DEFAULT_TEST_TIME: &str = "2025-07-01T11:00:00Z";
 pub const SINGLE_EVENT_JSON: &str = "single_event_payload.json";
 pub const SINGLE_REPLAY_EVENT_JSON: &str = "single_replay_event_payload.json";
 pub const BATCH_EVENTS_JSON: &str = "batch_events_payload.json";
+pub const BATCH_EVENTS_WITH_HEATMAP_JSON: &str = "batch_events_with_heatmap_payload.json";
 // the /engage/ endpoint is unique: this only accepts "unnamed" (no event.event attrib)
 // events that are structured as "$identify" events
 pub const SINGLE_ENGAGE_EVENT_JSON: &str = "single_engage_event_payload.json";
@@ -128,6 +128,9 @@ pub async fn execute_test(unit: &TestCase) {
         SINGLE_REPLAY_EVENT_JSON => validate_single_replay_event_payload(&unit.title, got),
         SINGLE_ENGAGE_EVENT_JSON => validate_single_engage_event_payload(&unit.title, got),
         BATCH_EVENTS_JSON => validate_batch_events_payload(&unit.title, got),
+        BATCH_EVENTS_WITH_HEATMAP_JSON => {
+            validate_batch_events_with_heatmap_payload(&unit.title, got)
+        }
         _ => panic!(
             "unsupported fixture type {} in TestCase: {}",
             unit.fixture, unit.title
@@ -878,7 +881,7 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
     let props = event["properties"].as_object().expect(&err_msg);
 
     assert_eq!(
-        72_usize,
+        71_usize,
         props.len(),
         "mismatched event.properties length on $pageleave in case: {title}",
     );
@@ -913,6 +916,92 @@ pub fn validate_batch_events_payload(title: &str, got_events: Vec<ProcessedEvent
         Some(1753305291.695_f64),
         props["$time"].as_f64(),
         "mismatched event.properties.$time on $pageleave in case: {title}",
+    );
+}
+
+// utility to validate tests/fixtures/batch_events_with_heatmap_payload.json
+//
+// The $pageleave in this fixture carries `$prev_pageview_pathname` +
+// `$current_url`, which qualifies it as a heatmap-data carrier. Capture must
+// produce a third event — a `$$heatmap` redirect — alongside the original two.
+// The original $pageleave gets `skip_heatmap_processing: true` so the events
+// pipeline does not also extract heatmap data downstream.
+pub fn validate_batch_events_with_heatmap_payload(title: &str, got_events: Vec<ProcessedEvent>) {
+    assert_eq!(
+        3,
+        got_events.len(),
+        "event count: expected 3 ($pageview + $pageleave + $$heatmap redirect), got {} in case: {title}",
+        got_events.len(),
+    );
+
+    let pageview = &got_events[0];
+    assert_eq!(
+        pageview.event.event, "$pageview",
+        "first event should be $pageview in case: {title}",
+    );
+    assert!(
+        !pageview.metadata.skip_heatmap_processing,
+        "$pageview carries no heatmap data, must not be flagged in case: {title}",
+    );
+
+    let pageleave = &got_events[1];
+    assert_eq!(
+        pageleave.event.event, "$pageleave",
+        "second event should be $pageleave in case: {title}",
+    );
+    assert!(
+        pageleave.metadata.skip_heatmap_processing,
+        "$pageleave carries scroll-depth heatmap data, must be flagged in case: {title}",
+    );
+    let pageleave_data: Value = from_str(&pageleave.event.data)
+        .unwrap_or_else(|_| panic!("failed to hydrate $pageleave event.data in case: {title}"));
+    let pageleave_props = pageleave_data["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("missing $pageleave properties in case: {title}"));
+    assert!(
+        pageleave_props.contains_key("$prev_pageview_pathname"),
+        "$prev_pageview_pathname must remain on the original — only $heatmap_data is stripped (case: {title})",
+    );
+    assert!(
+        !pageleave_props.contains_key("$heatmap_data"),
+        "$heatmap_data must never be on the stripped original (case: {title})",
+    );
+
+    let redirect = &got_events[2];
+    assert_eq!(
+        redirect.metadata.data_type,
+        DataType::HeatmapMain,
+        "redirect must be routed to the heatmaps topic in case: {title}",
+    );
+    assert_eq!(
+        redirect.event.event, "$$heatmap",
+        "redirect event name must be $$heatmap in case: {title}",
+    );
+    assert!(
+        !redirect.metadata.skip_heatmap_processing,
+        "redirect must NOT be flagged — the heatmaps pipeline is its consumer in case: {title}",
+    );
+    assert_ne!(
+        redirect.event.uuid, pageleave.event.uuid,
+        "redirect must have a fresh uuid to avoid deduplicating against the original (case: {title})",
+    );
+    assert_eq!(
+        redirect.event.distinct_id, pageleave.event.distinct_id,
+        "redirect must inherit distinct_id from its source event in case: {title}",
+    );
+
+    let redirect_data: Value = from_str(&redirect.event.data)
+        .unwrap_or_else(|_| panic!("failed to hydrate redirect event.data in case: {title}"));
+    let redirect_props = redirect_data["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("missing redirect properties in case: {title}"));
+    assert!(
+        redirect_props.contains_key("$prev_pageview_pathname"),
+        "redirect must carry $prev_pageview_pathname in case: {title}",
+    );
+    assert!(
+        redirect_props.contains_key("$current_url"),
+        "redirect must carry $current_url in case: {title}",
     );
 }
 
@@ -954,8 +1043,23 @@ impl Event for MemorySink {
     }
 }
 
+pub fn test_lifecycle_handlers() -> (
+    lifecycle::ReadinessHandler,
+    lifecycle::LivenessHandler,
+    lifecycle::MonitorGuard,
+) {
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    let monitor = manager.monitor_background();
+    (readiness, liveness, monitor)
+}
+
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
-    let liveness = HealthRegistry::new("integration_tests");
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(unit.fixed_time)
@@ -965,7 +1069,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = unit.mode.clone();
+    cfg.capture_mode = unit.mode;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -979,14 +1083,16 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
     (
         router(
             timesource,
-            liveness.clone(),
-            sink.clone(),
+            readiness,
+            liveness,
+            Arc::new(sink.clone()),
             redis,
-            None, // TODO: add global rate limiter for prod ship
+            None, // global_rate_limiter_token_distinctid
             quota_limiter,
             TokenDropper::default(),
+            None, // event_restriction_service
             false,
-            unit.mode.clone(),
+            unit.mode,
             String::from("capture"),
             None,
             25 * 1024 * 1024,
@@ -994,11 +1100,15 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             historical_rerouting_threshold_days,
             is_mirror_deploy,
             verbose_sample_percent,
-            26_214_400, // 25MB default for AI endpoint
-            None,       // ai_blob_storage
-            Some(10),   // request_timeout_seconds
-            None,       // body_chunk_read_timeout_ms
-            256,        // body_read_chunk_size_kb
+            26_214_400,       // 25MB default for AI endpoint
+            None,             // ai_blob_storage
+            None,             // body_chunk_read_timeout_ms
+            256,              // body_read_chunk_size_kb
+            10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+            50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+            None,             // overflow_limiter
+            None,             // replay_overflow_limiter
+            None,             // v1_sink_router
         ),
         sink,
     )

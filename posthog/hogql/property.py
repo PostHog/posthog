@@ -1,11 +1,14 @@
 import re
+from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
 from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
+import re2
 from pydantic import BaseModel
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CohortPropertyFilter,
@@ -31,29 +34,208 @@ from posthog.schema import (
     RetentionEntity,
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
+    SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.database.models import BooleanDatabaseField
+from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
-from posthog.hogql.visitor import TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
+from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
-from posthog.models.property_definition import PropertyType
 from posthog.utils import get_from_dict_or_attr
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.actions.backend.models.action import Action, ActionStepJSON
+from products.cohorts.backend.models.cohort import Cohort
+from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+
+
+def parse_semver(value: str) -> tuple[str, str, str]:
+    """
+    Parse a semver string into (major, minor, patch) components.
+
+    - Strips pre-release suffixes (e.g., -alpha.1)
+    - Defaults missing components to "0" (e.g., 1.0 -> 1.0.0)
+
+    Returns tuple of strings for direct use in version string construction.
+    Raises ValueError if parsing fails.
+    """
+    # Strip pre-release suffix (everything after first hyphen)
+    base_version = value.split("-")[0]
+
+    parts = base_version.split(".")
+    if len(parts) < 1 or not parts[0]:
+        raise ValueError("Invalid semver format")
+
+    major = parts[0]
+    minor = parts[1] if len(parts) > 1 else "0"
+    patch = parts[2] if len(parts) > 2 else "0"
+
+    # Validate they're actually integers
+    int(major), int(minor), int(patch)
+
+    return (major, minor, patch)
+
+
+# Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
+# `sortableSemver` returning NULL for invalid input because ClickHouse forbids
+# `Nullable(Array(...))`, and an `Array(Nullable(Int64))` with a NULL element sorts
+# as the *greatest* array — which would incorrectly include invalid versions in
+# `>= filter` queries. Instead we gate every semver comparison on this regex
+# matching the property side, so invalid values are dropped before the array
+# comparison happens. Matches Rust `semver::Version::parse` (X.Y.Z, no leading
+# zeros, optional 'v' prefix, optional pre-release / build suffix).
+STRICT_SEMVER_REGEX = r"^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][^\s]*)?\s*$"
+
+
+def _gate_on_valid_semver(expr: ast.Expr, comparison: ast.Expr) -> ast.And:
+    """Wrap a semver comparison so it only fires on rows where `expr` is strict semver."""
+    return ast.And(
+        exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
+            comparison,
+        ]
+    )
+
+
+def semver_range_compare(
+    expr: ast.Expr,
+    value: ast.Any,
+    operator_name: str,
+    bounds_calculator: Callable[[str], tuple[str, str]],
+) -> ast.And:
+    """
+    Build a semver range comparison AST (lower_bound <= expr < upper_bound).
+
+    Args:
+        expr: The expression to compare (e.g., person.properties.app_version)
+        value: The semver value from the filter
+        operator_name: Name for error messages (e.g., "Tilde", "Caret", "Wildcard")
+        bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
+
+    Returns:
+        AST node representing: match(expr, valid_semver) AND sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+    """
+    if not isinstance(value, str):
+        raise QueryError(f"{operator_name} operator requires a semver string value")
+
+    try:
+        lower_bound, upper_bound = bounds_calculator(value)
+    except (ValueError, IndexError):
+        raise QueryError(f"{operator_name} operator requires a valid semver string (e.g., '1.2.3')")
+
+    return ast.And(
+        exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=lower_bound)]),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=upper_bound)]),
+            ),
+        ]
+    )
+
+
+def _tilde_bounds(value: str) -> tuple[str, str]:
+    """
+    ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+    ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
+    """
+    major, minor, patch = parse_semver(value)
+    parts = value.split("-")[0].split(".")
+    if len(parts) < 2:
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
+    next_minor = str(int(minor) + 1)
+    return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
+
+
+def _caret_bounds(value: str) -> tuple[str, str]:
+    """
+    Caret operator follows semver spec:
+    ^1.2.3 means >=1.2.3 <2.0.0
+    ^0.2.3 means >=0.2.3 <0.3.0
+    ^0.0.3 means >=0.0.3 <0.0.4
+    The leftmost non-zero component determines the upper bound.
+    """
+    major, minor, patch = parse_semver(value)
+    lower_bound = f"{major}.{minor}.{patch}"
+
+    if int(major) > 0:
+        upper_bound = f"{int(major) + 1}.0.0"
+    elif int(minor) > 0:
+        upper_bound = f"0.{int(minor) + 1}.0"
+    else:
+        upper_bound = f"0.0.{int(patch) + 1}"
+
+    return lower_bound, upper_bound
+
+
+def _wildcard_bounds(value: str) -> tuple[str, str]:
+    """
+    Wildcard matching:
+    1.* means >=1.0.0 <2.0.0
+    1.2.* means >=1.2.0 <1.3.0
+    1.2.3.* means >=1.2.3.0 <1.2.4.0
+    """
+    # Remove trailing .* if present
+    value = value.rstrip(".*")
+    if not value:
+        raise ValueError("Invalid wildcard pattern")
+
+    # Strip pre-release suffix before counting parts
+    base_value = value.split("-")[0]
+    parts = base_value.split(".")
+
+    if len(parts) == 1:
+        major = parts[0]
+        int(major)  # Validate
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
+    elif len(parts) == 2:
+        major, minor = parts[0], parts[1]
+        int(major), int(minor)  # Validate
+        return f"{major}.{minor}.0", f"{major}.{int(minor) + 1}.0"
+    else:
+        major, minor, patch = parts[0], parts[1], parts[2]
+        int(major), int(minor), int(patch)  # Validate
+        return f"{major}.{minor}.{patch}.0", f"{major}.{minor}.{int(patch) + 1}.0"
+
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
+
+
+def _stringify_group_key_value(value: object) -> str | list[str]:
+    """Group keys ($group_0–$group_4) are always stored as strings. A numeric filter
+    value would produce equals(<string column>, <number>), which ClickHouse rejects
+    with NO_COMMON_TYPE — so coerce a group-key filter value to its string form."""
+
+    def _scalar(v: object) -> str:
+        # An integer-valued float ('13.0') stringifies to the plain integer ('13')
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    if isinstance(value, list):
+        return [_scalar(v) for v in value]
+    return _scalar(value)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -93,6 +275,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
 
     if value != "true" and value != "false":
         return value
+
+    # Virtual event properties (e.g. $virt_is_bot) don't have PropertyDefinition
+    # records, so we check the taxonomy directly for boolean type
+    if property.key and property.key.startswith("$virt_"):
+        from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+        for group_defs in CORE_FILTER_DEFINITIONS_BY_GROUP.values():
+            prop_def = group_defs.get(property.key)
+            if prop_def and prop_def.get("type") == "Boolean":
+                return value == "true"
+        return value
+
     if property.type == "person":
         property_types = PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
@@ -129,9 +323,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         prop_type = None
 
         table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
-        if table_or_view:
+        if table_or_view and table_or_view.columns is not None:
             prop_type_dict = table_or_view.columns.get(property.key, None)
-            prop_type = prop_type_dict.get("hogql")
+            if prop_type_dict is not None:
+                prop_type = prop_type_dict.get("hogql")
 
         if not table_or_view:
             raise Exception(f"Could not find table or view for key {key}")
@@ -142,6 +337,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             if value == "false":
                 value = False
 
+        return value
+
+    elif property.type == "session":
+        field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
+        if isinstance(field_definition, BooleanDatabaseField):
+            if value == "true":
+                return True
+            if value == "false":
+                return False
         return value
 
     else:
@@ -162,6 +366,69 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
+    """Resolve a date value for IS_DATE_* operators.
+
+    Relative dates (e.g. ``-7d``, ``-10m`` for months, ``-10M`` for minutes) are
+    resolved against the team timezone and rendered as a naive ``YYYY-MM-DD HH:MM:SS``
+    wall-clock string — the printer's constant-folding fast-path then lowers that
+    to ``toDateTime(str, <team_tz>)``, which interprets it in the team timezone.
+    Because ``relative_date_parse`` already computed the wall clock in the team
+    timezone, the round-trip is correct.
+
+    Absolute values are returned untouched. In particular, ISO 8601 strings with
+    an explicit ``T``/``Z`` (e.g. ``2026-03-19T14:00:00Z``) are preserved so that
+    ClickHouse's ``parseDateTime64BestEffort`` — which honors the embedded offset
+    — can parse them to the correct UTC moment regardless of the team's timezone.
+    Stripping the ``Z`` and fast-pathing to ``toDateTime`` would silently reinterpret
+    the value in the team timezone and shift it by the offset.
+    """
+    if not isinstance(value, str):
+        return value
+
+    relative_regex = r"^-?[0-9]+[hdwmqysHDWMQY]"
+    if re.match(relative_regex, value):
+        from posthog.utils import relative_date_parse
+
+        resolved = relative_date_parse(value, team.timezone_info)
+        return resolved.strftime("%Y-%m-%d %H:%M:%S")
+
+    return value
+
+
+def _force_datetime(expr: ast.Expr) -> ast.Expr:
+    """Coerce ``expr`` to DateTime for chronological IS_DATE_* comparison.
+
+    PropertySwapper only wraps the LHS of a comparison in ``toDateTime()``
+    when a DateTime PropertyDefinition exists for the property. Without one,
+    the LHS stays as a raw JSON-extracted String, and a String-vs-String
+    comparison becomes lexicographic — which silently diverges from
+    chronological order when one side uses the ISO 8601 ``T``/``Z`` form and
+    the other the normalized MySQL form (``'T'`` = 0x54 sorts after
+    ``' '`` = 0x20).
+
+    Wrapping both sides in HogQL's ``toDateTime`` forces ClickHouse to parse
+    and compare as DateTime regardless of the underlying column type.
+
+    The ``toString`` hop on non-constant expressions is load-bearing: when
+    PropertySwapper *does* wrap the LHS (DateTime PropertyDefinition exists),
+    HogQL's overload resolution for the outer ``toDateTime`` cannot see
+    through PropertySwapper's freshly created Call node and falls back to
+    the default ``parseDateTime64BestEffortOrNull`` mapping. That function
+    rejects DateTime64 input (``ILLEGAL_TYPE_OF_ARGUMENT``), so we must
+    stringify first. String constants already skip the hop because
+    ``toString('x')`` is pointless and omitting it lets the printer apply
+    its ``parseDateTime64BestEffortOrNull`` → ``toDateTime`` constant
+    folding optimization.
+    """
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return ast.Call(name="toDateTime", args=[expr])
+    return ast.Call(
+        name="toDateTime",
+        args=[ast.Call(name="toString", args=[expr])],
+    )
+
+
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
@@ -171,6 +438,39 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     except (ValueError, TypeError):
         raise QueryError(f"{operator} operator requires numeric values")
     return True
+
+
+def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive found a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=search_call, right=ast.Constant(value=0))
+
+
+def _multi_search_not_found(search_call: ast.Call) -> ast.CompareOperation:
+    """Create comparison operation to check if multiSearchAnyCaseInsensitive did not find a match."""
+    return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=search_call, right=ast.Constant(value=0))
+
+
+def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
+    """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
+    return ast.Call(
+        name="multiSearchAnyCaseInsensitive",
+        args=[
+            ast.Call(name="toString", args=[expr]),
+            ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
+        ],
+    )
+
+
+def _validate_regex(value: ValueT) -> None:
+    """Reject an invalid regular expression with a clear user-facing error rather
+    than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
+    same RE2 engine ClickHouse uses validates the pattern here."""
+    if not isinstance(value, str):
+        return
+    try:
+        re2.compile(value)
+    except re2.error as err:
+        raise QueryError(f"Invalid regular expression: '{value}'") from err
 
 
 def _expr_to_compare_op(
@@ -183,43 +483,51 @@ def _expr_to_compare_op(
             right=ast.Constant(value=None),
         )
     elif operator == PropertyOperator.IS_NOT_SET:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=expr,
-                right=ast.Constant(value=None),
-            )
-        ]
-
-        if is_json_field:
-            if not isinstance(expr, ast.Field):
-                raise Exception(f"Requires a Field expression")
-
-            field = ast.Field(chain=expr.chain[:-1])
-
-            exprs.append(
-                ast.Not(
-                    expr=ast.Call(
-                        name="JSONHas",
-                        args=[field, ast.Constant(value=property.key)],
-                    )
-                )
-            )
-
-        return ast.Or(exprs=exprs)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=expr,
+            right=ast.Constant(value=None),
+        )
     elif operator == PropertyOperator.ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.ILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list) and len(value) > 1:
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive for efficient searching
+            return _multi_search_found(_create_multi_search_call(expr, value))
+        else:
+            # Single value (or single-element array): keep existing ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.ILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{single_value}%"),
+            )
     elif operator == PropertyOperator.NOT_ICONTAINS:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotILike,
-            left=ast.Call(name="toString", args=[expr]),
-            right=ast.Constant(value=f"%{value}%"),
-        )
+        if isinstance(value, list) and len(value) > 1:
+            # Multiple values: use ClickHouse's multiSearchAnyCaseInsensitive with negation
+            return _multi_search_not_found(_create_multi_search_call(expr, value))
+        else:
+            # Single value (or single-element array): keep existing NOT ILIKE logic for backward compatibility
+            single_value = value[0] if isinstance(value, list) and len(value) == 1 else value
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.NotILike,
+                left=ast.Call(name="toString", args=[expr]),
+                right=ast.Constant(value=f"%{single_value}%"),
+            )
+    elif operator == PropertyOperator.ICONTAINS_MULTI:
+        # Always expect multiple values for multi-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_found(_create_multi_search_call(expr, values_list))
+    elif operator == PropertyOperator.NOT_ICONTAINS_MULTI:
+        # Always expect multiple values for multi-not-contains operator
+        if isinstance(value, list):
+            values_list = value
+        else:
+            values_list = cast(list, [value])
+        return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -228,6 +536,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -240,11 +549,18 @@ def _expr_to_compare_op(
                 ast.Constant(value=1),
             ],
         )
-    elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
+    elif operator == PropertyOperator.EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+        )
+    elif operator == PropertyOperator.IS_DATE_EXACT:
+        assert isinstance(value, str)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -252,10 +568,24 @@ def _expr_to_compare_op(
             left=expr,
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
-    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
+    elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
+    elif operator == PropertyOperator.IS_DATE_BEFORE:
+        assert isinstance(value, str)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+        )
+    elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.IS_DATE_AFTER:
+        assert isinstance(value, str)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+        )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
@@ -289,6 +619,66 @@ def _expr_to_compare_op(
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+    elif operator == PropertyOperator.SEMVER_EQ:
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
+        )
+    elif operator == PropertyOperator.SEMVER_NEQ:
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
+        )
+    elif operator == PropertyOperator.SEMVER_GT:
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
+        )
+    elif operator == PropertyOperator.SEMVER_GTE:
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
+        )
+    elif operator == PropertyOperator.SEMVER_LT:
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
+        )
+    elif operator == PropertyOperator.SEMVER_LTE:
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
+        )
+    elif operator == PropertyOperator.SEMVER_TILDE:
+        return semver_range_compare(expr, value, "Tilde", _tilde_bounds)
+    elif operator == PropertyOperator.SEMVER_CARET:
+        return semver_range_compare(expr, value, "Caret", _caret_bounds)
+    elif operator == PropertyOperator.SEMVER_WILDCARD:
+        return semver_range_compare(expr, value, "Wildcard", _wildcard_bounds)
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
@@ -337,6 +727,8 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
+        | SpanPropertyFilter
+        | WorkflowVariablePropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -416,7 +808,8 @@ def property_to_expr(
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
-        return parse_expr(property.key)
+        tag_contains_user_hogql()
+        return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -425,6 +818,8 @@ def property_to_expr(
             if len(property.value) > 1:
                 raise QueryError(f"The '{property.key}' property filter only supports one value in 'group' scope")
             value = property.value[0]
+
+        value = _stringify_group_key_value(value)
 
         # For groups table, $group_N filters should match both index and key
         # index should equal N, and key should match the value
@@ -460,6 +855,9 @@ def property_to_expr(
         or property.type == "log"
         or property.type == "log_attribute"
         or property.type == "log_resource_attribute"
+        or property.type == "span"
+        or property.type == "span_attribute"
+        or property.type == "span_resource_attribute"
         or property.type == "revenue_analytics"
         or property.type == "workflow_variable"
     ):
@@ -474,7 +872,22 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+            value = _stringify_group_key_value(value)
+
+        if property.type == "person" and property.key == "distinct_id":
+            # distinct_id is not stored in person.properties.
+            # - In event scope, events.distinct_id is a real column — no join needed.
+            # - In person scope, persons.pdi.distinct_id resolves via the lazy join on persons.
+            # Routing through `events.person.pdi` would break under person-on-events mode,
+            # where `events.person` is rebound to the `poe` virtual table which has no `pdi` field.
+            if scope == "event":
+                chain = []
+            elif scope == "person":
+                chain = ["pdi"]
+            else:
+                chain = ["person", "pdi"]
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -526,6 +939,9 @@ def property_to_expr(
         elif property.type == "log":
             chain = [property.key]
             property.key = ""
+        elif property.type == "span":
+            chain = [property.key]
+            property.key = ""
         elif scope == "log_resource":
             # log resource attributes are stored in a separate table as `attribute_key` and `attribute_value`
             # columns. The `attribute_key` filter needs to be added separately outside of property_to_expr
@@ -534,6 +950,10 @@ def property_to_expr(
         elif property.type == "log_attribute":
             chain = ["attributes"]
         elif property.type == "log_resource_attribute":
+            chain = ["resource_attributes"]
+        elif property.type == "span_attribute":
+            chain = ["attributes"]
+        elif property.type == "span_resource_attribute":
             chain = ["resource_attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")
@@ -552,8 +972,13 @@ def property_to_expr(
 
         expr: ast.Expr = map_virtual_properties(field)
 
-        if property.type == "recording" and property.key == "snapshot_source":
+        if property.type == "recording" and property.key in ("snapshot_source", "snapshot_library"):
             expr = ast.Call(name="argMinMerge", args=[field])
+
+        is_visited_page_property = property.type == "recording" and property.key == "visited_page"
+        if is_visited_page_property:
+            # Use the all_urls array field to filter for pages visited during recording.
+            all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
@@ -572,7 +997,12 @@ def property_to_expr(
                 ],
             )
 
-        if isinstance(value, list) and operator not in (PropertyOperator.BETWEEN, PropertyOperator.NOT_BETWEEN):
+        if isinstance(value, list) and operator not in (
+            PropertyOperator.BETWEEN,
+            PropertyOperator.NOT_BETWEEN,
+            PropertyOperator.ICONTAINS,
+            PropertyOperator.NOT_ICONTAINS,
+        ):
             if len(value) == 0:
                 return ast.Constant(value=1)
             elif len(value) == 1:
@@ -590,7 +1020,11 @@ def property_to_expr(
                         else ast.CompareOperationOp.NotIn
                     )
 
-                    left = ast.Field(chain=["v"]) if is_exception_string_array_property else expr
+                    left = (
+                        ast.Field(chain=["v"])
+                        if (is_exception_string_array_property or is_visited_page_property)
+                        else expr
+                    )
                     compare_op = ast.CompareOperation(
                         op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
                     )
@@ -603,8 +1037,35 @@ def property_to_expr(
                                 "field": extracted_field,
                             },
                         )
+                    elif is_visited_page_property:
+                        return parse_expr(
+                            "arrayExists(v -> {compare_op}, {field})",
+                            {
+                                "compare_op": compare_op,
+                                "field": all_urls_field,
+                            },
+                        )
                     else:
                         return compare_op
+                elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
+                    # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
+                    if is_exception_string_array_property or is_visited_page_property:
+                        # For exception properties and visited_page, use multiSearch optimization within arrayExists
+                        multi_search_expr = _expr_to_compare_op(
+                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
+                        )
+                        if is_exception_string_array_property:
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": extracted_field},
+                            )
+                        else:  # is_visited_page_property
+                            return parse_expr(
+                                "arrayExists(v -> {expr}, {key})",
+                                {"expr": multi_search_expr, "key": all_urls_field},
+                            )
+                    else:
+                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(
@@ -630,7 +1091,7 @@ def property_to_expr(
                 return ast.Or(exprs=exprs)
 
         expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if is_exception_string_array_property else expr,
+            expr=ast.Field(chain=["v"]) if (is_exception_string_array_property or is_visited_page_property) else expr,
             value=value,
             operator=operator,
             team=team,
@@ -643,6 +1104,25 @@ def property_to_expr(
                 "arrayExists(v -> {expr}, {key})",
                 {"expr": expr, "key": extracted_field},
             )
+        elif is_visited_page_property:
+            # Handle IS_SET and IS_NOT_SET operators specially for arrays
+            if operator == PropertyOperator.IS_SET:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt,
+                    left=ast.Call(name="length", args=[all_urls_field]),
+                    right=ast.Constant(value=0),
+                )
+            elif operator == PropertyOperator.IS_NOT_SET:
+                return ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Call(name="length", args=[all_urls_field]),
+                    right=ast.Constant(value=0),
+                )
+            else:
+                return parse_expr(
+                    "arrayExists(v -> {expr}, {key})",
+                    {"expr": expr, "key": all_urls_field},
+                )
         else:
             return expr
     elif property.type == "element":
@@ -716,6 +1196,8 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+        if not isinstance(property.value, (str, int)):
+            raise ValidationError("Cohort property value must be a cohort ID")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
@@ -735,9 +1217,7 @@ def property_to_expr(
     )
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    steps = action.steps
-
+def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -841,7 +1321,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties, action.team))
+            exprs.append(property_to_expr(step.properties, team))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -856,25 +1336,32 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
         return ast.Or(exprs=or_queries)
 
 
+def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
+    return steps_to_expr(action.steps, action.team, events_alias)
+
+
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-        action = Action.objects.get(pk=entity.id)
-        return action_to_expr(action)
-    if entity.id is None:
-        return ast.Constant(value=True)
-
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value=entity.id),
-        )
-    ]
+        # action
+        action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
+        try:
+            action = Action.objects.get(pk=action_id, team=team)
+        except Action.DoesNotExist:
+            raise ValidationError(f"Action ID {entity.id} does not exist!")
+        event_expr = action_to_expr(action)
+    elif entity.id is None:
+        # all events
+        event_expr = ast.Constant(value=True)
+    else:
+        # event
+        event_expr = parse_expr("events.event = {event}", {"event": ast.Constant(value=entity.id)})
 
     if entity.properties is not None and entity.properties != []:
-        filters.append(property_to_expr(entity.properties, team))
-
-    return ast.And(exprs=filters)
+        # add property filters
+        filter_expr = property_to_expr(entity.properties, team)
+        return ast.And(exprs=[event_expr, filter_expr])
+    else:
+        return event_expr
 
 
 def tag_name_to_expr(tag_name: str):
@@ -932,10 +1419,87 @@ def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
 
 
+def get_lowercase_index_hint(property, team: Team) -> ast.Call:
+    """
+    Returns an index hint for a case insensitive index on `lower(key)`
+    e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
+         this means we can use ngram indexes on `lower(body)` efficiently
+    """
+    expr = property_to_expr(property, team=team)
+    return ast.Call(name="indexHint", args=[_LowercaseIndexRewriter().visit(expr)])
+
+
+class _LowercaseIndexRewriter(CloningVisitor):
+    """Rewrites an expression tree so it can leverage a case-insensitive index on ``lower(key)``.
+
+    Transformations applied:
+    - All ``toString(x)`` calls are unwrapped to just ``x`` (stripped, not replaced).
+    - ``ILike`` → ``lower(left) Like lower_const`` / ``NotILike`` → ``lower(left) NotLike lower_const``
+    - ``multiSearchAnyCaseInsensitive(haystack, needles)`` → ``multiSearchAny(lower(haystack), lowered_needles)``
+    """
+
+    def visit_call(self, node: ast.Call):
+        if node.name == "toString" and len(node.args) == 1:
+            # Strip toString
+            return self.visit(node.args[0])
+
+        if node.name == "ifNull" and len(node.args) >= 1:
+            # Strip ifNull
+            return self.visit(node.args[0])
+
+        if node.name == "multiSearchAnyCaseInsensitive" and len(node.args) == 2:
+            # multiSearchAnyCaseInsensitive(haystack, needles)
+            # → multiSearchAny(lower(haystack), lowered_needles)
+            haystack = self.visit(node.args[0])
+            haystack = ast.Call(name="lower", args=[haystack])
+            needles = node.args[1]
+            # Lowercase all needle constants
+            if isinstance(needles, ast.Array):
+                needles = ast.Array(
+                    exprs=[
+                        ast.Constant(value=str(e.value).lower())
+                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        else self.visit(e)
+                        for e in needles.exprs
+                    ]
+                )
+            else:
+                needles = self.visit(needles)
+            return ast.Call(name="multiSearchAny", args=[haystack, needles])
+
+        return super().visit_call(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        op = node.op
+        wrap_left_lower = False
+
+        if op == ast.CompareOperationOp.ILike:
+            op = ast.CompareOperationOp.Like
+            wrap_left_lower = True
+        elif op == ast.CompareOperationOp.NotILike:
+            op = ast.CompareOperationOp.NotLike
+            wrap_left_lower = True
+
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        if wrap_left_lower:
+            left = ast.Call(name="lower", args=[left])
+            if isinstance(right, ast.Constant) and isinstance(right.value, str):
+                right = ast.Constant(value=right.value.lower())
+
+        return ast.CompareOperation(
+            left=left,
+            right=right,
+            op=op,
+        )
+
+
 def operator_is_negative(operator: PropertyOperator) -> bool:
     return operator in [
         PropertyOperator.IS_NOT,
         PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
         PropertyOperator.NOT_REGEX,
         PropertyOperator.IS_NOT_SET,
         PropertyOperator.NOT_BETWEEN,

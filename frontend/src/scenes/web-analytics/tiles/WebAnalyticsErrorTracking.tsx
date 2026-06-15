@@ -1,18 +1,20 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { ErrorTrackingTile } from 'scenes/web-analytics/common'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
@@ -72,38 +74,54 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
     const { layout, query } = tile
     const to = urls.errorTracking()
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
+
+    const viewAllButton = (
+        <LemonButton
+            to={to}
+            icon={<IconOpenInNew />}
+            onClick={() => {
+                addProductIntentForCrossSell({
+                    from: ProductKey.WEB_ANALYTICS,
+                    to: ProductKey.ERROR_TRACKING,
+                    intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
+                })
+            }}
+            size="small"
+            type="secondary"
+        >
+            View all
+        </LemonButton>
+    )
 
     return (
         <div
             className={clsx(
                 'col-span-1 row-span-1 flex flex-col',
-                layout.colSpanClassName ?? 'md:col-span-6',
+                layout.colSpanClassName ?? 'md:col-span-1',
                 layout.rowSpanClassName ?? 'md:row-span-1',
-                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.orderWhenLargeClassName ?? '2xl:order-12',
                 layout.className
             )}
         >
-            <h2 className="m-0 mb-3">Error tracking</h2>
-            <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
-                <Query attachTo={webAnalyticsLogic} query={query} embedded={true} context={context} />
-            </div>
-            <div className="flex flex-row-reverse my-2">
-                <LemonButton
-                    to={to}
-                    icon={<IconOpenInNew />}
-                    onClick={() => {
-                        addProductIntentForCrossSell({
-                            from: ProductKey.WEB_ANALYTICS,
-                            to: ProductKey.ERROR_TRACKING,
-                            intent_context: ProductIntentContext.WEB_ANALYTICS_ERRORS,
-                        })
-                    }}
-                    size="small"
-                    type="secondary"
-                >
-                    View all
-                </LemonButton>
-            </div>
+            {useTileHeaderV2 ? (
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                    <div className="flex flex-row items-center self-stretch gap-2 min-h-10 px-3 py-2">
+                        <h2 className="flex-1 m-0 text-base font-semibold">Error tracking</h2>
+                        {viewAllButton}
+                    </div>
+                    <Query attachTo={webAnalyticsLogic} query={query} embedded={true} context={context} />
+                </div>
+            ) : (
+                <>
+                    <h2 className="m-0 mb-3">Error tracking</h2>
+                    <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                        <Query attachTo={webAnalyticsLogic} query={query} embedded={true} context={context} />
+                    </div>
+                    <div className="flex flex-row-reverse my-2">{viewAllButton}</div>
+                </>
+            )}
         </div>
     )
 }

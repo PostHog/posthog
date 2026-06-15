@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
-from ee.hogai.core.agent_modes import SlashCommandName
+from ee.hogai.core.agent_modes.const import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -50,6 +50,7 @@ class FeedbackCommand(SlashCommand):
                 "$ai_feedback_text": feedback_content,
                 "$ai_session_id": conversation_id,
                 "$ai_trace_id": trace_id,
+                "ai_product": "posthog_ai",
             },
         )
 

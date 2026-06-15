@@ -35,6 +35,31 @@
         border-color: var(--color-border-success);
     }
 
+    &.LemonBanner--ai {
+        position: relative;
+        background: linear-gradient(135deg, rgb(167 139 250 / 4%) 0%, rgb(129 140 248 / 4%) 100%);
+        border: none;
+
+        &::before {
+            position: absolute;
+            inset: 0;
+            padding: 1px;
+            pointer-events: none;
+            content: '';
+            background: linear-gradient(135deg, rgb(167 139 250) 0%, rgb(129 140 248) 50%, rgb(167 139 250) 100%);
+            border-radius: var(--radius);
+            mask:
+                linear-gradient(#fff 0 0) content-box,
+                linear-gradient(#fff 0 0);
+            mask-composite: xor;
+            mask-composite: exclude;
+        }
+
+        .LemonBanner__icon {
+            color: rgb(167 139 250);
+        }
+    }
+
     .LemonBanner__icon {
         flex-shrink: 0;
         font-size: 1.5rem;

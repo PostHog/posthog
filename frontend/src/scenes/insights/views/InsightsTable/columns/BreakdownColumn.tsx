@@ -22,12 +22,17 @@ export function BreakdownColumnTitle({
     onTogglePin,
 }: BreakdownColumnTitleProps): JSX.Element {
     return (
-        <div className="flex items-center gap-1">
-            <PropertyKeyInfo disableIcon disablePopover value={formatBreakdownType(breakdownFilter)} />
+        <div className="flex items-center gap-1 min-w-0">
+            <PropertyKeyInfo
+                className="min-w-0"
+                disableIcon
+                disablePopover
+                value={formatBreakdownType(breakdownFilter)}
+            />
             {onTogglePin && (
                 <Tooltip title={isPinned ? 'Unpin column' : 'Pin column'}>
                     <span
-                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1 shrink-0"
                         onClick={(e) => {
                             e.stopPropagation()
                             onTogglePin()
@@ -53,12 +58,12 @@ export function MultipleBreakdownColumnTitle({
     onTogglePin,
 }: MultipleBreakdownColumnTitleProps): JSX.Element {
     return (
-        <div className="flex items-center gap-1">
-            <PropertyKeyInfo disableIcon disablePopover value={children || 'Breakdown Value'} />
+        <div className="flex items-center gap-1 min-w-0">
+            <PropertyKeyInfo className="min-w-0" disableIcon disablePopover value={children || 'Breakdown Value'} />
             {onTogglePin && (
                 <Tooltip title={isPinned ? 'Unpin column' : 'Pin column'}>
                     <span
-                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1"
+                        className="inline-flex items-center justify-center cursor-pointer p-1 -m-1 shrink-0"
                         onClick={(e) => {
                             e.stopPropagation()
                             onTogglePin()
@@ -89,16 +94,23 @@ export function BreakdownColumnItem({
         ? parseAliasToReadable(breakdownLabel)
         : stringWithWBR(breakdownLabel, 20)
 
+    // Clipped with CSS only, so the full value stays in the DOM — copying the cell copies everything
     return (
         <div className="flex justify-between items-center">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
-                        <Link to={breakdownLabel} target="_blank" className="value-link font-medium" targetBlankIcon>
+                        <Link
+                            to={breakdownLabel}
+                            target="_blank"
+                            className="value-link font-medium line-clamp-4"
+                            title={breakdownLabel}
+                            targetBlankIcon
+                        >
                             {formattedLabel}
                         </Link>
                     ) : (
-                        <div title={breakdownLabel} className="font-medium">
+                        <div title={breakdownLabel} className="font-medium line-clamp-4">
                             {formattedLabel}
                         </div>
                     )}

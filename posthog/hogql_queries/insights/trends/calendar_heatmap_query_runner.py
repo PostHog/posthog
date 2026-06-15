@@ -39,15 +39,68 @@ from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithE
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.property_definition import PropertyDefinition
+from posthog.models.user import User
+
+from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 SEPARATOR = "','"
 
 # We need to use a CTE, otherwise we'll get this error because of the sub-query containing some auto-generated conditions:
 # Aggregate function any(if(NOT empty(events__override.distinct_id), events__override.person_id, events.person_id)) AS person_id is found in WHERE in query.
 templateUniqueUsers = """
+WITH filteredEvents AS (
+    SELECT
+        person_id,
+        timestamp
+    FROM events
+    WHERE and(
+        {event_expr},
+        {all_properties},
+        {test_account_filters},
+        {current_period}
+    )
+)
+SELECT
+    mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
+    mapValues(query.hoursAndDays) as hoursAndDaysValues,
+    mapKeys(query.hours) as hoursKeys,
+    mapValues(query.hours) as hoursValues,
+    mapKeys(query.days) as daysKeys,
+    mapValues(query.days) as daysValues,
+    query.total
+FROM (
+    SELECT
+        uniqMap(map(concatWithSeparator({separator},toString(toDayOfWeek(timestamp)),toString(toHour(timestamp))), person_id)) as hoursAndDays,
+        uniqMap(map(toHour(timestamp), person_id)) as hours,
+        uniqMap(map(toDayOfWeek(timestamp), person_id)) as days,
+        uniq(person_id) as total
+    FROM filteredEvents
+) as query
+"""
+
+# Session-start-attribution variant of `templateUniqueUsers`, opt-in via
+# `CalendarHeatmapFilter.bucketBySessionStart`. Each session contributes exactly once,
+# bucketed by the (day-of-week, hour) of its first event — matching the web overview
+# semantic where a session's metrics are attributed to its start hour. Brought back
+# from the pre-#57296 implementation so web analytics' Active Hours tile lines up with
+# the visitor counts the overview computes for the same window.
+#
+# Scan bounds on `uniqueSessionEvents`:
+#   * `notEmpty($session_id)` — `events.$session_id` is a non-nullable String
+#     that surfaces as empty when no session id was captured. Without this guard
+#     every session-less event collapses into one synthetic session and
+#     `any(person_id)` picks a single visitor for the whole group, undercounting
+#     projects with partial session capture.
+#   * `timestamp >= {session_window_start}` / `timestamp <= {current_period_end}`
+#     — the outer `query` CTE filters by `min(timestamp) >= date_from`, but
+#     without an inner date bound ClickHouse must read every matching event
+#     across all time before that filter is applied. The 24-hour lookback covers
+#     sessions that started before `date_from` and extend into the window (the
+#     posthog-js cap is 24h, so the only loss is a session continuously open
+#     longer than that — vanishingly rare for web traffic).
+templateUniqueUsersBySession = """
 WITH uniqueSessionEvents AS (
     SELECT
         person_id,
@@ -57,7 +110,10 @@ WITH uniqueSessionEvents AS (
     WHERE and(
         {event_expr},
         {all_properties},
-        {test_account_filters}
+        {test_account_filters},
+        notEmpty($session_id),
+        timestamp >= {session_window_start},
+        timestamp <= {current_period_end}
     )
 ),
 uniqueSessionEventsGrouped AS (
@@ -126,11 +182,12 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
+        user: Optional[User] = None,
     ):
         if isinstance(query, dict):
             query = CalendarHeatmapQuery.model_validate(query)
 
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
@@ -153,17 +210,25 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
 
     def to_query(self) -> ast.SelectQuery:
         # Use the heatmap query logic
-        template = templateUniqueUsers if self.query.series[0].math == "dau" else templateAllUsers
-        query = parse_select(
-            template,
-            placeholders={
-                "all_properties": self._all_properties(),
-                "test_account_filters": self._test_account_filters,
-                "current_period": self._current_period_expression(field="timestamp"),
-                "event_expr": self.getEventExpr(),
-                "separator": ast.Constant(value=SEPARATOR),
-            },
+        is_unique_users = self.query.series[0].math == "dau"
+        bucket_by_session = bool(
+            self.query.calendarHeatmapFilter and self.query.calendarHeatmapFilter.bucketBySessionStart
         )
+        if is_unique_users:
+            template = templateUniqueUsersBySession if bucket_by_session else templateUniqueUsers
+        else:
+            template = templateAllUsers
+        placeholders: dict[str, ast.Expr] = {
+            "all_properties": self._all_properties(),
+            "test_account_filters": self._test_account_filters,
+            "current_period": self._current_period_expression(field="timestamp"),
+            "event_expr": self.getEventExpr(),
+            "separator": ast.Constant(value=SEPARATOR),
+        }
+        if bucket_by_session:
+            placeholders["session_window_start"] = self._session_window_start_expr()
+            placeholders["current_period_end"] = self.query_date_range.date_to_as_hogql()
+        query = parse_select(template, placeholders=placeholders)
         assert isinstance(query, ast.SelectQuery)
         return query
 
@@ -173,6 +238,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             query_type="calendar_heatmap_query",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
         )
@@ -257,6 +323,20 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
         else:
             return ast.Call(name="and", args=property_exprs)
 
+    def _session_window_start_expr(self) -> ast.Expr:
+        # Lookback buffer applied to the inner events scan in
+        # `templateUniqueUsersBySession`. Capped at the posthog-js session limit
+        # so we still catch sessions that opened just before `date_from` and
+        # extend into the window. See the template's leading comment for the
+        # full rationale.
+        return ast.Call(
+            name="minus",
+            args=[
+                self.query_date_range.date_from_as_hogql(),
+                ast.Call(name="toIntervalHour", args=[ast.Constant(value=24)]),
+            ],
+        )
+
     def _current_period_expression(self, field="start_timestamp"):
         return ast.Call(
             name="and",
@@ -322,6 +402,7 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
             team=self.team,
             interval=interval,
             now=datetime.now(),
+            exact_timerange=bool(self.query.dateRange and self.query.dateRange.explicitDate),
         )
 
     def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:

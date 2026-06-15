@@ -10,13 +10,21 @@ import {
     copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
+    reportTopChunks,
     startDevServer,
 } from '@posthog/esbuilder'
+
+import { getToolbarBuildConfig } from './toolbar-config.mjs'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
+
+copyPublicFolder(
+    path.resolve(__dirname, 'node_modules', '@posthog', 'hedgehog-mode', 'assets'),
+    path.resolve(__dirname, 'dist', 'hedgehog-mode')
+)
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
@@ -28,6 +36,7 @@ await import('./build-products.mjs')
 const common = {
     absWorkingDir: __dirname,
     bundle: true,
+    writeMetaFile: !isDev,
 }
 
 await buildInParallel(
@@ -35,10 +44,11 @@ await buildInParallel(
         {
             name: 'PostHog App',
             globalName: 'posthogApp',
-            entryPoints: ['src/index.tsx'],
+            entryPoints: ['src/index.tsx', 'src/sharedChunkAnchors.ts'],
             splitting: true,
             format: 'esm',
             outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
             ...common,
         },
         {
@@ -49,11 +59,36 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Monaco Editor Worker',
+            entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoEditorWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco JSON Worker',
+            entryPoints: ['src/lib/monaco/workers/json.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoJsonWorker.js'),
+            ...common,
+        },
+        {
+            name: 'Monaco TypeScript Worker',
+            entryPoints: ['src/lib/monaco/workers/ts.worker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'monacoTsWorker.js'),
+            ...common,
+        },
+        {
             name: 'Exporter',
-            globalName: 'posthogExporter',
-            entryPoints: ['src/exporter/index.tsx'],
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'exporter.js'),
+            entryPoints: {
+                exporter: 'src/exporter/index.tsx',
+                exporterSharedChunkAnchors: 'src/sharedChunkAnchors.ts',
+            },
+            splitting: true,
+            format: 'esm',
+            outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
             ...common,
         },
         {
@@ -65,97 +100,7 @@ await buildInParallel(
             ...common,
         },
         {
-            name: 'Toolbar',
-            globalName: 'posthogToolbar',
-            entryPoints: ['src/toolbar/index.tsx'],
-            format: 'iife',
-            outfile: path.resolve(__dirname, 'dist', 'toolbar.js'),
-            // make sure we don't link to a global window.define
-            banner: { js: 'var posthogToolbar = (function () { var define = undefined;' },
-            footer: { js: 'return posthogToolbar })();' },
-            // This isn't great, but we load some static assets at runtime for the toolbar, and we can't sub in
-            // a variable at runtime it seems...
-            publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
-            writeMetaFile: true,
-            extraPlugins: [
-                {
-                    /**
-                     * The toolbar includes many parts of the main posthog app,
-                     * but we don't want to include everything in the toolbar bundle.
-                     * Partly because it would be too big, and partly because some things
-                     * in the main app cause problems for people using CSPs on their sites.
-                     *
-                     * It wasn't possible to tree-shake the dependencies out of the bundle,
-                     * and we don't want to change the app code significantly just for the toolbar
-                     *
-                     * So instead we replace some imports in the toolbar with a fake empty module
-                     *
-                     * This is ever so slightly hacky, but it gets customers up and running
-                     *
-                     * */
-                    name: 'denylist-imports',
-                    setup(build) {
-                        // Explicit denylist of paths we don't want in the toolbar bundle
-                        const deniedPaths = [
-                            '~/lib/hooks/useUploadFiles',
-                            '~/queries/nodes/InsightViz/InsightViz',
-                            'lib/hog',
-                            'scenes/activity/explore/EventDetails',
-                            'scenes/web-analytics/WebAnalyticsDashboard',
-                            'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
-                        ]
-
-                        // Patterns to match for denying imports
-                        const deniedPatterns = [
-                            /monaco/,
-                            /scenes\/insights\/filters\/ActionFilter/,
-                            /lib\/components\/CodeSnippet/,
-                            /scenes\/session-recordings\/player/,
-                            /queries\/schema-guard/,
-                            /queries\/schema.json/,
-                            /queries\/QueryEditor\/QueryEditor/,
-                            /scenes\/billing/,
-                            /scenes\/data-warehouse/,
-                            /LineGraph/,
-                        ]
-
-                        build.onResolve({ filter: /.*/ }, (args) => {
-                            const shouldDeny =
-                                deniedPaths.includes(args.path) ||
-                                deniedPatterns.some((pattern) => pattern.test(args.path))
-
-                            if (shouldDeny) {
-                                return {
-                                    path: args.path,
-                                    namespace: 'empty-module',
-                                    sideEffects: false,
-                                }
-                            }
-                        })
-
-                        build.onLoad({ filter: /.*/, namespace: 'empty-module' }, (args) => {
-                            return {
-                                contents: `
-                                module.exports = new Proxy({}, {
-                                    get: function() {
-                                        const shouldLog = window?.posthog?.config?.debug
-                                        if (shouldLog) {
-                                            console.warn('[TOOLBAR] Attempted to use denied module:', ${JSON.stringify(
-                                                args.path
-                                            )});
-                                        }
-                                        return function() {
-                                            return {}
-                                        }
-                                    }
-                                });
-                            `,
-                                loader: 'js',
-                            }
-                        })
-                    },
-                },
-            ],
+            ...getToolbarBuildConfig(__dirname),
             ...common,
         },
     ],
@@ -176,10 +121,16 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
+                }
                 writeIndexHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Exporter') {
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
+                }
                 writeExporterHtml(chunks, entrypoints)
             }
 

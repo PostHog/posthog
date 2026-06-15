@@ -1,5 +1,9 @@
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
+
+import { buildAlertFilterConfig } from 'lib/utils/alertUtils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AlertType } from '~/lib/components/Alerts/types'
 import { DashboardType, HogFunctionType, InsightModel, QueryBasedInsightModel } from '~/types'
@@ -59,7 +63,11 @@ async function fetchHogFunctionsForAlerts(alerts: AlertType[]): Promise<Map<stri
 
     const hogFunctionPromises = alerts.map(async (alert) => {
         try {
-            const response = await api.hogFunctions.listForAlert(alert.id)
+            const response = await api.hogFunctions.list({
+                filter_groups: [buildAlertFilterConfig(alert.id)],
+                types: ['internal_destination'],
+                full: true,
+            })
             return { alertId: alert.id, hogFunctions: response.results }
         } catch (e) {
             posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
@@ -79,7 +87,11 @@ async function fetchHogFunctionsForAlerts(alerts: AlertType[]): Promise<Map<stri
     return hogFunctionsByAlertId
 }
 
-async function exportInsight(insight: Partial<InsightModel>, checkStale: () => boolean): Promise<InsightExportResult> {
+async function exportInsight(
+    insight: Partial<InsightModel>,
+    checkStale: () => boolean,
+    projectId: number
+): Promise<InsightExportResult> {
     const insights = insight.id ? [insight as InsightModel] : []
     const alertsByInsightId = await fetchAlertsForInsights(insights)
 
@@ -98,6 +110,7 @@ async function exportInsight(insight: Partial<InsightModel>, checkStale: () => b
         return generateInsightHCL(insight, {
             alerts,
             hogFunctionsByAlertId,
+            projectId,
         })
     } catch (e) {
         const resourceId = insight.id || insight.short_id || 'unknown'
@@ -110,7 +123,8 @@ async function exportInsight(insight: Partial<InsightModel>, checkStale: () => b
 
 async function exportDashboard(
     dashboard: DashboardType<QueryBasedInsightModel>,
-    checkStale: () => boolean
+    checkStale: () => boolean,
+    projectId: number
 ): Promise<DashboardExportResult> {
     const insights: InsightModel[] = dashboard.tiles
         .filter((tile) => tile.insight)
@@ -134,6 +148,7 @@ async function exportDashboard(
             insights,
             alertsByInsightId,
             hogFunctionsByAlertId,
+            projectId,
         })
     } catch (e) {
         const resourceId = dashboard.id || 'unknown'
@@ -168,6 +183,7 @@ export function useTerraformDownload(result: TerraformExportResult | null, baseN
  * Handles fetching related resources and generating HCL.
  */
 export function useTerraformExport(resource: TerraformExportResource, isOpen: boolean): TerraformExportState {
+    const { currentTeamId } = useValues(teamLogic)
     const [state, setState] = useState<TerraformExportState>({
         loading: true,
         error: null,
@@ -185,12 +201,15 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
 
     const fetchAndGenerate = useCallback(
         async (res: TerraformExportResource, checkStale: () => boolean): Promise<TerraformExportResult> => {
-            if (res.type === 'dashboard') {
-                return exportDashboard(res.data, checkStale)
+            if (!currentTeamId) {
+                throw new Error('No project selected')
             }
-            return exportInsight(res.data, checkStale)
+            if (res.type === 'dashboard') {
+                return exportDashboard(res.data, checkStale, currentTeamId)
+            }
+            return exportInsight(res.data, checkStale, currentTeamId)
         },
-        []
+        [currentTeamId]
     )
 
     useEffect(() => {

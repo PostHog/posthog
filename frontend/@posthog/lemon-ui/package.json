@@ -1,8 +1,8 @@
 {
     "name": "@posthog/lemon-ui",
     "version": "0.0.0",
-    "license": "MIT",
     "homepage": "https://storybook.dev.posthog.dev/",
+    "license": "MIT",
     "source": "src/index.ts",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
@@ -10,15 +10,17 @@
         "build": "pnpm build:source && pnpm build:types && ls -lah dist/",
         "build:source": "echo \"Building source\" && node build.mjs",
         "build:types": "echo \"Building types\" && tsup src/index.ts --dts-only",
-        "prepublishOnly": "pnpm build"
+        "prepublishOnly": "pnpm build",
+        "typecheck": "tsc --noEmit",
+        "typecheck:tsgo": "tsgo --noEmit"
     },
     "dependencies": {
-        "kea": "^3.1.7",
+        "kea": "^4.0.0-pre.3",
         "kea-router": "^3.4.1"
     },
     "devDependencies": {
         "tsup": "^5.12.8",
-        "typescript": "5.2.2"
+        "typescript": "catalog:"
     },
     "peerDependencies": {
         "react": "*",

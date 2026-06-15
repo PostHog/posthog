@@ -1,37 +1,5 @@
-.TextCard,
-.InsightCard {
-    .handle {
-        position: absolute;
-        z-index: var(--z-raised);
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-
-        &.horizontal {
-            svg {
-                transform: rotate(90deg) translateX(0.75rem);
-            }
-        }
-
-        &.vertical {
-            flex-direction: column;
-
-            svg {
-                transform: translateX(0.5rem);
-            }
-        }
-
-        &.corner {
-            justify-content: flex-end;
-
-            svg {
-                transform: translate(0.5rem, 0.5rem);
-            }
-        }
-    }
+.DashboardTileCard {
+    min-height: 0;
 }
 
 .CardMeta {
@@ -67,6 +35,7 @@
     .CardMeta__primary {
         display: flex;
         width: 100%;
+        min-width: 0;
         padding: 1rem;
     }
 
@@ -85,9 +54,14 @@
         left: 0;
         max-height: 24rem;
         margin-top: -1px; // To cause overlap with the divider when closed
+        margin-right: -1px; // To align with the CardMeta borders
+        margin-left: -1px; // To align with the CardMeta borders
         overflow-y: auto;
         background: var(--color-bg-surface-primary);
-        border-bottom-width: 1px;
+        border-right: 1px solid var(--color-border-primary);
+        border-bottom: 1px solid var(--color-border-primary);
+        border-left: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
         transition:
             box-shadow 200ms ease,
             height 200ms ease,
@@ -96,6 +70,57 @@
         .CardMeta__details__content {
             overflow-y: auto;
             pointer-events: none;
+        }
+    }
+
+    &.CardMeta--compact {
+        container-type: inline-size;
+
+        .CardMeta__primary {
+            padding: 0.5rem 2.5rem 0.125rem 0.75rem;
+        }
+
+        .CardMeta__ribbon {
+            width: 0.25rem;
+            margin: 0 0.5rem 0.25rem -0.25rem;
+        }
+
+        .CardMeta__heading {
+            display: none;
+            font-family: var(--font-title);
+            font-size: 0.6875rem;
+            font-weight: 700;
+            line-height: 1rem;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .CardMeta__top {
+            height: auto;
+        }
+
+        .CardMeta__controls {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.75rem;
+        }
+
+        .CardMeta__divider {
+            margin: 0;
+            opacity: 1;
+        }
+
+        h4 {
+            height: auto;
+            margin: 0;
+        }
+
+        @container (min-width: 14rem) {
+            .CardMeta__heading {
+                // Let the top-heading row participate in CardMeta__top flex layout without an extra wrapper box.
+                display: contents;
+            }
         }
     }
 
@@ -146,6 +171,7 @@
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
+    min-width: 0;
     height: fit-content;
     min-height: 2rem;
 

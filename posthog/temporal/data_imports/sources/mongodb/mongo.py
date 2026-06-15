@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 import math
+import uuid
+import base64
 import contextlib
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 
 import certifi
-from bson import ObjectId
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+import structlog
+from bson import Binary, DatetimeMS, ObjectId
+from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -28,10 +34,83 @@ SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
 
 
+def _convert_binary(value: Binary) -> str:
+    """Convert a bson.Binary to a safe string representation.
+
+    Subtype 4 (standard UUID) is decoded to uuid.UUID by PyMongo's
+    uuidRepresentation=standard codec option before documents reach this helper,
+    so only legacy subtype 3 (16-byte UUIDs from older drivers) is handled here
+    as a UUID. Byte ordering may differ from the application's encoding but a
+    canonical string is preferable to a Python bytes repr, which is ambiguous
+    and unparseable in SQL. Any other subtype falls back to base64 so the raw
+    bytes round-trip safely.
+    """
+    if len(value) == 16 and value.subtype == 3:
+        return str(uuid.UUID(bytes=bytes(value)))
+    return base64.b64encode(bytes(value)).decode("ascii")
+
+
+def _convert_datetime_ms(value: DatetimeMS) -> Any:
+    """Convert a bson.DatetimeMS (used for out-of-range BSON datetimes under
+    DATETIME_AUTO) to a native datetime when possible, else None.
+
+    DATETIME_AUTO returns DatetimeMS only when the value cannot be represented
+    as a Python datetime (year <1 or >9999). In-range values arrive as
+    datetime directly and never enter this branch. Returning None for the
+    unrepresentable cases means a single malformed row does not fail the sync
+    and preserves nullability on downstream date columns.
+    """
+    # as_datetime uses the default codec (non-AUTO) and raises bson.errors.InvalidBSON
+    # on out-of-range values. We intentionally swallow any conversion failure —
+    # the helper's job is "represent as datetime or null" and we never want a
+    # malformed date to abort a sync.
+    try:
+        return value.as_datetime()
+    except Exception:
+        return None
+
+
+def _safe_doc_id_repr(doc: Any) -> str:
+    """Best-effort stringification of _id for logging purposes only. Must never raise."""
+    try:
+        return str(doc.get("_id"))
+    except Exception:
+        return "<unavailable>"
+
+
+def _process_doc_with_field_logging(
+    doc: dict[str, Any], collection_name: str, logger: FilteringBoundLogger
+) -> dict[str, Any]:
+    """Apply _process_nested_value to each top-level field. If conversion fails for
+    any field, log the collection, document _id, and field name to give the error a
+    precise location, then re-raise so the sync fails fast. We do NOT substitute
+    failed fields with None — silently nulling would hide data loss.
+    """
+    processed: dict[str, Any] = {}
+    for key, value in doc.items():
+        try:
+            processed[key] = _process_nested_value(value)
+        except Exception as e:
+            logger.exception(
+                f"MongoDB sync: failed to process field '{key}' in collection={collection_name} "
+                f"_id={_safe_doc_id_repr(doc)}: {type(e).__name__}: {e}",
+            )
+            raise
+    return processed
+
+
 def _process_nested_value(value: Any) -> Any:
-    """Process a nested value, converting ObjectIds to strings."""
+    """Process a nested value, converting ObjectIds/UUIDs/Binary to strings
+    and normalising out-of-range BSON datetimes to None."""
     if isinstance(value, ObjectId):
         return str(value)
+    # Binary must be checked before bytes — bson.Binary subclasses bytes.
+    elif isinstance(value, Binary):
+        return _convert_binary(value)
+    elif isinstance(value, uuid.UUID):
+        return str(value)
+    elif isinstance(value, DatetimeMS):
+        return _convert_datetime_ms(value)
     elif isinstance(value, dict):
         return {key: _process_nested_value(val) for key, val in value.items()}
     elif isinstance(value, list):
@@ -47,6 +126,30 @@ def get_indexes(collection: Collection) -> list[str]:
         return [field for index in index_cursor for field in index["key"].keys()]
     except Exception:
         return []
+
+
+def get_leading_index_keys(collection: Collection) -> set[str] | None:
+    """Return the set of fields that are the first key of any index.
+
+    `WHERE field >= last_max` queries are only accelerated by indexes whose
+    leading key is `field`; non-leading positions in compound indexes don't
+    support this access pattern. Returns None when index discovery fails so
+    the caller can default to no warning.
+    """
+    try:
+        index_cursor = collection.list_indexes()
+        result: set[str] = set()
+        for index in index_cursor:
+            keys = index.get("key")
+            if not keys:
+                continue
+            leading = next(iter(keys.keys()), None)
+            if leading is not None:
+                result.add(leading)
+        return result
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect leading index keys for MongoDB collection", exc_info=e)
+        return None
 
 
 def filter_mongo_incremental_fields(
@@ -65,6 +168,8 @@ def filter_mongo_incremental_fields(
             results.append((column_name, IncrementalFieldType.Timestamp))
         elif type == "integer":
             results.append((column_name, IncrementalFieldType.Integer))
+        elif type == "double":
+            results.append((column_name, IncrementalFieldType.Numeric))
         elif column_name == "_id" and type == "string":
             results.append((column_name, IncrementalFieldType.ObjectID))
 
@@ -96,11 +201,45 @@ def _build_query(
     return query
 
 
+def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
+    """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
+
+    Runs on every topology update (including SRV re-resolution), preventing
+    TOCTOU attacks where DNS records change after initial validation.
+    """
+
+    def selector(server_descriptions: list[ServerDescription]) -> list[ServerDescription]:
+        safe = []
+        for server in server_descriptions:
+            host = server.address[0]
+            is_safe, _ = _is_host_safe(host, team_id)
+            if is_safe:
+                safe.append(server)
+        return safe
+
+    return selector
+
+
 @contextlib.contextmanager
-def mongo_client(connection_string: str) -> Iterator[MongoClient]:
-    client: MongoClient = MongoClient(
-        connection_string, serverSelectionTimeoutMS=10000, tls=True, tlsCAFile=certifi.where()
-    )
+def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+    kwargs: dict[str, Any] = {
+        "serverSelectionTimeoutMS": 10000,
+        "tls": True,
+        "tlsCAFile": certifi.where(),
+        "server_selector": _make_safe_server_selector(team_id),
+        # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
+        # so UUID primary keys don't leak as Python bytes repr downstream.
+        # Subtype 3 stays as Binary under STANDARD and is handled in _convert_binary.
+        # MongoClient's uuidRepresentation kwarg rejects the UuidRepresentation enum
+        # and only accepts the lowercase string form, unlike datetime_conversion which
+        # accepts the DatetimeConversion enum directly.
+        "uuidRepresentation": "standard",
+        # Out-of-range dates (e.g. year 0, year > 9999) become DatetimeMS instead
+        # of raising InvalidBSON during cursor iteration. We then convert DatetimeMS
+        # to None in _process_nested_value so a single bad row doesn't fail the sync.
+        "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
+    }
+    client: MongoClient = MongoClient(connection_string, **kwargs)
     try:
         yield client
     finally:
@@ -137,8 +276,20 @@ def _get_partition_settings(
         return None
 
 
-def _parse_connection_string(connection_string: str) -> dict[str, Any]:
-    """Parse MongoDB connection string and extract connection parameters."""
+DATABASE_NAME_REQUIRED_ERROR = (
+    "Database name is required. Add it to your connection string "
+    "(e.g. ...mongodb.net/my_database) or fill in the Database name field."
+)
+
+
+def _parse_connection_string(connection_string: str, database_override: str | None = None) -> dict[str, Any]:
+    """Parse MongoDB connection string and extract connection parameters.
+
+    ``database_override`` is the value of the separate "Database name" field. Atlas
+    ``mongodb+srv://...`` strings routinely omit the database from the path, so we fall
+    back to the override when the string doesn't carry one — an explicit database in the
+    connection string still wins.
+    """
     from urllib.parse import parse_qs, urlparse
 
     # TODO require TLS
@@ -155,6 +306,8 @@ def _parse_connection_string(connection_string: str) -> dict[str, Any]:
     host = parsed.hostname or "localhost"
     port = parsed.port or (27017 if parsed.scheme == "mongodb" else None)
     database = parsed.path.lstrip("/") if parsed.path else None
+    if not database and database_override:
+        database = database_override.strip() or None
     user = parsed.username
     password = parsed.password
 
@@ -264,20 +417,26 @@ def _determine_field_type_from_bson_types(bson_types: list[str]) -> str:
     return "string"
 
 
-def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]:
+def get_schemas(
+    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
-    connection_params = _parse_connection_string(config.connection_string)
+    connection_params = _parse_connection_string(config.connection_string, config.database_name)
 
-    with mongo_client(config.connection_string) as client:
+    with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
-            raise ValueError("Database name is required in connection string")
+            raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
         db = client[connection_params["database"]]
         schema_list: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
 
         # Get collection names
         collection_names = db.list_collection_names(authorizedCollections=True)
+
+        if names is not None:
+            names_set = set(names)
+            collection_names = [n for n in collection_names if n in names_set]
 
         if not collection_names:
             return schema_list
@@ -292,11 +451,11 @@ def get_schemas(config: MongoDBSourceConfig) -> dict[str, list[tuple[str, str]]]
     return schema_list
 
 
-def get_collection_names(config: MongoDBSourceConfig) -> list[str]:
-    connection_params = _parse_connection_string(config.connection_string)
-    with mongo_client(config.connection_string) as client:
+def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]:
+    connection_params = _parse_connection_string(config.connection_string, config.database_name)
+    with mongo_client(config.connection_string, team_id=team_id) as client:
         if not connection_params["database"]:
-            raise ValueError("Database name is required in connection string")
+            raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
         db = client[connection_params["database"]]
         return db.list_collection_names(authorizedCollections=True)
 
@@ -321,18 +480,20 @@ def mongo_source(
     connection_string: str,
     collection_name: str,
     logger: FilteringBoundLogger,
+    team_id: int,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    database_name: Optional[str] = None,
 ) -> SourceResponse:
-    connection_params = _parse_connection_string(connection_string)
+    connection_params = _parse_connection_string(connection_string, database_name)
 
     if not connection_params["database"]:
-        raise ValueError("Database name is required in connection string")
+        raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
     # Create MongoDB client
-    with mongo_client(connection_string) as client:
+    with mongo_client(connection_string, team_id=team_id) as client:
         db = client[connection_params["database"]]
         collection = db[collection_name]
 
@@ -352,7 +513,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string) as read_client:
+        with mongo_client(connection_string, team_id=team_id) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 
@@ -366,21 +527,16 @@ def mongo_source(
             cursor = read_collection.find(query, batch_size=DEFAULT_CHUNK_SIZE)
 
             for doc in cursor:
-                # Convert ObjectId to string and handle nested objects
-                processed_doc = {}
+                # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
+                # values. _process_doc_with_field_logging logs the offending field name
+                # before re-raising, so any exception here fails the sync with precise
+                # diagnostic context rather than silently dropping rows.
+                processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
 
-                # Process the document to handle ObjectIds and nested structures
-                for key, value in doc.items():
-                    if isinstance(value, ObjectId):
-                        processed_doc[key] = str(value)
-                    elif isinstance(value, dict) or isinstance(value, list):
-                        # Keep nested objects as they are, but convert ObjectIds within them
-                        processed_doc[key] = _process_nested_value(value)
-                    else:
-                        processed_doc[key] = value
-
+                # Stringify _id so it's always a scalar string downstream,
+                # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
                 result: dict[str, Any] = {
-                    "_id": str(doc["_id"]),
+                    "_id": str(processed_doc["_id"]),
                 }
                 # extract incremental field from the document if it exists
                 if incremental_field:
@@ -393,7 +549,7 @@ def mongo_source(
 
                 yield result
 
-    name = NamingConvention().normalize_identifier(collection_name)
+    name = NamingConvention.normalize_identifier(collection_name)
 
     return SourceResponse(
         name=name,

@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -16,7 +16,6 @@ export const manifest: ProductManifest = {
             name: 'Endpoints',
             activityScope: 'Endpoints',
             layout: 'app-container',
-            defaultDocsPath: '/docs/endpoints',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
         },
@@ -29,12 +28,17 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
-        '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
         '/endpoints/:name': ['EndpointScene', 'endpoint'],
     },
     urls: {
         endpoints: (): string => '/endpoints',
-        endpoint: (name: string): string => `/endpoints/${name}`,
+        endpoint: (name: string, version?: number): string => {
+            const searchParams: Record<string, string> = {}
+            if (version) {
+                searchParams.version = String(version)
+            }
+            return combineUrl(`/endpoints/${name}`, searchParams).url
+        },
         endpointsUsage: (params?: {
             endpointFilter?: string[]
             dateFrom?: string
@@ -44,7 +48,7 @@ export const manifest: ProductManifest = {
             breakdownBy?: string
         }): string => {
             if (!params) {
-                return '/endpoints/usage'
+                return '/endpoints?tab=usage'
             }
             const searchParams: Record<string, string> = {}
             if (params.endpointFilter?.length) {
@@ -65,7 +69,7 @@ export const manifest: ProductManifest = {
             if (params.breakdownBy) {
                 searchParams.breakdownBy = params.breakdownBy
             }
-            return combineUrl('/endpoints/usage', searchParams).url
+            return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
         },
     },
     fileSystemTypes: {
@@ -82,11 +86,10 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: 'Unreleased',
+            category: ProductItemCategory.TOOLS,
             href: urls.endpoints(),
             type: 'endpoints',
             flag: FEATURE_FLAGS.ENDPOINTS,
-            tags: ['beta'],
             iconType: 'endpoints',
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             sceneKey: 'EndpointsScene',
@@ -95,13 +98,13 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Endpoints',
-            category: 'Unreleased',
+            category: 'Tools',
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
             flag: FEATURE_FLAGS.ENDPOINTS,
-            tags: ['beta'],
+            sceneKeys: ['EndpointsScene', 'EndpointScene'],
         },
     ],
 }

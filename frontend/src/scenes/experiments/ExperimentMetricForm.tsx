@@ -4,6 +4,8 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -12,7 +14,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { urls } from 'scenes/urls'
 
@@ -36,10 +37,13 @@ import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConve
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
-import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
-import { commonActionFilterProps } from './Metrics/Selectors'
+import {
+    ExperimentMetricOutlierHandling,
+    ExperimentRatioMetricOutlierHandling,
+} from './ExperimentMetricOutlierHandling'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
+import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
     getDefaultExperimentMetric,
@@ -95,15 +99,19 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     {
         key: 'timestamp_field',
         label: 'Timestamp Field',
+        description: 'The column in your data warehouse table that contains the timestamp of each row',
     },
     {
         key: 'data_warehouse_join_key',
         label: 'Data Warehouse Join Key',
+        description:
+            'The column in your data warehouse table that identifies which user each row belongs to (e.g. user_id, email)',
         allowHogQL: true,
     },
     {
         key: 'events_join_key',
         label: 'Events Join Key',
+        description: 'The field on PostHog events to match against the data warehouse join key (usually distinct_id)',
         allowHogQL: true,
         hogQLOnly: true,
         tableName: 'events',
@@ -123,12 +131,14 @@ export function ExperimentMetricForm({
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
     exposureCriteria?: ExperimentExposureCriteria | undefined
-    openExposureCriteriaModal?: (() => void) | null
+    openExposureCriteriaModal?: (exposureCriteria?: ExperimentExposureCriteria) => void
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
+
+    const isExperimentFunnelDWHSupport = useFeatureFlag('EXPERIMENT_FUNNEL_DWH_SUPPORT')
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -179,11 +189,23 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
-                newMetric.series = sources.filter(
-                    (s): s is ExperimentFunnelMetricStep =>
-                        s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
-                )
+                // Filter sources based on feature flag support
+                if (isExperimentFunnelDWHSupport) {
+                    // Include all supported types including DataWarehouseNode
+                    newMetric.series = sources.filter(
+                        (s): s is ExperimentFunnelMetricStep =>
+                            s &&
+                            (s.kind === NodeKind.EventsNode ||
+                                s.kind === NodeKind.ActionsNode ||
+                                s.kind === NodeKind.ExperimentDataWarehouseNode)
+                    )
+                } else {
+                    // Legacy: only support EventsNode and ActionsNode
+                    newMetric.series = sources.filter(
+                        (s): s is ExperimentFunnelMetricStep =>
+                            s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
+                    )
+                }
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
@@ -275,7 +297,7 @@ export function ExperimentMetricForm({
                         exposureCriteria && openExposureCriteriaModal
                             ? {
                                   size: 'xsmall',
-                                  onClick: () => openExposureCriteriaModal(),
+                                  onClick: () => openExposureCriteriaModal(exposureCriteria),
                                   icon: <IconPencil />,
                                   tooltip: 'Edit exposure criteria',
                               }
@@ -294,6 +316,7 @@ export function ExperimentMetricForm({
                             </>
                         )}
                         <Tooltip
+                            docLink="https://posthog.com/docs/experiments/exposures"
                             title={
                                 <div className="space-y-2">
                                     <p>
@@ -305,9 +328,6 @@ export function ExperimentMetricForm({
                                             ? 'The exposure event is shared across all metrics in this experiment.'
                                             : 'The exposure event will be configured at the experiment level and shared across all metrics.'}
                                     </p>
-                                    <Link to="https://posthog.com/docs/experiments/exposures">
-                                        Learn more in the docs
-                                    </Link>
                                 </div>
                             }
                         >
@@ -364,11 +384,17 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        // Data warehouse is not supported for funnel metrics - enforced at schema level
-                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
-                            (type) => type !== 'data_warehouse'
-                        )}
+                        actionsTaxonomicGroupTypes={
+                            isExperimentFunnelDWHSupport
+                                ? commonActionFilterProps.actionsTaxonomicGroupTypes
+                                : commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
+                                      (type) => type !== 'data_warehouse'
+                                  )
+                        }
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
+                        dataWarehousePopoverFields={
+                            isExperimentFunnelDWHSupport ? dataWarehousePopoverFields : undefined
+                        }
                     />
                 )}
 
@@ -609,7 +635,7 @@ export function ExperimentMetricForm({
                             { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
                         ]}
                     />
-                    <div className="text-muted text-sm">
+                    <div className="text-muted text-xs mt-1">
                         For example, conversion rates should increase, while bounce rates should decrease.
                     </div>
                 </div>
@@ -626,6 +652,12 @@ export function ExperimentMetricForm({
             {isExperimentMeanMetric(metric) && (
                 <>
                     <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
+            )}
+            {isExperimentRatioMetric(metric) && (
+                <>
+                    <ExperimentRatioMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
                     <SceneDivider />
                 </>
             )}

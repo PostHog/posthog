@@ -5,10 +5,10 @@ from posthog.test.base import APIBaseTest
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile, Text
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestDashboardTileModel(APIBaseTest):
@@ -46,3 +46,19 @@ class TestDashboardTileModel(APIBaseTest):
                     text = Text.objects.create(team=self.team, body="I am a text")
                     tile = DashboardTile.objects.create(dashboard=self.dashboard, text=text, **invalid_text_tile_field)
                     tile.clean()
+
+    def test_save_auto_derives_team_id_from_dashboard(self) -> None:
+        insight = Insight.objects.create(team=self.team, short_id="autoderive", name="autoderive")
+        tile = DashboardTile(dashboard=self.dashboard, insight=insight)
+        # team is unset before save
+        self.assertIsNone(tile.team_id)
+        tile.save()
+        # save() copies dashboard.team_id onto the tile so HogQL queries scoped
+        # by `WHERE team_id = X` find this row.
+        self.assertEqual(tile.team_id, self.dashboard.team_id)
+
+    def test_save_does_not_overwrite_explicit_team_id(self) -> None:
+        insight = Insight.objects.create(team=self.team, short_id="explicit", name="explicit")
+        tile = DashboardTile(dashboard=self.dashboard, insight=insight, team_id=self.team.id)
+        tile.save()
+        self.assertEqual(tile.team_id, self.team.id)

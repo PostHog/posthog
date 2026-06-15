@@ -1,19 +1,22 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import type React from 'react'
 
 import { IconTrending, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage, humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { WebAnalyticsItemKind } from '~/queries/schema/schema-general'
+
+export const NO_BASELINE_CHANGE_SENTINEL = 999999
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
@@ -33,6 +36,12 @@ export interface OverviewItem {
     isIncreaseBad?: boolean
     warning?: string
     warningLink?: string
+    /** Optional human-readable description rendered under the value. Only shown when no trend is present. */
+    caption?: string
+    /** Click handler. When set, the cell renders as a button and shows a pointer cursor. */
+    onClick?: () => void
+    /** Render with the highlighted/active appearance — e.g. when this tile drives an active filter. */
+    selected?: boolean
 }
 
 export interface SamplingRate {
@@ -46,6 +55,8 @@ interface OverviewGridProps {
     numSkeletons: number
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
+    usedLazyPrecompute?: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
@@ -57,6 +68,8 @@ export function OverviewGrid({
     numSkeletons,
     samplingRate,
     usedPreAggregatedTables = false,
+    usedLazyPrecompute = false,
+    onDisablePrecompute,
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
@@ -81,19 +94,28 @@ export function OverviewGrid({
                               key={item.key}
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
+                              usedLazyPrecompute={usedLazyPrecompute}
+                              onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
                           />
                       ))}
             </EvenlyDistributedRows>
-            {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
-                <LemonBanner type="info" className="my-4">
-                    These results are using a sampling factor of {samplingRate.numerator}
-                    <span>{(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}</span>. Sampling
-                    is currently in beta.
-                </LemonBanner>
-            ) : null}
+            <SamplingNotice samplingRate={samplingRate} />
         </>
+    )
+}
+
+export function SamplingNotice({ samplingRate }: { samplingRate?: SamplingRate }): JSX.Element | null {
+    if (!samplingRate || (samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1)) {
+        return null
+    }
+    return (
+        <LemonBanner type="info" className="my-4">
+            These results are using a sampling factor of {samplingRate.numerator}
+            <span>{(samplingRate.denominator ?? 1) !== 1 ? `/${samplingRate.denominator}` : ''}</span>. Sampling is
+            currently in beta.
+        </LemonBanner>
     )
 }
 
@@ -125,6 +147,8 @@ const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Elemen
 interface OverviewItemCellProps {
     item: OverviewItem
     usedPreAggregatedTables: boolean
+    usedLazyPrecompute: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     compact: boolean
 }
@@ -132,6 +156,8 @@ interface OverviewItemCellProps {
 const OverviewItemCell = ({
     item,
     usedPreAggregatedTables,
+    usedLazyPrecompute,
+    onDisablePrecompute,
     labelFromKey,
     compact,
 }: OverviewItemCellProps): JSX.Element => {
@@ -140,7 +166,7 @@ const OverviewItemCell = ({
     const label = labelFromKey(item.key)
 
     const trend =
-        isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) < 999999
+        isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) < NO_BASELINE_CHANGE_SENTINEL
             ? item.changeFromPreviousPct === 0
                 ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
                 : item.changeFromPreviousPct > 0
@@ -159,7 +185,7 @@ const OverviewItemCell = ({
         isNotNil(item.value) &&
         isNotNil(item.previous) &&
         isNotNil(item.changeFromPreviousPct) &&
-        Math.abs(item.changeFromPreviousPct) < 999999
+        Math.abs(item.changeFromPreviousPct) < NO_BASELINE_CHANGE_SENTINEL
             ? item.value === 0 && item.previous === 0
                 ? `${label}: No change (0 in both periods)`
                 : Math.abs(item.changeFromPreviousPct) < 1
@@ -172,61 +198,110 @@ const OverviewItemCell = ({
                         item.kind,
                         { precise: true, currency: baseCurrency }
                     )}`
-            : isNotNil(item.value) && isNotNil(item.previous) && Math.abs(item.changeFromPreviousPct || 0) >= 999999
+            : isNotNil(item.value) &&
+                isNotNil(item.previous) &&
+                Math.abs(item.changeFromPreviousPct || 0) >= NO_BASELINE_CHANGE_SENTINEL
               ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} (was 0 in previous period)`
               : isNotNil(item.value)
                 ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
                 : 'No data'
 
+    const clickable = !!item.onClick
+    const handleClick = clickable
+        ? (event: React.MouseEvent) => {
+              event.stopPropagation()
+              item.onClick?.()
+          }
+        : undefined
+    const handleKeyDown = clickable
+        ? (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  item.onClick?.()
+              }
+          }
+        : undefined
+
     return (
-        <Tooltip title={tooltip}>
-            <div
-                className={clsx(
-                    compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT,
-                    'relative'
-                )}
-            >
-                {usedPreAggregatedTables && <PreAggregatedBadge />}
-                <div className="flex flex-row w-full justify-center items-center gap-1">
-                    <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>{label}</div>
-                    {item.warning && (
-                        <Tooltip
-                            title={
-                                <div>
-                                    {item.warning}
-                                    {item.warningLink && (
-                                        <>
-                                            {' '}
-                                            <Link to={item.warningLink} className="text-link">
-                                                Learn more
-                                            </Link>
-                                        </>
-                                    )}
-                                </div>
-                            }
+        <div
+            className={clsx(
+                'flex-1 border bg-surface-primary rounded relative transition-colors',
+                compact ? 'min-w-[6rem] h-24' : 'min-w-[10rem] h-30',
+                item.selected && 'border-accent ring-1 ring-accent',
+                clickable && 'cursor-pointer hover:border-accent'
+            )}
+            onClick={handleClick}
+            onKeyDown={handleKeyDown}
+            role={clickable ? 'button' : undefined}
+            tabIndex={clickable ? 0 : undefined}
+            aria-pressed={clickable ? !!item.selected : undefined}
+        >
+            {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
+                does not also surface the cell's metric tooltip. */}
+            {usedLazyPrecompute ? (
+                <PreAggregatedBadge variant="precomputed" onDisable={onDisablePrecompute} />
+            ) : usedPreAggregatedTables ? (
+                <PreAggregatedBadge variant="preagg" />
+            ) : null}
+            <Tooltip title={tooltip}>
+                <div
+                    className={clsx(
+                        'flex flex-col items-center text-center justify-between w-full h-full',
+                        compact ? 'p-1' : 'p-2'
+                    )}
+                >
+                    <div className="flex flex-row w-full justify-center items-center gap-1">
+                        <div className={`uppercase py-0.5 ${compact ? 'text-[10px]' : 'text-xs font-bold'}`}>
+                            {label}
+                        </div>
+                        {item.warning && (
+                            <Tooltip
+                                interactive={!!item.warningLink}
+                                title={
+                                    <div>
+                                        {item.warning}
+                                        {item.warningLink && (
+                                            <>
+                                                {' '}
+                                                <Link to={item.warningLink} className="text-link">
+                                                    Learn more
+                                                </Link>
+                                            </>
+                                        )}
+                                    </div>
+                                }
+                            >
+                                <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
+                            </Tooltip>
+                        )}
+                    </div>
+                    <div className="w-full flex-1 flex items-center justify-center">
+                        <div className={compact ? 'text-lg' : 'text-2xl'}>
+                            {formatItem(item.value, item.kind, { currency: baseCurrency })}
+                        </div>
+                    </div>
+                    {trend && isNotNil(item.changeFromPreviousPct) ? (
+                        // eslint-disable-next-line react/forbid-dom-props
+                        <div style={{ color: trend.color }}>
+                            <trend.Icon color={trend.color} />
+                            {formatPercentage(item.changeFromPreviousPct)}
+                        </div>
+                    ) : isNotNil(item.changeFromPreviousPct) &&
+                      Math.abs(item.changeFromPreviousPct) >= NO_BASELINE_CHANGE_SENTINEL ? (
+                        <div className="text-muted">-</div>
+                    ) : item.caption ? (
+                        <div
+                            className={clsx('text-secondary truncate max-w-full', compact ? 'text-[10px]' : 'text-xs')}
+                            title={item.caption}
                         >
-                            <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
-                        </Tooltip>
+                            {item.caption}
+                        </div>
+                    ) : (
+                        <div />
                     )}
                 </div>
-                <div className="w-full flex-1 flex items-center justify-center">
-                    <div className={compact ? 'text-lg' : 'text-2xl'}>
-                        {formatItem(item.value, item.kind, { currency: baseCurrency })}
-                    </div>
-                </div>
-                {trend && isNotNil(item.changeFromPreviousPct) ? (
-                    // eslint-disable-next-line react/forbid-dom-props
-                    <div style={{ color: trend.color }}>
-                        <trend.Icon color={trend.color} />
-                        {formatPercentage(item.changeFromPreviousPct)}
-                    </div>
-                ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
-                    <div className="text-muted">-</div>
-                ) : (
-                    <div />
-                )}
-            </div>
-        </Tooltip>
+            </Tooltip>
+        </div>
     )
 }
 
@@ -237,7 +312,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
+export const formatItem = (
     value: number | string | undefined,
     kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }

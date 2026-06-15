@@ -30,8 +30,8 @@ from ee.hogai.eval.offline.snapshot_loader import SnapshotLoader
 from ee.hogai.eval.schema import DatasetInput, EvalsDockerImageConfig
 
 
-@pytest.fixture(scope="package")
-def dagster_context() -> Generator[PipesContext, None, None]:
+@pytest.fixture(scope="session")
+def dagster_context() -> Generator[PipesContext]:
     with open_dagster_pipes() as context:
         yield context
 
@@ -115,12 +115,12 @@ class EvaluationContext(BaseModel):
         )
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def eval_ctx(
     set_up_evals,  # noqa: F811
     dagster_context: PipesContext,
     django_db_blocker,
-) -> Generator[EvaluationContext, None, None]:
+) -> Generator[EvaluationContext]:
     """
     Script that restores dumped Django models and patches AI query runners.
     Creates teams with team_id=project_id for the same single user and organization,

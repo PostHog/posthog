@@ -9,29 +9,33 @@ from celery.schedules import crontab
 
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
-from posthog.tasks.alerts.checks import (
-    alerts_backlog_task,
-    check_alerts_task,
-    checks_cleanup_task,
-    reset_stuck_alerts_task,
+from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
+from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
+from posthog.tasks.email import (
+    send_error_tracking_weekly_digest,
+    send_hog_functions_daily_digest,
+    send_matview_failure_digest,
 )
-from posthog.tasks.email import send_hog_functions_daily_digest
-from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
 from posthog.tasks.hypercache_verification import (
+    verify_and_fix_flag_definitions_cache_task,
+    verify_and_fix_flag_definitions_without_cohorts_cache_task,
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
 from posthog.tasks.integrations import refresh_integrations
-from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
+from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
+    capture_task_run_state_metrics,
     check_async_migration_health,
     check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
+    clear_expired_sessions,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
     clickhouse_materialize_columns,
@@ -39,18 +43,17 @@ from posthog.tasks.tasks import (
     clickhouse_part_count,
     clickhouse_row_count,
     clickhouse_send_license_usage,
-    count_items_in_playlists,
+    delete_expired_delegation_invites,
     delete_expired_exported_assets,
     find_flags_with_enriched_analytics,
     ingestion_lag,
+    kill_stale_queued_task_runs,
     pg_plugin_server_query_timing,
-    pg_row_count,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
     refresh_activity_log_fields_cache,
-    replay_count_metrics,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
@@ -59,19 +62,37 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
-    verify_persons_data_in_sync,
 )
-from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
+from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
+from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.feature_flags.backend.tasks import (
+    cleanup_stale_flag_definitions_expiry_tracking_task,
+    cleanup_stale_flags_expiry_tracking_task,
+    compute_feature_flag_metrics,
+    feature_flags_local_eval_canary_task,
+    refresh_expiring_flag_definitions_cache_entries,
+    refresh_expiring_flags_cache_entries,
+)
+from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.streamlit_apps.backend.facade.api import (
+    auto_restart_crashed_streamlit_sandboxes,
+    cleanup_deleted_streamlit_app_zips,
+    cleanup_expired_streamlit_oauth_tokens,
+    prune_old_streamlit_app_versions,
+    stop_idle_streamlit_sandboxes,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
 # Organizations with delayed data ingestion that need delayed usage report re-runs
 # This is a temporary solution until we switch event usage queries from timestamp to created_at
 DELAYED_ORGS_EU: list[str] = [
+    "018beddd-5eb1-0000-7953-5a5b982e80bf",
     "01975ab3-7ec5-0000-9751-a89cbc971419",
 ]
 DELAYED_ORGS_US: list[str] = []
@@ -152,21 +173,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     if not settings.DEBUG:
         sender.add_periodic_task(10, redis_celery_queue_depth.s(), name="10 sec queue probe")
 
+    sender.add_periodic_task(
+        60,
+        capture_task_run_state_metrics.s(),
+        name="tasks run state metrics",
+    )
+
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
-    sender.add_periodic_task(20, start_poll_query_performance.s(), name="20 sec query performance heartbeat")
+    sender.add_periodic_task(
+        QueryStatusManager.POLL_INTERVAL_SECONDS,
+        start_poll_query_performance.s(),
+        name="query performance heartbeat",
+    )
 
     sender.add_periodic_task(
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
-    )
-
-    # Team access cache warming - every 10 minutes
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        warm_all_team_access_caches_task.s(),
-        name="warm team access caches",
     )
 
     # Team metadata cache sync - hourly
@@ -183,6 +206,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="team metadata expiry tracking cleanup",
     )
 
+    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
+    sender.add_periodic_task(
+        crontab(hour="*", minute="5"),
+        refresh_expiring_llm_gateway_policy_cache_entries.s(),
+        name="llm-gateway policy cache sync",
+    )
+
+    # Stale QUEUED task run cleanup - hourly
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="0"),
+        kill_stale_queued_task_runs.s(),
+        name="kill stale queued task runs",
+    )
+
     # Flags cache sync - hourly
     sender.add_periodic_task(
         crontab(hour="*", minute="15"),
@@ -197,8 +235,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flags cache expiry tracking cleanup",
     )
 
-    # HyperCache verification - split into separate tasks for independent time budgets
-    # Tasks have 1-hour time limits, so expiry must match
+    # Feature flag metrics for Grafana dashboards - hourly at minute 30
+    sender.add_periodic_task(
+        crontab(hour="*", minute="30"),
+        compute_feature_flag_metrics.s(),
+        name="compute feature flag metrics",
+    )
+
+    # Flag definitions cache refresh - hourly at minute 35
+    sender.add_periodic_task(
+        crontab(hour="*", minute="35"),
+        refresh_expiring_flag_definitions_cache_entries.s(),
+        name="refresh expiring flag definitions cache entries",
+    )
+
+    # Flag definitions cache expiry tracking cleanup - daily at 3:30 AM
+    sender.add_periodic_task(
+        crontab(hour="3", minute="30"),
+        cleanup_stale_flag_definitions_expiry_tracking_task.s(),
+        name="flag definitions cache expiry tracking cleanup",
+    )
+
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
@@ -216,6 +273,46 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         verify_and_fix_flags_cache_task.s(),
         name="verify and fix flags cache",
         expires_seconds=30 * 60,
+    )
+
+    # Verify flag definitions cache without cohorts - hourly at minute 10
+    # Minute 10 reduces the likelihood of overlapping with team_metadata verification at minute 20 and helps spread load.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="10"),
+        verify_and_fix_flag_definitions_without_cohorts_cache_task.s(),
+        name="verify and fix flag definitions cache (without cohorts)",
+        expires_seconds=60 * 60,
+    )
+
+    # Flag definitions cache verification (with cohorts) - hourly at minute 50
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="50"),
+        verify_and_fix_flag_definitions_cache_task.s(),
+        name="verify and fix flag definitions cache (with cohorts)",
+        expires_seconds=60 * 60,
+    )
+
+    # Feature flags local-eval canary - every 5 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        feature_flags_local_eval_canary_task.s(),
+        name="feature flags local-eval canary",
+        expires_seconds=5 * 60,
+    )
+
+    # Auth token cache verification - every 6 hours at minute 40
+    # Verifies per-token auth cache entries against the database,
+    # deleting stale entries that signal-based invalidation may have missed.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*/6", minute="40"),
+        verify_and_fix_auth_token_cache_task.s(),
+        name="verify and fix auth token cache",
+        # expires_seconds omitted — defaults to 1.5x interval (9 h) so the safety-net
+        # task survives moderate worker downtime without being dropped.
     )
 
     # Update events table partitions twice a week
@@ -240,10 +337,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="send delayed org usage reports",
         )
 
-    # Send LLM Analytics usage reports daily at 4:15 AM UTC
+    # Send AI observability usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(
         crontab(hour="4", minute="15"),
-        send_llm_analytics_usage_reports.s(),
+        send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
     )
 
@@ -254,10 +351,27 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send HogFunctions daily digest",
     )
 
-    # PostHog Cloud cron jobs
-    # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
-    # Verify that persons data is in sync every day at 4 AM UTC
-    sender.add_periodic_task(crontab(hour="4", minute="0"), verify_persons_data_in_sync.s())
+    # Send Error Tracking weekly digest at 8:30 AM UTC on Monday
+    sender.add_periodic_task(
+        crontab(hour="8", minute="30", day_of_week="mon"),
+        send_error_tracking_weekly_digest.s(),
+        name="send Error Tracking weekly digest",
+    )
+
+    # Send materialized view failure digest daily at morning local time per region
+    cloud_deployment = (settings.CLOUD_DEPLOYMENT or "").upper()
+    if cloud_deployment == "EU":
+        matview_digest_hour = "8"
+    elif cloud_deployment == "US":
+        matview_digest_hour = "14"
+    else:
+        matview_digest_hour = "9"
+
+    sender.add_periodic_task(
+        crontab(hour=matview_digest_hour, minute="0"),
+        send_matview_failure_digest.s(),
+        name="send matview failure digest",
+    )
 
     # Every 30 minutes, send decide request counts to the main posthog instance
     sender.add_periodic_task(
@@ -279,6 +393,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # sender.add_periodic_task(crontab(day_of_week="mon,thu", hour="5", minute="0"), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour="0", minute="0"), clean_stale_partials.s())
+
+    # Clear expired Django sessions daily at 4 AM
+    sender.add_periodic_task(
+        crontab(hour="4", minute="0"),
+        clear_expired_sessions.s(),
+        name="clear expired sessions",
+    )
 
     # Sync all Organization.available_product_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute="30", hour="*"), sync_all_organization_available_product_features.s())
@@ -316,12 +437,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/2"),
-        pg_row_count.s(),
-        name="PG tables row counts",
-    )
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/2"),
         pg_table_cache_hit_rate.s(),
         name="PG table cache hit rate",
     )
@@ -352,13 +467,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         process_scheduled_changes.s(),
         name="process scheduled changes",
-    )
-
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="*", minute="0"),
-        replay_count_metrics.s(),
-        name="replay_count_metrics",
     )
 
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
@@ -400,27 +508,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="*/2"),
-        check_alerts_task.s(),
-        name="check_alerts_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/12"),
-        alerts_backlog_task.s(),
-        name="alerts_backlog_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/15"),
-        reset_stuck_alerts_task.s(),
-        name="reset_stuck_alerts_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="8", minute="0"),
-        checks_cleanup_task.s(),
-        name="clean up old alert checks",
+        crontab(hour="8", minute="15"),
+        logs_alert_events_cleanup_task.s(),
+        name="clean up old logs alert events",
     )
 
     if settings.EE_AVAILABLE:
@@ -442,14 +532,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 name="clickhouse materialize columns",
             )
 
-        if playlist_counter_crontab := get_crontab(settings.PLAYLIST_COUNTER_SCHEDULE_CRON):
-            sender.add_periodic_task(
-                playlist_counter_crontab,
-                count_items_in_playlists.s(),
-                name="ee_count_items_in_playlists",
-                expires=3600,
-            )
-
         sender.add_periodic_task(
             crontab(minute="0", hour="*"),
             check_flags_to_rollback.s(),
@@ -469,6 +551,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
+        # Daily cleanup of expired onboarding delegation invites. `pre_delete` re-enables
+        # the delegator's onboarding, so a missed sweep strands delegators on the "waiting
+        # for teammate" screen forever.
+        sender.add_periodic_task(
+            crontab(hour="1", minute=str(randrange(0, 40))),
+            delete_expired_delegation_invites.s(),
+            name="delete expired delegation invites",
+        )
+
+        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="0"),
+            cleanup_old_scim_request_logs.s(),
+            name="clean up old SCIM request logs",
+        )
+
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(
         sender,
@@ -481,6 +581,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/5"),
+        sync_js_snippet_manifest.s(),
+        name="sync posthog-js snippet manifest",
     )
 
     sender.add_periodic_task(
@@ -506,4 +612,63 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="0"),
         deactivate_stale_materializations.s(),
         name="deactivate stale endpoint materializations",
+    )
+
+    # Hard-delete expired test saved queries and their downstream objects
+    sender.add_periodic_task(
+        crontab(hour="3", minute="30"),
+        cleanup_expired_test_saved_queries.s(),
+        name="cleanup expired test saved queries",
+    )
+
+    # Reopen snoozed conversation tickets whose snooze period has expired
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        wake_snoozed_tickets.s(),
+        name="wake snoozed conversation tickets",
+    )
+
+    # Re-drive queued outbound support email replies (survives a multi-day email provider outage)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        flush_pending_email_replies.s(),
+        name="flush pending conversation email replies",
+    )
+    # Delete expired Streamlit bridge OAuth tokens.
+    sender.add_periodic_task(
+        # Hourly because tokens have a 1-hour TTL and every connect_info
+        # call mints a fresh one.
+        crontab(hour="*", minute="55"),
+        cleanup_expired_streamlit_oauth_tokens.s(),
+        name="cleanup expired streamlit oauth tokens",
+    )
+
+    # Hard-delete S3 zips for Streamlit apps past their soft-delete retention.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="10"),
+        cleanup_deleted_streamlit_app_zips.s(),
+        name="cleanup deleted streamlit app zips",
+    )
+
+    # Stop streamlit sandboxes left idle past their inactivity window.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        stop_idle_streamlit_sandboxes.s(),
+        name="stop idle streamlit sandboxes",
+    )
+
+    # Restart streamlit sandboxes that died on their own (Modal TTL timeout).
+    sender.add_periodic_task(
+        crontab(minute="*"),
+        auto_restart_crashed_streamlit_sandboxes.s(),
+        name="auto restart crashed streamlit sandboxes",
+    )
+
+    # Prune non-active streamlit app versions past their retention window.
+    sender.add_periodic_task(
+        crontab(hour="3", minute="0"),
+        prune_old_streamlit_app_versions.s(),
+        name="prune old streamlit app versions",
     )

@@ -1,16 +1,21 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	jlexer "github.com/mailru/easyjson/jlexer"
 	jwriter "github.com/mailru/easyjson/jwriter"
+	"github.com/posthog/posthog/livestream/bot"
+	"github.com/posthog/posthog/livestream/configs"
 	"github.com/posthog/posthog/livestream/geo"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
@@ -96,6 +101,7 @@ type PostHogEventWrapper struct {
 	Ip         string         `json:"ip"`
 	Data       string         `json:"data"`
 	Token      string         `json:"token"`
+	Timestamp  string         `json:"timestamp"`
 }
 
 //easyjson:json
@@ -105,10 +111,17 @@ type PostHogEvent struct {
 	Properties map[string]interface{} `json:"properties"`
 	Timestamp  interface{}            `json:"timestamp,omitempty"`
 
-	Uuid       string
-	DistinctId string
-	Lat        float64
-	Lng        float64
+	Uuid        string
+	DistinctId  string
+	Lat         float64
+	Lng         float64
+	CountryCode string
+
+	// Bot classification (populated by bot.Classifier)
+	IsBot           bool
+	TrafficType     string
+	TrafficCategory string
+	BotName         string
 }
 
 type KafkaConsumerInterface interface {
@@ -118,29 +131,37 @@ type KafkaConsumerInterface interface {
 }
 
 type PostHogKafkaConsumer struct {
-	consumer     KafkaConsumerInterface
-	topic        string
-	geolocator   geo.GeoLocator
-	incoming     chan []byte
-	outgoingChan chan PostHogEvent
-	statsChan    chan CountEvent
-	parallel     int
+	consumer       KafkaConsumerInterface
+	topic          string
+	geolocator     geo.GeoLocator
+	botClassifier  *bot.Classifier
+	incoming       chan []byte
+	outgoingChan   chan PostHogEvent
+	statsChan      chan CountEvent
+	parallel       int
+	Broker         *RedisEventBroker
+	// Shared across all runParsing goroutines so the log cadence is global,
+	// not per-worker. The Prometheus counter is already global; this keeps
+	// the log line consistent with it.
+	droppedNoToken atomic.Uint64
 }
 
 func NewPostHogKafkaConsumer(
-	brokers string, securityProtocol string, groupID string, topic string, geolocator geo.GeoLocator,
+	consumerConfig configs.ConsumerConfig,
+	geolocator geo.GeoLocator,
 	outgoingChan chan PostHogEvent, statsChan chan CountEvent, parallel int) (*PostHogKafkaConsumer, error) {
 
 	config := &kafka.ConfigMap{
-		"bootstrap.servers":          brokers,
-		"group.id":                   groupID,
+		"bootstrap.servers":          consumerConfig.Brokers,
+		"group.id":                   consumerConfig.GroupID,
 		"auto.offset.reset":          "latest",
 		"enable.auto.commit":         false,
-		"security.protocol":          securityProtocol,
+		"security.protocol":          consumerConfig.SecurityProtocol,
 		"fetch.message.max.bytes":    1_000_000_000,
 		"fetch.max.bytes":            1_000_000_000,
 		"queued.max.messages.kbytes": 2_000_000,
 	}
+	applyKafkaConfigOverrides(config, consumerConfig)
 
 	consumer, err := kafka.NewConsumer(config)
 	if err != nil {
@@ -148,25 +169,35 @@ func NewPostHogKafkaConsumer(
 	}
 
 	return &PostHogKafkaConsumer{
-		consumer:     consumer,
-		topic:        topic,
-		geolocator:   geolocator,
-		incoming:     make(chan []byte, (1+parallel)*100),
-		outgoingChan: outgoingChan,
-		statsChan:    statsChan,
-		parallel:     parallel,
+		consumer:      consumer,
+		topic:         consumerConfig.Topic,
+		geolocator:    geolocator,
+		botClassifier: bot.NewClassifier(),
+		incoming:      make(chan []byte, (1+parallel)*100),
+		outgoingChan:  outgoingChan,
+		statsChan:     statsChan,
+		parallel:      parallel,
 	}, nil
 }
 
-func (c *PostHogKafkaConsumer) Consume() {
-	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
-		// TODO capture error to PostHog
-		log.Fatalf("Failed to subscribe to topic: %v", err)
+func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
+	rebalanceCallback := func(consumer *kafka.Consumer, event kafka.Event) error {
+		if _, ok := event.(kafka.AssignedPartitions); ok {
+			log.Printf("✅ Livestream service ready")
+		}
+		return nil
+	}
+
+	topics := splitTopics(c.topic)
+	if err := c.consumer.SubscribeTopics(topics, rebalanceCallback); err != nil {
+		log.Fatalf("Failed to subscribe to topics: %v", err)
 	}
 
 	for i := 0; i < c.parallel; i++ {
-		go c.runParsing()
+		go c.runParsing(ctx)
 	}
+
+	var msgCount, timeoutCount uint64
 
 	for {
 		msg, err := c.consumer.ReadMessage(15 * time.Second)
@@ -177,6 +208,10 @@ func (c *PostHogKafkaConsumer) Consume() {
 					metrics.ConnectFailure.Inc()
 				} else if inErr.IsTimeout() {
 					metrics.TimeoutConsume.Inc()
+					timeoutCount++
+					if timeoutCount == 1 || timeoutCount%60 == 0 {
+						log.Printf("Events consumer: %d timeouts so far (topic: %s)", timeoutCount, c.topic)
+					}
 					continue
 				}
 			}
@@ -185,31 +220,69 @@ func (c *PostHogKafkaConsumer) Consume() {
 			continue
 		}
 
+		msgCount++
 		metrics.MsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+		if msgCount <= 5 || msgCount%10000 == 0 {
+			log.Printf("Events message #%d: partition=%d, offset=%d",
+				msgCount, msg.TopicPartition.Partition, msg.TopicPartition.Offset)
+		}
 		c.incoming <- msg.Value
 	}
 }
 
-func (c *PostHogKafkaConsumer) runParsing() {
+func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 	for {
 		value, ok := <-c.incoming
 		if !ok {
 			return
 		}
-		phEvent := parse(c.geolocator, value)
-		c.outgoingChan <- phEvent
-		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
+		phEvent := parse(c.geolocator, c.botClassifier, value)
+		if phEvent.Token == "" {
+			metrics.EventsDroppedNoToken.Inc()
+			n := c.droppedNoToken.Add(1)
+			if n <= 5 || n%10000 == 0 {
+				log.Printf("Events dropped (no token): count=%d", n)
+			}
+			continue
+		}
+		// Blocking send: matches session_recording_consumer's policy so
+		// stats stay in sync with delivered events. statsChan is buffered
+		// at 10K (see main.go); a sustained full channel signals a real
+		// problem with the stats keeper that we want to back-pressure on,
+		// not silently swallow.
+		select {
+		case c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}:
+		case <-ctx.Done():
+			return
+		}
+		if c.Broker != nil {
+			c.Broker.Publish(ctx, phEvent)
+		} else {
+			select {
+			case c.outgoingChan <- phEvent:
+			case <-ctx.Done():
+				return
+			}
+		}
 	}
 }
 
-func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
+func parse(geolocator geo.GeoLocator, classifier *bot.Classifier, kafkaMessage []byte) PostHogEvent {
 	var wrapperMessage PostHogEventWrapper
 	if err := json.Unmarshal(kafkaMessage, &wrapperMessage); err != nil {
 		log.Printf("Error decoding JSON %s: %v", err, string(kafkaMessage))
 	}
 
+	if wrapperMessage.Timestamp != "" {
+		if eventTime, err := time.Parse(time.RFC3339Nano, wrapperMessage.Timestamp); err == nil {
+			if lag := time.Since(eventTime).Seconds(); lag >= 0 {
+				metrics.EventLagHistogram.Observe(lag)
+			}
+		}
+	}
+
 	phEvent := PostHogEvent{
-		Timestamp:  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		Timestamp:  wrapperMessage.Timestamp,
 		Token:      "",
 		Event:      "",
 		Properties: make(map[string]interface{}),
@@ -243,15 +316,63 @@ func parse(geolocator geo.GeoLocator, kafkaMessage []byte) PostHogEvent {
 	}
 
 	if ipStr != "" {
-		var err error
-		phEvent.Lat, phEvent.Lng, err = geolocator.Lookup(ipStr)
-		if err != nil && err.Error() != "invalid IP address" { // An invalid IP address is not an error on our side
-			// TODO capture error to PostHog
-			_ = err
+		geoResult, err := geolocator.Lookup(ipStr)
+		if err != nil {
+			metrics.GeoIPLookupFailures.Inc()
+		}
+		phEvent.Lat = geoResult.Latitude
+		phEvent.Lng = geoResult.Longitude
+		phEvent.CountryCode = geoResult.CountryCode
+	}
+
+	if classifier != nil && shouldClassifyBot(phEvent.Event) {
+		userAgent := extractUserAgent(phEvent.Properties)
+		if userAgent != "" {
+			result := classifier.Classify(userAgent)
+			phEvent.IsBot = result.IsBot
+			phEvent.TrafficType = result.TrafficType
+			phEvent.TrafficCategory = result.TrafficCategory
+			phEvent.BotName = result.BotName
+			// Inject $virt_* properties so they flow through both the
+			// in-memory filter and the Redis pub/sub path.
+			if result.TrafficType != "" {
+				phEvent.Properties["$virt_is_bot"] = result.IsBot
+				phEvent.Properties["$virt_traffic_type"] = result.TrafficType
+				phEvent.Properties["$virt_traffic_category"] = result.TrafficCategory
+				if result.BotName != "" {
+					phEvent.Properties["$virt_bot_name"] = result.BotName
+				}
+			}
 		}
 	}
 
 	return phEvent
+}
+
+var botClassifyEvents = map[string]bool{
+	"$pageview":  true,
+	"$pageleave": true,
+	"$screen":    true,
+	"$http_log":  true,
+	"$autocapture": true,
+}
+
+func shouldClassifyBot(event string) bool {
+	return botClassifyEvents[event]
+}
+
+func extractUserAgent(props map[string]interface{}) string {
+	if uaValue, ok := props["$user_agent"]; ok {
+		if ua, ok := uaValue.(string); ok && ua != "" {
+			return ua
+		}
+	}
+	if rawUA, ok := props["$raw_user_agent"]; ok {
+		if ua, ok := rawUA.(string); ok && ua != "" {
+			return ua
+		}
+	}
+	return ""
 }
 
 func (c *PostHogKafkaConsumer) Close() {
@@ -264,4 +385,29 @@ func (c *PostHogKafkaConsumer) Close() {
 
 func (c *PostHogKafkaConsumer) IncomingRatio() float64 {
 	return float64(len(c.incoming)) / float64(cap(c.incoming))
+}
+
+func applyKafkaConfigOverrides(config *kafka.ConfigMap, consumerConfig configs.ConsumerConfig) {
+	if consumerConfig.ClientID != "" {
+		_ = config.SetKey("client.id", consumerConfig.ClientID)
+	}
+	if consumerConfig.SessionTimeoutMs > 0 {
+		_ = config.SetKey("session.timeout.ms", consumerConfig.SessionTimeoutMs)
+	}
+	if consumerConfig.HeartbeatIntervalMs > 0 {
+		_ = config.SetKey("heartbeat.interval.ms", consumerConfig.HeartbeatIntervalMs)
+	}
+	if consumerConfig.MaxPollIntervalMs > 0 {
+		_ = config.SetKey("max.poll.interval.ms", consumerConfig.MaxPollIntervalMs)
+	}
+}
+
+func splitTopics(topic string) []string {
+	out := make([]string, 0, 2)
+	for p := range strings.SplitSeq(topic, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

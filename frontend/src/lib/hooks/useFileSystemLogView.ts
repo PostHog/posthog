@@ -1,6 +1,9 @@
-import { DependencyList, useEffect } from 'react'
+import { useEffect } from 'react'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+
+import { isSharedView } from '~/exporter/exporterViewLogic'
+import { recentItemsModel } from '~/models/recentItemsModel'
 
 type FileSystemLogViewType =
     | 'experiment'
@@ -23,20 +26,24 @@ interface TrackFileSystemLogViewOptions {
     enabled?: boolean
 }
 
-export interface UseFileSystemLogViewOptions extends TrackFileSystemLogViewOptions {
-    deps: DependencyList
-}
-
 export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
-    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined) {
+    if (
+        !enabled ||
+        window.IMPERSONATED_SESSION ||
+        isSharedView() ||
+        ref === null ||
+        ref === undefined ||
+        !ApiConfig.hasCurrentTeamId()
+    ) {
         return
     }
 
+    recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
     void api.fileSystemLogView.create({ type, ref: String(ref) })
 }
 
-export function useFileSystemLogView({ deps, ...options }: UseFileSystemLogViewOptions): void {
+export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
     useEffect(() => {
-        trackFileSystemLogView(options)
-    }, deps)
+        trackFileSystemLogView({ type, ref, enabled })
+    }, [type, ref, enabled])
 }

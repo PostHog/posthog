@@ -32,11 +32,11 @@ import pytz
 import pymssql
 import structlog
 
-from posthog.temporal.data_imports.sources.mssql.mssql import _get_table_average_row_size, _get_table_stats
+from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -114,7 +114,7 @@ def mssql_config() -> dict[str, Any]:
 
 
 @pytest.fixture
-def mssql_connection(mssql_config: dict[str, Any]) -> Generator[pymssql.Connection, None, None]:
+def mssql_connection(mssql_config: dict[str, Any]) -> Generator[pymssql.Connection]:
     with pymssql.connect(
         server=mssql_config["host"],
         port=mssql_config["port"],
@@ -136,9 +136,7 @@ def _insert_test_data(cursor: pymssql.Cursor, table_name: str, data: list[tuple[
 
 
 @pytest.fixture
-def mssql_source_table(
-    mssql_connection: pymssql.Connection, mssql_config: dict[str, Any]
-) -> Generator[pymssql.Cursor, None, None]:
+def mssql_source_table(mssql_connection: pymssql.Connection, mssql_config: dict[str, Any]) -> Generator[pymssql.Cursor]:
     """Create a MS SQL Server table with test data and clean it up after the test."""
     with mssql_connection.cursor() as cursor:
         full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
@@ -150,7 +148,7 @@ def mssql_source_table(
                     SELECT *
                     FROM sys.tables t
                     JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE s.name = '{mssql_config['schema']}'
+                    WHERE s.name = '{mssql_config["schema"]}'
                     AND t.name = '{MSSQL_TABLE_NAME}'
                 )
                 BEGIN
@@ -456,14 +454,12 @@ class TestGetTableAverageRowSize:
         We don't assert the average row size here as it's hard to determine and is likely to be flaky.  We do this instead
         in another test below.
         """
-        average_row_size = _get_table_average_row_size(
+        average_row_size = MSSQLImplementation().fetch_average_row_size(
             cursor=mssql_source_table,
             schema=mssql_config["schema"],
             table_name=MSSQL_TABLE_NAME,
-            should_use_incremental_field=False,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
+            inner_query="",
+            inner_query_args={},
             logger=structlog.get_logger(),
         )
 
@@ -485,14 +481,12 @@ class TestGetTableAverageRowSize:
         We don't assert the average row size here as it's hard to determine and is likely to be flaky.  We do this instead
         in another test below.
         """
-        average_row_size = _get_table_average_row_size(
+        average_row_size = MSSQLImplementation().fetch_average_row_size(
             cursor=mssql_source_table,
             schema=mssql_config["schema"],
             table_name=MSSQL_TABLE_NAME,
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            incremental_field_type=IncrementalFieldType.DateTime,
-            db_incremental_field_last_value=None,
+            inner_query="",
+            inner_query_args={},
             logger=structlog.get_logger(),
         )
 
@@ -507,7 +501,7 @@ class TestGetTableAverageRowSize:
         self,
         mssql_connection: pymssql.Connection,
         mssql_config: dict[str, Any],
-    ) -> Generator[pymssql.Cursor, None, None]:
+    ) -> Generator[pymssql.Cursor]:
         """Create a MS SQL Server table with deterministic row size and clean it up after the test."""
         with mssql_connection.cursor() as cursor:
             full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
@@ -519,7 +513,7 @@ class TestGetTableAverageRowSize:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = '{MSSQL_TABLE_NAME}'
                     )
                     BEGIN
@@ -559,14 +553,12 @@ class TestGetTableAverageRowSize:
 
         To do this, we test using a table with a known row size so we can assert the average row size is correct.
         """
-        average_row_size = _get_table_average_row_size(
+        average_row_size = MSSQLImplementation().fetch_average_row_size(
             cursor=mssql_source_table_known_row_size,
             schema=mssql_config["schema"],
             table_name=MSSQL_TABLE_NAME,
-            should_use_incremental_field=False,
-            incremental_field=None,
-            incremental_field_type=None,
-            db_incremental_field_last_value=None,
+            inner_query="",
+            inner_query_args={},
             logger=structlog.get_logger(),
         )
 
@@ -583,7 +575,7 @@ class TestGetTableStats:
         self,
         mssql_connection: pymssql.Connection,
         mssql_config: dict[str, Any],
-    ) -> Generator[pymssql.Cursor, None, None]:
+    ) -> Generator[pymssql.Cursor]:
         """Create a small test table with known size and row count."""
         with mssql_connection.cursor() as cursor:
             full_table_name = f"[{mssql_config['schema']}].[test_small]"
@@ -595,7 +587,7 @@ class TestGetTableStats:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = 'test_small'
                     )
                     BEGIN
@@ -634,7 +626,7 @@ class TestGetTableStats:
         self,
         mssql_connection: pymssql.Connection,
         mssql_config: dict[str, Any],
-    ) -> Generator[pymssql.Cursor, None, None]:
+    ) -> Generator[pymssql.Cursor]:
         """Create an empty test table."""
         with mssql_connection.cursor() as cursor:
             full_table_name = f"[{mssql_config['schema']}].[test_empty]"
@@ -646,7 +638,7 @@ class TestGetTableStats:
                         SELECT *
                         FROM sys.tables t
                         JOIN sys.schemas s ON t.schema_id = s.schema_id
-                        WHERE s.name = '{mssql_config['schema']}'
+                        WHERE s.name = '{mssql_config["schema"]}'
                         AND t.name = 'test_empty'
                     )
                     BEGIN
@@ -675,16 +667,18 @@ class TestGetTableStats:
         We test using a table with exactly 1000 rows of small integers,
         so we can make some assertions about the size and row count.
         """
-        total_rows, total_bytes = _get_table_stats(
+        stats = MSSQLImplementation().fetch_table_stats(
             cursor=mssql_small_table,
             schema=mssql_config["schema"],
             table_name="test_small",
+            logger=structlog.get_logger(),
         )
 
-        assert total_rows == 1000  # We inserted exactly 1000 rows
+        assert stats is not None
+        assert stats.row_count == 1000  # We inserted exactly 1000 rows
         # Size should be around 32KB
-        assert total_bytes > 30 * 1024
-        assert total_bytes < 34 * 1024
+        assert stats.table_size_bytes > 30 * 1024
+        assert stats.table_size_bytes < 34 * 1024
 
     async def test_get_table_stats_empty_table(
         self,
@@ -695,11 +689,13 @@ class TestGetTableStats:
 
         An empty table should return 0 rows and 0 bytes.
         """
-        total_rows, total_bytes = _get_table_stats(
+        stats = MSSQLImplementation().fetch_table_stats(
             cursor=mssql_empty_table,
             schema=mssql_config["schema"],
             table_name="test_empty",
+            logger=structlog.get_logger(),
         )
 
-        assert total_rows == 0
-        assert total_bytes == 0
+        # Empty table has 0 rows; size may be 0 (fetch_table_stats returns None)
+        # or non-zero bytes (returns TableStats with row_count == 0).
+        assert stats is None or stats.row_count == 0

@@ -2,35 +2,50 @@ from datetime import datetime
 from pathlib import Path
 
 from freezegun import freeze_time
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
     DataWarehouseEventsModifier,
     DataWarehouseNode,
     DataWarehousePersonPropertyFilter,
+    DataWarehousePropertyFilter,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
+    MultipleBreakdownType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -137,7 +152,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     timestamp_field="created",
                     distinct_id_field="customer_email",
-                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+                    properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
                 )
             ],
         )
@@ -150,7 +165,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     def _avg_view_setup(self, function_name: str):
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -214,7 +229,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+            properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
         )
 
         with freeze_time("2023-01-07"):
@@ -260,6 +275,124 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
+
+    def test_trends_single_item_multi_breakdown(self):
+        table_name = self.setup_data_warehouse()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="prop_1", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 4
+        # `breakdown_value` is a list under multi-breakdown, even when there's only one entry —
+        # this exercises the list-vs-string handling in `build_series_response`/`format_results`.
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        assert [r["breakdown_value"] for r in breakdown_results] == [["a"], ["b"], ["c"], ["d"]]
+        assert [r["data"] for r in breakdown_results] == [
+            [1, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0],
+        ]
+
+    def test_trends_single_item_multi_breakdown_boolean_field(self):
+        # Regression test: a length-1 multi-breakdown over a Bool column previously raised
+        # `TypeError: unhashable type: 'list'` in `_convert_boolean`, since the breakdown value
+        # comes through as a list (e.g. `[True]`) rather than a scalar.
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "trends_data_bool.csv",
+            table_name="test_table_bool",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "bool_prop": {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table.name,
+                    table_name=table.name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="bool_prop", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 2
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        # Boolean values are remapped to "true"/"false" strings, but `breakdown_value` stays a list
+        # so it remains consistent with the non-boolean multi-breakdown shape.
+        assert [r["breakdown_value"] for r in breakdown_results] == [["false"], ["true"]]
+        # The series label is the "::"-joined string form, mirroring the frontend.
+        assert [r["label"] for r in breakdown_results] == ["false", "true"]
+
+    @parameterized.expand(
+        [
+            ("legacy_bool", "Bool", True),
+            ("legacy_nullable_bool", "Nullable(Bool)", True),
+            ("legacy_string", "String", False),
+            ("introspected_bool", {"clickhouse": "Bool", "hogql": "BooleanDatabaseField"}, True),
+        ]
+    )
+    def test_data_warehouse_breakdown_field_boolean_detection_supports_column_metadata_shapes(
+        self, _name: str, column_metadata: str | dict[str, str], expected: bool
+    ) -> None:
+        DataWarehouseTable.objects.create(
+            name="test_table_bool_metadata",
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"bool_prop": column_metadata},
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="test_table_bool_metadata",
+                    table_name="test_table_bool_metadata",
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown="bool_prop",
+                breakdown_type=BreakdownType.DATA_WAREHOUSE,
+            ),
+        )
+
+        assert TrendsQueryRunner(team=self.team, query=trends_query)._is_breakdown_filter_field_boolean() is expected
 
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
@@ -337,46 +470,9 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
 
-    def test_trends_breakdown_with_events_join_experiments_optimized(self):
-        table_name = self.setup_data_warehouse()
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="prop_1",
-            joining_table_name="events",
-            joining_table_key="distinct_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "created"},
-        )
-
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    distinct_id_field="prop_1",
-                    timestamp_field="created",
-                )
-            ],
-            filterTestAccounts=True,
-            interval="day",
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-        )
-
-        with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
-
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view(self):
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -417,7 +513,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view_with_date_timestamp(self):
-        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -471,7 +567,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     distinct_id_field="customer_email",
                     timestamp_field="created",
-                    properties=clean_entity_properties([{"key": "prop_1", "value": "a", "type": "data_warehouse"}]),
+                    properties=[DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT)],
                 )
             ],
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_1"),
@@ -545,18 +641,12 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     timestamp_field="created",
                 )
             ],
-            properties=clean_entity_properties(
-                [
-                    {"key": "prop_1", "value": "a", "operator": "exact", "type": "data_warehouse"},
-                    {"key": "prop_2", "value": "e", "operator": "exact", "type": "data_warehouse"},
-                    {
-                        "key": "prop_1",
-                        "value": "a",
-                        "operator": "exact",
-                        "type": "event",
-                    },  # This should be ignored for DW queries
-                ]
-            ),
+            properties=[
+                DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
+                DataWarehousePropertyFilter(key="prop_2", value="e", operator=PropertyOperator.EXACT),
+                EventPropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
+                # TODO: This should raise a validation error
+            ],
         )
 
         with freeze_time("2023-01-07"):
@@ -680,3 +770,183 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         with freeze_time("2023-01-07"):
             TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_trends_with_date32_timestamp_column(self):
+        table, _source, _credential, _df, self.cleanUpDataWarehouse = create_data_warehouse_table_from_csv(
+            csv_path=Path(__file__).parent / "data" / "date32_timestamp_test.csv",
+            table_name="test_date32_table",
+            table_columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "timestamp_date32": {"clickhouse": "Date32", "hogql": "DateDatabaseField"},
+                "revenue_amount": {"clickhouse": "Float64", "hogql": "FloatDatabaseField"},
+                "currency_code": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            test_bucket=TEST_BUCKET,
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table.name,
+                    table_name=table.name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="timestamp_date32",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        # 3 of 5 rows have timestamps in range (2023-01-01, 2023-01-02, 2023-01-04)
+        # 2 rows have 1970-01-01 which is outside the date range
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 3
+        # Verify the specific days that have data
+        days_with_data = [
+            (day, count) for day, count in zip(response.results[0]["days"], response.results[0]["data"]) if count > 0
+        ]
+        assert days_with_data == [("2023-01-01", 1), ("2023-01-02", 1), ("2023-01-04", 1)]
+
+    @parameterized.expand(
+        [
+            (
+                "matching_filter",
+                ["1"],
+                # Person with email=a links to DWH row where prop_1=a, which has id=1
+                # Filter on id=1 should match
+                1,
+            ),
+            (
+                "non_matching_filter",
+                ["false"],
+                # No DWH row has id="false", so filter excludes all events
+                0,
+            ),
+        ]
+    )
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_trends_dwh_person_property_filter_values(self, _name, filter_value, expected_count):
+        table_name = self.setup_data_warehouse()
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="prop_1",
+            field_name=table_name,
+        )
+
+        _create_person(
+            distinct_ids=["1"],
+            team_id=self.team.pk,
+            properties={"email": "a"},
+        )
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2022-12-01 00:00:00",
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        DataWarehousePersonPropertyFilter(
+                            key=f"{table_name}.id", operator=PropertyOperator.EXACT, value=filter_value
+                        )
+                    ],
+                ),
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count
+
+    def test_trends_breakdown_by_warehouse_person_property_with_empty_columns(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="farm_size_table",
+            columns={},
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="farm_size_table",
+            joining_table_key="user_email",
+            field_name="farm_size",
+        )
+
+        _create_person(distinct_ids=["1"], team=self.team, properties={"email": "test@example.com"})
+        _create_event(distinct_id="1", event="$pageview", timestamp="2023-01-01 00:00:00", team=self.team)
+        flush_persons_and_events()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-07"),
+            series=[EventsNode(event="$pageview", math="dau")],
+            breakdownFilter=BreakdownFilter(
+                breakdown="farm_size.size_range",
+                breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY,
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            with self.assertRaises(ExposedHogQLError):
+                TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+    def test_trends_breakdown_by_warehouse_person_property_with_missing_column(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="farm_size_table",
+            columns={
+                "user_email": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+            },
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name="farm_size_table",
+            joining_table_key="user_email",
+            field_name="farm_size",
+        )
+
+        _create_person(distinct_ids=["1"], team=self.team, properties={"email": "test@example.com"})
+        _create_event(distinct_id="1", event="$pageview", timestamp="2023-01-01 00:00:00", team=self.team)
+        flush_persons_and_events()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-07"),
+            series=[EventsNode(event="$pageview", math="dau")],
+            breakdownFilter=BreakdownFilter(
+                breakdown="farm_size.size_range",
+                breakdown_type=BreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY,
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            with self.assertRaises(ExposedHogQLError):
+                TrendsQueryRunner(team=self.team, query=trends_query).calculate()

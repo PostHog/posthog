@@ -1,22 +1,31 @@
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
+
 interface ZendeskSourceSetupPromptProps {
     children: React.ReactNode
     className?: string
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
-export function ZendeskSourceSetupPrompt({ children, className }: ZendeskSourceSetupPromptProps): JSX.Element {
-    const { hasZendeskSource, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
+export function ZendeskSourceSetupPrompt({
+    children,
+    className,
+    attachTo,
+}: ZendeskSourceSetupPromptProps): JSX.Element {
+    const builtDataWarehouseSettingsLogic = sourceManagementLogic()
+    const { hasZendeskSource, dataWarehouseSourcesLoading } = useValues(builtDataWarehouseSettingsLogic)
+    useAttachedLogic(builtDataWarehouseSettingsLogic, attachTo)
 
     return dataWarehouseSourcesLoading ? (
         <div className="flex justify-center">

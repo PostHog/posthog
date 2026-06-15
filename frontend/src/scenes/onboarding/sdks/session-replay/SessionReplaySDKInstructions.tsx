@@ -1,93 +1,143 @@
 import {
-    AndroidInstructions,
-    AngularInstructions,
-    AstroInstructions,
-    BubbleInstructions,
-    FlutterInstructions,
-    FramerInstructions,
-    HTMLSnippetInstructions,
-    JSWebInstructions,
-    NextJSInstructions,
-    NuxtJSInstructions,
-    RNInstructions,
-    ReactInstructions,
-    RemixInstructions,
-    SvelteInstructions,
-    VueInstructions,
-    WebflowInstructions,
-    iOSInstructions,
-} from '.'
+    AndroidInstallation,
+    AngularInstallation,
+    AstroInstallation,
+    BubbleInstallation,
+    FlutterInstallation,
+    FramerInstallation,
+    IOSInstallation,
+    NextJSInstallation,
+    NuxtInstallation,
+    ReactInstallation,
+    ReactNativeInstallation,
+    ReactRouterInstallation,
+    RemixInstallation,
+    SessionReplayFinalSteps,
+    SvelteInstallation,
+    VueInstallation,
+    WebflowInstallation,
+    WebInstallation,
+} from '@posthog/shared-onboarding/session-replay'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
+import { SDKInstructionsMap, SDKKey } from '~/types'
 
-import { OnboardingStepKey, SDKInstructionsMap, SDKKey } from '~/types'
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
+import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
-export const SessionReplaySDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: JSWebInstructions,
-    [SDKKey.HTML_SNIPPET]: HTMLSnippetInstructions,
-    [SDKKey.ANGULAR]: AngularInstructions,
-    [SDKKey.ASTRO]: AstroInstructions,
-    [SDKKey.BUBBLE]: BubbleInstructions,
-    [SDKKey.FRAMER]: FramerInstructions,
-    [SDKKey.NEXT_JS]: NextJSInstructions,
-    [SDKKey.NUXT_JS]: NuxtJSInstructions,
-    [SDKKey.REACT]: ReactInstructions,
-    [SDKKey.REMIX]: RemixInstructions,
-    [SDKKey.TANSTACK_START]: ReactInstructions,
-    [SDKKey.SVELTE]: SvelteInstructions,
-    [SDKKey.VITE]: ReactInstructions,
-    [SDKKey.VUE_JS]: VueInstructions,
-    [SDKKey.WEBFLOW]: WebflowInstructions,
-    [SDKKey.IOS]: iOSInstructions,
-    [SDKKey.ANDROID]: AndroidInstructions,
-    [SDKKey.REACT_NATIVE]: RNInstructions,
-    [SDKKey.FLUTTER]: FlutterInstructions,
+// Re-exported for back-compat: callers used to import these from this file.
+export { AdvertiseMobileReplay, type AdvertiseMobileReplayContext } from './AdvertiseMobileReplay'
+
+const SNIPPETS = {
+    ...JS_WEB_SNIPPETS,
+    SessionReplayFinalSteps,
 }
 
-export function AdvertiseMobileReplay({
-    context,
-    sdkKey,
-}: {
-    context: 'product-analytics-onboarding' | 'flags-onboarding'
-    sdkKey: SDKKey
-}): JSX.Element {
-    let platform = 'Mobile'
-    switch (sdkKey) {
-        case SDKKey.ANDROID:
-            platform = 'Android'
-            break
-        case SDKKey.IOS:
-            platform = 'iOS'
-            break
-        case SDKKey.REACT_NATIVE:
-            platform = 'React-Native'
-            break
-        case SDKKey.FLUTTER:
-            platform = 'Flutter'
-            break
-    }
+// JS Web SDKs
+const SessionReplayWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
+    snippets: SNIPPETS,
+})
 
-    return (
-        <div>
-            <LemonDivider className="my-8" />
-            <LemonBanner type="info">
-                <h3>
-                    Session Replay for {platform} <LemonTag type="highlight">NEW</LemonTag>
-                </h3>
-                <div>
-                    Session replay is now in general availability for {platform}.{' '}
-                    <Link
-                        to={urls.onboarding('session_replay', OnboardingStepKey.INSTALL, sdkKey)}
-                        data-attr={`${context}-${platform.toLowerCase()}-replay-cta`}
-                    >
-                        Learn how to set it up
-                    </Link>
-                </div>
-            </LemonBanner>
-        </div>
-    )
+// Frontend frameworks
+const SessionReplayReactInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'React',
+})
+const SessionReplayNextJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NextJSInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Next.js',
+})
+const SessionReplaySvelteInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SvelteInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Svelte',
+})
+const SessionReplayAstroInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AstroInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Astro',
+})
+const SessionReplayAngularInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AngularInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Angular',
+})
+const SessionReplayVueInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VueInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Vue',
+})
+const SessionReplayNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: NuxtInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
+})
+const SessionReplayReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
+})
+const SessionReplayRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RemixInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
+})
+
+// Website builders
+const SessionReplayBubbleInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: BubbleInstallation,
+    snippets: SNIPPETS,
+})
+const SessionReplayFramerInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FramerInstallation,
+    snippets: SNIPPETS,
+})
+const SessionReplayWebflowInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebflowInstallation,
+    snippets: SNIPPETS,
+})
+
+// Mobile SDKs
+const SessionReplayAndroidInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AndroidInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Android',
+})
+const SessionReplayIOSInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: IOSInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'Swift',
+})
+const SessionReplayFlutterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FlutterInstallation,
+    snippets: SNIPPETS,
+})
+const SessionReplayRNInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactNativeInstallation,
+    snippets: SNIPPETS,
+    wizardIntegrationName: 'React Native',
+})
+
+export const SessionReplaySDKInstructions: SDKInstructionsMap = {
+    [SDKKey.JS_WEB]: SessionReplayWebInstructionsWrapper,
+    [SDKKey.ANGULAR]: SessionReplayAngularInstructionsWrapper,
+    [SDKKey.ASTRO]: SessionReplayAstroInstructionsWrapper,
+    [SDKKey.BUBBLE]: SessionReplayBubbleInstructionsWrapper,
+    [SDKKey.FRAMER]: SessionReplayFramerInstructionsWrapper,
+    [SDKKey.NEXT_JS]: SessionReplayNextJSInstructionsWrapper,
+    [SDKKey.NUXT_JS]: SessionReplayNuxtJSInstructionsWrapper,
+    [SDKKey.REACT]: SessionReplayReactInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: SessionReplayReactRouterInstructionsWrapper,
+    [SDKKey.REMIX]: SessionReplayRemixJSInstructionsWrapper,
+    [SDKKey.TANSTACK_START]: SessionReplayReactInstructionsWrapper,
+    [SDKKey.SVELTE]: SessionReplaySvelteInstructionsWrapper,
+    [SDKKey.VITE]: SessionReplayReactInstructionsWrapper,
+    [SDKKey.VUE_JS]: SessionReplayVueInstructionsWrapper,
+    [SDKKey.WEBFLOW]: SessionReplayWebflowInstructionsWrapper,
+    [SDKKey.IOS]: SessionReplayIOSInstructionsWrapper,
+    [SDKKey.ANDROID]: SessionReplayAndroidInstructionsWrapper,
+    [SDKKey.REACT_NATIVE]: SessionReplayRNInstructionsWrapper,
+    [SDKKey.FLUTTER]: SessionReplayFlutterInstructionsWrapper,
 }

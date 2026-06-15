@@ -6,13 +6,12 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
-import posthog, { PostHog } from 'posthog-js'
-import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { hashCodeForString, identifierToHuman } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { identifierToHuman } from 'lib/utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
+import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
 
@@ -30,7 +29,17 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadBilling', // Gracefully handled if it fails
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
+    'loadSimilarIssues', // Gracefully handled in the similar issues list
+    'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
 ]
+
+/*
+Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
+reach the backend), not application bugs, so we still toast the user a retryable failure but
+don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
+issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
+*/
+const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -77,7 +86,7 @@ export function initKea({
                 return addProjectIdIfMissing(path)
             },
             pathFromWindowToRoutes: (path) => {
-                return removeProjectIdIfPresent(path)
+                return stripTrailingSlash(removeProjectIdIfPresent(path))
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
@@ -85,11 +94,13 @@ export function initKea({
                 // This state is persisted into window.history
                 const logic = sceneLogic.findMounted()
                 if (logic) {
+                    // Strip sceneParams etc. — they are not JSON-safe and break structuredClone (cyclic/deep graphs)
+                    const tabs = getTabsSnapshotForHistory(logic.values.tabs)
                     if (typeof structuredClone !== 'undefined') {
-                        return { tabs: structuredClone(logic.values.tabs) }
+                        return { tabs: structuredClone(tabs) }
                     }
                     // structuredClone fails in jest for some reason, despite us being on the right versions
-                    return { tabs: JSON.parse(JSON.stringify(logic.values.tabs)) || [] }
+                    return { tabs: JSON.parse(JSON.stringify(tabs)) || [] }
                 }
                 return undefined
             },
@@ -97,6 +108,12 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
+                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
+                // condition already suppresses the toast for load actions, and write actions
+                // get a toast with the read-only `detail` as the message. The
+                // `posthog.captureException` event is dropped by the central
+                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
@@ -108,11 +125,12 @@ export function initKea({
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =
                         error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
+                    const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
                     }
-                    if (isTwoFactorError) {
+                    if (isTwoFactorError || isSensitiveActionError) {
                         errorMessage = null
                     }
                     if (errorMessage) {
@@ -122,36 +140,14 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                    posthog.captureException(error)
+                }
             },
         }),
         subscriptionsPlugin,
         waitForPlugin,
     ]
-
-    if (window.APP_STATE_LOGGING_SAMPLE_RATE) {
-        try {
-            const ph: PostHog | undefined = window.posthog
-            const session_id = ph?.get_session_id()
-            const sample_rate = parseFloat(window.APP_STATE_LOGGING_SAMPLE_RATE)
-            if (session_id) {
-                const sessionIdHash = hashCodeForString(session_id)
-                if (sessionIdHash % 100 < sample_rate * 100) {
-                    window.JS_KEA_VERBOSE_LOGGING = true
-                }
-            }
-        } catch (e) {
-            window.posthog.captureException(e)
-        }
-    }
-    // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
-    // to explicitly disable the logging, run localStorage.setItem("ph-kea-debug", false)
-    const localStorageLoggingFlag = 'localStorage' in window && window.localStorage.getItem('ph-kea-debug')
-    const localStorageDisablesLogging = localStorageLoggingFlag === 'false'
-    const localStorageEnablesLogging = localStorageLoggingFlag === 'true'
-    if (!localStorageDisablesLogging && (localStorageEnablesLogging || window.JS_KEA_VERBOSE_LOGGING)) {
-        plugins.push(posthogKeaLogger())
-    }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
         // oxlint-disable-next-line no-console

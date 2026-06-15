@@ -30,8 +30,29 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
+export const CONFIDENCE_LEVEL_OPTIONS = [
+    { value: 0.9, label: '90%' },
+    { value: 0.95, label: '95%' },
+    { value: 0.99, label: '99%' },
+]
+
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
 export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
+
+// CUPED lookback window (days)
+export const DEFAULT_LOOKBACK_DAYS = 14
+export const MIN_LOOKBACK_DAYS = 1
+export const MAX_LOOKBACK_DAYS = 30
+
+export const DEFAULT_MDE = 30
+
+// Autorefresh constants
+export const EXPERIMENT_MIN_REFRESH_INTERVAL_MINUTES = 5
+export const EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800 // 30 min
+
+// Mirrors EXPERIMENT_RECALCULATION_MAX_AGE_DAYS in posthog/temporal/experiments/activities.py
+export const EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
+
 export const CONCLUSION_DISPLAY_CONFIG: Record<
     ExperimentConclusion,
     { title: string; description: string; color: string }
@@ -52,7 +73,7 @@ export const CONCLUSION_DISPLAY_CONFIG: Record<
         color: 'bg-warning',
     },
     [ExperimentConclusion.StoppedEarly]: {
-        title: 'Stopped Early',
+        title: 'Stopped early',
         description: 'The experiment was terminated before reaching a conclusive result.',
         color: 'bg-muted-alt',
     },
@@ -83,6 +104,7 @@ export const NEW_EXPERIMENT: Experiment = {
             { key: 'control', rollout_percentage: 50 },
             { key: 'test', rollout_percentage: 50 },
         ] as any[],
+        rollout_percentage: 100,
     },
     created_at: null,
     created_by: null,

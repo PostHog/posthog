@@ -8,14 +8,15 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 
 import {
     CachedNewExperimentQueryResponse,
     ExperimentMetric,
+    ExperimentQuery,
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -70,8 +71,12 @@ function convertExperimentResultToFunnelSteps(
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
                     stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
-                } else {
+                } else if (series.kind === NodeKind.ActionsNode) {
                     stepName = series.custom_name || series.name || `Action ${series.id}`
+                } else if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+                    stepName = series.custom_name || series.name || series.table_name || `Step ${stepIndex}`
+                } else {
+                    stepName = `Step ${stepIndex}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`
@@ -80,6 +85,7 @@ function convertExperimentResultToFunnelSteps(
             return {
                 name: stepName,
                 custom_name: null,
+                order: stepIndex,
                 count: count,
                 type: 'events' as EntityType,
                 breakdown_value: variantResult.key,
@@ -170,6 +176,8 @@ export function ResultDetails({
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
 
+    const baselineKey = result.baseline?.key
+
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
@@ -197,7 +205,7 @@ export function ResultDetails({
                     ? 'Chance to win'
                     : 'p-value',
             render: (_, item: ExperimentVariantResult & { key: string }) => {
-                if (item.key === 'control') {
+                if (item.key === baselineKey) {
                     return '—'
                 }
 
@@ -213,7 +221,7 @@ export function ResultDetails({
             key: 'significant',
             title: 'Significant',
             render: (_, item: ExperimentVariantResult & { key: string }) => {
-                if (item.key === 'control') {
+                if (item.key === baselineKey) {
                     return '—'
                 }
                 if (!('significant' in item)) {
@@ -229,7 +237,7 @@ export function ResultDetails({
                 ? `${getIntervalLabel(result.variant_results[0])} (95%)`
                 : 'Confidence interval (95%)',
             render: (_, item: ExperimentVariantResult & { key: string }) => {
-                if (item.key === 'control') {
+                if (item.key === baselineKey) {
                     return '—'
                 }
                 const interval = getVariantInterval(item)
@@ -282,11 +290,18 @@ export function ResultDetails({
     ]
 
     const dataSource = [
-        ...(result.baseline
-            ? [{ ...result.baseline, key: 'control' } as ExperimentVariantResult & { key: string }]
-            : []),
+        ...(result.baseline ? [result.baseline as ExperimentVariantResult & { key: string }] : []),
         ...(result.variant_results || []),
     ]
+
+    // Construct ExperimentQuery for actors query
+    const experimentQuery: ExperimentQuery | undefined = experiment.id
+        ? ({
+              kind: NodeKind.ExperimentQuery,
+              experiment_id: experiment.id,
+              metric,
+          } as ExperimentQuery)
+        : undefined
 
     return (
         <div className="space-y-4">
@@ -300,6 +315,7 @@ export function ResultDetails({
                     experimentResult={result}
                     experiment={experiment}
                     metric={metric}
+                    experimentQuery={experimentQuery}
                 />
             )}
             <SqlCollapsible

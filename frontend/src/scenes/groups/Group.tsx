@@ -1,14 +1,16 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useFeatureFlagVariantKey } from '@posthog/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -20,7 +22,7 @@ import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
+import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,13 +42,14 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
-import { GroupFeedCanvas } from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
+import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
-import { GroupOverview } from './GroupOverview'
-import { RelatedGroups } from './RelatedGroups'
+import { GroupDashboardCard } from './cards/GroupDashboardCard'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
 import { GroupCaption } from './components/GroupCaption'
+import { GroupOverview } from './GroupOverview'
+import { RelatedGroups } from './RelatedGroups'
 
 export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
@@ -57,25 +60,32 @@ export const scene: SceneExport<GroupLogicProps> = {
     }),
 }
 
-export function Group({ tabId }: { tabId?: string }): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupScene rendered with no tabId')
-    }
-
-    const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
-        useValues(groupLogic)
+export function Group(): JSX.Element {
+    const mountedGroupLogic = useMountedLogic(groupLogic)
+    const {
+        logicProps,
+        groupData,
+        groupDataLoading,
+        groupTypeName,
+        groupType,
+        groupTab,
+        groupEventsQuery,
+        groupEventsQueryIsDirty,
+    } = useValues(mountedGroupLogic)
     const { groupKey, groupTypeIndex } = logicProps
-    const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
+    const { setGroupEventsQuery, resetGroupEventsQuery, editProperty, deleteProperty } = useActions(mountedGroupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const isProfileEnabled = groupProfileVariant === 'test'
+    const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
-    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'profile' : 'overview')
+    const activeTab = groupTab ?? (showProfile ? 'profile' : 'overview')
 
     return (
         <SceneContent>
@@ -88,40 +98,42 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                     path: urls.groups(groupTypeIndex),
                 }}
                 actions={
-                    <NotebookSelectButton
-                        size="small"
-                        type="secondary"
-                        resource={{
-                            type: NotebookNodeType.Group,
-                            attrs: {
-                                id: groupKey,
-                                groupTypeIndex: groupTypeIndex,
-                            },
-                        }}
-                    />
+                    <>
+                        <FeedbackButton id="customer-analytics-group-profile-feedback-button" />
+                        <NotebookSelectButton
+                            size="small"
+                            type="secondary"
+                            resource={{
+                                type: NotebookNodeType.Group,
+                                attrs: {
+                                    id: groupKey,
+                                    groupTypeIndex: groupTypeIndex,
+                                },
+                            }}
+                        />
+                    </>
                 }
             />
             <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
             <SceneDivider />
-            <FeedbackBanner feedbackButtonId="group-profile" />
             <LemonTabs
                 sceneInset
                 activeKey={activeTab}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
-                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
+                    ...(showProfile
                         ? [
                               {
                                   key: GroupsTabType.PROFILE,
                                   label: <span data-attr="groups-profile-tab">Profile</span>,
-                                  content: <GroupFeedCanvas group={groupData} tabId={tabId} />,
+                                  content: <GroupProfileCanvas group={groupData} attachTo={mountedGroupLogic} />,
                               },
                           ]
                         : []),
                     {
                         key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
-                        content: <GroupOverview groupData={groupData} />,
+                        content: showProfile ? <GroupDashboardCard /> : <GroupOverview groupData={groupData} />,
                     },
                     ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [
@@ -153,7 +165,22 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: 'force_blocking' }}
+                                context={{
+                                    refresh: 'force_blocking',
+                                    customActions: (
+                                        <LemonButton
+                                            key="reset-group-events-filters"
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconRefresh />}
+                                            onClick={() => resetGroupEventsQuery()}
+                                            disabledReason={groupEventsQueryIsDirty ? undefined : 'No active filters'}
+                                            data-attr="group-events-reset-filters"
+                                        >
+                                            Reset all filters
+                                        </LemonButton>
+                                    ),
+                                }}
                             />
                         ) : (
                             <Spinner />
@@ -167,8 +194,8 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this {settingLevel}. To use
-                                            this feature, please go to your{' '}
+                                            Session recordings are currently disabled for this project. To use this
+                                            feature, please go to your{' '}
                                             <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
                                             and enable it.
                                         </LemonBanner>
@@ -179,6 +206,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                             logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams
                                             filters={{
+                                                ...DEFAULT_RECORDING_FILTERS,
                                                 duration: [
                                                     {
                                                         type: PropertyFilterType.Recording,
@@ -187,42 +215,21 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                                         operator: PropertyOperator.GreaterThan,
                                                     },
                                                 ],
-                                                filter_group: {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            type: FilterLogicalOperator.And,
-                                                            values: [
-                                                                {
-                                                                    type: 'events',
-                                                                    name: 'All events',
-                                                                    properties: [
-                                                                        {
-                                                                            key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                            type: 'hogql',
-                                                                        },
-                                                                    ],
-                                                                } as ActionFilter,
-                                                            ],
-                                                        },
-                                                    ],
-                                                },
                                             }}
-                                            onFiltersChange={(filters) => {
-                                                const eventFilters =
-                                                    filtersFromUniversalFilterGroups(filters).filter(isEventFilter)
-
-                                                const stillHasGroupFilter = eventFilters?.some((event) => {
-                                                    return event.properties?.some(
-                                                        (prop: Record<string, any>) =>
-                                                            prop.key === `$group_${groupTypeIndex} = '${groupKey}'`
-                                                    )
-                                                })
-                                                if (!stillHasGroupFilter) {
-                                                    lemonToast.warning(
-                                                        'Group filter removed. Please add it back to see recordings for this group.'
-                                                    )
-                                                }
+                                            pinnedFilters={{
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        type: 'events',
+                                                        name: 'All events',
+                                                        properties: [
+                                                            {
+                                                                key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                type: 'hogql',
+                                                            },
+                                                        ],
+                                                    } as ActionFilter,
+                                                ],
                                             }}
                                         />
                                     </div>

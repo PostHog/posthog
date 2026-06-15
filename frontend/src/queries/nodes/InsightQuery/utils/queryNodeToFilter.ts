@@ -3,12 +3,12 @@ import { objectClean } from 'lib/utils'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
-    ActionsNode,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
-    DataWarehouseNode,
-    EventsNode,
     FunnelsFilterLegacy,
+    GroupNode,
     InsightQueryNode,
     LifecycleFilterLegacy,
     NodeKind,
@@ -19,9 +19,13 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
+    isGroupNode,
+    isLifecycleDataWarehouseNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
@@ -36,19 +40,38 @@ type FilterTypeActionsAndEvents = {
     actions?: ActionFilter[]
     data_warehouse?: ActionFilter[]
     new_entity?: ActionFilter[]
+    groups?: ActionFilter[]
+}
+
+const getFilterId = (node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode): any => {
+    if (isGroupNode(node)) {
+        return undefined
+    }
+
+    if (isAnyDataWarehouseNode(node)) {
+        return node.table_name
+    }
+
+    if (isActionsNode(node)) {
+        return node.id
+    }
+
+    return node.event
 }
 
 export const seriesNodeToFilter = (
-    node: EventsNode | ActionsNode | DataWarehouseNode,
+    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     index?: number
 ): ActionFilter => {
     const entity: ActionFilter = objectClean({
-        type: isDataWarehouseNode(node)
+        type: isAnyDataWarehouseNode(node)
             ? EntityTypes.DATA_WAREHOUSE
-            : isActionsNode(node)
-              ? EntityTypes.ACTIONS
-              : EntityTypes.EVENTS,
-        id: isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null,
+            : isGroupNode(node)
+              ? EntityTypes.GROUPS
+              : isActionsNode(node)
+                ? EntityTypes.ACTIONS
+                : EntityTypes.EVENTS,
+        id: getFilterId(node),
         order: index,
         name: node.name,
         custom_name: node.custom_name,
@@ -68,31 +91,57 @@ export const seriesNodeToFilter = (
                   distinct_id_field: node.distinct_id_field,
               }
             : {}),
+        ...(isFunnelsDataWarehouseNode(node)
+            ? {
+                  table_name: node.table_name,
+                  id_field: node.id_field,
+                  timestamp_field: node.timestamp_field,
+                  aggregation_target_field: node.aggregation_target_field,
+              }
+            : {}),
+        ...(isLifecycleDataWarehouseNode(node)
+            ? {
+                  table_name: node.table_name,
+                  timestamp_field: node.timestamp_field,
+                  aggregation_target_field: node.aggregation_target_field,
+                  created_at_field: node.created_at_field,
+              }
+            : {}),
+        ...(isGroupNode(node)
+            ? {
+                  operator: node.operator,
+                  nestedFilters: (node.nodes || []).map((v) => seriesNodeToFilter(v)),
+              }
+            : {}),
     })
+
     return entity
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     const data_warehouse: ActionFilter[] = []
     const new_entity: ActionFilter[] = []
+    const groups: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity = seriesNodeToFilter(node, index)
         if (isEventsNode(node)) {
             events.push(entity)
         } else if (isActionsNode(node)) {
             actions.push(entity)
-        } else if (isDataWarehouseNode(node)) {
+        } else if (isAnyDataWarehouseNode(node)) {
             data_warehouse.push(entity)
+        } else if (isGroupNode(node)) {
+            groups.push(entity)
         } else {
             new_entity.push(entity)
         }
     })
 
-    return { actions, events, data_warehouse, new_entity }
+    return { actions, events, data_warehouse, new_entity, groups }
 }
 
 /**
@@ -151,7 +200,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query) && 'series' in query) {
-        const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
+        const { actions, events, data_warehouse, new_entity, groups } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
         }
@@ -163,6 +212,9 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         }
         if (new_entity.length > 0) {
             filters.new_entity = new_entity
+        }
+        if (groups.length > 0) {
+            filters.groups = groups
         }
     }
 
@@ -205,6 +257,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         camelCasedTrendsProps.aggregation_axis_format = queryCopy.trendsFilter?.aggregationAxisFormat
         camelCasedTrendsProps.aggregation_axis_postfix = queryCopy.trendsFilter?.aggregationAxisPostfix
         camelCasedTrendsProps.aggregation_axis_prefix = queryCopy.trendsFilter?.aggregationAxisPrefix
+        camelCasedTrendsProps.x_axis_label = queryCopy.trendsFilter?.xAxisLabel
+        camelCasedTrendsProps.y_axis_label = queryCopy.trendsFilter?.yAxisLabel
         camelCasedTrendsProps.show_labels_on_series = queryCopy.trendsFilter?.showLabelsOnSeries
         camelCasedTrendsProps.show_percent_stack_view = queryCopy.trendsFilter?.showPercentStackView
         camelCasedTrendsProps.show_legend = queryCopy.trendsFilter?.showLegend
@@ -217,6 +271,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete queryCopy.trendsFilter?.aggregationAxisFormat
         delete queryCopy.trendsFilter?.aggregationAxisPostfix
         delete queryCopy.trendsFilter?.aggregationAxisPrefix
+        delete queryCopy.trendsFilter?.xAxisLabel
+        delete queryCopy.trendsFilter?.yAxisLabel
         delete queryCopy.trendsFilter?.showLabelsOnSeries
         delete queryCopy.trendsFilter?.showPercentStackView
         delete queryCopy.trendsFilter?.showLegend

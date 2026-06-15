@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 
@@ -18,7 +19,6 @@ import {
     HumanMessage,
     MultiVisualizationMessage,
     NotebookArtifactContent,
-    NotebookUpdateMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
     VisualizationArtifactContent,
@@ -37,10 +37,21 @@ import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
 import { Scene } from '../sceneTypes'
-import { EnhancedToolCall } from './Thread'
 import { MODE_DEFINITIONS } from './max-constants'
+import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
-import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
+import {
+    InsightWithQuery,
+    MaxActionContext,
+    MaxContextType,
+    MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
+    MaxEvaluationContext,
+    MaxEventContext,
+    MaxInsightContext,
+    MaxNotebookContext,
+    MaxUIContext,
+} from './maxTypes'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -82,12 +93,6 @@ export function isSubagentUpdateEvent(
 
 export function isFailureMessage(message: RootAssistantMessage | undefined | null): message is FailureMessage {
     return message?.type === AssistantMessageType.Failure
-}
-
-export function isNotebookUpdateMessage(
-    message: RootAssistantMessage | undefined | null
-): message is NotebookUpdateMessage {
-    return message?.type === AssistantMessageType.Notebook
 }
 
 export function isMultiQuestionFormMessage(
@@ -143,51 +148,6 @@ export function getSlackThreadUrl(slackThreadKey: string, slackWorkspaceDomain?:
     return `https://${domain}.slack.com/archives/${channel}/${urlTs}`
 }
 
-/**
- * Checks if a suggestion requires user input.
- * @param suggestion - The suggestion to check.
- * @returns True if the suggestion requires input, false otherwise.
- */
-export function checkSuggestionRequiresUserInput(suggestion: string): boolean {
-    const matches = suggestion.match(/<|>|…/g)
-    return !!matches && matches.length > 0
-}
-
-/**
- * Strips the user input placeholder (`<`, `>`, `…`) from a suggestion.
- * @param suggestion - The suggestion to strip.
- * @returns The stripped suggestion.
- */
-export function stripSuggestionPlaceholders(suggestion: string): string {
-    return `${suggestion
-        .replace(/<[^>]*>/g, '')
-        .replace(/…$/, '')
-        .trim()} `
-}
-
-/**
- * Formats a suggestion by stripping the placeholder characters (`<`, `>`) from a suggestion.
- * @param suggestion - The suggestion to format.
- * @returns The formatted suggestion.
- */
-export function formatSuggestion(suggestion: string): string {
-    return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
-}
-
-export function isDeepResearchReportNotebook(
-    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
-): boolean {
-    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
-}
-
-export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
-    return (
-        message.notebook_type === 'deep_research' &&
-        Array.isArray(message.conversation_notebooks) &&
-        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
-    )
-}
-
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
@@ -208,13 +168,15 @@ export const insightToMaxContext = (
     }
 }
 
-export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => {
+export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>): MaxDashboardContext => {
     return {
         type: MaxContextType.DASHBOARD,
         id: dashboard.id,
         name: dashboard.name,
         description: dashboard.description,
-        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        insights: (dashboard.tiles ?? [])
+            .filter((tile) => tile.insight)
+            .map((tile) => insightToMaxContext(tile.insight!)),
         filters: dashboard.filters,
     }
 }
@@ -235,6 +197,77 @@ export const actionToMaxContextPayload = (action: ActionType): MaxActionContext 
         name: action.name || `Action ${action.id}`,
         description: action.description || '',
     }
+}
+
+export const errorTrackingIssueToMaxContextPayload = (issue: {
+    id: string
+    name?: string | null
+}): MaxErrorTrackingIssueContext => {
+    return {
+        type: MaxContextType.ERROR_TRACKING_ISSUE,
+        id: issue.id,
+        name: issue.name,
+    }
+}
+
+export const notebookToMaxContextPayload = (notebook: {
+    short_id: string
+    title?: string | null
+}): MaxNotebookContext => ({
+    type: MaxContextType.NOTEBOOK,
+    id: notebook.short_id,
+    name: notebook.title,
+})
+
+export const evaluationToMaxContextPayload = (evaluation: {
+    id: string
+    name?: string | null
+    description?: string | null
+    evaluation_type: 'hog' | 'llm_judge'
+    hog_source?: string | null
+}): MaxEvaluationContext => ({
+    type: MaxContextType.EVALUATION,
+    id: evaluation.id,
+    name: evaluation.name,
+    description: evaluation.description,
+    evaluation_type: evaluation.evaluation_type,
+    hog_source: evaluation.hog_source,
+})
+
+/**
+ * Generic context that can be passed when opening PostHog AI.
+ */
+export interface MaxOpenContext {
+    /** Error tracking issue context */
+    errorTrackingIssue?: {
+        id: string
+        name?: string | null
+    }
+    /** Evaluation context */
+    evaluation?: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
+    }
+}
+
+/**
+ * Converts MaxOpenContext to MaxUIContext
+ */
+export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxUIContext> {
+    const uiContext: Partial<MaxUIContext> = {}
+
+    if (openContext.errorTrackingIssue) {
+        uiContext.error_tracking_issues = [errorTrackingIssueToMaxContextPayload(openContext.errorTrackingIssue)]
+    }
+
+    if (openContext.evaluation) {
+        uiContext.evaluations = [evaluationToMaxContextPayload(openContext.evaluation)]
+    }
+
+    return uiContext
 }
 
 export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
@@ -268,17 +301,24 @@ export function captureFeedback(
             $ai_feedback_text: feedbackText,
             $ai_session_id: conversationId,
             $ai_trace_id: traceId,
+            ai_product: 'posthog_ai',
         })
     }
 }
 
 /** Maps a scene ID to the agent mode that should be activated for that scene */
-export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
+export function getAgentModeForScene(
+    sceneId: Scene | null,
+    featureFlags: Record<string, boolean | string>
+): AgentMode | null {
     if (!sceneId) {
         return null
     }
     for (const [mode, def] of Object.entries(MODE_DEFINITIONS)) {
-        if (def.scenes.has(sceneId)) {
+        if (def.scenes?.has(sceneId)) {
+            if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
+                return null
+            }
             return mode as AgentMode
         }
     }
@@ -288,6 +328,9 @@ export function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
 export const visualizationTypeToQuery = (
     visualization: VisualizationItem | VisualizationArtifactContent | VisualizationBlock
 ): QuerySchema | null => {
+    if (!visualization) {
+        return null
+    }
     const source = castAssistantQuery('answer' in visualization ? visualization.answer : visualization.query)
     if (isHogQLQuery(source)) {
         return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode

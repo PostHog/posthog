@@ -23,14 +23,12 @@ const MOCK_FLAGS: FeatureFlagType[] = [
         key: 'flag-1',
         name: 'Flag 1',
         active: true,
-        rollout_percentage: 100,
     }),
     createMockFlag({
         id: 2,
         key: 'flag-2',
         name: 'Flag 2',
         active: false,
-        rollout_percentage: 100,
     }),
     createMockFlag({
         id: 3,
@@ -41,7 +39,6 @@ const MOCK_FLAGS: FeatureFlagType[] = [
             ...NEW_FLAG.filters,
             multivariate: { variants: [{ key: 'a', rollout_percentage: 100 }] },
         },
-        rollout_percentage: null,
     }),
 ]
 

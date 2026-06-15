@@ -1,16 +1,21 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance
+import { Region, SLACK_INTEGRATION_SCOPES, SLACK_INTEGRATION_SCOPES_IN_REVIEW } from '~/types'
+
+// Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
 const getSlackAppManifest = (): any => ({
     display_information: {
         name: 'PostHog',
@@ -20,7 +25,7 @@ const getSlackAppManifest = (): any => ({
     features: {
         app_home: {
             home_tab_enabled: false,
-            messages_tab_enabled: false,
+            messages_tab_enabled: true,
             messages_tab_read_only_enabled: true,
         },
         bot_user: {
@@ -32,13 +37,13 @@ const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
         scopes: {
-            bot: ['channels:read', 'chat:write', 'groups:read', 'links:read', 'links:write'],
+            bot: SLACK_INTEGRATION_SCOPES,
         },
     },
     settings: {
         event_subscriptions: {
-            request_url: `${window.location.origin.replace('http://', 'https://')}/api/integrations/slack/events`,
-            bot_events: ['link_shared'],
+            request_url: `${window.location.origin.replace('http://', 'https://')}/slack/event-callback`,
+            bot_events: ['app_mention', 'link_shared'],
         },
         org_deploy_enabled: false,
         socket_mode_enabled: false,
@@ -48,24 +53,35 @@ const getSlackAppManifest = (): any => ({
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
+    const { preflight, isDev } = useValues(preflightLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    // On the DEV instance and local dev (DEBUG=True) the PostHog Slack app manifest lists the
+    // in-review scopes, so we both request them at install and compare against them in the
+    // scope-mismatch banner. On US/EU/self-hosted they'd be rejected by Slack as invalid_scope,
+    // so we stay on the always-on list.
+    const requiredScopes = useMemo(() => {
+        const scopes =
+            isDev || preflight?.region === Region.DEV
+                ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+                : SLACK_INTEGRATION_SCOPES
+        return scopes.join(' ')
+    }, [isDev, preflight?.region])
+
+    if (restrictedReason) {
+        return <p>{restrictedReason}</p>
+    }
 
     return (
         <div>
-            <p>
-                Integrate with Slack directly to get more advanced options such as{' '}
-                <b>subscribing to an Insight or Dashboard</b> for regular reports to Slack channels of your choice.
-                Guidance on integrating with Slack available{' '}
-                <Link to="https://posthog.com/docs/product-analytics/subscriptions#slack-subscriptions">
-                    in our docs
-                </Link>
-                .
-            </p>
-
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <IntegrationView key={integration.id} integration={integration} />
+                    <IntegrationView key={integration.id} integration={integration} schema={{ requiredScopes }} />
                 ))}
 
                 <div>

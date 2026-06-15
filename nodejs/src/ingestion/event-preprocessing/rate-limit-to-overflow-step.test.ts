@@ -1,30 +1,35 @@
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { EventHeaders, PipelineEvent, Team } from '../../types'
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
+import { OVERFLOW_OUTPUT } from '../common/outputs'
+import { COOKIELESS_SENTINEL_VALUE } from '../cookieless/cookieless-manager'
 import { PipelineResultType } from '../pipelines/results'
-import { MemoryRateLimiter } from '../utils/overflow-detector'
-import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
+import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
+import {
+    OnlyCookielessRateLimitToOverflowStepInput,
+    RateLimitToOverflowStepInput,
+    SkipCookielessRateLimitToOverflowStepInput,
+    createOnlyCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
+    createSkipCookielessRateLimitToOverflowStep,
+} from './rate-limit-to-overflow-step'
 
 const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
-    headers: {
-        token,
-        distinct_id: distinctId,
-        now: now ?? new Date(),
-        force_disable_person_processing: false,
-        historical_migration: false,
-    },
-    eventWithTeam: {
-        message: createTestMessage(),
-        event: { distinct_id: distinctId, token } as PipelineEvent,
-        team: { id: 1 } as Team,
-        headers: {} as EventHeaders,
-    },
+    headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
+    event: createTestPipelineEvent({ distinct_id: distinctId }),
+})
+
+const createMockOverflowRedirectService = (
+    keysToRedirect: Set<string> = new Set()
+): jest.Mocked<OverflowRedirectService> => ({
+    handleEventBatch: jest.fn().mockResolvedValue(keysToRedirect),
+    healthCheck: jest.fn(),
+    shutdown: jest.fn(),
 })
 
 describe('createRateLimitToOverflowStep', () => {
-    describe('when overflow is disabled', () => {
+    describe('when service is not provided (overflow disabled)', () => {
         it('returns all events as ok', async () => {
-            const rateLimiter = new MemoryRateLimiter(100, 10)
-            const step = createRateLimitToOverflowStep(rateLimiter, false, 'overflow_topic', true)
+            const step = createRateLimitToOverflowStep(true, undefined)
 
             const events = [
                 createMockEvent('token1', 'user1'),
@@ -41,10 +46,10 @@ describe('createRateLimitToOverflowStep', () => {
         })
     })
 
-    describe('when overflow is enabled', () => {
-        it('returns ok for events below rate limit', async () => {
-            const rateLimiter = new MemoryRateLimiter(100, 10)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+    describe('when service is provided (overflow enabled)', () => {
+        it('returns ok for events not flagged by service', async () => {
+            const service = createMockOverflowRedirectService()
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('token1', 'user1'), createMockEvent('token1', 'user2')]
 
@@ -56,11 +61,28 @@ describe('createRateLimitToOverflowStep', () => {
             })
         })
 
-        it('redirects events that exceed rate limit', async () => {
-            const rateLimiter = new MemoryRateLimiter(5, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+        it('redirects events flagged by service', async () => {
+            const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+            const step = createRateLimitToOverflowStep(true, service)
 
-            // Create 10 events for the same key (will exceed limit of 5)
+            const events = [createMockEvent('token1', 'user1'), createMockEvent('token1', 'user2')]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(2)
+            expect(results[0].type).toBe(PipelineResultType.REDIRECT)
+            if (results[0].type === PipelineResultType.REDIRECT) {
+                expect(results[0].reason).toBe('rate_limit_exceeded')
+                expect(results[0].output).toBe(OVERFLOW_OUTPUT)
+            }
+            expect(results[1].type).toBe(PipelineResultType.OK)
+        })
+
+        it('redirects all events for flagged key', async () => {
+            const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+            const step = createRateLimitToOverflowStep(true, service)
+
+            // Create 10 events for the same flagged key
             const events = Array.from({ length: 10 }, () => createMockEvent('token1', 'user1'))
 
             const results = await step(events)
@@ -70,25 +92,44 @@ describe('createRateLimitToOverflowStep', () => {
                 expect(result.type).toBe(PipelineResultType.REDIRECT)
                 if (result.type === PipelineResultType.REDIRECT) {
                     expect(result.reason).toBe('rate_limit_exceeded')
-                    expect(result.topic).toBe('overflow_topic')
+                    expect(result.output).toBe(OVERFLOW_OUTPUT)
                 }
             })
         })
 
+        it('calls service with correct batch format', async () => {
+            const service = createMockOverflowRedirectService()
+            const step = createRateLimitToOverflowStep(true, service)
+
+            const baseTime = new Date()
+            const events = [
+                createMockEvent('token1', 'user1', baseTime),
+                createMockEvent('token1', 'user1', baseTime),
+                createMockEvent('token2', 'user2', baseTime),
+            ]
+
+            await step(events)
+
+            expect(service.handleEventBatch).toHaveBeenCalledWith('events', [
+                { key: { token: 'token1', distinctId: 'user1' }, eventCount: 2, firstTimestamp: baseTime.getTime() },
+                { key: { token: 'token2', distinctId: 'user2' }, eventCount: 1, firstTimestamp: baseTime.getTime() },
+            ])
+        })
+
         it('groups events by token:distinct_id key', async () => {
-            const rateLimiter = new MemoryRateLimiter(3, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+            const service = createMockOverflowRedirectService()
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
-                // 3 events for token1:user1 (at limit)
+                // 3 events for token1:user1
                 createMockEvent('token1', 'user1'),
                 createMockEvent('token1', 'user1'),
                 createMockEvent('token1', 'user1'),
-                // 3 events for token1:user2 (at limit)
+                // 3 events for token1:user2
                 createMockEvent('token1', 'user2'),
                 createMockEvent('token1', 'user2'),
                 createMockEvent('token1', 'user2'),
-                // 3 events for token2:user1 (at limit)
+                // 3 events for token2:user1
                 createMockEvent('token2', 'user1'),
                 createMockEvent('token2', 'user1'),
                 createMockEvent('token2', 'user1'),
@@ -97,24 +138,29 @@ describe('createRateLimitToOverflowStep', () => {
             const results = await step(events)
 
             expect(results).toHaveLength(9)
-            // All should be ok since each key has exactly 3 events (at the limit)
+            // All should be ok since service returns empty set
             results.forEach((result) => {
                 expect(result.type).toBe(PipelineResultType.OK)
             })
+
+            // Service should be called with 3 unique keys
+            expect(service.handleEventBatch).toHaveBeenCalledTimes(1)
+            const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][1]
+            expect(batches).toHaveLength(3)
         })
 
-        it('redirects only keys that exceed limit, not others', async () => {
-            const rateLimiter = new MemoryRateLimiter(4, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+        it('redirects only keys flagged by service, not others', async () => {
+            const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
-                // 5 events for token1:user1 (exceeds limit of 4)
+                // 5 events for token1:user1 (flagged)
                 createMockEvent('token1', 'user1'),
                 createMockEvent('token1', 'user1'),
                 createMockEvent('token1', 'user1'),
                 createMockEvent('token1', 'user1'),
                 createMockEvent('token1', 'user1'),
-                // 2 events for token1:user2 (below limit)
+                // 2 events for token1:user2 (not flagged)
                 createMockEvent('token1', 'user2'),
                 createMockEvent('token1', 'user2'),
             ]
@@ -123,19 +169,19 @@ describe('createRateLimitToOverflowStep', () => {
 
             expect(results).toHaveLength(7)
 
-            // First 5 should be redirected (token1:user1 exceeded)
+            // First 5 should be redirected (token1:user1 flagged)
             for (let i = 0; i < 5; i++) {
                 expect(results[i].type).toBe(PipelineResultType.REDIRECT)
             }
 
-            // Last 2 should be ok (token1:user2 below limit)
+            // Last 2 should be ok (token1:user2 not flagged)
             expect(results[5].type).toBe(PipelineResultType.OK)
             expect(results[6].type).toBe(PipelineResultType.OK)
         })
 
         it('handles empty token or distinct_id', async () => {
-            const rateLimiter = new MemoryRateLimiter(5, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+            const service = createMockOverflowRedirectService()
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('', 'user1'), createMockEvent('token1', ''), createMockEvent('', '')]
 
@@ -147,29 +193,9 @@ describe('createRateLimitToOverflowStep', () => {
             })
         })
 
-        it('uses headers timestamp for rate limiting', async () => {
-            const rateLimiter = new MemoryRateLimiter(2, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
-
-            const baseTime = new Date()
-
-            const events = [
-                // 2 events at time T (at limit)
-                createMockEvent('token1', 'user1', baseTime),
-                createMockEvent('token1', 'user1', baseTime),
-            ]
-
-            const results = await step(events)
-
-            expect(results).toHaveLength(2)
-            results.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.OK)
-            })
-        })
-
         it('preserves input structure in results', async () => {
-            const rateLimiter = new MemoryRateLimiter(100, 10)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+            const service = createMockOverflowRedirectService()
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
                 {
@@ -188,8 +214,8 @@ describe('createRateLimitToOverflowStep', () => {
         })
 
         it('maintains ordering of events in results', async () => {
-            const rateLimiter = new MemoryRateLimiter(100, 10)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+            const service = createMockOverflowRedirectService()
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
                 createMockEvent('token1', 'user1'),
@@ -212,124 +238,215 @@ describe('createRateLimitToOverflowStep', () => {
         })
 
         it('preserves partition key when preservePartitionLocality is true', async () => {
-            const rateLimiter = new MemoryRateLimiter(1, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+            const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+            const step = createRateLimitToOverflowStep(true, service)
 
-            const events = [
-                createMockEvent('token1', 'user1'),
-                createMockEvent('token1', 'user1'), // Will exceed limit
-            ]
+            const events = [createMockEvent('token1', 'user1')]
 
             const results = await step(events)
 
-            expect(results).toHaveLength(2)
-            results.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.REDIRECT)
-                if (result.type === PipelineResultType.REDIRECT) {
-                    expect(result.preserveKey).toBe(true)
-                }
-            })
+            expect(results).toHaveLength(1)
+            expect(results[0].type).toBe(PipelineResultType.REDIRECT)
+            if (results[0].type === PipelineResultType.REDIRECT) {
+                expect(results[0].preserveKey).toBe(true)
+            }
         })
 
         it('does not preserve partition key when preservePartitionLocality is false', async () => {
-            const rateLimiter = new MemoryRateLimiter(1, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', false)
+            const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+            const step = createRateLimitToOverflowStep(false, service)
 
-            const events = [
-                createMockEvent('token1', 'user1'),
-                createMockEvent('token1', 'user1'), // Will exceed limit
-            ]
+            const events = [createMockEvent('token1', 'user1')]
 
             const results = await step(events)
 
-            expect(results).toHaveLength(2)
-            results.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.REDIRECT)
-                if (result.type === PipelineResultType.REDIRECT) {
-                    expect(result.preserveKey).toBe(false)
-                }
-            })
+            expect(results).toHaveLength(1)
+            expect(results[0].type).toBe(PipelineResultType.REDIRECT)
+            if (results[0].type === PipelineResultType.REDIRECT) {
+                expect(results[0].preserveKey).toBe(false)
+            }
         })
 
-        it('rate limiter state persists across step calls', async () => {
-            const rateLimiter = new MemoryRateLimiter(5, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+        it('handles distinct_id with colons correctly', async () => {
+            const service = createMockOverflowRedirectService(new Set(['token1:user:with:colons']))
+            const step = createRateLimitToOverflowStep(true, service)
 
-            const baseTime = new Date()
+            const events = [createMockEvent('token1', 'user:with:colons')]
 
-            // First batch: consume 3 of 5 tokens
-            const firstBatch = Array.from({ length: 3 }, () => createMockEvent('token1', 'user1', baseTime))
-            const firstResults = await step(firstBatch)
+            const results = await step(events)
 
-            expect(firstResults).toHaveLength(3)
-            firstResults.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.OK)
-            })
-
-            // Second batch: consume 3 more tokens (total 6, exceeds limit of 5)
-            const secondBatch = Array.from({ length: 3 }, () => createMockEvent('token1', 'user1', baseTime))
-            const secondResults = await step(secondBatch)
-
-            expect(secondResults).toHaveLength(3)
-            secondResults.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.REDIRECT)
-            })
+            expect(results).toHaveLength(1)
+            expect(results[0].type).toBe(PipelineResultType.REDIRECT)
         })
+    })
+})
 
-        it('tokens replenish over time allowing more events', async () => {
-            // Capacity 4, replenish 2 tokens per second
-            const rateLimiter = new MemoryRateLimiter(4, 2)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+const createCookielessVariantInput = (
+    headerDistinctId: string,
+    eventDistinctId: string,
+    token: string = 'token1',
+    now?: Date
+): OnlyCookielessRateLimitToOverflowStepInput => ({
+    headers: createTestEventHeaders({ token, distinct_id: headerDistinctId, now: now ?? new Date() }),
+    event: createTestPipelineEvent({ distinct_id: eventDistinctId }),
+})
 
-            const baseTime = new Date()
+// Properties that should hold for both cookieless variants. Each variant defines what
+// "out of scope" means (events it ignores), but the resulting behavior is the same:
+// pass through as OK, and don't bother calling the service.
+describe.each([
+    {
+        name: 'createSkipCookielessRateLimitToOverflowStep',
+        createStep: createSkipCookielessRateLimitToOverflowStep,
+        outOfScopeInputs: (): OnlyCookielessRateLimitToOverflowStepInput[] => [
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed1'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed2', 'token2'),
+        ],
+    },
+    {
+        name: 'createOnlyCookielessRateLimitToOverflowStep',
+        createStep: createOnlyCookielessRateLimitToOverflowStep,
+        outOfScopeInputs: (): OnlyCookielessRateLimitToOverflowStepInput[] => [
+            createCookielessVariantInput('user1', 'user1'),
+            createCookielessVariantInput('user2', 'user2', 'token2'),
+        ],
+    },
+])('$name (shared behavior)', ({ createStep, outOfScopeInputs }) => {
+    it('returns ok for all events when service is not provided', async () => {
+        const step = createStep(true, undefined)
 
-            // First batch at T=0: consume all 4 tokens
-            const firstBatch = Array.from({ length: 4 }, () => createMockEvent('token1', 'user1', baseTime))
-            const firstResults = await step(firstBatch)
+        const events = [
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed1'),
+            createCookielessVariantInput('user1', 'user1'),
+        ]
 
-            expect(firstResults).toHaveLength(4)
-            firstResults.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.OK)
-            })
+        const results = await step(events)
 
-            // Second batch at T=0: no tokens left, should redirect
-            const secondBatch = [createMockEvent('token1', 'user1', baseTime)]
-            const secondResults = await step(secondBatch)
+        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
+    })
 
-            expect(secondResults).toHaveLength(1)
-            expect(secondResults[0].type).toBe(PipelineResultType.REDIRECT)
+    it('does not call service when batch has nothing in scope', async () => {
+        const service = createMockOverflowRedirectService()
+        const step = createStep(true, service)
 
-            // Third batch at T=2s: replenished 4 tokens (2/sec * 2s = 4, capped at capacity)
-            const laterTime = new Date(baseTime.getTime() + 2000)
-            const thirdBatch = Array.from({ length: 3 }, () => createMockEvent('token1', 'user1', laterTime))
-            const thirdResults = await step(thirdBatch)
+        const results = await step(outOfScopeInputs())
 
-            expect(thirdResults).toHaveLength(3)
-            thirdResults.forEach((result) => {
-                expect(result.type).toBe(PipelineResultType.OK)
-            })
-        })
+        results.forEach((result) => expect(result.type).toBe(PipelineResultType.OK))
+        expect(service.handleEventBatch).not.toHaveBeenCalled()
+    })
+})
 
-        it('different keys have independent rate limit state across calls', async () => {
-            const rateLimiter = new MemoryRateLimiter(3, 1)
-            const step = createRateLimitToOverflowStep(rateLimiter, true, 'overflow_topic', true)
+describe('createSkipCookielessRateLimitToOverflowStep', () => {
+    const createHeaderOnlyInput = (
+        token: string,
+        distinctId: string,
+        now?: Date
+    ): SkipCookielessRateLimitToOverflowStepInput => ({
+        headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
+    })
 
-            const baseTime = new Date()
+    it('skips cookieless events and keys non-cookieless on headers.distinct_id', async () => {
+        const service = createMockOverflowRedirectService()
+        const step = createSkipCookielessRateLimitToOverflowStep(true, service)
 
-            // First batch: exhaust tokens for user1
-            const firstBatch = Array.from({ length: 3 }, () => createMockEvent('token1', 'user1', baseTime))
-            await step(firstBatch)
+        const events = [
+            createHeaderOnlyInput('token1', 'user1'),
+            createHeaderOnlyInput('token1', COOKIELESS_SENTINEL_VALUE),
+            createHeaderOnlyInput('token1', 'user2'),
+        ]
 
-            // Second batch: user1 should be redirected, user2 should be ok
-            const secondBatch = [
-                createMockEvent('token1', 'user1', baseTime),
-                createMockEvent('token1', 'user2', baseTime),
-            ]
-            const secondResults = await step(secondBatch)
+        await step(events)
 
-            expect(secondResults).toHaveLength(2)
-            expect(secondResults[0].type).toBe(PipelineResultType.REDIRECT)
-            expect(secondResults[1].type).toBe(PipelineResultType.OK)
-        })
+        expect(service.handleEventBatch).toHaveBeenCalledWith(
+            'events',
+            expect.arrayContaining([
+                expect.objectContaining({ key: { token: 'token1', distinctId: 'user1' }, eventCount: 1 }),
+                expect.objectContaining({ key: { token: 'token1', distinctId: 'user2' }, eventCount: 1 }),
+            ])
+        )
+        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][1]
+        expect(batches).toHaveLength(2)
+    })
+
+    it('passes cookieless events through as ok regardless of redirect set', async () => {
+        const service = createMockOverflowRedirectService(new Set([`token1:${COOKIELESS_SENTINEL_VALUE}`]))
+        const step = createSkipCookielessRateLimitToOverflowStep(true, service)
+
+        const events = [createHeaderOnlyInput('token1', COOKIELESS_SENTINEL_VALUE)]
+
+        const results = await step(events)
+
+        expect(results).toHaveLength(1)
+        expect(results[0].type).toBe(PipelineResultType.OK)
+    })
+
+    it('redirects flagged non-cookieless events while leaving cookieless ok', async () => {
+        const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+        const step = createSkipCookielessRateLimitToOverflowStep(true, service)
+
+        const events = [
+            createHeaderOnlyInput('token1', 'user1'),
+            createHeaderOnlyInput('token1', COOKIELESS_SENTINEL_VALUE),
+            createHeaderOnlyInput('token1', 'user2'),
+        ]
+
+        const results = await step(events)
+
+        expect(results[0].type).toBe(PipelineResultType.REDIRECT)
+        expect(results[1].type).toBe(PipelineResultType.OK)
+        expect(results[2].type).toBe(PipelineResultType.OK)
+    })
+})
+
+describe('createOnlyCookielessRateLimitToOverflowStep', () => {
+    it('keys cookieless events on event.distinct_id (post-rewrite hashed id)', async () => {
+        const service = createMockOverflowRedirectService()
+        const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
+
+        const events = [
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-a'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-b'),
+            createCookielessVariantInput('user1', 'user1'),
+        ]
+
+        await step(events)
+
+        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][1]
+        expect(batches).toHaveLength(2)
+        expect(batches).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({ key: { token: 'token1', distinctId: 'hashed-a' } }),
+                expect.objectContaining({ key: { token: 'token1', distinctId: 'hashed-b' } }),
+            ])
+        )
+    })
+
+    it('passes non-cookieless events through as ok regardless of redirect set', async () => {
+        const service = createMockOverflowRedirectService(new Set(['token1:user1']))
+        const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
+
+        const events = [createCookielessVariantInput('user1', 'user1')]
+
+        const results = await step(events)
+
+        expect(results).toHaveLength(1)
+        expect(results[0].type).toBe(PipelineResultType.OK)
+    })
+
+    it('redirects flagged cookieless events while leaving non-cookieless ok', async () => {
+        const service = createMockOverflowRedirectService(new Set(['token1:hashed-a']))
+        const step = createOnlyCookielessRateLimitToOverflowStep(true, service)
+
+        const events = [
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-a'),
+            createCookielessVariantInput(COOKIELESS_SENTINEL_VALUE, 'hashed-b'),
+            createCookielessVariantInput('user1', 'user1'),
+        ]
+
+        const results = await step(events)
+
+        expect(results[0].type).toBe(PipelineResultType.REDIRECT)
+        expect(results[1].type).toBe(PipelineResultType.OK)
+        expect(results[2].type).toBe(PipelineResultType.OK)
     })
 })

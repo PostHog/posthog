@@ -1,10 +1,15 @@
 import { useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphDataset, GraphType } from '~/types'
+
+import { RetentionBarChart } from 'products/product_analytics/frontend/insights/retention/RetentionBarChart/RetentionBarChart'
+import { RetentionLineChart } from 'products/product_analytics/frontend/insights/retention/RetentionLineChart/RetentionLineChart'
 
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
@@ -27,12 +32,13 @@ function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         hasValidBreakdown,
         retentionFilter,
         filteredTrendSeries,
         incompletenessOffsetFromEnd,
-        aggregationGroupTypeIndex,
+        labelGroupType,
         shouldShowMeanPerBreakdown,
         showTrendLines,
         xAxisLabels,
@@ -40,6 +46,16 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
+
+    const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
+
+    const isBarDisplay = retentionFilter?.display === ChartDisplayType.ActionsBar
+    if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_RETENTION]) {
+        if (isBarDisplay) {
+            return <RetentionBarChart inSharedMode={inSharedMode} />
+        }
+        return <RetentionLineChart inSharedMode={inSharedMode} />
+    }
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
         return (
@@ -58,13 +74,16 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
-            labelGroupType={aggregationGroupTypeIndex}
+            labelGroupType={labelGroupType}
             // in retention graph, we want the bars side by side so it's easier
             // to see the retention trend change for each cohort
             isStacked={retentionFilter?.display !== ChartDisplayType.ActionsBar}
-            trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
+            trendsFilter={{ aggregationAxisFormat: isPercentage ? 'percentage' : 'numeric' } as TrendsFilter}
             tooltip={{
-                altTitle: selectedInterval !== null ? `${retentionFilter?.period} ${selectedInterval}` : undefined,
+                altTitle:
+                    selectedInterval !== null
+                        ? `${retentionFilter?.period} ${selectedInterval}`
+                        : (seriesData) => xAxisLabels[seriesData[0]?.dataIndex] ?? '',
                 renderSeries: function _renderCohortPrefix(value) {
                     // If we're showing an interval view, show "Cohort: <date>"
                     if (selectedInterval !== null) {
@@ -77,9 +96,8 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                     // Otherwise prefix with "Cohort" for normal cohort view
                     return <>Cohort {value}</>
                 },
-                showHeader: selectedInterval !== null,
                 renderCount: (count) => {
-                    return `${roundToDecimal(count)}%`
+                    return isPercentage ? `${roundToDecimal(count)}%` : `${roundToDecimal(count)}`
                 },
             }}
             onClick={(payload) => {
@@ -89,9 +107,13 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
                 }
 
                 const { points } = payload
-                const rowIndex = points.clickedPointNotLine
-                    ? points.pointsIntersectingClick[0].dataset.index
-                    : points.pointsIntersectingLine[0].dataset.index
+                const referencePoint = points.clickedPointNotLine
+                    ? points.pointsIntersectingClick[0]
+                    : points.pointsIntersectingLine[0]
+
+                // In the interval view, each data point represents a different cohort at the same interval,
+                // so use the point index (cohort) rather than the dataset index (breakdown series)
+                const rowIndex = selectedInterval !== null ? referencePoint.index : referencePoint.dataset.index
 
                 // we should always have a rowIndex, but adding a guard nonetheless
                 if (rowIndex !== undefined) {

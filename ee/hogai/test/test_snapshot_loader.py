@@ -21,7 +21,7 @@ from posthog.schema import (
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
 
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 from ee.hogai.eval.offline.query_patches import (
     ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE,
@@ -79,7 +79,6 @@ class TestSnapshotLoader(BaseTest):
             ],
             "dataset": [],
             "experiment_id": "test_experiment_id",
-            "experiment_name": "test_experiment_name",
             "dataset_id": "test_dataset_id",
             "dataset_name": "test_dataset_name",
             "dataset_inputs": [],

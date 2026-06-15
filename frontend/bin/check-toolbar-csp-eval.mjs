@@ -13,8 +13,17 @@ import path from 'path'
 
 // Identifiers that become code when the *first* argument is a string
 const UNSAFE_TIMERS = new Set(['setTimeout', 'setInterval', 'setImmediate', 'execScript'])
-
 const FUNCTION_CTORS = new Set(['Function', 'AsyncFunction', 'GeneratorFunction', 'AsyncGeneratorFunction'])
+
+// Known violations from vendored dependencies that we can't avoid.
+// Each entry records the expected count and which dependency causes it.
+// If the count changes (e.g. after a dependency version bump), update the count here.
+const ALLOWED_VIOLATIONS = {
+    'new Function()': {
+        count: 5,
+        source: 'pixi.js via @posthog/hedgehog-mode (4) + toolbarLogic CSP probe (1)',
+    },
+}
 
 function main() {
     const filePath = 'dist/toolbar.js'
@@ -82,9 +91,37 @@ function main() {
         },
     })
 
-    if (evals.length > 0) {
-        evals.forEach(({ type, start: { line, column } }) => console.error(`${type}: line ${line}:${column}`))
+    // Group violations by type
+    const countsByType = {}
+    for (const { type } of evals) {
+        countsByType[type] = (countsByType[type] || 0) + 1
+    }
 
+    let hasUnexpected = false
+
+    for (const [type, count] of Object.entries(countsByType)) {
+        const allowed = ALLOWED_VIOLATIONS[type]
+        if (allowed && count === allowed.count) {
+            // All good, nothing to see here, move along
+            continue
+        } else if (allowed && count !== allowed.count) {
+            console.error(
+                `✗ ${type}: found ${count} occurrence(s), expected ${allowed.count} (${allowed.source}). Update ALLOWED_VIOLATIONS if this is intentional.`
+            )
+            hasUnexpected = true
+        } else {
+            console.error(`✗ ${type}: ${count} unexpected occurrence(s)`)
+            hasUnexpected = true
+        }
+    }
+
+    if (hasUnexpected) {
+        evals.forEach(({ type, start: { line, column } }) => {
+            const allowed = ALLOWED_VIOLATIONS[type]
+            if (!allowed || countsByType[type] !== allowed.count) {
+                console.error(`  ${type}: line ${line}:${column}`)
+            }
+        })
         process.exit(1)
     }
 }

@@ -45,7 +45,7 @@ export function QuestionBranchingInput({
     questionIndex: number
     question: SurveyQuestion
 }): JSX.Element {
-    const { survey, getBranchingDropdownValue } = useValues(surveyLogic)
+    const { survey, getBranchingDropdownValue, editingLanguage } = useValues(surveyLogic)
     const { setQuestionBranchingType, setSurveyValue } = useActions(surveyLogic)
 
     const availableQuestions = getAvailableQuestionOptions(survey.questions, questionIndex)
@@ -126,6 +126,10 @@ export function QuestionBranchingInput({
                     data-attr={`survey-question-${questionIndex}-branching-select`}
                     onSelect={handleBranchingSelection}
                     options={dropdownOptions}
+                    disabled={!!editingLanguage}
+                    disabledReason={
+                        editingLanguage ? 'Question branching can only be edited in the original language' : undefined
+                    }
                 />
             </LemonField>
             {/* Show response-based branching UI when that option is selected */}
@@ -136,12 +140,17 @@ export function QuestionBranchingInput({
     )
 }
 
-function getResponseConfiguration(
+export function getResponseConfiguration(
     question: RatingSurveyQuestion | MultipleSurveyQuestion
 ): { value: string | number; label: string }[] {
     if (question.type === SurveyQuestionType.Rating) {
         // Handle different rating scales with appropriate groupings
         switch (question.scale) {
+            case 2:
+                return [
+                    { value: 'positive', label: '1 (Thumbs up)' },
+                    { value: 'negative', label: '2 (Thumbs down)' },
+                ]
             case 3:
                 return [
                     { value: 'negative', label: '1 (Negative)' },

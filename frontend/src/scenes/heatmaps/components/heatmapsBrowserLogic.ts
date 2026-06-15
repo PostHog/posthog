@@ -10,13 +10,9 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import {
-    DEFAULT_HEATMAP_FILTERS,
-    PostHogAppToolbarEvent,
-    calculateViewportRange,
-} from 'lib/components/IframedToolbarBrowser/utils'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
+import { PostHogAppToolbarEvent, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { objectsEqual } from 'lib/utils'
 import { removeReplayIframeDataFromLocalStorage } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -43,7 +39,7 @@ export interface ReplayIframeData {
 }
 
 // Helper function to detect if a URL contains regex pattern characters
-const isUrlPattern = (url: string): boolean => {
+export const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 
@@ -66,15 +62,37 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             }),
             ['urlsKeyed', 'checkUrlIsAuthorized'],
             heatmapDataLogic({ context: 'in-app' }),
-            ['heatmapEmpty', 'hrefMatchType'],
+            [
+                'heatmapEmpty',
+                'hrefMatchType',
+                'widthOverride',
+                'heightOverride',
+                'commonFilters',
+                'heatmapFilters',
+                'heatmapFixedPositionMode',
+                'heatmapColorPalette',
+            ],
         ],
-        actions: [heatmapDataLogic({ context: 'in-app' }), ['loadHeatmap', 'setHref', 'setHrefMatchType']],
+        actions: [
+            heatmapDataLogic({ context: 'in-app' }),
+            [
+                'loadHeatmap',
+                'setHref',
+                'setHrefMatchType',
+                'setWindowWidthOverride',
+                'setCommonFilters',
+                'patchHeatmapFilters',
+                'setHeatmapFixedPositionMode',
+                'setHeatmapColorPalette',
+            ],
+        ],
     })),
 
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
         setDataUrl: (url: string | null) => ({ url }),
         setDisplayUrl: (url: string | null) => ({ url }),
+        setDataUrlUserTouched: (touched: boolean) => ({ touched }),
         onIframeLoad: true,
         sendToolbarMessage: (type: PostHogAppToolbarEvent, payload?: Record<string, any>) => ({
             type,
@@ -83,13 +101,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         loadTopUrls: true,
         maybeLoadTopUrls: true,
         loadBrowserSearchResults: true,
-        // TRICKY: duplicated with the heatmapLogic so that we can share the settings picker
-        patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
-        setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
-        setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
-        setCommonFilters: (filters: CommonFilters) => ({ filters }),
-        // TRICKY: duplication ends
-        setIframeWidth: (width: number | null) => ({ width }),
         toggleFilterPanelCollapsed: true,
         setIframeBanner: (banner: IFrameBanner | null) => ({ banner }),
         startTrackingLoading: true,
@@ -172,38 +183,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 toggleFilterPanelCollapsed: (state) => !state,
             },
         ],
-        // they're called common filters in the toolbar because they're shared between heatmaps and clickmaps
-        // the name is continued here since they're passed down into the embedded iframe
-        commonFilters: [
-            { date_from: '-7d' } as CommonFilters,
-            {
-                setCommonFilters: (_, { filters }) => filters,
-            },
-        ],
-        heatmapColorPalette: [
-            'default' as string | null,
-            {
-                setHeatmapColorPalette: (_, { Palette }) => Palette,
-            },
-        ],
-        heatmapFilters: [
-            DEFAULT_HEATMAP_FILTERS,
-            {
-                patchHeatmapFilters: (state, { filters }) => ({ ...state, ...filters }),
-            },
-        ],
-        heatmapFixedPositionMode: [
-            'fixed' as HeatmapFixedPositionMode,
-            {
-                setHeatmapFixedPositionMode: (_, { mode }) => mode,
-            },
-        ],
-        iframeWidth: [
-            null as number | null,
-            {
-                setIframeWidth: (_, { width }) => width,
-            },
-        ],
         browserSearchTerm: [
             '',
             {
@@ -232,16 +211,16 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                 setIframeBanner: (_, { banner }) => banner,
             },
         ],
-        widthOverride: [
-            1024 as number | null,
-            {
-                setIframeWidth: (_, { width }) => width,
-            },
-        ],
         displayUrl: [
             null as string | null,
             {
                 setDisplayUrl: (_, { url }) => url,
+            },
+        ],
+        userTouchedDataUrl: [
+            false,
+            {
+                setDataUrlUserTouched: (_, { touched }) => touched,
             },
         ],
     }),
@@ -286,9 +265,9 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
 
         viewportRange: [
-            (s) => [s.heatmapFilters, s.iframeWidth],
-            (heatmapFilters, iframeWidth) => {
-                return iframeWidth ? calculateViewportRange(heatmapFilters, iframeWidth) : { min: 0, max: 1800 }
+            (s) => [s.heatmapFilters, s.widthOverride],
+            (heatmapFilters, widthOverride) => {
+                return calculateViewportRange(heatmapFilters, widthOverride)
             },
         ],
 
@@ -300,7 +279,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, props, values, cache }) => ({
         setDisplayUrl: ({ url }) => {
-            actions.setDataUrl(url?.trim() ?? null)
+            // Don't clobber a separately edited data URL when the page URL changes.
+            if (!values.userTouchedDataUrl) {
+                actions.setDataUrl(url?.trim() ?? null)
+            }
         },
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
@@ -481,8 +463,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             const searchParams = { ...router.values.searchParams, heatmapFilters: values.heatmapFilters }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
-        setHeatmapColorPalette: ({ Palette }) => {
-            const searchParams = { ...router.values.searchParams, heatmapPalette: Palette }
+        setHeatmapColorPalette: ({ palette }) => {
+            const searchParams = { ...router.values.searchParams, heatmapPalette: palette }
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         },
         setHeatmapFixedPositionMode: ({ mode }) => {

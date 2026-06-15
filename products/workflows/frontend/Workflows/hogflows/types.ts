@@ -1,5 +1,5 @@
 import { Edge, Node } from '@xyflow/react'
-import { z } from 'zod'
+import z from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 
@@ -34,8 +34,17 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
-            window_minutes: z.number(),
+            window_minutes: z.number().nullable(),
             filters: z.any(),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any().optional().nullable(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
+            bytecode: z.array(z.union([z.string(), z.number()])).optional(), // Bytecode only present after save
         })
         .optional(),
     exit_condition: z.enum([
@@ -54,7 +63,18 @@ export const HogFlowSchema = z.object({
 
 export const HogFlowTemplateSchema = HogFlowSchema.omit({ status: true }).extend({
     image_url: z.string().optional().nullable(),
-    scope: z.enum(['team', 'global']).optional().nullable(),
+    tags: z.array(z.string()).default([]),
+    scope: z.enum(['team', 'global', 'organization']).optional().nullable(),
+})
+
+export const HogFlowBatchJobSchema = z.object({
+    id: z.string(),
+    hog_flow: z.string(),
+    variables: z.record(z.string(), z.any()),
+    status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
+    filters: z.any(),
+    created_at: z.string(),
+    updated_at: z.string(),
 })
 
 // NOTE: these are purposefully exported as interfaces to support kea typegen
@@ -76,4 +96,20 @@ export type HogFlowActionValidationResult = CyclotronJobInputsValidationResult &
 
 export interface HogFlowTemplate extends z.infer<typeof HogFlowTemplateSchema> {
     created_by?: UserBasicType | null
+}
+
+export interface HogFlowBatchJob extends z.infer<typeof HogFlowBatchJobSchema> {
+    created_by?: UserBasicType | null
+}
+
+export interface HogFlowSchedule {
+    id: string
+    rrule: string
+    starts_at: string
+    timezone?: string
+    variables?: Record<string, unknown>
+    status?: string
+    next_run_at?: string | null
+    created_at?: string
+    updated_at?: string
 }

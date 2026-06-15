@@ -1,6 +1,8 @@
+import { useActions } from 'kea'
+
 import { IconDownload } from '@posthog/icons'
 
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonPrimitive, DisabledReasonsObject } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -17,6 +19,7 @@ import { exportsLogic } from '../../ExportButton/exportsLogic'
 import { SubscriptionBaseProps } from '../../Subscriptions/utils'
 
 interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
+    disabledReasons?: DisabledReasonsObject
     dropdownMenuItems: {
         label?: string
         dataAttr: string
@@ -27,17 +30,22 @@ interface SceneExportDropdownMenuProps extends SubscriptionBaseProps {
     }[]
 }
 
-export function SceneExportDropdownMenu({ dropdownMenuItems }: SceneExportDropdownMenuProps): JSX.Element | null {
-    const { actions } = exportsLogic
+export function SceneExportDropdownMenu({
+    dropdownMenuItems,
+    disabledReasons,
+}: SceneExportDropdownMenuProps): JSX.Element | null {
+    const { startExport } = useActions(exportsLogic)
 
     const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
-        actions.startExport(triggerExportProps)
+        startExport(triggerExportProps)
     }
+
+    const isDisabled = disabledReasons ? Object.values(disabledReasons).some(Boolean) : false
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive menuItem>
+            <DropdownMenuTrigger asChild disabled={isDisabled}>
+                <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
                     <IconDownload />
                     Export
                     <MenuOpenIndicator className="ml-auto" />

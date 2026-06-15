@@ -1,6 +1,9 @@
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { TaskDetailPage } from './components/TaskDetailPage'
 import { TaskDetailSceneLogicProps, taskDetailSceneLogic } from './logics/taskDetailSceneLogic'
@@ -8,6 +11,7 @@ import { TaskDetailSceneLogicProps, taskDetailSceneLogic } from './logics/taskDe
 export const scene: SceneExport<TaskDetailSceneLogicProps> = {
     component: TaskDetailScene,
     logic: taskDetailSceneLogic,
+    productKey: ProductKey.TASKS,
     paramsToProps: ({ params: { taskId } }) => ({
         taskId: taskId,
     }),
@@ -20,5 +24,10 @@ export function TaskDetailScene({ taskId }: TaskDetailSceneLogicProps): JSX.Elem
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
     }
 
-    return <TaskDetailPage taskId={taskId} />
+    return (
+        <>
+            <AllowTrainingCallout featureName="PostHog Code" />
+            <TaskDetailPage taskId={taskId} />
+        </>
+    )
 }

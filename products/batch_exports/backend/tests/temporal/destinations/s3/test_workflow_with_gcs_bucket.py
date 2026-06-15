@@ -5,9 +5,9 @@ import pytest
 import aioboto3
 import pytest_asyncio
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
@@ -58,7 +58,7 @@ async def gcs_batch_export(
 ):
     assert bucket_name
     destination_data = {
-        "type": "S3",
+        "type": "S3Compatible",
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
@@ -68,7 +68,6 @@ async def gcs_batch_export(
             "endpoint_url": "https://storage.googleapis.com",
             "compression": compression,
             "exclude_events": exclude_events,
-            "encryption": None,
             "file_format": file_format,
         },
     }
@@ -139,4 +138,5 @@ async def test_s3_export_workflow_with_gcs_bucket_with_various_file_formats(
         data_interval_end=data_interval_end,
         clickhouse_client=clickhouse_client,
         s3_client=s3_client,
+        destination_type="S3Compatible",
     )

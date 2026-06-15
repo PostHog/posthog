@@ -4,6 +4,7 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::serde::ts_microseconds;
 use chrono::DateTime;
+use chrono::TimeDelta;
 use chrono::Utc;
 use clickhouse::Row;
 use opentelemetry_proto::tonic::{
@@ -37,23 +38,60 @@ pub struct KafkaLogRow {
     pub instrumentation_scope: String,
     pub event_name: String,
     pub attributes: HashMap<String, String>,
+    pub bytes_uncompressed: Option<i64>,
+}
+
+/// Sum byte lengths of the row's string and map content. Fixed-width fields
+/// (timestamps, trace_flags, severity_number) are excluded — only variable-length
+/// payload is counted. Distinct from the Kafka header `bytes_uncompressed`, which
+/// is the raw HTTP body size for the whole batch.
+pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
+    let mut total: usize = 0;
+    total = total.saturating_add(row.uuid.len());
+    total = total.saturating_add(row.trace_id.len());
+    total = total.saturating_add(row.span_id.len());
+    total = total.saturating_add(row.body.len());
+    total = total.saturating_add(row.severity_text.len());
+    total = total.saturating_add(row.service_name.len());
+    total = total.saturating_add(row.instrumentation_scope.len());
+    total = total.saturating_add(row.event_name.len());
+    for (k, v) in &row.resource_attributes {
+        total = total.saturating_add(k.len()).saturating_add(v.len());
+    }
+    for (k, v) in &row.attributes {
+        total = total.saturating_add(k.len()).saturating_add(v.len());
+    }
+    i64::try_from(total).unwrap_or(i64::MAX)
+}
+
+/// Sum of per-row `bytes_uncompressed` across a batch; rows without the field count as zero.
+/// Feeds the `bytes_uncompressed_records` Kafka header — the records-based counterpart to the
+/// payload-sized `bytes_uncompressed` header — so the two can be compared before billing
+/// switches to the records-based value.
+pub fn sum_kafka_log_row_bytes(rows: &[KafkaLogRow]) -> u64 {
+    rows.iter()
+        .map(|row| row.bytes_uncompressed.unwrap_or(0).max(0) as u64)
+        .sum()
 }
 
 impl KafkaLogRow {
+    /// Set `bytes_uncompressed` from the row's variable-length content. Consuming
+    /// builder; the `mut self` is encapsulated and never escapes.
+    pub(crate) fn with_computed_bytes(mut self) -> Self {
+        self.bytes_uncompressed = Some(compute_kafka_log_row_bytes(&self));
+        self
+    }
+
     pub fn new(
         record: LogRecord,
         resource: Option<Resource>,
         scope: Option<InstrumentationScope>,
-    ) -> Result<Self> {
-        // Extract body
+    ) -> Result<(Self, bool)> {
+        // Extract body - convert any AnyValue type to JSON string
         let body = match record.body {
             Some(body) => match body.value {
-                Some(value) => match value {
-                    opentelemetry_proto::tonic::common::v1::any_value::Value::StringValue(s) => {
-                        s.clone()
-                    }
-                    _ => format!("{value:?}"),
-                },
+                Some(any_value::Value::StringValue(s)) => s,
+                Some(_) => any_value_to_json(body).to_string(),
                 None => "".to_string(),
             },
             None => "".to_string(),
@@ -76,7 +114,7 @@ impl KafkaLogRow {
 
         let resource_attributes = extract_resource_attributes(resource);
 
-        let attributes: HashMap<String, String> = record
+        let mut attributes: HashMap<String, String> = record
             .attributes
             .into_iter()
             .map(|kv| {
@@ -104,10 +142,16 @@ impl KafkaLogRow {
         // Trace flags
         let trace_flags = record.flags;
 
-        let timestamp = match record.time_unix_nano {
+        let raw_timestamp = match record.time_unix_nano {
             0 => Utc::now(),
             _ => DateTime::<Utc>::from_timestamp_nanos(record.time_unix_nano.try_into()?),
         };
+
+        let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+        let was_overridden = original_timestamp.is_some();
+        if let Some(original) = original_timestamp {
+            attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        }
 
         let observed_timestamp = Utc::now();
 
@@ -126,10 +170,27 @@ impl KafkaLogRow {
             event_name,
             service_name,
             attributes,
-        };
+            bytes_uncompressed: None,
+        }
+        .with_computed_bytes();
         debug!("log: {:?}", log_row);
 
-        Ok(log_row)
+        Ok((log_row, was_overridden))
+    }
+}
+
+const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
+
+/// Override timestamps outside of 24 hours from now. Returns the final timestamp
+/// and the original if it was overridden.
+pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
+    let now = Utc::now();
+    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
+
+    if timestamp < now - max_delta || timestamp > now + max_delta {
+        (now, Some(timestamp))
+    } else {
+        (timestamp, None)
     }
 }
 
@@ -146,7 +207,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_trace_id(input: &[u8]) -> [u8; 16] {
+pub fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     if input.len() == 16 {
         let mut bytes = [0; 16];
         bytes.copy_from_slice(input);
@@ -156,7 +217,7 @@ fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     }
 }
 
-fn extract_span_id(input: &[u8]) -> [u8; 8] {
+pub fn extract_span_id(input: &[u8]) -> [u8; 8] {
     if input.len() == 8 {
         let mut bytes = [0; 8];
         bytes.copy_from_slice(input);
@@ -221,7 +282,7 @@ fn convert_severity_number_to_text(severity_number: i32) -> String {
     }
 }
 
-fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, String> {
+pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };
@@ -262,7 +323,7 @@ fn try_extract_severity(body: &str) -> Option<String> {
     None
 }
 
-fn any_value_to_json(value: AnyValue) -> JsonValue {
+pub fn any_value_to_json(value: AnyValue) -> JsonValue {
     match value.value {
         Some(value_enum) => match value_enum {
             any_value::Value::StringValue(s) => json!(s),
@@ -293,6 +354,188 @@ fn any_value_to_json(value: AnyValue) -> JsonValue {
     }
 }
 
-fn any_value_to_string(value: AnyValue) -> String {
+pub fn any_value_to_string(value: AnyValue) -> String {
     any_value_to_json(value).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use apache_avro::{Codec, Reader, Schema, Writer};
+
+    use crate::avro_schema::AVRO_SCHEMA;
+
+    fn sample_row() -> KafkaLogRow {
+        let mut resource_attributes = HashMap::new();
+        resource_attributes.insert("host.name".to_string(), "localhost".to_string());
+        let mut attributes = HashMap::new();
+        attributes.insert("k".to_string(), "v".to_string());
+        KafkaLogRow {
+            uuid: "uuid-1234".to_string(),
+            trace_id: "tid".to_string(),
+            span_id: "sid".to_string(),
+            trace_flags: 0,
+            timestamp: Utc::now(),
+            observed_timestamp: Utc::now(),
+            body: "hello".to_string(),
+            severity_text: "info".to_string(),
+            severity_number: 9,
+            service_name: "svc".to_string(),
+            resource_attributes,
+            instrumentation_scope: "scope@1".to_string(),
+            event_name: "evt".to_string(),
+            attributes,
+            bytes_uncompressed: None,
+        }
+    }
+
+    #[test]
+    fn test_compute_kafka_log_row_bytes_sums_string_and_map_lengths() {
+        let row = sample_row();
+        // string fields: uuid(9) + trace_id(3) + span_id(3) + body(5) + severity_text(4)
+        // + service_name(3) + instrumentation_scope(7) + event_name(3) = 37
+        // maps: resource_attributes "host.name"(9)+"localhost"(9)=18; attributes "k"(1)+"v"(1)=2
+        // total = 37 + 18 + 2 = 57
+        assert_eq!(compute_kafka_log_row_bytes(&row), 57);
+    }
+
+    fn sample_row_bytes() -> u64 {
+        sample_row()
+            .with_computed_bytes()
+            .bytes_uncompressed
+            .unwrap() as u64
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_empty_slice_is_zero() {
+        assert_eq!(sum_kafka_log_row_bytes(&[]), 0);
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_treats_missing_field_as_zero() {
+        let with_bytes = sample_row().with_computed_bytes();
+        let without_bytes = sample_row(); // bytes_uncompressed: None
+        assert_eq!(
+            sum_kafka_log_row_bytes(&[with_bytes, without_bytes]),
+            sample_row_bytes()
+        );
+    }
+
+    #[test]
+    fn test_sum_kafka_log_row_bytes_sums_all_rows() {
+        let rows = [
+            sample_row().with_computed_bytes(),
+            sample_row().with_computed_bytes(),
+        ];
+        assert_eq!(sum_kafka_log_row_bytes(&rows), sample_row_bytes() * 2);
+    }
+
+    #[test]
+    fn test_compute_kafka_log_row_bytes_excludes_fixed_width_fields() {
+        // Two rows differing only in fixed-width numeric/timestamp fields should compute
+        // identical bytes_uncompressed.
+        let mut a = sample_row();
+        a.trace_flags = 0;
+        a.severity_number = 1;
+        let mut b = sample_row();
+        b.trace_flags = u32::MAX;
+        b.severity_number = i32::MIN;
+        b.timestamp = a.timestamp + TimeDelta::days(1);
+        assert_eq!(
+            compute_kafka_log_row_bytes(&a),
+            compute_kafka_log_row_bytes(&b),
+        );
+    }
+
+    #[test]
+    fn test_bytes_uncompressed_serialises_into_avro_payload() {
+        // We don't deserialise back into KafkaLogRow because apache_avro's `from_value`
+        // can't resolve `["null", T]` unions into non-Option struct fields (the existing
+        // pattern used for body/attributes/etc.). Instead, decode to the raw Avro Value
+        // and assert the new field is present with the expected long.
+        use apache_avro::types::Value;
+
+        let mut row = sample_row();
+        row.bytes_uncompressed = Some(compute_kafka_log_row_bytes(&row));
+        let expected = row.bytes_uncompressed.unwrap();
+
+        let schema = Schema::parse_str(AVRO_SCHEMA).expect("schema parses");
+        let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
+        writer.append_ser(&row).expect("append_ser ok");
+        let payload = writer.into_inner().expect("flush ok");
+
+        let reader = Reader::new(payload.as_slice()).expect("reader ok");
+        let mut found_long: Option<i64> = None;
+        for value in reader {
+            let value = value.expect("decode ok");
+            if let Value::Record(fields) = value {
+                for (name, field_value) in fields {
+                    if name == "bytes_uncompressed" {
+                        if let Value::Union(_, inner) = field_value {
+                            if let Value::Long(v) = *inner {
+                                found_long = Some(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(found_long, Some(expected));
+    }
+
+    #[test]
+    fn test_new_populates_bytes_uncompressed() {
+        let log_record = LogRecord::default();
+        let (row, _) = KafkaLogRow::new(log_record, None, None).expect("ok");
+        assert!(row.bytes_uncompressed.is_some());
+        assert_eq!(
+            row.bytes_uncompressed.unwrap(),
+            compute_kafka_log_row_bytes(&row),
+        );
+    }
+
+    #[test]
+    fn test_override_timestamp_within_range_is_unchanged() {
+        let now = Utc::now();
+        let one_hour_ago = now - TimeDelta::hours(1);
+        let (final_ts, original) = override_timestamp(one_hour_ago);
+        assert_eq!(final_ts, one_hour_ago);
+        assert!(original.is_none());
+    }
+
+    #[test]
+    fn test_override_timestamp_far_past_is_overridden() {
+        let now = Utc::now();
+        let two_days_ago = now - TimeDelta::hours(48);
+        let (final_ts, original) = override_timestamp(two_days_ago);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), two_days_ago);
+    }
+
+    #[test]
+    fn test_override_timestamp_far_future_is_overridden() {
+        let now = Utc::now();
+        let two_days_ahead = now + TimeDelta::hours(48);
+        let (final_ts, original) = override_timestamp(two_days_ahead);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), two_days_ahead);
+    }
+
+    #[test]
+    fn test_override_timestamp_at_boundary_is_not_overridden() {
+        let now = Utc::now();
+        let just_within = now - TimeDelta::hours(22);
+        let (final_ts, original) = override_timestamp(just_within);
+        assert_eq!(final_ts, just_within);
+        assert!(original.is_none());
+    }
+
+    #[test]
+    fn test_override_timestamp_just_past_boundary_is_overridden() {
+        let now = Utc::now();
+        let just_outside = now - TimeDelta::hours(24) - TimeDelta::seconds(1);
+        let (final_ts, original) = override_timestamp(just_outside);
+        assert!((final_ts - now).num_seconds().abs() < 2);
+        assert_eq!(original.unwrap(), just_outside);
+    }
 }

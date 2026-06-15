@@ -1,13 +1,18 @@
+import { Counter } from 'prom-client'
+
 import { QuotaResource } from '../../common/services/quota-limiting.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { CyclotronJobInvocationHogFunction } from '../types'
-import { counterQuotaLimited } from './metrics'
+
+const counterQuotaLimited = new Counter({
+    name: 'cdp_function_quota_limited',
+    help: 'A function invocation was quota limited',
+    labelNames: ['team_id'],
+})
 
 export interface QuotaLimitingContext {
-    hub: {
-        quotaLimiting: {
-            isTeamQuotaLimited: (teamId: number, resource: QuotaResource) => Promise<boolean>
-        }
+    quotaLimiting: {
+        isTeamQuotaLimited: (teamId: number, resource: QuotaResource) => Promise<boolean>
     }
     hogFunctionMonitoringService: HogFunctionMonitoringService
 }
@@ -20,7 +25,7 @@ export async function shouldBlockInvocationDueToQuota(
     item: CyclotronJobInvocationHogFunction,
     context: QuotaLimitingContext
 ): Promise<boolean> {
-    const isQuotaLimited = await context.hub.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_trigger_events')
+    const isQuotaLimited = await context.quotaLimiting.isTeamQuotaLimited(item.teamId, 'cdp_trigger_events')
 
     if (isQuotaLimited) {
         counterQuotaLimited.labels({ team_id: item.teamId }).inc()

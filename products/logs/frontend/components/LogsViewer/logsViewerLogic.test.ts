@@ -1,42 +1,81 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { useMocks } from '~/mocks/jest'
+import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
+import { logsViewerDataLogic } from './data/logsViewerDataLogic'
+import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
+
+const createMockRawLog = (uuid: string): LogMessage => ({
+    uuid,
+    trace_id: 'trace-1',
+    span_id: 'span-1',
+    body: `Log ${uuid}`,
+    attributes: {},
+    timestamp: '2024-01-01T00:00:00Z',
+    observed_timestamp: '2024-01-01T00:00:00Z',
+    severity_text: 'info' as const,
+    severity_number: 9,
+    level: 'info' as const,
+    resource_attributes: {},
+    instrumentation_scope: 'test',
+    event_name: 'log',
+})
+
 const createMockParsedLog = (uuid: string): ParsedLogMessage => {
-    const baseLog = {
-        uuid,
-        trace_id: 'trace-1',
-        span_id: 'span-1',
-        body: `Log ${uuid}`,
-        attributes: {},
-        timestamp: '2024-01-01T00:00:00Z',
-        observed_timestamp: '2024-01-01T00:00:00Z',
-        severity_text: 'info' as const,
-        severity_number: 9,
-        level: 'info' as const,
-        resource_attributes: {},
-        instrumentation_scope: 'test',
-        event_name: 'log',
-    }
+    const baseLog = createMockRawLog(uuid)
     return {
         ...baseLog,
+        attributes: {},
         cleanBody: `Log ${uuid}`,
         parsedBody: null,
         originalLog: baseLog,
     }
 }
 
-const mockLogs = [createMockParsedLog('log-1'), createMockParsedLog('log-2'), createMockParsedLog('log-3')]
+const mockRawLogs = [createMockRawLog('log-1'), createMockRawLog('log-2'), createMockRawLog('log-3')]
+
+const TEST_ID = 'test-tab'
+
+function mountWithLogs(rawLogs: LogMessage[] = mockRawLogs): {
+    logic: ReturnType<typeof logsViewerLogic.build>
+    dataLogic: ReturnType<typeof logsViewerDataLogic.build>
+} {
+    const filtersLogic = logsViewerFiltersLogic({ id: TEST_ID })
+    filtersLogic.mount()
+    const configLogic = logsViewerConfigLogic({ id: TEST_ID })
+    configLogic.mount()
+    const dataLogic = logsViewerDataLogic({ id: TEST_ID, autoLoad: false })
+    dataLogic.mount()
+    if (rawLogs.length > 0) {
+        dataLogic.actions.setLogs(rawLogs)
+    }
+    const logic = logsViewerLogic({ id: TEST_ID })
+    logic.mount()
+    return { logic, dataLogic }
+}
 
 describe('logsViewerLogic', () => {
     let logic: ReturnType<typeof logsViewerLogic.build>
 
     beforeEach(() => {
-        // Clear localStorage to reset persisted state
+        useMocks({
+            post: {
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
+                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
+            },
+        })
         localStorage.clear()
         initKeaTests()
     })
@@ -47,8 +86,7 @@ describe('logsViewerLogic', () => {
 
     describe('cursor navigation', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('sets cursor index', async () => {
@@ -212,8 +250,7 @@ describe('logsViewerLogic', () => {
 
     describe('empty logs', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: [], orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs([]))
         })
 
         it('moveCursorDown does nothing when logs are empty', async () => {
@@ -233,61 +270,12 @@ describe('logsViewerLogic', () => {
         })
     })
 
-    describe('expansion', () => {
-        beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
-        })
-        it('expands a log when not expanded', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toMatchValues({
-                expandedLogIds: { 'log-1': true },
-            })
-        })
-
-        it('collapses a log when already expanded', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds['log-1']).toBe(true)
-
-            await expectLogic(logic, () => {
-                logic.actions.toggleExpandLog('log-1')
-            }).toMatchValues({
-                expandedLogIds: {},
-            })
-        })
-
-        it('supports multiple expanded logs', async () => {
-            logic.actions.toggleExpandLog('log-1')
-            logic.actions.toggleExpandLog('log-2')
-            logic.actions.toggleExpandLog('log-3')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds).toEqual({
-                'log-1': true,
-                'log-2': true,
-                'log-3': true,
-            })
-
-            logic.actions.toggleExpandLog('log-2')
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.expandedLogIds).toEqual({
-                'log-1': true,
-                'log-3': true,
-            })
-        })
-    })
-
     describe('pinning', () => {
         const mockLog1 = createMockParsedLog('log-1')
         const mockLog2 = createMockParsedLog('log-2')
 
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('pins a log when not pinned', async () => {
@@ -346,8 +334,7 @@ describe('logsViewerLogic', () => {
 
     describe('focus state', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('defaults to not focused', () => {
@@ -371,8 +358,7 @@ describe('logsViewerLogic', () => {
 
     describe('display options', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('defaults wrapBody to true', () => {
@@ -387,23 +373,22 @@ describe('logsViewerLogic', () => {
             })
         })
 
-        it('defaults prettifyJson to true', () => {
-            expect(logic.values.prettifyJson).toBe(true)
+        it('defaults prettifyJson to false', () => {
+            expect(logic.values.prettifyJson).toBe(false)
         })
 
         it('sets prettifyJson', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setPrettifyJson(false)
+                logic.actions.setPrettifyJson(true)
             }).toMatchValues({
-                prettifyJson: false,
+                prettifyJson: true,
             })
         })
     })
 
     describe('timezone', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('defaults to UTC', () => {
@@ -432,8 +417,7 @@ describe('logsViewerLogic', () => {
 
     describe('multi-select', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('defaults to no selection', () => {
@@ -513,7 +497,7 @@ describe('logsViewerLogic', () => {
             })
 
             it('selects only provided logs when argument given', async () => {
-                const subset = [mockLogs[0], mockLogs[2]]
+                const subset = [logic.values.logs[0], logic.values.logs[2]]
                 await expectLogic(logic, () => {
                     logic.actions.selectAll(subset)
                 }).toFinishAllListeners()
@@ -590,7 +574,7 @@ describe('logsViewerLogic', () => {
                 expect(logic.values.selectedCount).toBe(2)
 
                 await expectLogic(logic, () => {
-                    logic.actions.setLogs([createMockParsedLog('new-log')])
+                    logic.actions.setLogs([createMockRawLog('new-log')])
                 }).toMatchValues({
                     selectedLogIds: {},
                     isSelectionActive: false,
@@ -601,8 +585,7 @@ describe('logsViewerLogic', () => {
 
     describe('attribute columns', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         describe('moveAttributeColumn', () => {
@@ -656,10 +639,116 @@ describe('logsViewerLogic', () => {
         })
     })
 
+    describe('expansion', () => {
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs())
+        })
+
+        it('defaults to no expanded logs', () => {
+            expect(logic.values.expandedLogIds).toEqual({})
+        })
+
+        it('expands a log when not expanded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toMatchValues({
+                expandedLogIds: { 'log-1': true },
+            })
+        })
+
+        it('collapses a log when already expanded', async () => {
+            logic.actions.toggleExpandLog('log-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toMatchValues({
+                expandedLogIds: {},
+            })
+        })
+
+        it('supports multiple expanded logs', async () => {
+            logic.actions.toggleExpandLog('log-1')
+            logic.actions.toggleExpandLog('log-3')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.expandedLogIds).toEqual({
+                'log-1': true,
+                'log-3': true,
+            })
+        })
+
+        it('triggers recomputeRowHeights when toggling', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleExpandLog('log-1')
+            }).toDispatchActions(['toggleExpandLog', 'recomputeRowHeights'])
+        })
+    })
+
+    describe('deep linking (linkToLogId)', () => {
+        let dataLogic: ReturnType<typeof logsViewerDataLogic.build>
+
+        beforeEach(() => {
+            ;({ logic, dataLogic } = mountWithLogs([]))
+        })
+
+        it('clears linkToLogId when linked log is found in results', async () => {
+            // Simulate: linkToLogId set from URL, then query results arrive containing the log
+            logic.actions.setLinkToLogId('log-2')
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('clears linkToLogId when log not found in results', async () => {
+            logic.actions.setLinkToLogId('log-missing')
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('clears linkToLogId when query returns zero results', async () => {
+            logic.actions.setLinkToLogId('log-missing')
+            dataLogic.actions.setLogs([])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+
+        it('opens correct log when linkToLogId changes with logs already loaded', async () => {
+            dataLogic.actions.setLogs(mockRawLogs)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setLinkToLogId('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.linkToLogId).toBeNull()
+        })
+    })
+
+    describe('copyLinkToLog', () => {
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs())
+            jest.mocked(copyToClipboard).mockClear()
+        })
+
+        it('copies a link pointing at the viewer tab even when copied from another tab', async () => {
+            window.history.replaceState({}, '', '/project/1/logs?activeTab=services')
+
+            logic.actions.copyLinkToLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            const copiedUrl = new URL(jest.mocked(copyToClipboard).mock.calls[0][0])
+            expect(copiedUrl.searchParams.get('activeTab')).toEqual('viewer')
+            expect(copiedUrl.searchParams.get('linkToLogId')).toEqual('log-2')
+        })
+    })
+
     describe('per-row prettification', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
-            logic.mount()
+            ;({ logic } = mountWithLogs())
         })
 
         it('defaults to empty set', () => {
@@ -710,10 +799,77 @@ describe('logsViewerLogic', () => {
             expect(logic.values.prettifiedLogIds.size).toBe(2)
 
             await expectLogic(logic, () => {
-                logic.actions.setLogs([createMockParsedLog('new-log')])
+                logic.actions.setLogs([createMockRawLog('new-log')])
             }).toFinishAllListeners()
 
             expect(logic.values.prettifiedLogIds.size).toBe(0)
+        })
+    })
+
+    describe('visible row range tracking', () => {
+        const rawLogsWithTimestamps: LogMessage[] = [
+            { ...createMockRawLog('log-1'), timestamp: '2024-01-01T00:00:00Z' },
+            { ...createMockRawLog('log-2'), timestamp: '2024-01-01T01:00:00Z' },
+            { ...createMockRawLog('log-3'), timestamp: '2024-01-01T02:00:00Z' },
+            { ...createMockRawLog('log-4'), timestamp: '2024-01-01T03:00:00Z' },
+        ]
+
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs(rawLogsWithTimestamps))
+        })
+
+        it('defaults to null', () => {
+            expect(logic.values.visibleRowRange).toBeNull()
+            expect(logic.values.visibleRowDateRange).toBeNull()
+        })
+
+        it('records the visible row index range', () => {
+            logic.actions.setVisibleRowRange(1, 2)
+            expect(logic.values.visibleRowRange).toEqual({ startIndex: 1, stopIndex: 2 })
+        })
+
+        it.each([
+            {
+                name: 'ascending logs',
+                reverseLogs: false,
+                range: [1, 2] as const,
+                expected: { date_from: '2024-01-01T01:00:00.000Z', date_to: '2024-01-01T02:00:00.000Z' },
+            },
+            {
+                // "Latest first" — startIndex points at a later timestamp than stopIndex.
+                name: 'descending logs',
+                reverseLogs: true,
+                range: [0, 1] as const,
+                expected: { date_from: '2024-01-01T02:00:00.000Z', date_to: '2024-01-01T03:00:00.000Z' },
+            },
+            {
+                name: 'single-row range',
+                reverseLogs: false,
+                range: [2, 2] as const,
+                expected: { date_from: '2024-01-01T02:00:00.000Z', date_to: '2024-01-01T02:00:00.000Z' },
+            },
+        ])('derives a date range ordered earliest-first ($name)', ({ reverseLogs, range, expected }) => {
+            if (reverseLogs) {
+                logic.actions.setLogs([...rawLogsWithTimestamps].reverse())
+            }
+            logic.actions.setVisibleRowRange(range[0], range[1])
+            expect(logic.values.visibleRowDateRange).toEqual(expected)
+        })
+
+        it('clamps indices that fall outside the loaded logs', () => {
+            logic.actions.setVisibleRowRange(0, 999)
+            expect(logic.values.visibleRowDateRange).toEqual({
+                date_from: '2024-01-01T00:00:00.000Z',
+                date_to: '2024-01-01T03:00:00.000Z',
+            })
+        })
+
+        it('clears when logs are replaced', () => {
+            logic.actions.setVisibleRowRange(0, 2)
+            expect(logic.values.visibleRowRange).not.toBeNull()
+            logic.actions.setLogs([createMockRawLog('new-log')])
+            expect(logic.values.visibleRowRange).toBeNull()
+            expect(logic.values.visibleRowDateRange).toBeNull()
         })
     })
 })

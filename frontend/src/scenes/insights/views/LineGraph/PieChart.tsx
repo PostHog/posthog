@@ -1,4 +1,3 @@
-import 'chartjs-adapter-dayjs-3'
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
 
@@ -14,13 +13,18 @@ import {
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
+import { isString } from 'lib/utils'
+import {
+    formatAggregationAxisValue,
+    formatAggregationAxisValueWithShareOfTotal,
+} from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
+import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { teamLogic } from 'scenes/teamLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -36,6 +40,7 @@ export interface PieChartProps extends LineGraphProps {
     breakdownFilter?: BreakdownFilter | null | undefined
     showLabelOnSeries?: boolean | null
     disableHoverOffset?: boolean | null
+    valueFormatter?: ((value: number) => string) | null
 }
 
 export function PieChart({
@@ -55,6 +60,7 @@ export function PieChart({
     showPersonsModal = true,
     labelGroupType,
     disableHoverOffset,
+    valueFormatter,
 }: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
@@ -67,7 +73,8 @@ export function PieChart({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
-    const { getTooltip, hideTooltip } = useInsightTooltip()
+    const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
+    const { baseCurrency } = useValues(teamLogic)
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -85,7 +92,8 @@ export function PieChart({
                     responsive: true,
                     maintainAspectRatio: false,
                     hover: {
-                        mode: 'index',
+                        mode: 'point',
+                        intersect: true,
                     },
                     layout: {
                         padding: {
@@ -99,17 +107,36 @@ export function PieChart({
                     borderRadius: 0,
                     hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16,
                     onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
-                        onChartHover(event, chart, onClick)
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const target = nativeEvent.target as HTMLDivElement
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        target.style.cursor = onClick && hitsSlice ? 'pointer' : 'default'
                     },
                     onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                        onChartClick(event, chart, datasets, onClick)
+                        const nativeEvent = event.native
+                        if (!nativeEvent) {
+                            return
+                        }
+                        const hitsSlice =
+                            chart.getElementsAtEventForMode(nativeEvent, 'point', { intersect: true }, true).length > 0
+                        if (hitsSlice) {
+                            onChartClick(event, chart, datasets, onClick)
+                        }
                     },
                     plugins: {
                         datalabels: {
                             color: 'white',
                             anchor: 'end',
                             backgroundColor: (context) => {
-                                return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
+                                const { backgroundColor } = context.dataset
+                                if (Array.isArray(backgroundColor)) {
+                                    return backgroundColor[context.dataIndex] || 'black'
+                                }
+                                return isString(backgroundColor) ? backgroundColor : 'black'
                             },
                             display: (context) => {
                                 const percentage = getPercentageForDataPoint(context)
@@ -132,7 +159,11 @@ export function PieChart({
                                     return `${percentage.toFixed(1)}%`
                                 }
 
-                                return formatAggregationAxisValue(trendsFilter, value)
+                                if (valueFormatter) {
+                                    return valueFormatter(value)
+                                }
+
+                                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                             },
                             font: {
                                 weight: 500,
@@ -207,17 +238,20 @@ export function PieChart({
                                             renderCount={
                                                 tooltipConfig?.renderCount ||
                                                 ((value: number): string => {
+                                                    if (valueFormatter) {
+                                                        return valueFormatter(value)
+                                                    }
+
                                                     const total = dataset.data.reduce(
                                                         (a: number, b: number) => a + b,
                                                         0
                                                     )
-                                                    const percentageLabel: number = parseFloat(
-                                                        ((value / total) * 100).toFixed(1)
-                                                    )
-                                                    return `${formatAggregationAxisValue(
+                                                    return formatAggregationAxisValueWithShareOfTotal(
                                                         trendsFilter,
-                                                        value
-                                                    )} (${percentageLabel}%)`
+                                                        value,
+                                                        total,
+                                                        baseCurrency
+                                                    )
                                                 })
                                             }
                                             hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -233,12 +267,8 @@ export function PieChart({
                                     )
                                 }
 
-                                const position = chart.canvas.getBoundingClientRect()
-                                tooltipEl.style.position = 'absolute'
-                                tooltipEl.style.left =
-                                    position.left + window.pageXOffset + (tooltip.caretX || 0) + 8 + 'px'
-                                tooltipEl.style.top =
-                                    position.top + window.pageYOffset + (tooltip.caretY || 0) + 8 + 'px'
+                                const bounds = chart.canvas.getBoundingClientRect()
+                                positionTooltip(tooltipEl, bounds, tooltip.caretX || 0, tooltip.caretY || 0)
                             },
                         },
                     },

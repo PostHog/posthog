@@ -1,6 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -30,7 +31,8 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Product tours',
-            category: 'Behavior',
+            intents: [ProductKey.PRODUCT_TOURS],
+            category: ProductItemCategory.BEHAVIOR,
             type: 'product_tour',
             href: urls.productTours(),
             iconType: 'product_tour',

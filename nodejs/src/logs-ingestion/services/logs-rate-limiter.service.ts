@@ -1,11 +1,25 @@
-import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
-import { Hub } from '~/types'
+import { Histogram } from 'prom-client'
 
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
+
+import { LogsIngestionConsumerConfig } from '../config'
 import { LogsIngestionMessage } from '../types'
 
-/** Narrowed Hub type for LogsRateLimiterService */
-export type LogsRateLimiterServiceHub = Pick<
-    Hub,
+/** Convert milliseconds to seconds */
+const msToSeconds = (ms: number): number => Math.round(ms / 1000)
+
+/** Convert bytes to kilobytes (rounded up) */
+const bytesToKb = (bytes: number): number => Math.ceil(bytes / 1000)
+
+export const logsMessageLagHistogram = new Histogram({
+    name: 'logs_rate_limiter_message_lag_seconds',
+    help: 'Lag between message observed timestamp and wall clock time (seconds)',
+    buckets: [-60, 0, 1, 5, 10, 30, 60, 300, 600, 1800, 3600],
+})
+
+export type LogsRateLimiterConfig = Pick<
+    LogsIngestionConsumerConfig,
     | 'LOGS_LIMITER_TEAM_BUCKET_SIZE_KB'
     | 'LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND'
     | 'LOGS_LIMITER_DISABLED_FOR_TEAMS'
@@ -15,9 +29,15 @@ export type LogsRateLimiterServiceHub = Pick<
     | 'LOGS_LIMITER_TTL_SECONDS'
 >
 
-export const BASE_REDIS_KEY =
-    process.env.NODE_ENV == 'test' ? '@posthog-test/logs-rate-limiter' : '@posthog/logs-rate-limiter'
-const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
+const DEFAULT_LIMITER_NAME = 'logs-rate-limiter'
+
+/** Redis key prefix for a given limiter name. Each ingestion type (logs, traces) gets its own
+ * namespace so their token buckets don't share — and deplete — the same per-team state. */
+export const buildBaseRedisKey = (limiterName: string = DEFAULT_LIMITER_NAME): string =>
+    process.env.NODE_ENV == 'test' ? `@posthog-test/${limiterName}` : `@posthog/${limiterName}`
+
+/** Re-exported for the consumer test which needs to clean up keys between runs. */
+export const BASE_REDIS_KEY = buildBaseRedisKey()
 
 export type LogsRateLimit = {
     tokensBefore: number
@@ -40,15 +60,24 @@ export class LogsRateLimiterService {
     private teamRefillRates: Map<number, number>
     private disabledTeamIds: Set<number> | '*' | null
     private enabledTeamIds: Set<number> | '*' | null
+    private rateLimiter: KeyedRateLimiterService
 
     constructor(
-        private hub: LogsRateLimiterServiceHub,
-        private redis: RedisV2
+        private config: LogsRateLimiterConfig,
+        redis: RedisV2,
+        limiterName: string = DEFAULT_LIMITER_NAME
     ) {
-        this.teamBucketSizes = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
-        this.teamRefillRates = this.parseTeamConfig(hub.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
-        this.disabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_DISABLED_FOR_TEAMS)
-        this.enabledTeamIds = this.parseTeamIdList(hub.LOGS_LIMITER_ENABLED_TEAMS)
+        this.teamBucketSizes = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
+        this.teamRefillRates = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
+        this.disabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_DISABLED_FOR_TEAMS)
+        this.enabledTeamIds = this.parseTeamIdList(config.LOGS_LIMITER_ENABLED_TEAMS)
+        this.rateLimiter = new KeyedRateLimiterService(
+            // Bucket params are passed per-request so live `this.config` mutations
+            // (used in tests) take effect. failOpen=false preserves the legacy
+            // throw-on-Redis-outage behaviour.
+            { name: limiterName, failOpen: false },
+            redis
+        )
     }
 
     private parseTeamIdList(config: string): Set<number> | '*' | null {
@@ -82,44 +111,49 @@ export class LogsRateLimiterService {
         return result
     }
 
-    private rateLimitArgs(id: string, cost: number): [string, number, number, number, number, number] {
-        const nowSeconds = Math.round(Date.now() / 1000)
-        const teamId = parseInt(id, 10)
-
-        return [
-            `${REDIS_KEY_TOKENS}/${id}`,
-            nowSeconds,
-            cost,
-            this.teamBucketSizes.get(teamId) ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB,
-            this.teamRefillRates.get(teamId) ?? this.hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
-            this.hub.LOGS_LIMITER_TTL_SECONDS,
-        ]
-    }
-
-    public async rateLimitMany(idCosts: [string, number][]): Promise<[string, LogsRateLimit][]> {
-        const res = await this.redis.usePipeline({ name: 'logs-rate-limiter', failOpen: true }, (pipeline) => {
-            idCosts.forEach(([id, cost]) => {
-                pipeline.checkRateLimitV2(...this.rateLimitArgs(id, cost))
-            })
-        })
-
-        if (!res) {
-            throw new Error('Failed to rate limit')
+    private getHeaderValue(headers: any[] | undefined, key: string): string | undefined {
+        if (!headers || !Array.isArray(headers)) {
+            return undefined
         }
 
-        return idCosts.map(([id], index) => {
-            const [tokenRes] = getRedisPipelineResults(res, index, 1)
-            const tokensBefore = Number(tokenRes[1]?.[0] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
-            const tokensAfter = Number(tokenRes[1]?.[1] ?? this.hub.LOGS_LIMITER_BUCKET_SIZE_KB)
-            return [
+        for (const header of headers) {
+            if (header[key]) {
+                // Convert Buffer to string
+                return Buffer.from(header[key]).toString('utf8')
+            }
+        }
+        return undefined
+    }
+
+    private getTimestampFromMessage(message: LogsIngestionMessage): number {
+        const createdAtHeader = this.getHeaderValue(message.message.headers, 'created_at')
+        if (createdAtHeader) {
+            const timestamp = Date.parse(createdAtHeader) // Parse RFC3339/ISO8601 string
+            if (!isNaN(timestamp)) {
+                return msToSeconds(timestamp)
+            }
+        }
+        // Fallback to current time
+        return msToSeconds(Date.now())
+    }
+
+    public async rateLimitMany(idCosts: [string, number, number][]): Promise<[string, LogsRateLimit][]> {
+        const requests: KeyedRateLimitRequest[] = idCosts.map(([id, cost, nowSeconds]) => {
+            const teamId = parseInt(id, 10)
+            return {
                 id,
-                {
-                    tokensBefore,
-                    tokensAfter,
-                    isRateLimited: tokensAfter <= 0,
-                },
-            ]
+                cost,
+                now: nowSeconds,
+                bucketSize: this.teamBucketSizes.get(teamId) ?? this.config.LOGS_LIMITER_BUCKET_SIZE_KB,
+                refillRate: this.teamRefillRates.get(teamId) ?? this.config.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND,
+                ttlSeconds: this.config.LOGS_LIMITER_TTL_SECONDS,
+            }
         })
+        const results = await this.rateLimiter.rateLimitMany(requests)
+        return results.map(([id, r]) => [
+            id,
+            { tokensBefore: r.tokensBefore, tokensAfter: r.tokens, isRateLimited: r.isRateLimited },
+        ])
     }
 
     private isRateLimitingEnabledForTeam(teamId: number): boolean {
@@ -145,19 +179,46 @@ export class LogsRateLimiterService {
     public async filterMessages(messages: LogsIngestionMessage[]): Promise<FilteredMessages> {
         // Group messages by team to calculate total cost per team (only for teams with rate limiting enabled)
         const teamCosts = new Map<number, number>()
+        const teamOldestTimestamps = new Map<number, number>()
+        const teamNewestTimestamps = new Map<number, number>()
+
         for (const message of messages) {
+            const messageTimestamp = this.getTimestampFromMessage(message)
+
+            const existingOldest = teamOldestTimestamps.get(message.teamId)
+            if (existingOldest === undefined || messageTimestamp < existingOldest) {
+                teamOldestTimestamps.set(message.teamId, messageTimestamp)
+            }
+
+            const existingNewest = teamNewestTimestamps.get(message.teamId)
+            if (existingNewest === undefined || messageTimestamp > existingNewest) {
+                teamNewestTimestamps.set(message.teamId, messageTimestamp)
+            }
+
             if (!this.isRateLimitingEnabledForTeam(message.teamId)) {
                 continue
             }
             const currentCost = teamCosts.get(message.teamId) ?? 0
             // Cost is in KB (uncompressed bytes / 1000)
-            const costKb = Math.ceil(message.bytesUncompressed / 1000)
+            const costKb = bytesToKb(message.bytesUncompressed)
             teamCosts.set(message.teamId, currentCost + costKb)
         }
 
-        // Check rate limits for all teams
+        // Track how far behind wall clock the messages are (using oldest per team for worst-case lag)
+        const nowSeconds = msToSeconds(Date.now())
+        for (const [, timestamp] of teamOldestTimestamps) {
+            logsMessageLagHistogram.observe(nowSeconds - timestamp)
+        }
+
+        // Use the newest timestamp per team for the token bucket: this gives the bucket credit
+        // for the full producer-time span the batch covers, so a catch-up batch refills against
+        // its own time range instead of seeing timeDiff=0 from the previous batch's last call.
         const rateLimitResults = await this.rateLimitMany(
-            Array.from(teamCosts.entries()).map(([teamId, cost]) => [teamId.toString(), cost])
+            Array.from(teamCosts.entries()).map(([teamId, cost]) => [
+                teamId.toString(),
+                cost,
+                teamNewestTimestamps.get(teamId) ?? msToSeconds(Date.now()),
+            ])
         )
 
         // Build a map of team rate limit results
@@ -181,7 +242,7 @@ export class LogsRateLimiterService {
 
             const kbUsed = teamKbUsed.get(message.teamId) ?? 0
             const availableKb = limit.tokensBefore
-            const messageKb = Math.ceil(message.bytesUncompressed / 1024)
+            const messageKb = bytesToKb(message.bytesUncompressed)
 
             // Allow message if we haven't exceeded the available tokens
             if (kbUsed + messageKb <= availableKb) {

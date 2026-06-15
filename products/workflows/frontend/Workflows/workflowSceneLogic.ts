@@ -1,5 +1,5 @@
-import { actions, kea, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,6 +19,7 @@ export interface WorkflowSceneLogicProps {
 export const workflowSceneLogic = kea<workflowSceneLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowSceneLogic']),
     props({ id: 'new' } as WorkflowSceneLogicProps),
+    key((props) => `workflow-scene-${props.id || 'new'}`),
     actions({
         setCurrentTab: (tab: WorkflowTab) => ({ tab }),
     }),
@@ -50,15 +51,6 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             },
         ],
     }),
-    actionToUrl(({ props, values }) => ({
-        setCurrentTab: () => {
-            return [
-                urls.workflow(props.id || 'new', values.currentTab),
-                router.values.searchParams,
-                router.values.hashParams,
-            ]
-        },
-    })),
     urlToAction(({ actions, values }) => ({
         '/workflows/:id/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {

@@ -1,12 +1,13 @@
+import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createKafkaMessage } from '../_tests/fixtures'
 import { CdpDataWarehouseEvent } from '../schema'
-import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpDatawarehouseEventsConsumer } from './cdp-data-warehouse-events.consumer'
@@ -18,11 +19,12 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     let hub: Hub
     let team: Team
     let team2: Team
-    let mockQueueInvocations: jest.Mock
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const createDataWarehouseEvent = (teamId: number, properties: Record<string, any> = {}): CdpDataWarehouseEvent => {
         return {
             team_id: teamId,
+            event_id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
             properties: {
                 column1: 'value1',
                 column2: 123,
@@ -45,17 +47,19 @@ describe('CdpDatawarehouseEventsConsumer', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub) // This team has data_pipelines feature by default (legacy addon)
+        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
-        team2 = (await getTeam(hub, team2Id))! // This team does NOT have data_pipelines
+        team2 = (await getTeam(hub.postgres, team2Id))! // This team does NOT have data_pipelines
 
         // Set up default quota limiting mock - not limited by default
         jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
 
-        processor = new CdpDatawarehouseEventsConsumer(hub)
+        const mockJobQueue = createMockJobQueue()
+
+        processor = new CdpDatawarehouseEventsConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
@@ -64,13 +68,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             isHealthy: jest.fn(() => ({ status: 'healthy' })),
         } as any
 
-        processor['cyclotronJobQueue'] = {
-            queueInvocations: jest.fn(),
-            startAsProducer: jest.fn(() => Promise.resolve()),
-            stop: jest.fn(),
-        } as unknown as jest.Mocked<CyclotronJobQueue>
-
-        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+        mockQueueInvocations = mockJobQueue.queueInvocations
 
         await processor.start()
     })
@@ -106,8 +104,8 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 column2: 123,
                 test_prop: 'test_value',
             })
-            expect(invocations[0].event.uuid).toBe('data-warehouse-table-uuid-do-not-use')
-            expect(invocations[0].event.event).toBe('data-warehouse-table-event-do-not-use')
+            expect(invocations[0].event.uuid).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+            expect(invocations[0].event.event).toBe('$warehouse_source_row')
         })
 
         it('should not parse events for teams without hog functions or flows', async () => {
@@ -284,7 +282,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject(
                 [
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
@@ -296,12 +294,14 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                             timestamp: expect.any(String),
                         },
                     },
+                    // Billing is per-event, not per-destination
                     {
-                        key: expect.any(String),
+                        key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
-                            app_source_id: fnFetchNoFilters.id,
+                            app_source_id: '_event_trigger',
+                            instance_id: globals.event.uuid,
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
@@ -311,6 +311,35 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                     },
                 ]
             )
+        })
+
+        it('should bill once per event when multiple destinations match', async () => {
+            // Add a second function that also matches
+            const fnSecondDestination = await insertHogFunction({
+                ...HOG_EXAMPLES.input_printer,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
+            })
+
+            const { invocations } = await processor.processBatch([globals])
+
+            // 1 event × 2 destinations = 2 invocations
+            expect(invocations).toHaveLength(2)
+            expect(invocations.map((i) => i.functionId).sort()).toEqual(
+                [fnFetchNoFilters.id, fnSecondDestination.id].sort()
+            )
+
+            const billingMetrics = mockProducerObserver
+                .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                .filter((m: any) => m.value.metric_name === 'billable_invocation')
+
+            // 1 event = 1 billable_invocation (not 2)
+            expect(billingMetrics).toHaveLength(1)
+            expect(billingMetrics[0].value).toMatchObject({
+                app_source_id: '_event_trigger',
+                instance_id: globals.event.uuid,
+                metric_name: 'billable_invocation',
+            })
         })
     })
 

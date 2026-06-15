@@ -1,22 +1,19 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { useRef } from 'react'
 
-import { IconBell, IconList, IconNotification } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { IconList, IconNotification } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLogSubscribeMenu } from 'lib/components/ActivityLog/ActivityLogSubscribeMenu'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { HOG_FUNCTION_SUB_TEMPLATES } from 'scenes/hog-functions/sub-templates/sub-templates'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -30,7 +27,6 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     AvailableFeature,
-    CyclotronJobFilterPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -55,24 +51,12 @@ export const SidePanelActivity = (): JSX.Element => {
         useValues(sidePanelActivityLogic)
     const { setActiveTab, maybeLoadOlderActivity, setActiveFilters } = useActions(sidePanelActivityLogic)
 
-    const { hasNotifications, notifications, importantChangesLoading, hasUnread } =
-        useValues(sidePanelNotificationsLogic)
-    const { markAllAsRead, loadImportantChanges } = useActions(sidePanelNotificationsLogic)
-
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
-
-    useOnMountEffect(() => {
-        loadImportantChanges(false)
-
-        return () => {
-            markAllAsRead()
-        }
-    })
 
     const lastScrollPositionRef = useRef(0)
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -126,10 +110,6 @@ export const SidePanelActivity = (): JSX.Element => {
                             onChange={(key) => setActiveTab(key)}
                             tabs={[
                                 {
-                                    key: SidePanelActivityTab.Unread,
-                                    label: 'My notifications',
-                                },
-                                {
                                     key: SidePanelActivityTab.All,
                                     label: 'Activity',
                                 },
@@ -146,106 +126,40 @@ export const SidePanelActivity = (): JSX.Element => {
                     </div>
 
                     {/* Controls */}
-                    {activeTab === SidePanelActivityTab.Unread ? (
-                        <div className="px-2 pb-2 deprecated-space-y-2 shrink-0">
-                            <div className="flex items-center justify-between gap-2">
-                                {hasUnread ? (
-                                    <LemonButton type="secondary" onClick={() => markAllAsRead()}>
-                                        Mark all as read
-                                    </LemonButton>
-                                ) : null}
-                            </div>
-                        </div>
-                    ) : activeTab === SidePanelActivityTab.All && hasAnyContext ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2">
-                            <div className="flex items-center gap-1">
-                                Activity on{' '}
-                                <strong>
-                                    {hasItemContext
-                                        ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
-                                        : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}{' '}
-                                </strong>
+                    {activeTab === SidePanelActivityTab.All && hasAnyContext ? (
+                        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                            <div className="flex items-center gap-2">
+                                <span>
+                                    Activity on{' '}
+                                    <strong>
+                                        {hasItemContext
+                                            ? `this ${humanizeScope(contextFromPage!.scope!, true).toLowerCase()}`
+                                            : `all ${humanizeScope(contextFromPage!.scope!).toLowerCase()}`}
+                                    </strong>
+                                </span>
                                 {featureFlags[FEATURE_FLAGS.CDP_ACTIVITY_LOG_NOTIFICATIONS] && (
-                                    <LemonMenu
-                                        placement="bottom-start"
-                                        items={
-                                            [
-                                                {
-                                                    items: HOG_FUNCTION_SUB_TEMPLATES['activity-log'].map(
-                                                        (subTemplate) => {
-                                                            // Build property filters based on context
-                                                            const properties: CyclotronJobFilterPropertyFilter[] = [
-                                                                {
-                                                                    key: 'scope',
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: contextFromPage!.scope!,
-                                                                    operator: PropertyOperator.Exact,
-                                                                },
-                                                            ]
-
-                                                            // If we have item_id, add it to filters
-                                                            if (hasItemContext) {
-                                                                properties.push({
-                                                                    key: 'item_id',
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: contextFromPage!.item_id,
-                                                                    operator: PropertyOperator.Exact,
-                                                                })
-                                                            }
-
-                                                            // Create filters with properties at the top level
-                                                            // HogFunctionFiltersInternal expects filters.properties, not filters.events[0].properties
-                                                            const filters = {
-                                                                events: subTemplate.filters?.events || [],
-                                                                properties,
-                                                            }
-
-                                                            const configurationOverrides = { filters }
-
-                                                            const configuration: Record<string, any> = {
-                                                                ...subTemplate,
-                                                                ...configurationOverrides,
-                                                            }
-
-                                                            const url = combineUrl(
-                                                                urls.hogFunctionNew(subTemplate.template_id),
-                                                                {},
-                                                                { configuration }
-                                                            ).url
-
-                                                            return {
-                                                                label: subTemplate.name || 'Subscribe',
-                                                                onClick: () => {
-                                                                    closeSidePanel()
-                                                                    router.actions.push(url)
-                                                                },
-                                                            }
-                                                        }
-                                                    ),
-                                                },
-                                                {
-                                                    items: [
-                                                        {
-                                                            label: 'View all notifications',
-                                                            onClick: () => {
-                                                                closeSidePanel()
-                                                                router.actions.push(
-                                                                    urls.settings(
-                                                                        'environment-activity-logs',
-                                                                        'activity-log-notifications'
-                                                                    )
-                                                                )
-                                                            },
-                                                        },
-                                                    ],
-                                                },
-                                            ] as LemonMenuItems
-                                        }
-                                    >
-                                        <LemonButton size="xsmall" type="secondary" tooltip="Subscribe">
-                                            <IconBell />
-                                        </LemonButton>
-                                    </LemonMenu>
+                                    <ActivityLogSubscribeMenu
+                                        properties={[
+                                            {
+                                                key: 'scope',
+                                                type: PropertyFilterType.Event,
+                                                value: contextFromPage!.scope!,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                            ...(hasItemContext
+                                                ? [
+                                                      {
+                                                          key: 'item_id',
+                                                          type: PropertyFilterType.Event as const,
+                                                          value: contextFromPage!.item_id,
+                                                          operator: PropertyOperator.Exact,
+                                                      },
+                                                  ]
+                                                : []),
+                                        ]}
+                                        onNavigate={closeSidePanel}
+                                        iconOnly
+                                    />
                                 )}
                             </div>
                             <MemberSelect
@@ -262,21 +176,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
                     <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
                         <ScrollableShadows direction="vertical" innerClassName="p-2 deprecated-space-y-px">
-                            {activeTab === SidePanelActivityTab.Unread ? (
-                                <>
-                                    {importantChangesLoading && !hasNotifications ? (
-                                        <LemonSkeleton className="h-12 my-2" repeat={10} fade />
-                                    ) : hasNotifications ? (
-                                        notifications.map((logItem, index) => (
-                                            <ActivityLogRow logItem={logItem} key={index} />
-                                        ))
-                                    ) : (
-                                        <div className="p-6 text-center border border-dashed rounded text-secondary">
-                                            You're all caught up!
-                                        </div>
-                                    )}
-                                </>
-                            ) : activeTab === SidePanelActivityTab.All ? (
+                            {activeTab === SidePanelActivityTab.All ? (
                                 hasAnyContext ? (
                                     <>
                                         {allActivityResponseLoading ? (

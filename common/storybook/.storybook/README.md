@@ -1,4 +1,13 @@
-# Storybook visual regression tests
+# Storybook
+
+## Adding new Tailwind classes
+
+Tailwind is compiled by `@tailwindcss/postcss` on the initial build. Webpack's
+HMR does not re-run PostCSS when story content changes, so a **newly used**
+Tailwind utility (e.g. `bg-[rebeccapurple]`) won't appear until you restart
+Storybook. Classes already present in the codebase hot-reload fine.
+
+## Storybook visual regression tests
 
 In CI we use playwright to load our storybooks scenes and take snapshots of them
 
@@ -17,12 +26,34 @@ before you do this... 🤷
 in one terminal
 
 ```bash
-pnpm --filter=@posthog/frontend storybook
+hogli storybook
 ```
 
 in another
 
 ```bash
 pnpm exec playwright install
-pnpm --filter=@posthog/storybook test:visual:debug
+hogli storybook:test
 ```
+
+## Viewport width variants
+
+You can snapshot a story at multiple viewport widths
+by setting `viewportWidths` in `testOptions`.
+This produces one snapshot per width instead of the default single snapshot.
+
+Available widths: `narrow` (568px), `medium` (960px), `wide` (1300px), `superwide` (1920px).
+
+```ts
+export const MyStoryViewports: Story = createInsightStory(fixture, 'edit')
+MyStoryViewports.parameters = {
+  testOptions: {
+    viewportWidths: ['medium', 'wide', 'superwide'],
+  },
+}
+```
+
+Each width generates a separate snapshot file suffixed with the width name,
+e.g. `my-story-viewports--medium--light.png`.
+
+See `frontend/src/scenes/insights/stories/TrendsLine.stories.tsx` for a working example.

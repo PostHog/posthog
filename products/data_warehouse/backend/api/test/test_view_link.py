@@ -10,11 +10,12 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseTable
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -474,6 +475,27 @@ class TestViewLinkValidation(APIBaseTest):
             "SELECT validation.id FROM events LIMIT 10",
         )
 
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_side_effect)
+    def test_nested_complex_expression(self, _):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "toString(ifNull(distinct_id, ''))",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertIsNone(data["msg"])
+        self.assertHogQLEqual(
+            data["hogql"],
+            "SELECT validation.id FROM events LIMIT 10",
+        )
+
     def test_nonexistent_field(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
@@ -544,7 +566,8 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "invalid_input")
-        self.assertEqual(data["detail"], "mismatched input 'syntax' expecting <EOF>")
+        # rust-py and the legacy cpp parser surface different low-level wording on this
+        # garbage input; just assert that a parse error was returned.
         self.assertEqual(data["type"], "validation_error")
 
     def test_missing_source_table_name(self):
@@ -615,7 +638,7 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(data["detail"], "This field is required.")
         self.assertEqual(data["type"], "validation_error")
 
-    def test_with_type_mismatch_warning(self):
+    def test_with_join_key_type_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -630,7 +653,6 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "CHQueryErrorIllegalTypeOfArgument")
-        self.assertTrue(data["detail"].startswith("Illegal types of arguments (DateTime64(6, 'UTC'), UUID)"))
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
 

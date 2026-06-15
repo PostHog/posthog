@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import asyncpg
 
 from llm_gateway.auth.models import AuthenticatedUser, has_required_scope
+from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import acquire_connection
 
 
@@ -15,6 +16,12 @@ class Authenticator(ABC):
     @abstractmethod
     def auth_type(self) -> str:
         """Identifier for this auth type (used in metrics)."""
+        ...
+
+    @property
+    @abstractmethod
+    def cache_ttl(self) -> int:
+        """How long successful auth results should be cached (seconds)."""
         ...
 
     @abstractmethod
@@ -40,6 +47,10 @@ class PersonalApiKeyAuthenticator(Authenticator):
     def auth_type(self) -> str:
         return "personal_api_key"
 
+    @property
+    def cache_ttl(self) -> int:
+        return get_settings().auth_cache_ttl
+
     def matches(self, token: str) -> bool:
         return token.startswith("phx_")
 
@@ -51,7 +62,7 @@ class PersonalApiKeyAuthenticator(Authenticator):
         async with acquire_connection(pool) as conn:
             row = await conn.fetchrow(
                 """
-                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id
+                SELECT pak.id, pak.user_id, pak.scopes, u.current_team_id, u.distinct_id
                 FROM posthog_personalapikey pak
                 JOIN posthog_user u ON pak.user_id = u.id
                 WHERE pak.secure_value = $1 AND u.is_active = true
@@ -70,6 +81,7 @@ class PersonalApiKeyAuthenticator(Authenticator):
                 user_id=row["user_id"],
                 team_id=row["current_team_id"],
                 auth_method=self.auth_type,
+                distinct_id=row["distinct_id"],
                 scopes=scopes,
             )
 
@@ -80,6 +92,10 @@ class OAuthAccessTokenAuthenticator(Authenticator):
     @property
     def auth_type(self) -> str:
         return "oauth_access_token"
+
+    @property
+    def cache_ttl(self) -> int:
+        return get_settings().auth_cache_ttl_oauth
 
     def matches(self, token: str) -> bool:
         return token.startswith("pha_")
@@ -92,7 +108,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
             row = await conn.fetchrow(
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
-                       u.current_team_id, oat.application_id
+                       oat.application_id, u.current_team_id, u.distinct_id
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
                 WHERE oat.token_checksum = $1 AND u.is_active = true
@@ -111,13 +127,15 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 return None
 
             scopes = row["scope"].split() if row["scope"] else []
-            if not has_required_scope(scopes):
+            if not has_required_scope(scopes, allow_wildcard=True):
                 return None
 
             return AuthenticatedUser(
                 user_id=row["user_id"],
                 team_id=row["current_team_id"],
                 auth_method=self.auth_type,
+                distinct_id=row["distinct_id"],
                 scopes=scopes,
                 token_expires_at=expires,
+                application_id=str(row["application_id"]),
             )

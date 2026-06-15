@@ -1,10 +1,9 @@
 import json
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -14,6 +13,8 @@ from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TrendsActors(ActorBaseQuery):
@@ -36,7 +37,9 @@ class TrendsActors(ActorBaseQuery):
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> tuple[str, dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
-            cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team__project_id=self._team.project_id)
+            cohort = Cohort.objects.get(
+                pk=cast(str | int, self._filter.breakdown_value), team__project_id=self._team.project_id
+            )
             self._filter = self._filter.shallow_clone(
                 {
                     "properties": self._filter.property_groups.combine_properties(

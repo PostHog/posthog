@@ -1,27 +1,21 @@
 import uuid
 from typing import cast
 
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 from django.utils import timezone
 
+import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from rest_framework import response, serializers, status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import PersonalAPIKey, User
-from posthog.models.activity_logging.activity_log import changes_between
-from posthog.models.activity_logging.personal_api_key_utils import (
-    log_personal_api_key_activity,
-    log_personal_api_key_scope_change,
-)
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
-from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
@@ -30,7 +24,10 @@ MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 class PersonalAPIKeySerializer(serializers.ModelSerializer):
     # Specifying method name because the serializer class already has a get_value method
     value = serializers.SerializerMethodField(method_name="get_key_value", read_only=True)
-    scopes = serializers.ListField(child=serializers.CharField(required=True))
+    is_legacy_hashing = serializers.SerializerMethodField(
+        help_text="Whether this key uses legacy PBKDF2 hashing and should be rolled to upgrade."
+    )
+    scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
 
@@ -40,6 +37,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "id",
             "label",
             "value",
+            "is_legacy_hashing",
             "mask_value",
             "created_at",
             "last_used_at",
@@ -49,12 +47,27 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scoped_organizations",
             "last_rolled_at",
         ]
-        read_only_fields = ["id", "value", "mask_value", "created_at", "last_used_at", "user_id", "last_rolled_at"]
+        read_only_fields = [
+            "id",
+            "value",
+            "is_legacy_hashing",
+            "mask_value",
+            "created_at",
+            "last_used_at",
+            "user_id",
+            "last_rolled_at",
+        ]
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore
 
+    def get_is_legacy_hashing(self, obj: PersonalAPIKey) -> bool:
+        # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
+        return bool(obj.secure_value and obj.secure_value.startswith(LEGACY_HASH_PREFIX))
+
     def validate_scopes(self, scopes):
+        requesting_user = self.context["request"].user
+
         for scope in scopes:
             if scope == "*":
                 continue
@@ -63,9 +76,31 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             if (
                 len(scope_parts) != 2
                 or scope_parts[0] not in API_SCOPE_OBJECTS
+                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
                 or scope_parts[1] not in API_SCOPE_ACTIONS
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
+
+            # Check feature flag for llm_gateway scope - block if newly adding this scope
+            if scope_parts[0] == "llm_gateway":
+                existing_has_llm_gateway = self.instance is not None and any(
+                    s.startswith("llm_gateway:") for s in self.instance.scopes
+                )
+                if not existing_has_llm_gateway:
+                    organization_id = requesting_user.current_organization_id
+                    if organization_id is None:
+                        raise serializers.ValidationError("Unable to verify feature access.")
+                    if not posthoganalytics.feature_enabled(
+                        "gateway-personal-api-key",
+                        str(requesting_user.distinct_id),
+                        groups={"organization": str(organization_id)},
+                        group_properties={"organization": {"id": str(organization_id)}},
+                        only_evaluate_locally=False,
+                        send_feature_flag_events=False,
+                    ):
+                        raise serializers.ValidationError(
+                            "LLM gateway scope is not available. Contact support to enable this feature."
+                        )
 
         return scopes
 
@@ -102,11 +137,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
         return scoped_organizations
 
-    def to_representation(self, instance):
-        ret = super().to_representation(instance)
-        ret["scopes"] = ret["scopes"] or ["*"]
-        return ret
-
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
         user = self.context["request"].user
         count = PersonalAPIKey.objects.filter(user=user).count()
@@ -121,6 +151,24 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             user=user, secure_value=secure_value, mask_value=mask_value, **validated_data
         )
         personal_api_key._value = value  # type: ignore
+        # User created their FIRST PAT themselves through a session, so the credential
+        # review interstitial has nothing partner-issued to surface for them - mark it
+        # acknowledged. Three gates, all load-bearing:
+        #   - count == 0: no pre-existing PATs, so this is the user's first. If they
+        #     already had keys, those might be partner-issued and still awaiting review,
+        #     so don't stamp.
+        #   - SessionAuthentication: PAT-bearer auth would let an attacker holding a
+        #     partner-issued PAT mint another PAT to silently dismiss the victim's
+        #     review screen. Same constraint as credentials_review_complete.
+        #   - credentials_reviewed_at IS NULL: don't clobber a real review timestamp.
+        request = self.context["request"]
+        if (
+            count == 0
+            and user.credentials_reviewed_at is None
+            and isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication)
+        ):
+            user.credentials_reviewed_at = timezone.now()
+            user.save(update_fields=["credentials_reviewed_at"])
         return personal_api_key
 
     def roll(self, personal_api_key: PersonalAPIKey) -> PersonalAPIKey:
@@ -157,10 +205,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
-    Personal API Keys can only access their own key and only for retrieval
+    Personal API keys can only access their own key and only for retrieval
     """
 
-    message = "This action does not support Personal API Key access"
+    message = "This action does not support personal API key access"
 
     def has_permission(self, request, view) -> bool:
         # This permission check only applies to the personal api key
@@ -176,6 +224,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
         return request.successful_authenticator.personal_api_key == item
 
 
+@extend_schema(extensions={"x-product": "core"})
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer
@@ -205,30 +254,3 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         serializer = cast(PersonalAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)
-
-
-@mutable_receiver(model_activity_signal, sender=PersonalAPIKey)
-def handle_personal_api_key_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    changes = changes_between(scope, previous=before_update, current=after_update)
-
-    # Check if scope changed (scoped_teams or scoped_organizations)
-    scope_fields = ["scoped_teams", "scoped_organizations"]
-    scope_changed = any(change.field in scope_fields for change in changes if change.field)
-
-    if scope_changed and activity == "updated":
-        # Filter out scope fields from changes as we dont want to present them to the user
-        filtered_changes = [
-            change for change in changes if change.field not in ["scoped_teams", "scoped_organizations"]
-        ]
-        log_personal_api_key_scope_change(before_update, after_update, user, was_impersonated, filtered_changes)
-    else:
-        log_personal_api_key_activity(after_update, activity, user, was_impersonated, changes)
-
-
-@receiver(pre_delete, sender=PersonalAPIKey)
-def handle_personal_api_key_delete(sender, instance, **kwargs):
-    from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
-
-    log_personal_api_key_activity(instance, "deleted", get_current_user(), get_was_impersonated())

@@ -6,9 +6,11 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Cohort, Person, Team
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models import Person, Team
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestCohort(BaseTest):
@@ -337,8 +339,7 @@ class TestCohort(BaseTest):
 
         # Fetch all persons in the cohort
         cohort.refresh_from_db()
-        # TODO: THIS NEXT ASSERT FAILS AND I DON'T KNOW WHY. WILL FIGURE OUT LATER - @haacked
-        # assert cohort.count == 11
+        assert cohort.count == 11
         assert cohort.people.count() == 11
         cohort_person_uuids = {str(p.uuid) for p in cohort.people.all()}
         assert cohort_person_uuids == set(uuids)
@@ -375,6 +376,26 @@ class TestCohort(BaseTest):
 
         # Verify the cohort is not in calculating state
         self.assertFalse(cohort.is_calculating)
+
+    def test_insert_users_list_by_uuid_with_different_db_aliases(self):
+        from unittest.mock import patch
+
+        person = Person.objects.create(team=self.team, distinct_ids=["cross-db-test"])
+        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True)
+
+        # Simulate production config where db_for_read returns a different
+        # alias than db_for_write. Both "default" and "persons_db_writer"
+        # resolve to the same test database, but Django treats them as
+        # different DBs and rejects cross-DB subqueries.
+        with patch("django.db.router.db_for_read", return_value="default"):
+            cohort.insert_users_list_by_uuid(
+                items=[str(person.uuid)],
+                team_id=self.team.id,
+            )
+
+        cohort.refresh_from_db()
+        assert cohort.people.count() == 1
+        assert str(cohort.people.first().uuid) == str(person.uuid)
 
     @parameterized.expand(
         [
@@ -431,7 +452,7 @@ class TestCohort(BaseTest):
 
     def test_get_static_cohort_size(self):
         """Test that get_static_cohort_size works with db_constraint=False on the person foreign key."""
-        from posthog.models.cohort.util import get_static_cohort_size
+        from products.cohorts.backend.models.util import get_static_cohort_size
 
         # Create persons
         person1 = Person.objects.create(team=self.team, distinct_ids=["person1"])
@@ -451,10 +472,94 @@ class TestCohort(BaseTest):
         assert isinstance(size, int), f"Expected int, got {type(size)}: {size}"
         assert size == 3, f"Expected 3 persons in cohort, got {size}"
 
-        # Test with team leakage - person from another team should not be counted
+        # Cross-team CohortPeople rows are counted: get_static_cohort_size scopes by
+        # cohort_id (gated by an upfront `Cohort.team_id == team_id` ownership check
+        # in count_cohort_members), not by person.team_id. The previous join through
+        # posthog_person was a hot per-PK lookup on the write replica that we
+        # dropped for IOPS reasons — production cannot reach this state via the
+        # supported APIs, and a raw M2M add() like the one below is what would have
+        # had to break for a count discrepancy to surface in real traffic.
         team2 = Team.objects.create(organization=self.organization)
         person4 = Person.objects.create(team=team2, distinct_ids=["person4"])
         cohort.people.add(person4)
 
         size = get_static_cohort_size(cohort_id=cohort.id, team_id=self.team.id)
-        assert size == 3, f"Expected 3 persons from team {self.team.id}, got {size}"
+        assert size == 4, f"Expected 4 cohort rows after cross-team add, got {size}"
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_clears_realtime_type_when_exceeding_threshold(self):
+        from unittest.mock import patch
+
+        from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+
+        # Create a realtime cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="large cohort",
+            cohort_type="realtime",
+        )
+
+        # Mock recalculate_cohortpeople to return a count exceeding the threshold
+        with patch("products.cohorts.backend.models.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT + 1
+
+            cohort.calculate_people_ch(pending_version=1)
+
+            # Verify cohort_type was cleared
+            cohort.refresh_from_db()
+            self.assertIsNone(cohort.cohort_type)
+            self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT + 1)
+
+    @pytest.mark.ee
+    def test_calculate_people_ch_keeps_realtime_type_when_at_threshold(self):
+        from unittest.mock import patch
+
+        from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT
+
+        # Create a realtime cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="at threshold cohort",
+            cohort_type="realtime",
+        )
+
+        # Mock recalculate_cohortpeople to return exactly the threshold count
+        with patch("products.cohorts.backend.models.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = REALTIME_COHORT_MAX_PERSON_COUNT
+
+            cohort.calculate_people_ch(pending_version=1)
+
+            # Verify cohort_type was NOT cleared (at threshold is still OK)
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.cohort_type, "realtime")
+            self.assertEqual(cohort.count, REALTIME_COHORT_MAX_PERSON_COUNT)
+
+    @parameterized.expand(
+        [
+            ("_safe_reset_calculating_state", "DB connection lost"),
+            ("save", "DB error"),
+        ]
+    )
+    @pytest.mark.ee
+    def test_calculate_people_ch_updates_version_even_when_finally_raises(self, method_name, error_message):
+        from unittest.mock import patch
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="version resilience cohort",
+        )
+
+        with patch("products.cohorts.backend.models.util.recalculate_cohortpeople") as mock_recalc:
+            mock_recalc.return_value = 42
+
+            with patch.object(Cohort, method_name, side_effect=Exception(error_message)):
+                with pytest.raises(Exception, match=error_message):
+                    cohort.calculate_people_ch(pending_version=1)
+
+        # Version and count should be updated despite the finally block raising
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.version, 1)
+        self.assertEqual(cohort.count, 42)

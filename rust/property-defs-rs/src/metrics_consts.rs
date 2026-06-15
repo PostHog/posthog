@@ -11,17 +11,19 @@ pub const EVENT_PARSE_ERROR: &str = "prop_defs_event_parse_error";
 pub const BATCH_ACQUIRE_TIME: &str = "prop_defs_batch_acquire_time_ms";
 pub const UPDATE_ISSUE_TIME: &str = "prop_defs_update_issue_time_ms";
 pub const CACHE_CONSUMED: &str = "prop_defs_cache_space";
+pub const CACHE_LEN: &str = "prop_defs_cache_len";
+pub const CACHE_HITS: &str = "prop_defs_cache_hits";
+pub const CACHE_MISSES: &str = "prop_defs_cache_misses";
+pub const CACHE_EVICTIONS: &str = "prop_defs_cache_evictions";
 pub const UPDATES_CACHE: &str = "prop_defs_updates_cache";
 pub const UPDATE_PRODUCER_OFFSET: &str = "prop_defs_update_producer_offset";
 pub const GROUP_TYPE_CACHE: &str = "prop_defs_group_type_cache";
 pub const RECV_DEQUEUED: &str = "prop_defs_recv_dequeued";
 pub const COMPACTED_UPDATES: &str = "prop_defs_compaction_dropped_updates";
-pub const CACHE_WARMING_STATE: &str = "prop_defs_cache_state";
 pub const UPDATE_TRANSACTION_TIME: &str = "prop_defs_update_transaction_time_ms";
 pub const GROUP_TYPE_RESOLVE_TIME: &str = "prop_defs_group_type_resolve_time_ms";
 pub const UPDATES_SKIPPED: &str = "prop_defs_skipped_updates";
 pub const UPDATES_DROPPED: &str = "prop_defs_dropped_updates";
-pub const GROUP_TYPE_READS: &str = "prop_defs_group_type_reads";
 pub const SKIPPED_DUE_TO_TEAM_FILTER: &str = "prop_defs_skipped_due_to_team_filter";
 pub const ISSUE_FAILED: &str = "prop_defs_issue_failed";
 pub const CHUNK_SIZE: &str = "prop_defs_chunk_size";
@@ -32,6 +34,12 @@ pub const CHANNEL_CAPACITY: &str = "prop_defs_channel_capacity";
 
 pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
 
+pub const PERSONHOG_RESOLVE_ERRORS: &str = "prop_defs_personhog_resolve_errors";
+pub const PERSONHOG_RESOLVE_DURATION: &str = "prop_defs_personhog_resolve_duration_ms";
+pub const PERSONHOG_ERRORS_TOTAL: &str = "personhog_errors_total";
+pub const PERSONHOG_RETRIES_TOTAL: &str = "personhog_retries_total";
+pub const PERSONHOG_TERMINAL_ERRORS_TOTAL: &str = "personhog_terminal_errors_total";
+
 //
 // property-defs-rs "v2" batch write path metric keys below
 //
@@ -41,8 +49,6 @@ pub const V2_EVENT_DEFS_BATCH_ATTEMPT: &str = "propdefs_v2_eventdefs_batch_attem
 pub const V2_EVENT_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_eventdefs_batch_rows";
 pub const V2_EVENT_DEFS_BATCH_CACHE_TIME: &str = "propdefs_v2_eventdefs_batch_cache_time_ms";
 pub const V2_EVENT_DEFS_CACHE_REMOVED: &str = "propdefs_v2_eventdefs_cache_removed";
-pub const V2_EVENT_DEFS_CACHE_HIT: &str = "propdefs_v2_eventdefs_cache_hit";
-pub const V2_EVENT_DEFS_CACHE_MISS: &str = "propdefs_v2_eventdefs_cache_miss";
 pub const V2_EVENT_DEFS_BATCH_SIZE: &str = "propdefs_v2_eventdefs_batch_size";
 
 pub const V2_EVENT_PROPS_BATCH_WRITE_TIME: &str = "propdefs_v2_eventprops_batch_ms";
@@ -50,8 +56,6 @@ pub const V2_EVENT_PROPS_BATCH_ATTEMPT: &str = "propdefs_v2_eventprops_batch_att
 pub const V2_EVENT_PROPS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_eventprops_batch_rows";
 pub const V2_EVENT_PROPS_BATCH_CACHE_TIME: &str = "propdefs_v2_eventprops_batch_cache_time_ms";
 pub const V2_EVENT_PROPS_CACHE_REMOVED: &str = "propdefs_v2_eventprops_cache_removed";
-pub const V2_EVENT_PROPS_CACHE_HIT: &str = "propdefs_v2_eventprops_cache_hit";
-pub const V2_EVENT_PROPS_CACHE_MISS: &str = "propdefs_v2_eventprops_cache_miss";
 pub const V2_EVENT_PROPS_BATCH_SIZE: &str = "propdefs_v2_eventprops_batch_size";
 
 pub const V2_PROP_DEFS_BATCH_WRITE_TIME: &str = "propdefs_v2_propdefs_batch_ms";
@@ -59,6 +63,4 @@ pub const V2_PROP_DEFS_BATCH_ATTEMPT: &str = "propdefs_v2_propdefs_batch_attempt
 pub const V2_PROP_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_propdefs_batch_rows";
 pub const V2_PROP_DEFS_BATCH_CACHE_TIME: &str = "propdefs_v2_propdefs_batch_cache_time_ms";
 pub const V2_PROP_DEFS_CACHE_REMOVED: &str = "propdefs_v2_propdefs_cache_removed";
-pub const V2_PROP_DEFS_CACHE_HIT: &str = "propdefs_v2_propdefs_cache_hit";
-pub const V2_PROP_DEFS_CACHE_MISS: &str = "propdefs_v2_propdefs_cache_miss";
 pub const V2_PROP_DEFS_BATCH_SIZE: &str = "propdefs_v2_propdefs_batch_size";

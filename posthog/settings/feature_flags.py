@@ -2,17 +2,22 @@ import os
 import json
 from contextlib import suppress
 
+from posthog.settings.access import SECRET_KEY
 from posthog.settings.utils import get_from_env, get_list
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
-# Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
-LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
-with suppress(Exception):
-    as_json = json.loads(os.getenv("LOCAL_EVAL_RATE_LIMITS", "{}"))
-    LOCAL_EVAL_RATE_LIMITS = {int(k): str(v) for k, v in as_json.items()}
+# Encryption keys for remote-config feature flag payloads, kept separate from
+# Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
+# An ordered list: the first key encrypts new payloads, every key can decrypt. That
+# is what lets us rotate without a hard cutover: prepend a new key, re-encrypt existing
+# payloads (manage.py reencrypt_flag_payloads), then drop the old key. Defaults to
+# [SECRET_KEY] so self-hosted installs, which encrypt flag payloads with SECRET_KEY,
+# keep working with no configuration. An empty or unset value floors to [SECRET_KEY]
+# so a key is always present.
+FLAGS_SECRET_KEYS: list[str] = get_list(os.getenv("FLAGS_SECRET_KEYS", "")) or [SECRET_KEY]
 
 # Per-team remote config rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 REMOTE_CONFIG_RATE_LIMITS: dict[int, str] = {}
@@ -27,8 +32,21 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: int = get_from_env(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: int = get_from_env(
     "FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT", 100000, type_cast=int
 )
-FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = get_from_env(
-    "FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: int = min(
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS", 1, type_cast=int),
+    6,  # events_recent has 7-day TTL; cap with 1-day margin
+)
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES: int = max(
+    1,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_MINUTES", 5, type_cast=int),
+)
+# MAX_LOOKBACK_HOURS caps how far back a stale/missing checkpoint can reach.
+# With the defaults (LOOKBACK_DAYS=1 → 24h, MAX_LOOKBACK_HOURS=6), the
+# effective lookback is 6h. LOOKBACK_DAYS only has effect when
+# LOOKBACK_DAYS × 24 ≤ MAX_LOOKBACK_HOURS; otherwise it is capped.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
+    1,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
 )
 
 # Feature flag cache refresh settings
@@ -69,3 +87,23 @@ TEAM_METADATA_CACHE_VERIFICATION_CHUNK_SIZE: int = get_from_env(
 TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
+
+# Feature flag limits to prevent memory issues during flag evaluation/caching.
+# These limits are configurable via environment variables and can be overridden
+# in Helm charts per environment.
+#
+# Defaults are set well above observed production maximums to avoid impacting
+# normal usage while protecting against extreme outliers.
+
+# Maximum number of feature flags allowed per team
+MAX_FEATURE_FLAGS_PER_TEAM: int = get_from_env("MAX_FEATURE_FLAGS_PER_TEAM", 2000, type_cast=int)
+
+# Maximum size in bytes for a single flag's filters JSON
+MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
+    "MAX_FEATURE_FLAG_FILTER_SIZE_BYTES",
+    512 * 1024,
+    type_cast=int,  # 512KB
+)
+
+# Team ID for the local-evaluation canary. Unset disables the canary task.
+FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)

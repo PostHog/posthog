@@ -7,8 +7,8 @@ from posthog.schema import (
     Breakdown as BreakdownSchema,
     ChartDisplayType,
     DataWarehouseNode,
-    DataWarehousePropertyFilter,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsQuery,
 )
@@ -21,24 +21,22 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_STRING_LABEL,
-    Breakdown,
-)
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math, series_event_name
+from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode | DataWarehouseNode
+    series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
@@ -48,7 +46,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode | DataWarehouseNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         limit_context: LimitContext = LimitContext.QUERY,
@@ -135,11 +133,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return parse_select(
                 f"""
                 WITH
-                (
+                breakdown_series AS (
                     -- Raw per-day breakdown rows
                     SELECT * FROM {{inner_query}}
-                ) AS breakdown_series,
-                (
+                ),
+                totals_per_breakdown AS (
                     -- Aggregate totals per breakdown for ranking
                     SELECT
                         breakdown_value,
@@ -147,8 +145,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         {{breakdown_order}} AS ordering
                     FROM breakdown_series
                     GROUP BY breakdown_value
-                ) AS totals_per_breakdown,
-                (
+                ),
+                ranked_breakdown_totals AS (
                     -- Global rank applied to aggregated totals
                     SELECT
                         breakdown_value,
@@ -158,8 +156,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             ORDER BY ordering ASC, total_count_for_breakdown DESC, breakdown_value ASC
                         ) AS breakdown_rank
                     FROM totals_per_breakdown
-                ) AS ranked_breakdown_totals,
-                (
+                ),
+                ranked_breakdown_values AS (
                     -- Attach ranks back to per-day rows
                     SELECT
                         breakdown_series.*,
@@ -167,8 +165,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         ranked_breakdown_totals.breakdown_rank
                     FROM breakdown_series
                     JOIN ranked_breakdown_totals ON ranked_breakdown_totals.breakdown_value = breakdown_series.breakdown_value
-                ) AS ranked_breakdown_values,
-                (
+                ),
+                top_n_breakdown_values AS (
                     -- Top N breakdown values
                     SELECT
                         day_start,
@@ -176,8 +174,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         breakdown_value
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank <= {{breakdown_limit}}
-                ) AS top_n_breakdown_values,
-                (
+                ),
+                other_breakdown_values AS (
                     -- "Other" breakdown value
                     SELECT
                         day_start,
@@ -186,18 +184,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     FROM ranked_breakdown_values
                     WHERE breakdown_rank > {{breakdown_limit}}
                     GROUP BY day_start
-                ) AS other_breakdown_values,
-                (
+                ),
+                top_n_and_other_breakdown_values AS (
                     -- Combine and order top N and "other" breakdown values
                     SELECT * FROM (
                         SELECT * FROM top_n_breakdown_values
                         UNION ALL
                         SELECT * FROM other_breakdown_values
                     ) ORDER BY day_start, value
-                ) AS top_n_and_other_breakdown_values,
+                )
 
                 -- Transpose the results into arrays for each breakdown value
-                {'SELECT date, total, breakdown_value FROM (' if is_cumulative else ''}
+                {"SELECT date, total, breakdown_value FROM (" if is_cumulative else ""}
                 SELECT
                     {{all_dates}},
                     arrayMap(d ->
@@ -205,8 +203,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
                         ),
                         date
-                    ) AS {'values' if is_cumulative else 'total'},
-                    {'arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total,' if is_cumulative else ''}
+                    ) AS {"values" if is_cumulative else "total"},
+                    {"arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total," if is_cumulative else ""}
                     breakdown_value
                 FROM (
                     SELECT
@@ -217,7 +215,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     GROUP BY breakdown_value
                 )
                 ORDER BY {{breakdown_order}} ASC, arraySum(total) DESC, breakdown_value ASC
-                {')' if is_cumulative else ''}
+                {")" if is_cumulative else ""}
                 """,
                 {
                     "inner_query": inner_query,
@@ -452,7 +450,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if (
             not self.breakdown.enabled
             and not self._aggregation_operation.requires_query_orchestration()
-            and not self._aggregation_operation.aggregating_on_session_duration()
+            and not self._aggregation_operation.aggregating_on_session_property()
         ):
             return default_query
         # Both breakdowns and complex series aggregation
@@ -490,15 +488,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             orchestrator.parent_query_builder.extend_select(self.breakdown.alias_exprs)
             orchestrator.parent_query_builder.extend_group_by(self.breakdown.field_exprs)
             return orchestrator.build()
-        # Breakdowns and session duration math property
-        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
-                ),
-            ]
-
+        # Breakdowns and session property math
+        elif self.breakdown.enabled and self._aggregation_operation.aggregating_on_session_property():
+            default_query.select = self._get_session_property_select_expr()
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             default_query.select.extend(self.breakdown.column_exprs)
@@ -527,14 +519,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             default_query.select.extend(self.breakdown.column_exprs)
             default_query.group_by.extend(self.breakdown.field_exprs)
 
-        # Just session duration math property
-        elif self._aggregation_operation.aggregating_on_session_duration():
-            default_query.select = [
-                ast.Alias(
-                    alias="session_duration",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
-                )
-            ]
+        # Just session property math
+        elif self._aggregation_operation.aggregating_on_session_property():
+            default_query.select = self._get_session_property_select_expr()
             default_query.group_by.append(ast.Field(chain=["$session_id"]))
 
             wrapper = self.session_duration_math_property_wrapper(default_query, self.breakdown)
@@ -590,13 +577,44 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             placeholders=self.query_date_range.to_placeholders(),
         )
 
+    def _get_session_property_select_expr(self) -> list[ast.Expr]:
+        validated_property = self._aggregation_operation._validate_session_property()
+
+        if validated_property == "$session_duration":
+            # Backwards compatibility: existing queries expect "session_duration" alias
+            return [
+                ast.Alias(
+                    alias="session_duration",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", "$session_duration"])]),
+                )
+            ]
+        else:
+            # Other session properties use "session_property" alias
+            return [
+                ast.Alias(
+                    alias="session_property",
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", validated_property])]),
+                )
+            ]
+
     def _get_breakdown_limit(self) -> int:
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
-        return (
-            self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
-        ) or get_breakdown_limit_for_context(self.limit_context)
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_limit = breakdown_filter.breakdown_limit if breakdown_filter else None
+        limit = breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
+
+        # Cohorts are a user-picked, enumerable set — a smaller limit would push declared
+        # cohorts into "Other", which crashes the label lookup in `build_series_response`.
+        if (
+            breakdown_filter is not None
+            and breakdown_filter.breakdown_type == "cohort"
+            and isinstance(breakdown_filter.breakdown, list)
+        ):
+            limit = max(limit, len(breakdown_filter.breakdown))
+
+        return limit
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking
@@ -654,7 +672,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         placeholders={
                             "max": ast.Array(
                                 exprs=[
-                                    ast.Call(name="max", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    ast.Call(
+                                        name="max", args=[ast.Field(chain=[cast(str, histogram_breakdown["alias"])])]
+                                    )
                                     for histogram_breakdown in breakdown_aliases_with_histograms
                                 ]
                             )
@@ -665,38 +685,37 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         placeholders={
                             "min": ast.Array(
                                 exprs=[
-                                    ast.Call(name="min", args=[ast.Field(chain=[histogram_breakdown["alias"]])])
+                                    ast.Call(
+                                        name="min", args=[ast.Field(chain=[cast(str, histogram_breakdown["alias"])])]
+                                    )
                                     for histogram_breakdown in breakdown_aliases_with_histograms
                                 ]
                             )
                         },
                     ),
                     parse_expr(
-                        "arrayMap((max_num, min_num) -> max_num - min_num, arrayZip(max_nums, min_nums)) as diff"
-                    ),
-                    ast.Alias(
-                        alias="bins",
-                        expr=ast.Array(
-                            exprs=[
-                                ast.Constant(value=alias["histogram_bin_count"])
-                                for alias in breakdown_aliases_with_histograms
-                            ]
-                        ),
-                    ),
-                    parse_expr(
                         """
                             arrayMap(
-                                i -> arrayMap(x -> [
-                                        ((diff[i] / bins[i]) * x) + min_nums[i],
-                                        ((diff[i] / bins[i]) * (x + 1)) + min_nums[i] + if(x + 1 = bins[i], 0.01, 0)
+                                (max_num, min_num, bin_count) -> arrayMap(x -> [
+                                        (((max_num - min_num) / bin_count) * x) + min_num,
+                                        (((max_num - min_num) / bin_count) * (x + 1))
+                                            + min_num
+                                            + if(x + 1 = bin_count, 0.01, 0)
                                     ],
-                                    range(bins[i])
+                                    range(bin_count)
                                 ),
-                                range(1, {breakdown_count})
+                                max_nums,
+                                min_nums,
+                                {bin_counts}
                             ) as buckets
                         """,
                         placeholders={
-                            "breakdown_count": ast.Constant(value=len(breakdown_aliases_with_histograms) + 1),
+                            "bin_counts": ast.Array(
+                                exprs=[
+                                    ast.Constant(value=alias["histogram_bin_count"])
+                                    for alias in breakdown_aliases_with_histograms
+                                ]
+                            ),
                         },
                     ),
                 ]
@@ -705,13 +724,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             bucketed_breakdowns: list[ast.Expr] = []
             for breakdown_alias in breakdown_aliases:
                 if not isinstance(breakdown_alias.get("histogram_bin_count"), int):
-                    bucketed_breakdowns.append(ast.Field(chain=[breakdown_alias["alias"]]))
+                    bucketed_breakdowns.append(ast.Field(chain=[cast(str, breakdown_alias["alias"])]))
                 else:
                     alias_to_index = {
                         breakdown_alias["alias"]: idx
                         for idx, breakdown_alias in enumerate(breakdown_aliases_with_histograms)
                     }
 
+                    alias_str = cast(str, breakdown_alias["alias"])
                     filter_expr = parse_expr(
                         """
                             arrayFilter(
@@ -720,8 +740,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             )[1]
                         """,
                         placeholders={
-                            "alias": ast.Field(chain=[breakdown_alias["alias"]]),
-                            "bucket_index": ast.Constant(value=alias_to_index[breakdown_alias["alias"]] + 1),
+                            "alias": ast.Field(chain=[alias_str]),
+                            "bucket_index": ast.Constant(value=alias_to_index[alias_str] + 1),
                         },
                     )
 
@@ -781,13 +801,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_event_series = (
-            isinstance(series, DataWarehouseNode)
-            and self.modifiers.dataWarehouseEventsModifiers is not None
-            and any(
-                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
-            )
-        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -814,35 +827,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                if is_data_warehouse_event_series:
-                    property_clone = property.copy()
-                    if property_clone["type"] in ("event", "person"):
-                        if property_clone["type"] == "event":
-                            property_clone["key"] = f"events.properties.{property_clone['key']}"
-                        elif property_clone["type"] == "person":
-                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
-                        property_clone["type"] = "data_warehouse"
-                    expr = property_to_expr(property_clone, self.team)
-                    if (
-                        property_clone["type"] in ("group", "element")
-                        and isinstance(expr, ast.CompareOperation)
-                        and isinstance(expr.left, ast.Field)
-                    ):
-                        expr.left.chain = ["events", *expr.left.chain]
-                    filters.append(expr)
-                else:
-                    filters.append(property_to_expr(property, self.team))
+                filters.append(property_to_expr(property, self.team))
 
         # Properties
         if self.query.properties is not None and self.query.properties != []:
-            if is_data_warehouse_event_series:
-                data_warehouse_properties = [
-                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
-                ]
-                if data_warehouse_properties:
-                    filters.append(property_to_expr(data_warehouse_properties, self.team))
-            else:
-                filters.append(property_to_expr(self.query.properties, self.team))
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
@@ -871,23 +860,32 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:
-        # Event name
-        if series_event_name(self.series) is not None:
-            return parse_expr(
-                "event = {event}",
-                placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-            )
+        if isinstance(self.series, EventsNode):
+            return self._get_event_expr(self.series)
 
-        # Actions
         if isinstance(self.series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
-                return action_to_expr(action)
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                return parse_expr("1 = 2")
+            return self._get_action_expr(self.series)
+
+        if isinstance(self.series, GroupNode):
+            return group_node_to_expr(self.series, self.team)
 
         return None
+
+    def _get_event_expr(self, series: EventsNode) -> ast.Expr | None:
+        if series.event is None:
+            return None
+        return parse_expr(
+            "event = {event}",
+            placeholders={"event": ast.Constant(value=series.event)},
+        )
+
+    def _get_action_expr(self, series: ActionsNode) -> ast.Expr | None:
+        try:
+            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            return action_to_expr(action)
+        except Action.DoesNotExist:
+            # If an action doesn't exist, we want to return no events
+            return parse_expr("1 = 2")
 
     def _sample_value(self) -> ast.RatioExpr:
         if self.query.samplingFactor is None:

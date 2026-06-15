@@ -1,11 +1,26 @@
-import dataclasses
-from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Literal, Optional, Protocol, TypeVar
+# Annotations are lazy (PEP 563) so the dlt import below can stay type-only — dlt is heavy and this
+# module is reachable from warehouse_sources models at django.setup().
+from __future__ import annotations
 
-from dlt.common.data_types.typing import TDataType
+import dataclasses
+from collections.abc import AsyncIterable, Callable, Iterable
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NotRequired, Optional, Protocol, TypedDict, TypeVar
+
 from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+if TYPE_CHECKING:
+    from dlt.common.data_types.typing import TDataType
+else:
+    # Runtime stub so get_type_hints() on the dataclasses below resolves without importing dlt (kept
+    # type-only above). Deliberately not `str` — nothing should rely on the runtime value, and a named
+    # stub makes accidental use obvious rather than silently passing as a plausible type. The real,
+    # mypy-visible type comes from the TYPE_CHECKING branch.
+    class TDataType:
+        def __repr__(self) -> str:
+            return "<TDataType: type-checking-only stub for dlt.common.data_types.typing.TDataType>"
+
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
@@ -22,7 +37,7 @@ ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 @dataclasses.dataclass
 class SourceResponse:
     name: str
-    items: Callable[[], Iterable[Any]]
+    items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
     primary_keys: list[str] | None
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None
@@ -46,6 +61,7 @@ class SourceInputs:
 
     schema_name: str
     schema_id: str
+    source_id: str
     team_id: int
     should_use_incremental_field: bool
     db_incremental_field_last_value: Optional[Any]
@@ -54,3 +70,14 @@ class SourceInputs:
     incremental_field_type: Optional[IncrementalFieldType]
     job_id: str
     logger: FilteringBoundLogger
+    reset_pipeline: bool
+    enabled_columns: Optional[list[str]] = None
+    # Multi-schema import context, read by `resolve_source_location`.
+    schema_metadata: Optional[dict[str, Any]] = None
+    dwh_storage_key: Optional[str] = None
+
+
+class PipelineResult(TypedDict):
+    should_trigger_cdp_producer: bool
+    consumer_manages_job_status: NotRequired[bool]
+    skip_post_import_activities: NotRequired[bool]

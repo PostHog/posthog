@@ -1,54 +1,27 @@
-import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { PluginEvent } from '~/plugin-scaffold'
+import { EventHeaders } from '~/types'
+
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { PipelineEvent, ProjectId, Team } from '../../types'
-import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
+import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { PipelineResultType } from '../pipelines/results'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
 
-const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
-    id: 1,
-    project_id: 1 as ProjectId,
-    organization_id: 'test-org-id',
-    uuid: v4(),
-    name: 'Test Team',
-    anonymize_ips: false,
-    api_token: 'test-api-token',
-    slack_incoming_webhook: null,
-    session_recording_opt_in: true,
-    person_processing_opt_out: null,
-    heatmaps_opt_in: null,
-    ingested_event: true,
-    person_display_name_properties: null,
-    test_account_filters: null,
-    cookieless_server_hash_mode: null,
-    timezone: 'UTC',
-    available_features: [],
-    drop_events_older_than_seconds: null,
-    ...overrides,
-})
+type StepInput = { event: PluginEvent; headers: EventHeaders }
 
 describe('normalizeProcessPersonFlagStep', () => {
-    const team = createTestTeam()
-
-    const baseEvent: PipelineEvent = {
+    const baseEvent: PluginEvent = createTestPluginEvent({
         distinct_id: 'my_id',
-        ip: null,
         site_url: '',
         team_id: 1,
         now: new Date().toISOString(),
-        event: '$pageview',
-        properties: {},
         uuid: v4(),
-    }
+    })
 
-    const baseInput: PerDistinctIdPipelineInput = {
-        message: {} as Message,
+    const baseInput: StepInput = {
         event: baseEvent,
-        team,
         headers: createTestEventHeaders(),
-        groupStoreForBatch: {} as any,
     }
 
     const normalizeStep = createNormalizeProcessPersonFlagStep()
@@ -57,7 +30,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         it.each(['$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])(
             'drops event %s when $process_person_profile=false',
             async (eventName) => {
-                const input: PerDistinctIdPipelineInput = {
+                const input: StepInput = {
                     ...baseInput,
                     event: {
                         ...baseEvent,
@@ -83,7 +56,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         )
 
         it('allows regular events when $process_person_profile=false', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -102,7 +75,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('adds warning for invalid $process_person_profile values', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -130,7 +103,7 @@ describe('normalizeProcessPersonFlagStep', () => {
 
     describe('force_disable_person_processing header', () => {
         it('sets processPerson to false when header is true', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 headers: createTestEventHeaders({ force_disable_person_processing: true }),
             }
@@ -145,7 +118,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('defaults to processPerson=true when header is false and no $process_person_profile property', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 headers: createTestEventHeaders(),
             }
@@ -160,7 +133,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('overrides $process_person_profile property when header is true', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -179,7 +152,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('respects $process_person_profile=false when header is false', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
@@ -200,7 +173,7 @@ describe('normalizeProcessPersonFlagStep', () => {
 
     describe('default behavior', () => {
         it('defaults to processPerson=true when no header and no $process_person_profile property', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
             }
 
@@ -214,7 +187,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         })
 
         it('keeps processPerson=true when $process_person_profile=true explicitly', async () => {
-            const input: PerDistinctIdPipelineInput = {
+            const input: StepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,

@@ -1,9 +1,8 @@
 import time
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Optional, cast
 
 import chdb
-import dagster
 import structlog
 from dagster import AssetCheckExecutionContext, AssetCheckResult, AssetCheckSeverity, Field, MetadataValue, asset_check
 
@@ -20,11 +19,11 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import DagsterTags, get_query_tags, tags_context
-from posthog.dags.common import JobOwners, dagster_tags
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
+from posthog.dags.common import dagster_tags
 from posthog.models import Team
 from posthog.settings.base_variables import DEBUG
 
+from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.dags.web_preaggregated_utils import TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
 
 logger = structlog.get_logger(__name__)
@@ -49,7 +48,7 @@ WEB_DATA_QUALITY_CONFIG_SCHEMA = {
 
 
 def table_has_data(
-    table_name: str, tags: DagsterTags = None, context: AssetCheckExecutionContext = None
+    table_name: str, tags: Optional[DagsterTags] = None, context: Optional[AssetCheckExecutionContext] = None
 ) -> AssetCheckResult:
     # Skip simple data checks during backfill runs if context is provided
     if context and hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
@@ -65,6 +64,7 @@ def table_has_data(
 
     try:
         with tags_context(kind="dagster", dagster=tags):
+            # nosemgrep: clickhouse-fstring-param-audit - table_name from internal dagster asset config
             result = sync_execute(f"SELECT COUNT(*) FROM {table_name} LIMIT 1")
         row_count = result[0][0] if result and result[0] else 0
 
@@ -84,7 +84,7 @@ def table_has_data(
 def check_export_chdb_queryable(export_type: str, log_event_name: str) -> AssetCheckResult:
     try:
         export_filename = f"{export_type}_export"
-        export_path = get_s3_url(table_name=export_filename, team_id=TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
+        export_path = get_s3_url(table_name=export_filename, team_id=int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS))
 
         if export_type == "web_stats_daily":
             table_structure = get_s3_web_stats_structure().strip()
@@ -229,10 +229,11 @@ def log_query_sql(
 def setup_accuracy_check_config(
     context: AssetCheckExecutionContext, check_name: str
 ) -> tuple[float, int, int, str, str]:
-    run_config = context.run.run_config.get("ops", {}).get(check_name, {}).get("config", {})
-    tolerance_percentage = run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT)
-    days_back = run_config.get("days_back", DEFAULT_DAYS_BACK)
-    team_id = TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS
+    full_run_config = cast(dict[str, Any], context.run.run_config)
+    run_config = cast(dict[str, Any], full_run_config.get("ops", {}).get(check_name, {}).get("config", {}))
+    tolerance_percentage = float(run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT))
+    days_back = int(run_config.get("days_back", DEFAULT_DAYS_BACK))
+    team_id = int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)
 
     end_date = (datetime.now(UTC) - timedelta(days=1)).replace(hour=23, minute=59, second=59, microsecond=999999).date()
     start_date = end_date - timedelta(days=days_back)
@@ -305,7 +306,7 @@ def execute_accuracy_check(
         pre_agg_metrics = results_to_dict(pre_agg_response.results)
         regular_metrics = results_to_dict(regular_response.results)
 
-        comparison_data = {
+        comparison_data: dict[str, Any] = {
             "team_id": team_id,
             "date_from": date_from,
             "date_to": date_to,
@@ -378,7 +379,7 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
         severity = AssetCheckSeverity.ERROR
         description = f"Team {team_id} {table_version} tables failed accuracy validation."
 
-    metadata = {
+    metadata: dict[str, MetadataValue] = {
         "success_rate": MetadataValue.float(success_rate),
         "failed_metrics": MetadataValue.int(failed_metrics),
         "total_metrics": MetadataValue.int(total_metrics_checked),
@@ -389,7 +390,7 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
     }
 
     # Add individual metric metadata for Dagster plotting
-    metrics = comparison_data.get("metrics", {})
+    metrics = cast(dict[str, dict[str, Any]], comparison_data.get("metrics", {}))
     for metric_name, metric_values in metrics.items():
         metadata.update(
             {
@@ -404,10 +405,11 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
 
     # Add timing metadata if available
     if comparison_data and not comparison_data.get("skipped") and "timing" in comparison_data:
+        timing = cast(dict[str, float], comparison_data["timing"])
         metadata.update(
             {
-                "pre_agg_time": MetadataValue.float(round(comparison_data["timing"]["pre_aggregated"], 3)),
-                "regular_time": MetadataValue.float(round(comparison_data["timing"]["regular"], 3)),
+                "pre_agg_time": MetadataValue.float(round(timing["pre_aggregated"], 3)),
+                "regular_time": MetadataValue.float(round(timing["regular"], 3)),
             }
         )
 
@@ -501,25 +503,14 @@ def run_accuracy_check_for_version(
     return create_accuracy_check_result(comparison_data, team_id, table_version)
 
 
+# Team selection check for web_pre_aggregated_* tables
 @asset_check(
-    asset="web_analytics_bounces_daily",
-    name="web_analytics_accuracy_check",
-    description="Validates that pre-aggregated web analytics data matches regular queries within tolerance",
-    blocking=False,
+    asset="web_analytics_team_selection",
+    name="web_analytics_team_selection_has_data",
+    description="Check if web analytics team selection has teams configured",
 )
-def web_analytics_accuracy_check(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    """Data quality check: validates v1 pre-aggregated tables match regular WebOverview queries within tolerance."""
-    return run_accuracy_check_for_version(context, "web_analytics_accuracy_check", "v1", use_v2_tables=False)
-
-
-# V2 Table Checks for web_pre_aggregated_* tables
-@asset_check(
-    asset="web_analytics_team_selection_v2",
-    name="web_analytics_team_selection_v2_has_data",
-    description="Check if web analytics v2 team selection has teams configured",
-)
-def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    """Verify that v2 team selection has configured teams."""
+def web_analytics_team_selection_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
+    """Verify that team selection has configured teams."""
     # Skip team selection checks during backfill runs
     if hasattr(context.run, "tags") and context.run.tags and context.run.tags.get("dagster/backfill"):
         return AssetCheckResult(
@@ -539,13 +530,13 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
         if team_count > 0:
             return AssetCheckResult(
                 passed=True,
-                description=f"V2 team selection has {team_count} teams configured",
+                description=f"Team selection has {team_count} teams configured",
                 metadata={"team_count": MetadataValue.int(team_count)},
             )
         else:
             return AssetCheckResult(
                 passed=False,
-                description="V2 team selection has no teams configured",
+                description="Team selection has no teams configured",
                 metadata={"team_count": MetadataValue.int(0)},
             )
     except Exception as e:
@@ -554,12 +545,3 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
             description=f"Failed to check v2 team selection: {str(e)}",
             metadata={"error": MetadataValue.text(str(e))},
         )
-
-
-simple_data_checks_job = dagster.define_asset_job(
-    name="simple_data_checks_job",
-    selection=dagster.AssetSelection.checks_for_assets(
-        ["web_analytics_bounces_hourly", "web_analytics_stats_table_hourly"]
-    ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-)

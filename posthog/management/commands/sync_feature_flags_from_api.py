@@ -5,8 +5,21 @@ from django.core.management.base import BaseCommand
 
 import requests
 
-from posthog.models import FeatureFlag, Project, User
+from posthog.models import Project, User
 from posthog.ph_client import PH_US_API_KEY
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+
+def _build_filters(flag_data: dict) -> dict:
+    # /flags?v=2 only exposes the single variant the distinct_id evaluated to,
+    # so for multivariate flags we seed with that one variant at 100% and let
+    # the user fill in the rest — better than silently dropping to boolean.
+    variant = flag_data.get("variant")
+    base: dict = {"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}}
+    if variant:
+        base["multivariate"] = {"variants": [{"key": variant, "name": variant, "rollout_percentage": 100}]}
+    return base
 
 
 def sync_feature_flags_from_api(
@@ -53,9 +66,13 @@ def sync_feature_flags_from_api(
         output_fn(f"\nProcessing project {project.id} - {project.name or ''}")
         output_fn("=" * 50)
 
-        existing_flags = FeatureFlag.objects.filter(team__project_id=project.id).values_list("key", flat=True)
-        deleted_flags = FeatureFlag.objects.filter(team__project_id=project.id, deleted=True).values_list(
-            "key", flat=True
+        existing_flags = set(
+            FeatureFlag.objects_including_soft_deleted.filter(team__project_id=project.id).values_list("key", flat=True)
+        )
+        deleted_flags = set(
+            FeatureFlag.objects_including_soft_deleted.filter(team__project_id=project.id, deleted=True).values_list(
+                "key", flat=True
+            )
         )
 
         enabled_flags = sum(1 for flag_data in data["flags"].values() if flag_data.get("enabled", False))
@@ -69,7 +86,7 @@ def sync_feature_flags_from_api(
         for flag_key, flag_data in data["flags"].items():
             is_enabled = flag_data.get("enabled", False)
             if flag_key in deleted_flags and is_enabled:
-                ff = FeatureFlag.objects.get(team__project_id=project.id, key=flag_key)
+                ff = FeatureFlag.objects_including_soft_deleted.get(team__project_id=project.id, key=flag_key)
                 ff.deleted = False
                 ff.active = True
                 ff.save()
@@ -79,12 +96,11 @@ def sync_feature_flags_from_api(
             elif flag_key not in existing_flags and is_enabled:
                 FeatureFlag.objects.create(
                     team=project.teams.first(),
-                    rollout_percentage=100,
                     name=flag_key,
                     key=flag_key,
                     created_by=first_user,
                     active=True,
-                    filters={"groups": [{"properties": [], "rollout_percentage": 100}], "payloads": {}},
+                    filters=_build_filters(flag_data),
                 )
                 output_fn(f"Created feature flag '{flag_key}'")
                 created_count += 1
@@ -113,6 +129,8 @@ def sync_feature_flags_from_api(
         output_fn(f"Deactivated: {deactivated_count}")
         output_fn(f"Unchanged: {unchanged_count}")
         output_fn(f"Total after sync: {len(existing_flags) + created_count}")
+
+    output_fn("\nFeature flag sync complete.")
 
 
 class Command(BaseCommand):

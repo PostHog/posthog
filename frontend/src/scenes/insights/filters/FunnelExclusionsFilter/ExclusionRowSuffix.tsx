@@ -4,10 +4,12 @@ import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { AnyEntityNode, FunnelsDataWarehouseNode, NodeKind } from '~/queries/schema/schema-general'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number
@@ -22,9 +24,9 @@ export function ExclusionRowSuffix({
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
-        insightVizDataLogic(insightProps)
+        funnelDataLogic(insightProps)
     )
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     // Get the entity filter logic that was created by the parent ActionFilter component
     const mountedLogic = entityFilterLogic.findMounted({ typeKey })
@@ -41,7 +43,11 @@ export function ExclusionRowSuffix({
     }
 
     const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
-        const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, series)
+        // Filter out GroupNodes as funnels don't support them
+        const nonGroupSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] | null | undefined = series?.filter(
+            (s): s is AnyEntityNode<FunnelsDataWarehouseNode> => s.kind !== NodeKind.GroupNode
+        )
+        const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, nonGroupSeries)
         const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
             exclusionIndex === index ? { ...exclusion, ...newStepRange } : exclusion
         )
@@ -67,29 +73,33 @@ export function ExclusionRowSuffix({
     )
 
     return (
-        <div className="flex items-center gap-2 w-full p-1 my-1">
-            <span>between</span>
-            <LemonSelect
-                className="min-w-0 flex-shrink"
-                size="small"
-                value={stepRange.funnelFromStep || 0}
-                onChange={onChange}
-                options={Array.from(Array(numberOfSeries).keys())
-                    .slice(0, -1)
-                    .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                disabled={!isFunnelWithEnoughSteps}
-            />
-            <span>and</span>
-            <LemonSelect
-                className="min-w-0 flex-shrink"
-                size="small"
-                value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
-                onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
-                options={Array.from(Array(numberOfSeries).keys())
-                    .slice((stepRange.funnelFromStep ?? 0) + 1)
-                    .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
-                disabled={!isFunnelWithEnoughSteps}
-            />
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 w-full p-1 my-1">
+            <div className="flex flex-shrink-0 items-center gap-2">
+                <span>between</span>
+                <LemonSelect
+                    className="flex-shrink-0"
+                    size="small"
+                    value={stepRange.funnelFromStep || 0}
+                    onChange={onChange}
+                    options={Array.from(Array(numberOfSeries).keys())
+                        .slice(0, -1)
+                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                    disabled={!isFunnelWithEnoughSteps}
+                />
+            </div>
+            <div className="flex flex-shrink-0 items-center gap-2">
+                <span>and</span>
+                <LemonSelect
+                    className="flex-shrink-0"
+                    size="small"
+                    value={stepRange.funnelToStep || (stepRange.funnelFromStep ?? 0) + 1}
+                    onChange={(toStep: number) => onChange(stepRange.funnelFromStep, toStep)}
+                    options={Array.from(Array(numberOfSeries).keys())
+                        .slice((stepRange.funnelFromStep ?? 0) + 1)
+                        .map((stepIndex) => ({ value: stepIndex, label: `Step ${stepIndex + 1}` }))}
+                    disabled={!isFunnelWithEnoughSteps}
+                />
+            </div>
             <div className="flex items-center gap-1 ml-auto">
                 {propertyFiltersButton}
                 <LemonButton

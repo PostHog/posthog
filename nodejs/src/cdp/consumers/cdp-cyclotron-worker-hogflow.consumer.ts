@@ -1,33 +1,24 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { PluginsServerConfig } from '~/types'
 
-import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import {
-    CyclotronJobInvocation,
-    CyclotronJobInvocationHogFlow,
-    CyclotronJobInvocationResult,
-    CyclotronPerson,
-} from '../types'
-import { getPersonDisplayName } from '../utils'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { CdpCyclotronWorker, CdpCyclotronWorkerHub } from './cdp-cyclotron-worker.consumer'
+import { CdpConsumerBaseDeps } from './cdp-base.consumer'
+import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
-/**
- * Hub type for CdpCyclotronWorkerHogFlow.
- * Extends CdpCyclotronWorkerHub with hogflow-specific fields.
- */
-export type CdpCyclotronWorkerHogFlowHub = CdpCyclotronWorkerHub & Pick<Hub, 'teamManager'>
+export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
+    protected override name = 'CdpCyclotronWorkerHogFlow'
 
-export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWorkerHogFlowHub> {
-    protected name = 'CdpCyclotronWorkerHogFlow'
-
-    constructor(hub: CdpCyclotronWorkerHogFlowHub) {
-        super(hub, 'hogflow')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue) {
+        super(config, deps, jobQueue, 'hogflow')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
-    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
-        this.personsManager.clear() // We want to load persons fresh each time
+    public override async processInvocations(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFlows(invocations)
         return await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
     }
@@ -36,10 +27,11 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationHogFlow[]> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
+        const skippedInvocations: CyclotronJobInvocation[] = []
 
         await Promise.all(
             invocations.map(async (item) => {
-                const team = await this.hub.teamManager.getTeam(item.teamId)
+                const team = await this.deps.teamManager.getTeam(item.teamId)
                 const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId)
                 if (!hogFlow || !team) {
                     logger.error('⚠️', 'Error finding hog flow', {
@@ -48,38 +40,57 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
 
                     failedInvocations.push(item)
 
-                    return null
+                    return
+                }
+
+                // Skip execution if the workflow is no longer active (e.g., disabled/archived)
+                if (hogFlow.status !== 'active') {
+                    logger.info('⏭️', 'Skipping hog flow invocation - workflow is no longer active', {
+                        id: item.functionId,
+                        status: hogFlow.status,
+                    })
+
+                    skippedInvocations.push(item)
+
+                    return
                 }
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                const dbPerson = await this.personsManager.get({
-                    teamId: hogFlow.team_id,
-                    distinctId: hogFlowInvocationState.event.distinct_id,
-                })
+                const personIdOrDistinctId = hogFlowInvocationState.event.distinct_id || hogFlowInvocationState.personId
+                const kind = hogFlowInvocationState.event.distinct_id ? 'distinct_id' : 'person_id'
 
-                const personDisplayName = getPersonDisplayName(
-                    team,
-                    hogFlowInvocationState.event.distinct_id,
-                    dbPerson?.properties ?? {}
-                )
+                const [person, groups] = await Promise.all([
+                    personIdOrDistinctId
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                        : undefined,
+                    this.groupsManager.getGroupsForEvent(
+                        hogFlow.team_id,
+                        hogFlowInvocationState.event.properties,
+                        `${this.config.SITE_URL}/project/${hogFlow.team_id}`
+                    ),
+                ])
 
-                const person: CyclotronPerson | undefined = dbPerson
-                    ? {
-                          id: dbPerson.id,
-                          properties: dbPerson.properties,
-                          name: personDisplayName,
-                          url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
-                              hogFlowInvocationState.event.distinct_id
-                          )}`,
-                      }
-                    : undefined
+                if (!person && hogFlow.trigger?.type === 'event') {
+                    logger.warn('⚠️', 'Person not found for hog flow invocation', {
+                        hogFlowId: hogFlow.id,
+                        distinctId: hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId,
+                        invocationId: item.id,
+                    })
+                }
+
+                // Batch-triggered invocations arrive with an empty event.distinct_id because the
+                // blast-radius query returns UUIDs only. The person lookup above resolves one
+                // distinct_id for us (when the person has any), so backfill it here so templates
+                // defaulting to `{event.distinct_id}` resolve at hog runtime.
+                if (!hogFlowInvocationState.event.distinct_id && person?.distinct_id) {
+                    hogFlowInvocationState.event.distinct_id = person.distinct_id
+                }
 
                 const filterGlobals = convertToHogFunctionFilterGlobal({
                     event: hogFlowInvocationState.event,
-                    person,
-                    // TODO: Load groups as well
-                    groups: {},
+                    person: person ?? undefined,
+                    groups,
                     variables: hogFlowInvocationState.variables || {},
                 })
 
@@ -87,13 +98,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker<CdpCyclotronWo
                     ...item,
                     state: hogFlowInvocationState,
                     hogFlow,
-                    person,
+                    person: person ?? undefined,
                     filterGlobals,
                 })
             })
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+        await this.cyclotronJobQueue.cancelInvocations(skippedInvocations)
 
         return loadedInvocations
     }

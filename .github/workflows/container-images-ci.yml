@@ -2,10 +2,14 @@ name: Container Images CI
 
 on:
     pull_request:
+        # Mirror ci-hobby.yml's trigger types so the `hobby-preview` label can
+        # retroactively kick off a build. ci-hobby.yml omits `reopened`, so we
+        # do too — otherwise reopens would build an image with no consumer.
+        types: [opened, synchronize, labeled, unlabeled]
     merge_group:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -14,37 +18,85 @@ jobs:
         timeout-minutes: 5
         if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
         name: Determine need to run Docker checks
-        # Set job outputs to values from filter step
+        permissions:
+            contents: read
+            pull-requests: read
         outputs:
-            docker_files: ${{ steps.filter.outputs.docker_files }}
+            # The image is only consumed by ci-hobby.yml. Skip the ~20 min build
+            # when ci-hobby would also skip, plus on changes to inputs that can
+            # only break inside the Docker build (workflow self-edits, frontend
+            # lockfile bumps that ci-hobby's filter ignores).
+            should_build: >-
+                ${{
+                    steps.filter.outputs.hobby == 'true'
+                    || steps.filter.outputs.build_inputs == 'true'
+                    || contains(github.event.pull_request.labels.*.name, 'hobby-preview')
+                }}
         steps:
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
-                  predicate-quantifier: 'every'
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      docker_files:
-                        - '**'
-                        - '!rust/**'
-                        - '!livestream/**'
+                      # Keep `hobby:` in sync with the same-named filter in ci-hobby.yml —
+                      # drift means hobby waits for an image we never build (or vice versa).
+                      hobby:
+                        - Dockerfile
+                        - docker-compose.base.yml
+                        - docker-compose.hobby.yml
+                        - 'bin/deploy-hobby'
+                        - 'bin/hobby-ci.py'
+                        - 'bin/upgrade-hobby'
+                        - 'bin/migrate-*-hobby'
+                        - 'bin/docker'
+                        - 'bin/docker-worker'
+                        - 'bin/docker-worker-beat'
+                        - 'bin/docker-worker-celery'
+                        - 'bin/docker-server'
+                        - 'bin/docker-server-unit'
+                        - 'bin/celery-queues.env'
+                        - 'bin/migrate'
+                        - 'bin/migrate-check'
+                        - 'bin/posthog-node'
+                        - 'bin/hobby-installer/**'
+                        - 'docker/**'
+                        - uv.lock
+                        - .github/workflows/ci-hobby.yml
+                      # Inputs that can break inside the Docker build but aren't covered
+                      # by the `hobby:` filter — workflow self-edits, `.dockerignore`
+                      # (silently changes the build context), and `pnpm-lock.yaml` so
+                      # Renovate-style dep bumps are exercised on PR (otherwise they'd
+                      # only fail at merge_group / master push).
+                      build_inputs:
+                        - .github/workflows/container-images-ci.yml
+                        - .github/actions/build-n-cache-image/**
+                        - .dockerignore
+                        - pnpm-lock.yaml
 
     posthog_build:
         needs: changes
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
         # Only on PostHog/posthog, as there's no docker login on forks
-        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true') || github.event_name == 'merge_group' }}
+        if: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.should_build == 'true') || github.event_name == 'merge_group' }}
 
         outputs:
             digest: ${{ steps.build.outputs.digest }}
 
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Build and cache Docker image in Depot
               id: build
@@ -59,42 +111,34 @@ jobs:
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
             - name: Container image digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_REGISTRY: ${{ steps.build.outputs.registry }}
               run: |
-                  echo "Image digest: ${{ steps.build.outputs.digest }}"
+                  echo "Image digest: $IMAGE_DIGEST"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`${{ steps.build.outputs.registry }}/posthog-cloud@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-cloud@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-
-    deploy_preview:
-        name: Deploy preview environment
-        uses: ./.github/workflows/pr-preview-deploy.yml
-        # these permissions are required by pr-preview-deploy.yml
-        permissions:
-            id-token: write
-            contents: read
-            deployments: write
-        needs: [posthog_build, changes]
-        secrets: inherit
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
+                  echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
     lint:
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: step-security/changed-files@3dbe17c78367e7d60f00d78ae6781a35be47b4a1 # v45
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files: |
                       **/Dockerfile
@@ -103,7 +147,7 @@ jobs:
                   separator: ' '
 
             - name: Lint changed Dockerfile(s) with Hadolint
-              uses: jbergstroem/hadolint-gh-action@39e57273ed8f513872326b228217828be6a42730 # v1
+              uses: jbergstroem/hadolint-gh-action@2b00b87f8a56783930b6a4749837d7c45c567ff2 # v1.13.0
               if: steps.changed-files.outputs.any_changed == 'true'
               with:
                   dockerfile: '${{ steps.changed-files.outputs.all_modified_files }}'

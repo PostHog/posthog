@@ -4,12 +4,15 @@ import { AlertType } from 'lib/components/Alerts/types'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import {
     DashboardFilter,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
+    ProductItemCategory,
     ProductKey,
     TileFilters,
 } from '~/queries/schema/schema-general'
@@ -41,12 +44,12 @@ export const manifest: ProductManifest = {
         } = {}): string => {
             // Redirect HogQL queries to SQL editor
             if (isHogQLQuery(query)) {
-                return urls.sqlEditor(query.query)
+                return urls.sqlEditor({ query: query.query })
             }
 
             // Redirect DataNode and DataViz queries with HogQL source to SQL editor
             if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
-                return urls.sqlEditor(query.source.query)
+                return urls.sqlEditor({ query: query.source.query })
             }
 
             return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
@@ -62,7 +65,8 @@ export const manifest: ProductManifest = {
                     source: { kind: 'HogQLQuery', query, filters },
                 } as any,
             }),
-        insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
+        insightEdit: (id: InsightShortId, dashboardId?: number): string =>
+            `/insights/${id}/edit${dashboardId ? `?dashboard=${dashboardId}` : ''}`,
         insightView: (
             id: InsightShortId,
             dashboardId?: number,
@@ -91,6 +95,7 @@ export const manifest: ProductManifest = {
             `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
         alert: (alertId: string): string => `/insights?tab=alerts&alert_id=${alertId}`,
         alerts: (): string => `/insights?tab=alerts`,
+        insightQuickStart: (): string => '/insights/quick-start',
     },
     fileSystemTypes: {
         insight: {
@@ -156,12 +161,24 @@ export const manifest: ProductManifest = {
             visualOrder: INSIGHT_VISUAL_ORDER.lifecycle,
             sceneKeys: ['Insight'],
         },
+        {
+            path: `Insight/SQL`,
+            type: 'insight',
+            href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+            // The sibling insight items get a "New " prefix automatically because their hrefs include "new";
+            // the SQL editor href doesn't, so set the label explicitly to stay consistent.
+            displayLabel: 'New SQL',
+            iconType: 'insight/hog',
+            iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+            visualOrder: INSIGHT_VISUAL_ORDER.sql,
+            sceneKeys: ['Insight'],
+        },
     ],
     treeItemsProducts: [
         {
             path: 'Product analytics',
             intents: [ProductKey.PRODUCT_ANALYTICS],
-            category: 'Analytics',
+            category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
             iconType: 'product_analytics',
@@ -171,7 +188,8 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Notebooks',
-            category: 'Tools',
+            intents: [ProductKey.NOTEBOOKS],
+            category: ProductItemCategory.TOOLS,
             type: 'notebook',
             iconType: 'notebook',
             href: urls.notebooks(),
@@ -202,6 +220,12 @@ export const manifest: ProductManifest = {
             iconType: 'event_definition',
             href: urls.schemaManagement(),
             flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
+        },
+        {
+            path: 'SQL variables',
+            category: 'Schema',
+            href: urls.variables(),
+            sceneKeys: ['SqlVariableEdit'],
         },
         {
             path: 'Annotations',

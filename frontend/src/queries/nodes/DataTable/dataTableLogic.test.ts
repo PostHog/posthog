@@ -1,6 +1,9 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -70,7 +73,8 @@ describe('dataTableLogic', () => {
             expect.any(Function),
             undefined,
             undefined,
-            false
+            false,
+            undefined
         )
         expect(performQuery).toHaveBeenCalledTimes(1)
     })
@@ -296,6 +300,116 @@ describe('dataTableLogic', () => {
             queryWithDefaults: expect.objectContaining({
                 showOpenEditorButton: false,
             }),
+        })
+    })
+
+    it.each([
+        {
+            timezone: 'US/Pacific',
+            // 2022-12-24T05:00Z = Dec 23 21:00 PST; 2022-12-24T10:00Z = Dec 24 02:00 PST
+            timestamps: ['2022-12-24T10:00:00.000000Z', '2022-12-24T05:00:00.000000Z'],
+            expectedLabel: 'December 23, 2022',
+        },
+        {
+            timezone: 'Asia/Tokyo',
+            // 2022-12-24T15:00Z = Dec 25 00:00 JST; 2022-12-24T14:00Z = Dec 24 23:00 JST
+            timestamps: ['2022-12-24T15:00:00.000000Z', '2022-12-24T14:00:00.000000Z'],
+            expectedLabel: 'December 24, 2022',
+        },
+    ])('groups date headers by project timezone ($timezone)', async ({ timezone, timestamps, expectedLabel }) => {
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone } as any)
+
+        const commonResult = {
+            uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
+            event: 'test event',
+            properties: {},
+            team_id: 1,
+            distinct_id: '123',
+        }
+        const results = timestamps.map((ts) => [{ ...commonResult, timestamp: ts }, 'test event', ts])
+        ;(performQuery as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp'],
+            types: [
+                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+                'String',
+                "DateTime64(6, 'UTC')",
+            ],
+            results,
+            hasMore: false,
+        })
+        logic = dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
+            },
+        })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true })
+            .delay(0)
+            .toMatchValues({ responseLoading: false })
+
+        await expectLogic(logic).toMatchValues({
+            dataTableRows: [{ result: results[0] }, { label: expectedLabel }, { result: results[1] }],
+        })
+    })
+
+    it('shows results even when columns in query do not match columns in response', async () => {
+        const commonResult = {
+            uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
+            event: 'pageview',
+            properties: {},
+            team_id: 1,
+            distinct_id: '123',
+        }
+        const results = [
+            [{ ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' }, 'pageview', '2022-12-24T17:00:41.165000Z'],
+            [{ ...commonResult, timestamp: '2022-12-23T17:00:41.165000Z' }, 'pageview', '2022-12-23T17:00:41.165000Z'],
+        ]
+        // Simulate the race condition: query has new column but API response still has old columns
+        // This happens when applying a table view or adding a column - the query updates immediately
+        // but the API response is asynchronous
+        ;(performQuery as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp'], // Response has old columns (without properties.foo)
+            types: [
+                "Tuple(UUID, String, String, DateTime64(6, 'UTC'), Int64, String, String, DateTime64(6, 'UTC'), UUID, DateTime64(3), String)",
+                'String',
+                "DateTime64(6, 'UTC')",
+            ],
+            results: results,
+            hasMore: false,
+        })
+        logic = dataTableLogic({
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
+            query: {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp', 'properties.foo'], // Query has new column
+                },
+            },
+        })
+        logic.mount()
+        expect(performQuery).toHaveBeenCalledTimes(1)
+
+        await expectLogic(logic)
+            .toMatchValues({ responseLoading: true })
+            .delay(0)
+            .toMatchValues({ responseLoading: false, response: partial({ results }) })
+
+        // The key assertion: dataTableRows should contain results, not be empty
+        // Even though columnsInQuery !== columnsInResponse, we should still show the results
+        // Note: Date labels are inserted between results from different days (this is expected behavior)
+        await expectLogic(logic).toMatchValues({
+            dataTableRows: [{ result: results[0] }, { label: 'December 23, 2022' }, { result: results[1] }],
         })
     })
 })

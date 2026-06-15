@@ -2,20 +2,25 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
-import { actionStepToActionStepFormItem, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
+import {
+    actionStepToActionStepFormItem,
+    elementToActionStep,
+    joinWithUiHost,
+    stepToDatabaseFormat,
+} from '~/toolbar/utils'
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
-import { ActionStepPropertyKey } from './ActionStep'
 import type { actionsTabLogicType } from './actionsTabLogicType'
+import { ActionStepPropertyKey } from './ActionStep'
 
 function newAction(
     element: HTMLElement | null,
@@ -97,7 +102,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
     connect(() => ({
         values: [
             toolbarConfigLogic,
-            ['dataAttributes', 'apiURL', 'temporaryToken', 'buttonVisible', 'userIntent', 'actionId', 'dataAttributes'],
+            ['dataAttributes', 'uiHost', 'buttonVisible', 'userIntent', 'actionId'],
             actionsLogic,
             ['allActions'],
         ],
@@ -205,7 +210,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     steps: formValues.steps?.map(stepToDatabaseFormat) || [],
                     creation_context: values.automaticActionCreationEnabled ? 'onboarding' : null,
                 }
-                const { apiURL, temporaryToken } = values
                 const { selectedActionId } = values
 
                 const findUniqueActionName = (baseName: string, index = 0): string => {
@@ -217,37 +221,49 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 }
 
                 if (values.newActionName) {
-                    // newActionName is programmatically set, but they may already have an existing action with that name. Append an index.
                     actionToSave.name = findUniqueActionName(values.newActionName)
                 }
 
-                let response: ActionType
-                if (selectedActionId && selectedActionId !== 'new') {
-                    response = await api.update(
-                        `${apiURL}/api/projects/@current/actions/${selectedActionId}/?temporary_token=${temporaryToken}`,
-                        actionToSave
-                    )
-                } else {
-                    response = await api.create(
-                        `${apiURL}/api/projects/@current/actions/?temporary_token=${temporaryToken}`,
-                        actionToSave
-                    )
+                try {
+                    let res: Response
+                    if (selectedActionId && selectedActionId !== 'new') {
+                        res = await toolbarFetch(
+                            `/api/projects/@current/actions/${selectedActionId}/`,
+                            'PATCH',
+                            actionToSave
+                        )
+                    } else {
+                        res = await toolbarFetch(`/api/projects/@current/actions/`, 'POST', actionToSave)
+                    }
+                    if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({}))
+                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
+                    }
+                    const response: ActionType = await res.json()
+                    breakpoint() // guard against stale async after unmount
+
+                    actions.selectAction(null)
+                    actionsLogic.actions.updateAction({ action: response })
+
+                    if (!values.automaticActionCreationEnabled) {
+                        lemonToast.success('Action saved', {
+                            button: {
+                                label: 'Open in PostHog',
+                                action: () =>
+                                    window.open(joinWithUiHost(values.uiHost, urls.action(response.id)), '_blank'),
+                            },
+                        })
+                    }
+
+                    actions.actionCreatedSuccess(response)
+                } catch (e) {
+                    toolbarLogger.error('actions', 'Failed to save action', { actionId: selectedActionId })
+                    captureToolbarException(e, 'action_save')
+                    if (e instanceof Error) {
+                        lemonToast.error(`Action save failed: ${e.message}`)
+                    }
+                    actions.submitActionFormFailure(e instanceof Error ? e : new Error(String(e)), {})
                 }
-                breakpoint()
-
-                actions.selectAction(null)
-                actionsLogic.actions.updateAction({ action: response })
-
-                if (!values.automaticActionCreationEnabled) {
-                    lemonToast.success('Action saved', {
-                        button: {
-                            label: 'Open in PostHog',
-                            action: () => window.open(`${apiURL}${urls.action(response.id)}`, '_blank'),
-                        },
-                    })
-                }
-
-                actions.actionCreatedSuccess(response)
             },
 
             // whether we show errors after touch (true) or submit (false)

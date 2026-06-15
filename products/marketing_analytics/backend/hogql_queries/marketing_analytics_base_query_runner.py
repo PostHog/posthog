@@ -1,29 +1,37 @@
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar, cast
+from typing import Generic, Optional, TypeVar
 
 import structlog
+import posthoganalytics
 
 from posthog.schema import (
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
-    MarketingAnalyticsHelperForColumnNames,
-    NodeKind,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.event_usage import groups
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    DRILL_DOWN_LEVEL_CONFIG,
+    UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+)
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
@@ -43,6 +51,62 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
+        self._conversion_goal_warnings: list[str] = []
+        self._valid_conversion_goals_count: Optional[int] = None
+
+    def calculate(self) -> ResponseType:
+        start = time.perf_counter()
+        try:
+            response = self._calculate()
+            self._capture_query_event("marketing analytics query performed", start)
+            return response
+        except Exception as e:
+            self._capture_query_event("marketing analytics query failed", start, error=e)
+            raise
+
+    def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
+        try:
+            duration_ms = (time.perf_counter() - start) * 1000
+            if self._valid_conversion_goals_count is not None:
+                conversion_goals_count = self._valid_conversion_goals_count
+            else:
+                team_goals = self.team.marketing_analytics_config.conversion_goals or []
+                draft_goal = getattr(self.query, "draftConversionGoal", None)
+                conversion_goals_count = len(team_goals) + (1 if draft_goal else 0)
+
+            # Compare mode is entered via either compareFilter.compare (previous period)
+            # or compareFilter.compare_to (specific period) — see query_compare_to_date_range.
+            compare_filter = getattr(self.query, "compareFilter", None)
+            has_compare = bool(
+                compare_filter
+                and (
+                    getattr(compare_filter, "compare", False)
+                    or isinstance(getattr(compare_filter, "compare_to", None), str)
+                )
+            )
+
+            props: dict = {
+                "query_kind": getattr(self.query, "kind", None),
+                "duration_ms": round(duration_ms, 2),
+                "drill_down_level": getattr(self.config, "drill_down_level", None),
+                "attribution_mode": getattr(self.query, "attributionMode", None),
+                "conversion_goals_count": conversion_goals_count,
+                "has_compare": has_compare,
+                "team_id": self.team.pk,
+            }
+            if error is None:
+                props["timings"] = [{"k": t.k, "t": t.t} for t in self.timings.to_list()]
+            else:
+                props["error_name"] = type(error).__name__
+                props["error_message"] = str(error)[:500]
+            posthoganalytics.capture(
+                distinct_id=str(self.team.uuid),
+                event=event,
+                properties=props,
+                groups=groups(self.team.organization, self.team),
+            )
+        except Exception:
+            logger.exception("Failed to capture marketing analytics telemetry event", event_name=event)
 
     @cached_property
     def query_date_range(self):
@@ -59,6 +123,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             date_range=date_range,
             team=self.team,
             base_currency=self.team.base_currency or DEFAULT_CURRENCY,
+            drill_down_level=self.config.drill_down_level,
         )
         return MarketingSourceFactory(context=context)
 
@@ -80,7 +145,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             logger.exception("Error getting marketing source adapters", error=str(e))
             return []
 
-    def _build_campaign_cost_select(self, union_query_string: str) -> ast.SelectQuery:
+    def _build_campaign_cost_select(self, union_subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
         """Build the campaign_costs CTE SELECT query"""
         # Build GROUP BY using configuration - this will be overridden in aggregated queries
         group_by_exprs: list[ast.Expr] = self._get_group_by_expressions()
@@ -88,21 +153,86 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = []
 
-        # Only include campaign, ID, source, and match_key fields if we're grouping by them
+        # Include grouping columns based on drill-down level.
+        # We always emit campaign_name, campaign_id, source_name, match_key
+        # so the CTE schema is stable. At channel/source level we repurpose
+        # campaign_name to hold the channel or source value.
         if group_by_exprs:
-            select_columns.extend(
-                [
-                    ast.Field(chain=[self.config.campaign_field]),
-                    ast.Field(chain=[self.config.id_field]),
-                    ast.Field(chain=[self.config.source_field]),
-                    # match_key is used for joining with conversion goals
-                    # Use any() since all rows in a group have the same match_key value
-                    ast.Alias(
-                        alias=self.config.match_key_field,
-                        expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
-                    ),
-                ]
-            )
+            level = self.config.drill_down_level
+            if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
+                # Repurpose campaign_name to hold the source
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level in (
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
+            ):
+                # No platform data at UTM granularity — single empty group for the FULL OUTER JOIN.
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+                # Emit the parent campaign hierarchy alongside the ad group fields so the
+                # outer query can show context columns (Campaign + Source + Ad group).
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD:
+                # Full hierarchy: Campaign + Source + Ad group + Ad.
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_id_field]),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            else:
+                # Campaign level (default) — include campaign, id, source, match_key
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        # match_key is used for joining with conversion goals
+                        # Use any() since all rows in a group have the same match_key value
+                        ast.Alias(
+                            alias=self.config.match_key_field,
+                            expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
+                        ),
+                    ]
+                )
 
         select_columns.extend(
             [
@@ -199,8 +329,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             ]
         )
 
-        # Parse the union query as a subquery and wrap it in a JoinExpr
-        union_subquery = parse_select(union_query_string)
         union_join_expr = ast.JoinExpr(table=union_subquery)
 
         # Build the CTE SELECT query
@@ -222,25 +350,67 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _filter_invalid_conversion_goals(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
-    ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
+    ) -> tuple[list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3], list[str]]:
         """
-        Filter out invalid conversion goals (e.g., those using "All Events").
-        Returns only valid conversion goals.
+        Filter out invalid conversion goals (e.g., those using "All Events" or
+        referencing missing Data Warehouse columns).
+        Returns (valid_goals, warnings).
         """
-        valid_goals = []
+        valid_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
+        warnings: list[str] = []
+
         for goal in conversion_goals:
+            goal_name = getattr(goal, "conversion_goal_name", "Unknown")
+
             # Skip "All Events" goals
-            if goal.kind == cast(str, NodeKind.EVENTS_NODE):
+            if goal.kind == "EventsNode":
                 event_name = getattr(goal, "event", None)
                 if event_name is None or event_name == "":
                     logger.info(
                         "filtering_out_all_events_conversion_goal",
-                        goal_name=getattr(goal, "conversion_goal_name", "Unknown"),
+                        goal_name=goal_name,
+                    )
+                    warnings.append(f"Conversion goal '{goal_name}' skipped: 'All Events' cannot be used")
+                    continue
+
+            # Validate DataWarehouseNode column existence
+            if goal.kind == "DataWarehouseNode" and isinstance(goal, ConversionGoalFilter3):
+                table = get_view_or_table_by_name(team=self.team, name=goal.table_name)
+                if table is None:
+                    logger.warning(
+                        "filtering_out_missing_dw_table_goal",
+                        goal_name=goal_name,
+                        table_name=goal.table_name,
+                    )
+                    warnings.append(f"Conversion goal '{goal_name}' skipped: table '{goal.table_name}' not found")
+                    continue
+
+                schema_map = goal.schema_map or {}
+                table_columns = getattr(table, "columns", None) or {}
+                missing_cols = []
+                for schema_key, default_col in [
+                    ("utm_campaign_name", "utm_campaign"),
+                    ("utm_source_name", "utm_source"),
+                ]:
+                    col_name = schema_map.get(schema_key) or default_col
+                    if col_name not in table_columns:
+                        missing_cols.append(col_name)
+
+                if missing_cols:
+                    logger.warning(
+                        "filtering_out_missing_column_goal",
+                        goal_name=goal_name,
+                        table_name=goal.table_name,
+                        missing_columns=missing_cols,
+                    )
+                    warnings.append(
+                        f"Conversion goal '{goal_name}' skipped: columns {missing_cols} not found on table '{goal.table_name}'"
                     )
                     continue
+
             valid_goals.append(goal)
 
-        return valid_goals
+        return valid_goals, warnings
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
@@ -251,12 +421,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Create processor if select is None (all columns) or if conversion goal columns are explicitly selected
             should_create = self.query.select is None or (
                 conversion_goal.conversion_goal_name in self.query.select
-                or f"{MarketingAnalyticsHelperForColumnNames.COST_PER} {conversion_goal.conversion_goal_name}"
-                in self.query.select
+                or f"{MarketingAnalyticsConstants.COST_PER} {conversion_goal.conversion_goal_name}" in self.query.select
             )
             if should_create:
                 processor = ConversionGoalProcessor(
-                    goal=conversion_goal, index=index, team=self.team, config=self.config
+                    goal=conversion_goal, index=index, team=self.team, config=self.config, user=self.user
                 )
                 processors.append(processor)
         return processors
@@ -275,10 +444,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if include_date_range:
             # Handle date_field with table prefixes like "events.timestamp"
             date_field_chain = date_field.split(".")
+            # Always cast the date field explicitly. Data warehouse columns may be
+            # stored as String, and ClickHouse cannot compare String with Date/DateTime.
+            # Casting is a no-op when the column is already the correct type.
+            raw_field = ast.Field(chain=date_field_chain)
             if use_date_not_datetime:
-                # For conversion goals that use toDate instead of toDateTime
-                # Build: date_field >= toDate('date_from')
-                date_field_expr = ast.Field(chain=date_field_chain)
+                date_field_expr = ast.Call(name="toDate", args=[raw_field])
                 from_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_from_str)])
                 to_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_to_str)])
 
@@ -291,12 +462,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
                 conditions.extend([gte_condition, lte_condition])
             else:
-                date_cast: ast.Expr
-                # Build for regular datetime conditions
-                if "." in date_field:
-                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
-                else:
-                    date_cast = ast.Field(chain=date_field_chain)
+                date_cast = ast.Call(name="toDateTime", args=[raw_field])
 
                 from_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
                 to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])
@@ -344,7 +510,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         )
 
     def _build_complete_query_ast(
-        self, union_query_string: str, processors: list, date_range: QueryDateRange
+        self,
+        union_subquery: ast.SelectQuery | ast.SelectSetQuery,
+        processors: list,
+        date_range: QueryDateRange,
     ) -> ast.SelectQuery:
         """Build the complete query with CTEs using AST expressions"""
 
@@ -358,14 +527,19 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         ctes: dict[str, ast.CTE] = {}
 
         # Add campaign_costs CTE
-        campaign_cost_select = self._build_campaign_cost_select(union_query_string)
+        campaign_cost_select = self._build_campaign_cost_select(union_subquery)
         campaign_cost_cte = ast.CTE(
             name=self.config.campaign_costs_cte_name, expr=campaign_cost_select, cte_type="subquery"
         )
         ctes[self.config.campaign_costs_cte_name] = campaign_cost_cte
 
-        # Add unified conversion goal CTE if any
-        if conversion_aggregator:
+        # Add unified conversion goal CTE if any. Skip building it entirely at levels
+        # that exclude conversion goals (AD_GROUP / AD) — the main query never references
+        # the CTE there, but ClickHouse still scans the events table to materialize it.
+        # That events scan is the heaviest part of the query, so skipping it is a major
+        # win at hierarchy levels.
+        level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.config.drill_down_level, {})
+        if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
             # Check if this is an aggregated query (no GROUP BY)
             group_by_exprs = self._get_group_by_expressions()
             if not group_by_exprs:
@@ -383,18 +557,67 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         return main_query
 
+    def _build_channel_type_expr(self) -> ast.Expr:
+        """Compute channel_type for adapter data using web analytics' classification."""
+        modifiers = create_default_modifiers_for_team(self.team)
+        # Map adapter-internal source aliases to entries that exist in channel_definition_dict.
+        # The Meta Ads adapter emits "meta" (the company/network) as primarySource, but the
+        # dict keys are per-platform: "facebook", "instagram", "messenger", etc. We rewrite to
+        # "facebook" to land in the Paid Social bucket. This goes away when Meta Ads grows a
+        # publisher_platform breakdown (the adapter will emit the real per-platform source).
+        source_field = ast.Field(chain=[self.config.source_field])
+        normalized_source = ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Call(name="lower", args=[source_field]),
+                    right=ast.Constant(value="meta"),
+                ),
+                ast.Constant(value="facebook"),
+                source_field,
+            ],
+        )
+        return create_channel_type_expr(
+            custom_rules=modifiers.customChannelTypeRules,
+            source_exprs=ChannelTypeExprs(
+                source=normalized_source,
+                medium=ast.Constant(value="cpc"),  # all adapter data is paid
+                campaign=ast.Constant(value=""),
+                referring_domain=ast.Constant(value="$direct"),
+                url=ast.Constant(value=""),
+                hostname=ast.Constant(value=""),
+                pathname=ast.Constant(value=""),
+                has_gclid=ast.Constant(value=False),
+                has_fbclid=ast.Constant(value=False),
+                gad_source=ast.Constant(value=None),
+            ),
+        )
+
+    def _apply_drill_down_level(self) -> None:
+        """Read drillDownLevel from query and apply to config"""
+        level = getattr(self.query, "drillDownLevel", None)
+        if level is not None:
+            self.config.drill_down_level = level
+
     def to_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
+            # Apply drill-down level from query to config
+            self._apply_drill_down_level()
+
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
-            # Build the union query using the factory
-            union_query_string = self._factory(date_range=self.query_date_range).build_union_query(adapters)
+            # Build the union query using the factory (AST form to skip parse_select).
+            union_subquery = self._factory(date_range=self.query_date_range).build_union_query_ast(adapters)
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
-            valid_conversion_goals = self._filter_invalid_conversion_goals(conversion_goals)
+            valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
+                conversion_goals
+            )
+            self._valid_conversion_goals_count = len(valid_conversion_goals)
 
             # Create processors only for valid conversion goals
             processors = (
@@ -402,7 +625,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
 
             # Build the complete query with CTEs using AST
-            return self._build_complete_query_ast(union_query_string, processors, self.query_date_range)
+            return self._build_complete_query_ast(union_subquery, processors, self.query_date_range)
 
     def _generate_aggregated_conversion_goals_cte(self, conversion_aggregator, date_range) -> Optional[ast.CTE]:
         """Generate aggregated conversion goals CTE without GROUP BY for aggregated queries"""
@@ -473,6 +696,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _get_group_by_expressions(self) -> list[ast.Expr]:
         """Get GROUP BY expressions"""
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+            # channel is a computed alias, so GROUP BY the same expression
+            return [self._build_channel_type_expr()]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
     # Abstract methods that subclasses must implement

@@ -4,9 +4,10 @@ from typing import Any
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models.action.util import format_action_filter, format_action_filter_event_only
 from posthog.models.entity import Entity
 from posthog.queries.util import PersonPropertiesMode
+
+from products.actions.backend.models.util import format_action_filter, format_action_filter_event_only
 
 
 def get_entity_filtering_params(
@@ -34,7 +35,7 @@ def get_entity_filtering_params(
             if entity.id in action_ids_already_included or entity.id is None:
                 continue
             action_ids_already_included.add(int(entity.id))
-            action = entity.get_action()
+            action = entity.get_action(team_id)
             action_query, action_params = (
                 format_action_filter(
                     team_id=team_id,

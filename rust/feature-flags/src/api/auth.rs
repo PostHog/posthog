@@ -1,14 +1,55 @@
 use crate::{
-    api::errors::FlagError,
-    router::State as AppState,
-    team::{team_models::Team, team_operations},
+    api::errors::FlagError, database::get_connection_with_metrics, router::State as AppState,
+    team::team_models::Team,
 };
 use axum::http::HeaderMap;
 use common_database::PostgresReader;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 /// Token prefix constants
 const SECRET_TOKEN_PREFIX: &str = "phs_";
+
+/// Cache key prefix for per-token auth entries (must match Python TOKEN_CACHE_PREFIX)
+pub const TOKEN_CACHE_PREFIX: &str = "posthog:auth_token:";
+
+/// Scopes that grant feature flag access (must match SQL WHERE clause in validate_personal_api_key_with_scopes_for_team)
+const SCOPE_WILDCARD: &str = "*";
+const SCOPE_FEATURE_FLAG_READ: &str = "feature_flag:read";
+const SCOPE_FEATURE_FLAG_WRITE: &str = "feature_flag:write";
+
+/// Cached token metadata written to Redis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum TokenAuthData {
+    #[serde(rename = "secret")]
+    Secret {
+        team_id: i32,
+        /// The team's public API token, used to look up team metadata from
+        /// HyperCache when `?token=` is omitted. `#[serde(default)]` ensures
+        /// backwards compatibility with cached entries that predate this field.
+        #[serde(default)]
+        api_token: Option<String>,
+    },
+    #[serde(rename = "personal")]
+    Personal {
+        user_id: i32,
+        key_id: Option<String>,
+        org_ids: Vec<String>,
+        scoped_teams: Option<Vec<i32>>,
+        scoped_orgs: Option<Vec<String>>,
+        scopes: Option<Vec<String>>,
+    },
+    #[serde(rename = "project_secret")]
+    ProjectSecret {
+        team_id: i32,
+        key_id: String,
+        scopes: Option<Vec<String>>,
+        /// See `Secret::api_token` for rationale.
+        #[serde(default)]
+        api_token: Option<String>,
+    },
+}
 
 /// Extracts bearer token from Authorization header
 pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
@@ -32,256 +73,332 @@ pub fn extract_personal_api_key(headers: &HeaderMap) -> Result<Option<String>, F
     Ok(extract_bearer_token(headers).filter(|token| !token.starts_with(SECRET_TOKEN_PREFIX)))
 }
 
-/// Validates team secret API token and returns Team object
-pub async fn validate_secret_api_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    debug!("Validating team token");
-
-    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let token_str = token.to_string();
-
-    team_operations::fetch_team_from_redis_with_fallback(
-        state.redis_client.clone(),
-        token,
-        Some(state.config.team_cache_ttl_seconds),
-        || async move {
-            Team::from_pg_by_secret_token(pg_reader, &token_str)
-                .await
-                .map_err(|_| FlagError::TokenValidationError)
-        },
-    )
-    .await
-}
-
-/// Validates that a secret API token matches the specified team
-/// Returns Ok(()) if the token belongs to the team, Err otherwise
+/// Validates a phs_-prefixed token against both Team secret tokens and ProjectSecretAPIKeys.
+///
+/// The unified loader tries Team.secret_api_token first, then posthog_projectsecretapikey.
+/// Both share the same cache key space (posthog:auth_token:{hash}), so a single loader
+/// prevents negative-cache poisoning when one source misses but the other would hit.
+///
+/// Returns the matched TokenAuthData variant on success for metric labeling.
+/// Validates a phs_-prefixed token and checks it belongs to the expected team.
+/// Returns `(team_id, api_token, is_project_secret)` — same as
+/// `validate_secret_api_token` but with the team_id cross-check.
 pub async fn validate_secret_api_token_for_team(
     state: &AppState,
     token: &str,
     expected_team_id: i32,
-) -> Result<(), FlagError> {
-    debug!(
-        expected_team_id = expected_team_id,
-        "Validating secret API token for team"
-    );
+) -> Result<(i32, Option<String>, bool), FlagError> {
+    let result = validate_secret_api_token(state, token).await?;
 
-    // Fetch the team using the secret token
-    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let team = Team::from_pg_by_secret_token(pg_reader, token)
-        .await
-        .map_err(|e| {
-            warn!(error = %e, "Secret API token not found");
-            FlagError::SecretApiTokenInvalid
-        })?;
-
-    // Verify the team ID matches
-    if team.id != expected_team_id {
+    if result.0 != expected_team_id {
         warn!(
-            secret_token_team_id = team.id,
+            cached_team_id = result.0,
             expected_team_id = expected_team_id,
-            "Secret API token belongs to a different team"
+            "Token belongs to a different team"
         );
         return Err(FlagError::SecretApiTokenInvalid);
     }
 
-    debug!(team_id = team.id, "Secret API token validated successfully");
-
-    Ok(())
+    Ok(result)
 }
 
-/// Hash a personal API key value using legacy PBKDF2 mode
-/// Ported from PostHog's `hash_key_value` function in `posthog/models/personal_api_key.py`
-fn hash_legacy_pbkdf2_key(value: &str, iterations: u32) -> String {
-    use pbkdf2::pbkdf2_hmac;
-    use sha2::Sha256;
+/// Validates a phs_-prefixed token without checking against a specific team.
+///
+/// Used when the `?token=` query parameter is omitted and the team must be derived
+/// from the secret token itself. Returns `(team_id, api_token, is_project_secret)`.
+///
+/// Only works for Secret and ProjectSecret tokens (which are team-scoped).
+/// Personal API keys are multi-team and cannot be used to derive a team.
+pub async fn validate_secret_api_token(
+    state: &AppState,
+    token: &str,
+) -> Result<(i32, Option<String>, bool), FlagError> {
+    let token_hash = hash_token_value(token);
+    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let token_owned = token.to_string();
+    let hash_for_loader = token_hash.clone();
 
-    let salt = b"posthog_personal_api_key";
+    let result = state
+        .auth_token_cache
+        .get_or_load(&token_hash, |_key| {
+            load_token_from_pg(pg_reader, &token_owned, &hash_for_loader)
+        })
+        .await?;
 
-    // Compute PBKDF2-HMAC-SHA256 hash
-    let mut hash = [0u8; 32]; // 256 bits / 8 = 32 bytes
-    pbkdf2_hmac::<Sha256>(value.as_bytes(), salt, iterations, &mut hash);
-
-    // Encode hash in base64 and format like Django: pbkdf2_sha256$iterations$salt$hash
-    let hash_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, hash);
-    format!(
-        "pbkdf2_sha256${}${}${}",
-        iterations,
-        String::from_utf8_lossy(salt),
-        hash_b64
-    )
+    match result.value {
+        Some(TokenAuthData::Secret {
+            team_id, api_token, ..
+        }) => {
+            debug!(
+                team_id = team_id,
+                "Secret API token validated (no token param)"
+            );
+            Ok((team_id, api_token, false))
+        }
+        Some(TokenAuthData::ProjectSecret {
+            team_id, api_token, ..
+        }) => {
+            debug!(
+                team_id = team_id,
+                "Project secret API key validated (no token param)"
+            );
+            Ok((team_id, api_token, true))
+        }
+        _ => Err(FlagError::SecretApiTokenInvalid),
+    }
 }
 
-/// Hash a personal API key value using the specified mode
-/// Ported from PostHog's `hash_key_value` function in `posthog/models/personal_api_key.py`
-fn hash_personal_api_key(value: &str, mode: &str, iterations: Option<u32>) -> String {
+/// Load token auth data from PostgreSQL, trying Team secret tokens first then ProjectSecretAPIKeys.
+///
+/// Extracted from `validate_secret_api_token_for_team` for testability.
+async fn load_token_from_pg(
+    pg_reader: PostgresReader,
+    plaintext_token: &str,
+    hashed_token: &str,
+) -> Result<Option<TokenAuthData>, FlagError> {
+    use sqlx::Row;
+
+    // Try Team.secret_api_token / secret_api_token_backup first.
+    // Only fall through to PSAK on RowNotFound; propagate transient DB errors immediately
+    // to avoid doubling DB work during outages.
+    match Team::from_pg_by_secret_token(pg_reader.clone(), plaintext_token).await {
+        Ok(team) => {
+            return Ok(Some(TokenAuthData::Secret {
+                team_id: team.id,
+                api_token: Some(team.api_token),
+            }))
+        }
+        Err(FlagError::RowNotFound) => { /* token not in posthog_team, try PSAK below */ }
+        Err(e) => return Err(e),
+    }
+
+    // Try ProjectSecretAPIKey (JOIN with posthog_team to get api_token for HyperCache lookups)
+    let mut conn =
+        get_connection_with_metrics(&pg_reader, "non_persons_reader", "fetch_project_secret_key")
+            .await?;
+    let query = r#"
+        SELECT k.id, k.team_id, k.scopes, t.api_token
+        FROM posthog_projectsecretapikey k
+        JOIN posthog_team t ON t.id = k.team_id
+        WHERE k.secure_value = $1
+          AND (
+              k.scopes IS NULL
+              OR '*' = ANY(k.scopes)
+              OR 'feature_flag:read' = ANY(k.scopes)
+              OR 'feature_flag:write' = ANY(k.scopes)
+          )
+    "#;
+
+    match sqlx::query(query)
+        .bind(hashed_token)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(FlagError::from)?
+    {
+        Some(row) => {
+            let key_id: String = row.try_get("id")?;
+            let team_id: i32 = row.try_get("team_id")?;
+            let scopes: Option<Vec<String>> = row.try_get("scopes")?;
+            let api_token: String = row.try_get("api_token")?;
+            Ok(Some(TokenAuthData::ProjectSecret {
+                team_id,
+                key_id,
+                scopes,
+                api_token: Some(api_token),
+            }))
+        }
+        None => {
+            warn!("phs_ token not found in team or project secret API key tables");
+            Ok(None)
+        }
+    }
+}
+
+/// Load personal API key auth data from PostgreSQL.
+///
+/// Extracted from `validate_personal_api_key_with_scopes_for_team` for consistency
+/// with `load_token_from_pg`.
+async fn load_personal_key_from_pg(
+    pg_reader: PostgresReader,
+    hashed_token: &str,
+) -> Result<Option<TokenAuthData>, FlagError> {
+    use sqlx::Row;
+
+    let mut conn = pg_reader.get_connection().await.map_err(FlagError::from)?;
+
+    let query = r#"
+        SELECT
+            pak.id as key_id,
+            pak.scopes,
+            pak.scoped_teams,
+            pak.scoped_organizations,
+            u.id as user_id,
+            ARRAY(
+                SELECT om.organization_id::text
+                FROM posthog_organizationmembership om
+                WHERE om.user_id = u.id
+            ) as org_ids
+        FROM posthog_personalapikey pak
+        INNER JOIN posthog_user u ON pak.user_id = u.id
+        WHERE pak.secure_value = $1
+          AND u.is_active = true
+    "#;
+
+    match sqlx::query(query)
+        .bind(hashed_token)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(FlagError::from)?
+    {
+        Some(row) => {
+            let key_id: String = row.try_get("key_id")?;
+            let user_id: i32 = row.try_get("user_id")?;
+            let scoped_teams: Option<Vec<i32>> = row.try_get("scoped_teams")?;
+            let scoped_organizations: Option<Vec<String>> = row.try_get("scoped_organizations")?;
+            let scopes: Option<Vec<String>> = row.try_get("scopes")?;
+            let org_ids: Vec<String> = row.try_get("org_ids")?;
+
+            Ok(Some(TokenAuthData::Personal {
+                user_id,
+                key_id: Some(key_id),
+                org_ids,
+                scoped_teams,
+                scoped_orgs: scoped_organizations,
+                scopes,
+            }))
+        }
+        None => {
+            warn!("Personal API key not found");
+            Ok(None)
+        }
+    }
+}
+
+/// Hash a token value using SHA256
+/// Ported from PostHog's `hash_key_value` function in `posthog/models/utils.py`
+/// Used by both PersonalAPIKey and ProjectSecretAPIKey
+pub(crate) fn hash_token_value(value: &str) -> String {
     use sha2::{Digest, Sha256};
 
-    match mode {
-        // Current simple hashing mode
-        "sha256" => {
-            if iterations.is_some() {
-                panic!("Iterations must not be provided when using simple hashing mode");
+    // No salt — see https://github.com/jazzband/django-rest-knox/issues/188
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    let result = hasher.finalize();
+    format!("sha256${}", hex::encode(result))
+}
+
+/// Validates cached personal API key metadata against the team
+fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(), FlagError> {
+    match data {
+        TokenAuthData::Personal {
+            org_ids,
+            scoped_teams,
+            scoped_orgs,
+            scopes,
+            ..
+        } => {
+            // Check scoped_teams restriction
+            if let Some(teams) = scoped_teams {
+                if !teams.is_empty() && !teams.contains(&team.id) {
+                    debug!(
+                        team_id = team.id,
+                        scoped_teams = ?teams,
+                        "Cached personal API key not scoped to this team"
+                    );
+                    return Err(FlagError::PersonalApiKeyInvalid);
+                }
             }
 
-            // Inspiration on why no salt:
-            // https://github.com/jazzband/django-rest-knox/issues/188
-            let mut hasher = Sha256::new();
-            hasher.update(value.as_bytes());
-            let result = hasher.finalize();
-            format!("sha256${}", hex::encode(result))
+            // Check scopes — return 403 (not 401) when the key is valid but lacks permissions
+            if let Some(scope_list) = scopes {
+                if scope_list.is_empty() {
+                    debug!("Personal API key has an explicit empty scopes list; no access");
+                    return Err(FlagError::PersonalApiKeyInsufficientScopes);
+                }
+
+                let has_access = scope_list.iter().any(|s| {
+                    s == SCOPE_WILDCARD
+                        || s == SCOPE_FEATURE_FLAG_READ
+                        || s == SCOPE_FEATURE_FLAG_WRITE
+                });
+                if !has_access {
+                    debug!(scopes = ?scope_list, "Personal API key lacks feature flag scopes");
+                    return Err(FlagError::PersonalApiKeyInsufficientScopes);
+                }
+            }
+
+            // Check organization access
+            if let Some(team_org_id) = team.organization_id {
+                let team_org_str = team_org_id.to_string();
+
+                // Check scoped_organizations restriction
+                if let Some(orgs) = scoped_orgs {
+                    if !orgs.is_empty() && !orgs.contains(&team_org_str) {
+                        debug!(
+                            team_organization_id = %team_org_str,
+                            scoped_orgs = ?orgs,
+                            "Cached personal API key not scoped to this organization"
+                        );
+                        return Err(FlagError::PersonalApiKeyInvalid);
+                    }
+                }
+
+                // Check user is a member of the team's organization
+                if !org_ids.contains(&team_org_str) {
+                    debug!(
+                        team_organization_id = %team_org_str,
+                        "Cached personal API key user not a member of team's organization"
+                    );
+                    return Err(FlagError::PersonalApiKeyInvalid);
+                }
+            }
+
+            Ok(())
         }
-        // Legacy PBKDF2 mode
-        "pbkdf2" => {
-            let iterations = iterations.expect("Iterations must be provided for pbkdf2 mode");
-            hash_legacy_pbkdf2_key(value, iterations)
-        }
-        _ => panic!("Unsupported hashing mode: {mode}"),
+        _ => Err(FlagError::PersonalApiKeyInvalid),
     }
 }
 
 /// Validates personal API key with feature flag scopes for a specific team
-/// Returns Ok(()) if the personal API key has access to the specified team
+/// Returns the PAK id (String) on success for use in last_used_at tracking
 pub async fn validate_personal_api_key_with_scopes_for_team(
     state: &AppState,
     key: &str,
     team: &Team,
-) -> Result<(), FlagError> {
-    use sqlx::Row;
-
+) -> Result<String, FlagError> {
     debug!(team_id = team.id, "Validating personal API key for team");
 
-    // Try all hashing modes to find the key
-    let modes_to_try = vec![
-        ("sha256", None),
-        ("pbkdf2", Some(260000)),
-        ("pbkdf2", Some(390000)),
-    ];
-
+    let sha256_hash = hash_token_value(key);
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
-    let mut conn = pg_reader.get_connection().await?;
+    let hash_for_loader = sha256_hash.clone();
 
-    for (mode, iterations) in modes_to_try {
-        let secure_value = hash_personal_api_key(key, mode, iterations);
+    let result = state
+        .auth_token_cache
+        .get_or_load(&sha256_hash, |_key| async move {
+            load_personal_key_from_pg(pg_reader, &hash_for_loader).await
+        })
+        .await?;
 
-        // Query for PersonalAPIKey with scope validation
-        // The key must:
-        // 1. Have an active user
-        // 2. Have either no scopes (full access) OR have feature_flag:read or feature_flag:write scopes
-        let query = r#"
-            SELECT
-                pak.id as key_id,
-                pak.scopes,
-                pak.scoped_teams,
-                pak.scoped_organizations,
-                u.id as user_id,
-                u.is_active as user_is_active,
-                u.current_organization_id as user_organization_id
-            FROM posthog_personalapikey pak
-            INNER JOIN posthog_user u ON pak.user_id = u.id
-            WHERE pak.secure_value = $1
-              AND u.is_active = true
-              AND (
-                  pak.scopes IS NULL
-                  OR pak.scopes = '{*}'
-                  OR 'feature_flag:read' = ANY(pak.scopes)
-                  OR 'feature_flag:write' = ANY(pak.scopes)
-              )
-        "#;
-
-        let row_result = sqlx::query(query)
-            .bind(&secure_value)
-            .fetch_optional(&mut *conn)
-            .await?;
-
-        if let Some(row) = row_result {
-            // Validate scoped_teams restriction
-            let scoped_teams: Option<Vec<i32>> = row.try_get("scoped_teams").ok();
-            if let Some(ref teams) = scoped_teams {
-                if !teams.is_empty() && !teams.contains(&team.id) {
-                    warn!(
-                        team_id = team.id,
-                        scoped_teams = ?teams,
-                        "Personal API key does not have access to this team"
-                    );
-                    return Err(FlagError::PersonalApiKeyInvalid(
-                        "Authorization header".to_string(),
-                    ));
-                }
-            }
-
-            // Validate organization access (MANDATORY for teams with organization_id)
-            // Personal API keys can only access teams in organizations where the user is a member,
-            // unless explicitly scoped to specific organizations via scoped_organizations
-            let user_id: i32 = row.get("user_id");
-            let user_organization_id: uuid::Uuid = row.get("user_organization_id");
-            let scoped_organizations: Option<Vec<String>> =
-                row.try_get("scoped_organizations").ok();
-
-            // Handle teams with or without organization_id
-            if let Some(team_organization_id) = team.organization_id {
-                let team_organization_id_str = team_organization_id.to_string();
-
-                // Check organization access:
-                // - If scoped_organizations has entries: team's org must be in the list
-                // - Otherwise (NULL or empty): user must be a member of the team's org
-                let has_org_access = match scoped_organizations.as_ref() {
-                    Some(orgs) if !orgs.is_empty() => orgs.contains(&team_organization_id_str),
-                    _ => {
-                        // Check if user is a member of the team's organization
-                        let is_member: bool = sqlx::query_scalar(
-                            "SELECT EXISTS(SELECT 1 FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2)"
-                        )
-                        .bind(user_id)
-                        .bind(team_organization_id)
-                        .fetch_one(&mut *conn)
-                        .await?;
-                        is_member
-                    }
-                };
-
-                if !has_org_access {
-                    warn!(
-                        user_organization_id = %user_organization_id,
-                        team_organization_id = %team_organization_id_str,
-                        scoped_organizations = ?scoped_organizations,
-                        "Personal API key does not have access to this organization"
-                    );
-                    return Err(FlagError::PersonalApiKeyInvalid(
-                        "Authorization header".to_string(),
-                    ));
-                }
-            } else {
-                // Legacy team without organization_id - skip organization validation
-                debug!(
-                    team_id = team.id,
-                    user_organization_id = %user_organization_id,
-                    "Team has no organization_id, skipping organization validation (legacy team)"
-                );
-            }
-
-            debug!(
-                user_id = user_id,
-                team_id = team.id,
-                user_organization_id = %user_organization_id,
-                team_organization_id = ?team.organization_id,
-                scoped_teams = ?scoped_teams,
-                scoped_organizations = ?scoped_organizations,
-                "Personal API key validated successfully"
-            );
-
-            return Ok(());
+    match &result.value {
+        Some(data) => {
+            validate_personal_key_metadata(data, team)?;
+            let pak_id = match data {
+                TokenAuthData::Personal { key_id, .. } => key_id.clone().ok_or_else(|| {
+                    warn!("Cached personal API key missing key_id (stale cache entry)");
+                    FlagError::PersonalApiKeyInvalid
+                })?,
+                _ => return Err(FlagError::PersonalApiKeyInvalid),
+            };
+            debug!(team_id = team.id, "Personal API key validated successfully");
+            Ok(pak_id)
         }
+        None => Err(FlagError::PersonalApiKeyInvalid),
     }
-
-    warn!("Personal API key not found or doesn't have required scopes");
-    Err(FlagError::PersonalApiKeyInvalid(
-        "Authorization header".to_string(),
-    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
 
     #[test]
     fn test_extract_team_secret_token_from_header() {
@@ -325,38 +442,13 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    // Ported from PostHog's `test_hash_key_values` function in `posthog/api/test/test_personal_api_keys.py`
-    #[rstest]
-    #[case(
-        "sha256",
-        None,
-        "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"
-    )]
-    #[case(
-        "pbkdf2",
-        Some(1),
-        "pbkdf2_sha256$1$posthog_personal_api_key$vzzA4fHFTiUipScUeDJ4+NjuXwAWWu2AFRbk/JUs6Ck="
-    )]
-    #[case("pbkdf2", Some(260000), "pbkdf2_sha256$260000$posthog_personal_api_key$eeRy21dbVoEzYND0NVLfjXxgNeO67SeBRrwQr6bbhK4=")]
-    fn test_hash_personal_api_key(
-        #[case] algorithm: &str,
-        #[case] iterations: Option<u32>,
-        #[case] expected_hash: &str,
-    ) {
-        let result = hash_personal_api_key("test_key_12345", algorithm, iterations);
-        assert_eq!(result, expected_hash);
-    }
-
     #[test]
-    #[should_panic(expected = "Iterations must be provided for pbkdf2 mode")]
-    fn test_hash_personal_api_key_pbkdf2_requires_iterations() {
-        hash_personal_api_key("test_key", "pbkdf2", None);
-    }
-
-    #[test]
-    #[should_panic(expected = "Iterations must not be provided when using simple hashing mode")]
-    fn test_hash_personal_api_key_sha256_forbids_iterations() {
-        hash_personal_api_key("test_key", "sha256", Some(100));
+    fn test_hash_token_value() {
+        let result = hash_token_value("test_key_12345");
+        assert_eq!(
+            result,
+            "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"
+        );
     }
 
     #[test]
@@ -388,5 +480,528 @@ mod tests {
         let empty_headers = HeaderMap::new();
         let result = extract_bearer_token(&empty_headers);
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_token_auth_data_serialization_secret() {
+        let data = TokenAuthData::Secret {
+            team_id: 42,
+            api_token: Some("phc_test123".to_string()),
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("\"type\":\"secret\""));
+        assert!(json.contains("\"team_id\":42"));
+        assert!(json.contains("\"api_token\":\"phc_test123\""));
+
+        let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TokenAuthData::Secret { team_id, api_token } => {
+                assert_eq!(team_id, 42);
+                assert_eq!(api_token, Some("phc_test123".to_string()));
+            }
+            _ => panic!("Expected Secret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_deserializes_old_secret_without_api_token() {
+        // Old cached entries don't have api_token — serde(default) should give None
+        let json = r#"{"type":"secret","team_id":42}"#;
+        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
+        match parsed {
+            TokenAuthData::Secret { team_id, api_token } => {
+                assert_eq!(team_id, 42);
+                assert_eq!(api_token, None);
+            }
+            _ => panic!("Expected Secret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_deserializes_old_project_secret_without_api_token() {
+        // Old cached entries don't have api_token — serde(default) should give None
+        let json = r#"{"type":"project_secret","team_id":99,"key_id":"psak_abc","scopes":["feature_flag:read"]}"#;
+        let parsed: TokenAuthData = serde_json::from_str(json).unwrap();
+        match parsed {
+            TokenAuthData::ProjectSecret {
+                team_id, api_token, ..
+            } => {
+                assert_eq!(team_id, 99);
+                assert_eq!(api_token, None);
+            }
+            _ => panic!("Expected ProjectSecret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_serialization_personal() {
+        let data = TokenAuthData::Personal {
+            user_id: 7,
+            key_id: Some("test-key-id".to_string()),
+            org_ids: vec!["uuid-1".to_string()],
+            scoped_teams: Some(vec![1, 2]),
+            scoped_orgs: None,
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("\"type\":\"personal\""));
+
+        let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TokenAuthData::Personal {
+                user_id,
+                org_ids,
+                scoped_teams,
+                ..
+            } => {
+                assert_eq!(user_id, 7);
+                assert_eq!(org_ids, vec!["uuid-1"]);
+                assert_eq!(scoped_teams, Some(vec![1, 2]));
+            }
+            _ => panic!("Expected Personal variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_serialization_project_secret() {
+        let data = TokenAuthData::ProjectSecret {
+            team_id: 99,
+            key_id: "psak_abc123".to_string(),
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+            api_token: Some("phc_proj_test".to_string()),
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("\"type\":\"project_secret\""));
+        assert!(json.contains("\"team_id\":99"));
+        assert!(json.contains("\"key_id\":\"psak_abc123\""));
+        assert!(json.contains("\"api_token\":\"phc_proj_test\""));
+
+        let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TokenAuthData::ProjectSecret {
+                team_id,
+                key_id,
+                scopes,
+                api_token,
+            } => {
+                assert_eq!(team_id, 99);
+                assert_eq!(key_id, "psak_abc123");
+                assert_eq!(scopes, Some(vec!["feature_flag:read".to_string()]));
+                assert_eq!(api_token, Some("phc_proj_test".to_string()));
+            }
+            _ => panic!("Expected ProjectSecret variant"),
+        }
+    }
+
+    #[test]
+    fn test_token_auth_data_serialization_project_secret_null_scopes() {
+        let data = TokenAuthData::ProjectSecret {
+            team_id: 1,
+            key_id: "key_id".to_string(),
+            scopes: None,
+            api_token: None,
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let parsed: TokenAuthData = serde_json::from_str(&json).unwrap();
+        match parsed {
+            TokenAuthData::ProjectSecret { scopes, .. } => assert_eq!(scopes, None),
+            _ => panic!("Expected ProjectSecret variant"),
+        }
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_valid_access() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: Some(vec![1, 2]),
+            scoped_orgs: None,
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_rejects_wrong_team() {
+        let team = Team {
+            id: 99,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: Some(vec![1, 2]),
+            scoped_orgs: None,
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_rejects_wrong_org() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["00000000-0000-0000-0000-000000000000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_unscoped() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_wildcard_scope() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec!["*".to_string()]),
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_matching_scoped_org() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: Some(vec!["550e8400-e29b-41d4-a716-446655440000".to_string()]),
+            scopes: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_rejects_wrong_scoped_org() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: Some(vec!["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()]),
+            scopes: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_rejects_insufficient_scopes() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec!["session_recording:read".to_string()]),
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_rejects_secret_variant() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Secret {
+            team_id: 1,
+            api_token: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_rejects_project_secret_variant() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::ProjectSecret {
+            team_id: 1,
+            key_id: "psak_abc123".to_string(),
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+            api_token: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_write_scope() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec!["feature_flag:write".to_string()]),
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_mixed_scopes_with_valid_one() {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec![
+                "session_recording:read".to_string(),
+                "feature_flag:read".to_string(),
+            ]),
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_empty_scoped_vecs_treated_as_unscoped() {
+        // Some(vec![]) means "no restriction" for scoped_teams and scoped_orgs —
+        // same semantics as None. The SQL can return either representation.
+        let team = Team {
+            id: 99,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: Some(vec![]), // empty = no restriction, team 99 should pass
+            scoped_orgs: Some(vec![]),  // empty = no restriction
+            scopes: None,               // None = no restriction
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_empty_scopes_rejected() {
+        // Django enforces allow_empty=False on scopes and the auth-time check
+        // rejects empty lists. Mirror that here for defense in depth.
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec![]),
+        };
+
+        assert!(matches!(
+            validate_personal_key_metadata(&data, &team),
+            Err(FlagError::PersonalApiKeyInsufficientScopes)
+        ));
+    }
+
+    #[test]
+    fn test_validate_personal_key_metadata_allows_no_org_team() {
+        let team = Team {
+            id: 1,
+            organization_id: None,
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec![],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: None,
+        };
+
+        assert!(validate_personal_key_metadata(&data, &team).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_load_token_from_pg_propagates_db_errors_instead_of_falling_through() {
+        use async_trait::async_trait;
+        use common_database::{Client, CustomDatabaseError, PoolStats};
+        use sqlx::pool::PoolConnection;
+        use sqlx::Postgres;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        /// A mock database client that always fails with a connection error
+        /// and tracks how many times get_connection was called.
+        struct FailingClient {
+            call_count: AtomicUsize,
+        }
+
+        impl FailingClient {
+            fn new() -> Self {
+                Self {
+                    call_count: AtomicUsize::new(0),
+                }
+            }
+
+            fn calls(&self) -> usize {
+                self.call_count.load(Ordering::SeqCst)
+            }
+        }
+
+        #[async_trait]
+        impl Client for FailingClient {
+            async fn get_connection(
+                &self,
+            ) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+                self.call_count.fetch_add(1, Ordering::SeqCst);
+                Err(CustomDatabaseError::Other(sqlx::Error::PoolClosed))
+            }
+
+            fn get_pool_stats(&self) -> Option<PoolStats> {
+                None
+            }
+        }
+
+        let client = Arc::new(FailingClient::new());
+        let pg_reader: common_database::PostgresReader = client.clone();
+
+        let result = load_token_from_pg(pg_reader, "phs_test_token", "sha256$fake").await;
+
+        // The first query (Team::from_pg_by_secret_token) should fail with DatabaseUnavailable.
+        // The function should propagate that error immediately, NOT fall through to the
+        // ProjectSecretAPIKey query. If it falls through, get_connection would be called
+        // a second time for the PSAK query.
+        assert!(result.is_err(), "Expected error to be propagated");
+        assert!(
+            matches!(result, Err(FlagError::DatabaseUnavailable)),
+            "Expected DatabaseUnavailable, got: {:?}",
+            result
+        );
+        assert_eq!(
+            client.calls(),
+            1,
+            "get_connection should be called exactly once — the DB error from the \
+             Team secret token lookup should be propagated, not swallowed"
+        );
     }
 }

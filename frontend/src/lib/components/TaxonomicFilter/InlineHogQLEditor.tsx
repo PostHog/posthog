@@ -7,9 +7,17 @@ export interface InlineHogQLEditorProps {
     value?: TaxonomicFilterValue
     onChange: (value: TaxonomicFilterValue, item?: any) => void
     metadataSource?: AnyDataNode
+    globals?: Record<string, any>
+    showBreakdownLabelHint?: boolean
 }
 
-export function InlineHogQLEditor({ value, onChange, metadataSource }: InlineHogQLEditorProps): JSX.Element {
+export function InlineHogQLEditor({
+    value,
+    onChange,
+    metadataSource,
+    globals,
+    showBreakdownLabelHint,
+}: InlineHogQLEditorProps): JSX.Element {
     return (
         <>
             <div className="taxonomic-group-title">SQL expression</div>
@@ -18,7 +26,9 @@ export function InlineHogQLEditor({ value, onChange, metadataSource }: InlineHog
                     onChange={onChange}
                     value={String(value ?? '')}
                     metadataSource={metadataSource}
+                    globals={globals}
                     submitText={value ? 'Update SQL expression' : 'Add SQL expression'}
+                    showBreakdownLabelHint={showBreakdownLabelHint}
                     disableAutoFocus // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
                 />
             </div>

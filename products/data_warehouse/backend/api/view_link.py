@@ -1,14 +1,15 @@
-from typing import Optional
+from typing import Optional, cast
 
 from clickhouse_driver.errors import ServerException
 from rest_framework import filters, response, serializers, status, viewsets
 
 from posthog.hogql import ast
-from posthog.hogql.ast import Call, Field
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
+from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -16,10 +17,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.errors import look_up_error_code_meta
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 
 
 class ViewLinkValidationMixin:
@@ -68,11 +72,11 @@ class ViewLinkValidationMixin:
             raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]})
 
         try:
-            node = parse_expr(join_key)
+            parse_expr(join_key)
         except SyntaxError as e:
             raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
-        if not isinstance(node, Field) and not (isinstance(node, Call) and isinstance(node.args[0], Field)):
+        if get_join_field_chain(join_key) is None:
             raise serializers.ValidationError({"non_field_errors": [f"Join key {join_key} must be a table field"]})
 
         return
@@ -117,7 +121,11 @@ class ViewLinkSerializer(serializers.ModelSerializer, ViewLinkValidationMixin):
 
         self._validate_join_key(source_table_key, source_table, self.context["team_id"])
         self._validate_join_key(joining_table_key, joining_table, self.context["team_id"])
-        self._validate_key_uniqueness(field_name=field_name, table_name=source_table, team_id=self.context["team_id"])
+        self._validate_key_uniqueness(
+            field_name=field_name,
+            table_name=source_table,
+            team_id=self.context["team_id"],
+        )
 
         view_link = DataWarehouseJoin.objects.create(**validated_data)
 
@@ -148,12 +156,12 @@ class ViewLinkValidationSerializer(serializers.Serializer, ViewLinkValidationMix
         return value
 
 
-class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete View Columns.
     """
 
-    scope_object = "INTERNAL"
+    scope_object = "warehouse_view"
     queryset = DataWarehouseJoin.objects.all()
     serializer_class = ViewLinkSerializer
     filter_backends = [filters.SearchFilter]
@@ -169,7 +177,8 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        user = cast(User, self.request.user)
+        context["database"] = Database.create_for(team_id=self.team_id, user=user)
         return context
 
     def safely_get_queryset(self, queryset):
@@ -214,7 +223,14 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             from_field=from_field,
             to_field=to_field,
             join_table=joining_table,
-            join_function=join.join_function(override_join_type="INNER JOIN"),
+            resolver=DATA_WAREHOUSE,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key=join.source_table_key,
+                joining_table_key=join.joining_table_key,
+                joining_table_name=join.joining_table_name,
+                configuration=join.configuration,
+                override_join_type="INNER JOIN",
+            ),
         )
         validation_query = parse_select(
             "SELECT {to_field} FROM {source_table_name} LIMIT 10",
@@ -225,8 +241,12 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         try:
+            user = cast(User, self.request.user)
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
             query_response = execute_hogql_query(
-                query=validation_query, team=self.team, context=HogQLContext(database=database)
+                query=validation_query,
+                team=self.team,
+                context=HogQLContext(database=database, user=user),
             )
             response_data["hogql"] = query_response.hogql
             response_data["results"] = query_response.results
@@ -245,7 +265,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
             response_data["is_valid"] = False
 
-            is_safe = look_up_error_code_meta(e).user_safe
+            is_safe = look_up_clickhouse_error_code_meta(e).user_safe
             if is_safe:
                 response_data["detail"] = str(e)
         except QueryError as e:

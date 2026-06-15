@@ -31,9 +31,12 @@ class EarlyAccessFeaturesConfig(AppConfig):
         def _pre_delete(context, feature):
             feature_flag = getattr(feature, "feature_flag", None)
             if feature_flag:
-                filters = dict(feature_flag.filters or {})
-                filters["super_groups"] = None
-                feature_flag.filters = filters
+                # Deferred: the api module imports the feature_flag -> dashboard -> error_tracking
+                # query-runner chain (-> scipy) at module scope. This hook only runs on actual
+                # deletion, so importing it here keeps that chain off AppConfig.ready() / startup.
+                from products.early_access_features.backend.api import _set_enrollment_filters  # noqa: PLC0415
+
+                feature_flag.filters = _set_enrollment_filters(dict(feature_flag.filters or {}), enrolled=None)
                 feature_flag.save(update_fields=["filters"])
 
         def _post_delete(context, feature):

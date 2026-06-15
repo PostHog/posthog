@@ -3,7 +3,7 @@ import './LemonBanner.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconWarning, IconX } from '@posthog/icons'
+import { IconInfo, IconSparkles, IconWarning, IconX } from '@posthog/icons'
 
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
@@ -13,7 +13,7 @@ import { lemonBannerLogic } from './lemonBannerLogic'
 export type LemonBannerAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
 export interface LemonBannerProps {
-    type: 'info' | 'warning' | 'error' | 'success'
+    type: 'info' | 'warning' | 'error' | 'success' | 'ai'
     /** If onClose is provided, a close button will be shown and this callback will be fired when it's clicked. */
     onClose?: () => void
     children: React.ReactNode
@@ -73,12 +73,18 @@ export function LemonBanner({
                         icon
                     ) : type === 'warning' || type === 'error' ? (
                         <IconWarning className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
+                    ) : type === 'ai' ? (
+                        <IconSparkles
+                            className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')}
+                        />
                     ) : (
                         <IconInfo className={clsx('LemonBanner__icon', hideIcon !== false && 'hidden @md:!block')} />
                     ))}
                 <div className="grow overflow-hidden">{children}</div>
                 {action && <LemonButton className="!hidden @md:!flex" type="secondary" {...action} />}
-                {showCloseButton && <LemonButton size="small" icon={<IconX />} onClick={_onClose} aria-label="close" />}
+                {showCloseButton && (
+                    <LemonButton size="xsmall" icon={<IconX />} onClick={_onClose} aria-label="close" />
+                )}
             </div>
             {action && <LemonButton className="@md:!hidden" type="secondary" fullWidth {...action} />}
         </div>

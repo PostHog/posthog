@@ -24,17 +24,17 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     SnowflakeBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -354,7 +354,12 @@ class SnowflakeField(Field):
         else:
             snowflake_type = SnowflakeType(name=field.type, repeated=False)
 
-        return cls(field.name, snowflake_type, snowflake_type_to_data_type(snowflake_type), field.is_nullable)
+        return cls(
+            field.name,
+            snowflake_type,
+            snowflake_type_to_data_type(snowflake_type),
+            field.is_nullable,
+        )
 
     @property
     def snowflake_type_name(self) -> SnowflakeTypeName:
@@ -365,6 +370,9 @@ class SnowflakeField(Field):
 
     def to_destination_field(self) -> SnowflakeDestinationField:
         return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
+
+    def with_new_arrow_type(self, new_type: pa.DataType) -> "SnowflakeField":
+        return SnowflakeField(self.name, data_type_to_snowflake_type(new_type), new_type, self.nullable)
 
 
 class SnowflakeTable(Table):
@@ -456,7 +464,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     except (ValueError, TypeError) as e:
         msg = "Invalid private key"
 
-        if passphrase is not None and "Incorrect password?" in str(e):
+        if passphrase is not None and "Incorrect password" in str(e):
             msg = "Could not load private key: incorrect passphrase?"
         elif "Password was not given but private key is encrypted" in str(e):
             msg = "Could not load private key: passphrase was not given but private key is encrypted"
@@ -577,6 +585,11 @@ class SnowflakeClient:
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
+                    # Pin Snowflake's per-session statement count to 1 to block
+                    # multi-statement execution. This is already the connector default,
+                    # but setting it explicitly means an account-level override cannot
+                    # accidentally enable multi-statement execution.
+                    session_parameters={"MULTI_STATEMENT_COUNT": 1},
                 )
             connection.telemetry_enabled = False
 
@@ -599,7 +612,10 @@ class SnowflakeClient:
         # Call this again in case level was reset.
         self.ensure_snowflake_logger_level("INFO")
 
-        await self.execute_async_query("ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE", fetch_results=False)
+        await self.execute_async_query(
+            "ALTER SESSION SET QUOTED_IDENTIFIERS_IGNORE_CASE = FALSE",
+            fetch_results=False,
+        )
 
         if use_namespace:
             await self.use_namespace()
@@ -731,7 +747,10 @@ class SnowflakeClient:
 
         query_execution_time = time.monotonic() - query_start_time
         self.logger.debug(
-            "Async query finished with status '%s' in %.2fs", query_status, query_execution_time, query_id=query_id
+            "Async query finished with status '%s' in %.2fs",
+            query_status,
+            query_execution_time,
+            query_id=query_id,
         )
 
         if fetch_results is False:
@@ -774,6 +793,12 @@ class SnowflakeClient:
 
         Returns:
             A SnowflakeTable.
+
+        Raises:
+            SnowflakeTableNotFoundError: If the table we are trying to get doesn't exist.
+            SnowflakeIncompatibleSchemaError: If the table does exist, but it is a
+                mutable table and one or more fields from the primary key are missing
+                from the table.
         """
         try:
             result = await self.execute_async_query(f"""
@@ -787,12 +812,37 @@ class SnowflakeClient:
             else:
                 raise
 
-        record_batch_field_names = [field.name.lower() for field in table.fields]
+        if table.is_mutable():
+            existing = {field_metadata.name.lower() for field_metadata in metadata}
+            missing_primary_key_fields = set(table.primary_key) - existing
+            if missing_primary_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's primary key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_primary_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+            missing_version_key_fields = set(table.version_key) - existing
+            if missing_version_key_fields:
+                raise SnowflakeIncompatibleSchemaError(
+                    "Missing one or more fields from the table's version key, "
+                    f"which are required for mutable models: {', '.join(f"'{name}'" for name in missing_version_key_fields)}. "
+                    "Please review your batch export configuration: "
+                    "\n\t- Has the model been updated without updating the target table?"
+                    "\n\t- Have you configured the correct table for this model?"
+                )
+
+        record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
-            SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
-            for metadata in metadata
-            # Only include fields that are present in the record batch schema
-            if metadata.name.lower() in record_batch_field_names
+            SnowflakeDestinationField(
+                field_metadata.name,
+                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
+                field_metadata.is_nullable,
+            )
+            for field_metadata in metadata
+            if field_metadata.name.lower() in record_batch_field_names
         )
 
         return SnowflakeTable.from_snowflake_table(
@@ -850,7 +900,7 @@ class SnowflakeClient:
         exists_ok: bool = True,
         delete: bool = True,
         not_found_ok: bool = True,
-    ) -> collections.abc.AsyncGenerator[SnowflakeTable, None]:
+    ) -> collections.abc.AsyncGenerator[SnowflakeTable]:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create is True:
             await self.create_table(table)
@@ -896,7 +946,7 @@ class SnowflakeClient:
         file_stream: io.BufferedReader | io.BytesIO
         if isinstance(file, BatchExportTemporaryFile):
             file.rewind()
-            file_stream = io.BufferedReader(file)
+            file_stream = io.BufferedReader(file)  # ty: ignore[invalid-assignment]
         else:
             file.seek(0)
             file_stream = file
@@ -968,8 +1018,9 @@ class SnowflakeClient:
             max_attempts=max_attempts,
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
-            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and (e.errno == 608 or e.errno == 90073),
+            is_exception_retryable=lambda e: (
+                isinstance(e, snowflake.connector.errors.ProgrammingError) and (e.errno == 608 or e.errno == 90073)
+            ),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
@@ -1112,6 +1163,7 @@ def snowflake_default_fields() -> list[BatchExportField]:
     # Fields kept for backwards compatibility with legacy apps schema.
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements"})
     batch_export_fields.append({"expression": "''", "alias": "site_url"})
+    batch_export_fields.append({"expression": "NOW64()", "alias": "snowflake_ingested_timestamp"})
     batch_export_fields.pop(batch_export_fields.index({"expression": "created_at", "alias": "created_at"}))
 
     # For historical reasons, 'set' and 'set_once' are prefixed with 'people_'.
@@ -1140,7 +1192,10 @@ def _get_merge_settings(
     if isinstance(model, BatchExportModel):
         if model.name == "persons":
             primary_key: collections.abc.Sequence[str] = ("team_id", "distinct_id")
-            version_key: collections.abc.Sequence[str] = ("person_version", "person_distinct_id_version")
+            version_key: collections.abc.Sequence[str] = (
+                "person_version",
+                "person_distinct_id_version",
+            )
 
         elif model.name == "sessions":
             primary_key = ("team_id", "session_id")
@@ -1163,8 +1218,9 @@ class SnowflakeConsumer(Consumer):
         self,
         snowflake_client: SnowflakeClient,
         snowflake_table: SnowflakeTable,
+        model: str = "events",
     ):
-        super().__init__()
+        super().__init__(model=model)
 
         self.snowflake_client = snowflake_client
         self.snowflake_table = snowflake_table
@@ -1172,7 +1228,8 @@ class SnowflakeConsumer(Consumer):
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def consume_chunk(self, data: bytes):
@@ -1187,7 +1244,8 @@ class SnowflakeConsumer(Consumer):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst"
+            b"",
+            name=f"{self.snowflake_table.stage_prefix}/{self.current_file_index}.parquet.zst",
         )
 
     async def _upload_current_buffer(self):
@@ -1226,7 +1284,9 @@ class SnowflakeConsumer(Consumer):
 
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInputs) -> BatchExportResult:
+async def insert_into_snowflake_activity_from_stage(
+    inputs: SnowflakeInsertInputs,
+) -> BatchExportResult:
     """Activity to batch export data from internal S3 stage to Snowflake.
 
     This activity reads data from our internal S3 stage instead of ClickHouse directly, and uses concurrent uploads to
@@ -1287,7 +1347,12 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         )
 
         # TODO: Figure out which fields are JSON without hard-coding them here.
-        json_fields = {"properties", "people_set", "people_set_once", "person_properties"}
+        json_fields = {
+            "properties",
+            "people_set",
+            "people_set_once",
+            "person_properties",
+        }
         record_batch_schema = pa.schema(
             field.with_type(JsonType()) if field.name in json_fields else field for field in record_batch_schema
         )
@@ -1348,6 +1413,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 consumer = SnowflakeConsumer(
                     snowflake_client=snow_client,
                     snowflake_table=snow_consumer_table,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
 
                 transformer = PipelineTransformer(
@@ -1406,7 +1472,9 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Snowflake table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(
@@ -1427,7 +1495,11 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
                     maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+                    non_retryable_error_types=[
+                        "NotNullViolation",
+                        "IntegrityError",
+                        "OverBillingLimitError",
+                    ],
                 ),
             )
         except OverBillingLimitError:

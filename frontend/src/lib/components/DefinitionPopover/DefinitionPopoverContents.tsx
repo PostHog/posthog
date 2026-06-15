@@ -13,20 +13,20 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     DataWarehousePopoverField,
+    DefinitionPopoverRenderer,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isKeyOf } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
-import { isCoreFilter } from '~/taxonomy/helpers'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
+import { getCoreFilterDefinition, getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import {
     ActionType,
     CohortType,
@@ -35,9 +35,11 @@ import {
     PropertyDefinitionVerificationStatus,
 } from '~/types'
 
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
+
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
-import { TZLabel } from '../TZLabel'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+import { TZLabel } from '../TZLabel'
 
 export function PropertyStatusControl({
     verified,
@@ -118,7 +120,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         definition,
         localDefinition,
         type,
-        hasTaxonomyFeatures,
         isAction,
         isEvent,
         isCohort,
@@ -133,12 +134,14 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     const { selectedItemMeta, dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
-    // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
+    // Pre-populate field mappings from the insight filter.
+    // Only apply to data warehouse - for events/properties, selectedItemMeta.id is the
+    // event name which would incorrectly overwrite the event definition's UUID.
     useEffect(() => {
-        if (selectedItemMeta && definition.name == selectedItemMeta.id) {
+        if (isDataWarehouse && selectedItemMeta && definition.name === selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [definition, isDataWarehouse]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -162,9 +165,9 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return <></>
     }
 
-    const description: string | JSX.Element | undefined | null =
+    const description =
         (definition && 'description' in definition && definition?.description) ||
-        (definition?.name && CORE_FILTER_DEFINITIONS_BY_GROUP[group.type]?.[definition.name]?.description)
+        (definition?.name ? getCoreFilterDefinition(definition.name, group.type)?.description : undefined)
 
     const sharedComponents = (
         <>
@@ -174,7 +177,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.DescriptionEmpty />
             )}
             <DefinitionPopover.Example value={group?.getValue?.(definition)?.toString()} />
-            {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
+            {definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
                     className="definition-popover-tags"
                     tags={definition.tags}
@@ -336,6 +339,100 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             </>
         )
     }
+    if (
+        group.type === TaxonomicFilterGroupType.PageviewEvents ||
+        group.type === TaxonomicFilterGroupType.ScreenEvents ||
+        group.type === TaxonomicFilterGroupType.AutocaptureEvents ||
+        group.type === TaxonomicFilterGroupType.PageviewUrls ||
+        group.type === TaxonomicFilterGroupType.Screens ||
+        group.type === TaxonomicFilterGroupType.EmailAddresses
+    ) {
+        const _definition = definition as SimpleOption
+        const isEventMode =
+            group.type === TaxonomicFilterGroupType.PageviewEvents ||
+            group.type === TaxonomicFilterGroupType.ScreenEvents ||
+            group.type === TaxonomicFilterGroupType.AutocaptureEvents
+
+        const groupConfig: Record<
+            string,
+            {
+                propertyName: string
+                propertyGroupType: TaxonomicFilterGroupType
+                eventName?: string
+                eventDescription?: string
+            }
+        > = {
+            [TaxonomicFilterGroupType.PageviewEvents]: {
+                propertyName: '$current_url',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventName: '$pageview',
+                eventDescription: 'Pageview filtered by current URL.',
+            },
+            [TaxonomicFilterGroupType.PageviewUrls]: {
+                propertyName: '$current_url',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+            },
+            [TaxonomicFilterGroupType.ScreenEvents]: {
+                propertyName: '$screen_name',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventName: '$screen',
+                eventDescription: 'Screen event filtered by screen name.',
+            },
+            [TaxonomicFilterGroupType.Screens]: {
+                propertyName: '$screen_name',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+            },
+            [TaxonomicFilterGroupType.AutocaptureEvents]: {
+                propertyName: '$el_text',
+                propertyGroupType: TaxonomicFilterGroupType.EventProperties,
+                eventName: '$autocapture',
+                eventDescription: 'Autocapture filtered by element text.',
+            },
+            [TaxonomicFilterGroupType.EmailAddresses]: {
+                propertyName: 'email',
+                propertyGroupType: TaxonomicFilterGroupType.PersonProperties,
+            },
+        }
+
+        const config = groupConfig[group.type]
+        const propertyLabel = getFilterLabel(config.propertyName, config.propertyGroupType)
+
+        if (isEventMode && config.eventName && config.eventDescription) {
+            const eventLabel = getFilterLabel(config.eventName, TaxonomicFilterGroupType.Events)
+
+            return (
+                <>
+                    <DefinitionPopover.Description
+                        description={
+                            <>
+                                {config.eventDescription}
+                                <br />
+                                <br />
+                                Selecting this will add a <span className="font-semibold">{eventLabel}</span> event
+                                filtered by <span className="font-semibold">{propertyLabel}</span> matching{' '}
+                                <span className="font-semibold break-all">{_definition.name}</span>.
+                            </>
+                        }
+                    />
+                    <DefinitionPopover.Example value={_definition.name} />
+                </>
+            )
+        }
+
+        return (
+            <>
+                <DefinitionPopover.Description
+                    description={
+                        <>
+                            Selecting this will filter by <span className="font-semibold">{propertyLabel}</span>{' '}
+                            matching <span className="font-semibold break-all">{_definition.name}</span>.
+                        </>
+                    }
+                />
+                <DefinitionPopover.Example value={_definition.name} />
+            </>
+        )
+    }
     if (group.type === TaxonomicFilterGroupType.Elements) {
         const _definition = definition as SimpleOption
         return (
@@ -370,7 +467,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     }
     if (isDataWarehouse && dataWarehousePopoverFields.length > 0) {
         const _definition = definition as DataWarehouseTableForInsight
-        const columnOptions = Object.values(_definition.fields).map((column) => ({
+        const columnOptions = Object.values(_definition.fields ?? {}).map((column) => ({
             label: column.name + ' (' + column.type + ')',
             value: column.name,
             type: column.type,
@@ -401,8 +498,8 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 optional,
                                 type,
                             }: DataWarehousePopoverField) => {
-                                const fieldValue = key in localDefinition ? localDefinition[key] : undefined
-                                const isHogQL = isUsingHogQLExpression(fieldValue)
+                                const fieldValue = isKeyOf(key, localDefinition) ? localDefinition[key] : undefined
+                                const isHogQL = isUsingHogQLExpression(fieldValue ?? undefined)
 
                                 return (
                                     <Fragment key={key}>
@@ -451,12 +548,12 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                     <div className="flex justify-end">
                         <LemonButton
                             onClick={() => {
-                                selectItem(group, itemValue ?? null, localDefinition, undefined)
+                                selectItem(group, itemValue ?? null, localDefinition)
                             }}
                             disabledReason={
                                 dataWarehousePopoverFields.every(
                                     ({ key, optional }: DataWarehousePopoverField) =>
-                                        optional || (key in localDefinition && localDefinition[key])
+                                        optional || (isKeyOf(key, localDefinition) && localDefinition[key])
                                 )
                                     ? null
                                     : 'All required field mappings must be specified'
@@ -479,7 +576,6 @@ function DefinitionEdit(): JSX.Element {
         localDefinition,
         definitionLoading,
         singularType,
-        hasTaxonomyFeatures,
         isViewable,
         hideView,
         type,
@@ -489,13 +585,12 @@ function DefinitionEdit(): JSX.Element {
     } = useValues(definitionPopoverLogic)
     const { setLocalDefinition, handleCancel, handleSave } = useActions(definitionPopoverLogic)
 
-    if (!definition || !hasTaxonomyFeatures) {
+    if (!definition) {
         return <></>
     }
 
-    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in localDefinition
-    const allowVerification =
-        hasTaxonomyFeatures && !isCoreFilter(definition.name || '') && 'verified' in localDefinition
+    const showHiddenOption = 'hidden' in localDefinition
+    const allowVerification = !isCoreFilter(definition.name || '') && 'verified' in localDefinition
 
     return (
         <>
@@ -598,6 +693,7 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
+    definitionPopoverRenderer?: DefinitionPopoverRenderer
 }
 
 export function ControlledDefinitionPopover({
@@ -605,30 +701,42 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
+    definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
     const icon = group.getIcon?.(definition || item)
 
-    // Must use `useEffect` here to hydrate popover card with the newest item, since lifecycle of `ItemPopover` is controlled
-    // independently by `infiniteListLogic`
+    // Supports all types specified in selectedItemHasPopover
+    // Pinned items store minimal data ({ name }) so the source group's getValue may not
+    // work (e.g. EventMetadata uses option.id). Fall back to item.name for pinned items.
+    const value = group.getValue?.(item) ?? ('name' in item ? item.name : null)
+
+    // Hydrate popover card with the newest item. Compare by value identity (not reference)
+    // to avoid cascading re-renders when taxonomicGroups re-evaluates and creates new item
+    // objects with the same logical identity.
     useEffect(() => {
         setDefinition(item)
-    }, [item, setDefinition])
-
-    // Supports all types specified in selectedItemHasPopover
-    const value = group.getValue?.(item)
+    }, [value, setDefinition]) // eslint-disable-line react-hooks/exhaustive-deps
 
     if (!value || !item) {
         return null
     }
 
+    const isDataWarehouseFunnelWidePopover =
+        group.type === TaxonomicFilterGroupType.DataWarehouse && !!definitionPopoverRenderer
+
+    const defaultView = <DefinitionView group={group} />
+    const customView = definitionPopoverRenderer?.({ item, group, defaultView }) ?? defaultView
+
     return (
         <Popover
             visible={visible}
             referenceElement={highlightedItemElement}
-            className="click-outside-block hotkey-block"
+            className={cn('click-outside-block hotkey-block', {
+                'definition-popover--data-warehouse-funnel-wide': isDataWarehouseFunnelWidePopover,
+            })}
             overlay={
                 <DefinitionPopover.Wrapper>
                     <DefinitionPopover.Header
@@ -645,7 +753,7 @@ export function ControlledDefinitionPopover({
                         editHeaderTitle={`Edit ${singularType}`}
                         icon={icon}
                     />
-                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
+                    {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : customView}
                 </DefinitionPopover.Wrapper>
             }
             placement="right"

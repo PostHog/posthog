@@ -5,8 +5,11 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
+    AccountsQuery,
     ActionsNode,
     ActorsQuery,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataTableNode,
@@ -24,10 +27,11 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     GoalLine,
+    GroupNode,
     GroupsQuery,
-    HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
     HogQuery,
@@ -36,6 +40,7 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
@@ -67,13 +72,13 @@ import {
     TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -85,7 +90,6 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
         isEventsQuery(node) ||
         isActorsQuery(node) ||
         isHogQLQuery(node) ||
-        isHogQLASTQuery(node) ||
         isHogQLMetadata(node)
     )
 }
@@ -102,6 +106,10 @@ export function isEventsNode(node?: Record<string, any> | null): node is EventsN
     return node?.kind === NodeKind.EventsNode
 }
 
+export function isGroupNode(node?: Record<string, any> | null): node is GroupNode {
+    return node?.kind === NodeKind.GroupNode
+}
+
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
     return node?.kind === NodeKind.EventsQuery
 }
@@ -116,6 +124,18 @@ export function isActionsNode(node?: Record<string, any> | null): node is Action
 
 export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
     return node?.kind === NodeKind.DataWarehouseNode
+}
+
+export function isFunnelsDataWarehouseNode(node?: Record<string, any> | null): node is FunnelsDataWarehouseNode {
+    return node?.kind === NodeKind.FunnelsDataWarehouseNode
+}
+
+export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null): node is LifecycleDataWarehouseNode {
+    return node?.kind === NodeKind.LifecycleDataWarehouseNode
+}
+
+export function isAnyDataWarehouseNode(node?: Record<string, any> | null): node is AnyDataWarehouseNode {
+    return isDataWarehouseNode(node) || isFunnelsDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
 }
 
 /** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
@@ -146,6 +166,44 @@ export function isDataVisualizationNode(node?: Record<string, any> | null): node
     return node?.kind === NodeKind.DataVisualizationNode
 }
 
+export function convertDataTableNodeToDataVisualizationNode(node: Node | null): Node | null {
+    if (!isDataTableNodeWithHogQLQuery(node)) {
+        return node
+    }
+
+    const {
+        kind: _kind,
+        source,
+        columns,
+        hiddenColumns: legacyHiddenColumns,
+        pinnedColumns: legacyPinnedColumns,
+        ...rest
+    } = node
+    const hiddenColumns = new Set(legacyHiddenColumns ?? [])
+    const visibleColumns = columns?.filter((column) => !hiddenColumns.has(column))
+    const tableSettingsColumns = visibleColumns?.length ? visibleColumns.map((column) => ({ column })) : undefined
+    const pinnedColumns = legacyPinnedColumns?.filter((column) => !hiddenColumns.has(column))
+    const mappedTableSettings =
+        tableSettingsColumns || pinnedColumns?.length
+            ? {
+                  ...(tableSettingsColumns ? { columns: tableSettingsColumns } : {}),
+                  ...(pinnedColumns?.length ? { pinnedColumns } : {}),
+              }
+            : undefined
+    const tableSettings = {
+        ...(rest as Partial<DataVisualizationNode>).tableSettings,
+        ...mappedTableSettings,
+    }
+
+    return {
+        ...rest,
+        kind: NodeKind.DataVisualizationNode,
+        source: source as HogQLQuery,
+        display: ChartDisplayType.ActionsTable,
+        ...(Object.keys(tableSettings).length ? { tableSettings } : {}),
+    } as DataVisualizationNode
+}
+
 export function isSavedInsightNode(node?: Record<string, any> | null): node is SavedInsightNode {
     return node?.kind === NodeKind.SavedInsightNode
 }
@@ -160,10 +218,6 @@ export function isHogQuery(node?: Record<string, any> | null): node is HogQuery 
 
 export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
-}
-
-export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQLASTQuery {
-    return node?.kind === NodeKind.HogQLASTQuery
 }
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
@@ -238,8 +292,8 @@ export function isWebGoalsQuery(node?: Record<string, any> | null): node is WebG
     return node?.kind === NodeKind.WebGoalsQuery
 }
 
-export function isWebTrendsQuery(node?: Record<string, any> | null): node is WebTrendsQuery {
-    return node?.kind === NodeKind.WebTrendsQuery
+export function isWebNotableChangesQuery(node?: Record<string, any> | null): node is WebNotableChangesQuery {
+    return node?.kind === NodeKind.WebNotableChangesQuery
 }
 
 export function isMarketingAnalyticsTableQuery(
@@ -339,11 +393,15 @@ export function isLifecycleQuery(node?: Record<string, any> | null): node is Lif
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithDisplay(
+    node?: Record<string, any> | null
+): node is TrendsQuery | RetentionQuery | StickinessQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
+export function isInsightQueryWithBreakdown(
+    node?: Record<string, any> | null
+): node is TrendsQuery | FunnelsQuery | RetentionQuery {
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
@@ -362,7 +420,7 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
         isActorsQuery(query) &&
         isInsightActorsQuery(query.source) &&
         isRetentionQuery(query.source.source) &&
-        query.source.source.aggregation_group_type_index !== undefined
+        query.source.source.aggregation_group_type_index != null
     )
 }
 
@@ -374,8 +432,9 @@ export function shouldQueryBeAsync(query: Node): boolean {
     return (
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
-        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
-        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+        isTracesQuery(query) ||
+        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
+        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
     )
 }
 
@@ -468,7 +527,7 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode | DataWarehouseNode)[] | undefined => {
+export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }
@@ -489,6 +548,13 @@ export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undef
     return undefined
 }
 
+export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
+    if (!isStickinessQuery(query)) {
+        return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
+    }
+    return undefined
+}
+
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showLegend
@@ -496,6 +562,8 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
         return query.trendsFilter?.showLegend
     } else if (isLifecycleQuery(query)) {
         return query.lifecycleFilter?.showLegend
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showLegend
     }
     return undefined
 }
@@ -503,6 +571,15 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
 export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showAlertThresholdLines
+    }
+    return undefined
+}
+
+export const getShowAnnotations = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAnnotations
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showAnnotations
     }
     return undefined
 }
@@ -523,6 +600,13 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.trendsFilter?.showValuesOnSeries
     } else if (isFunnelsQuery(query)) {
         return query.funnelsFilter?.showValuesOnSeries
+    }
+    return undefined
+}
+
+export const getShowPercentagesOnSeries = (query: InsightQueryNode): boolean | undefined => {
+    if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showPercentagesOnSeries
     }
     return undefined
 }
@@ -590,6 +674,12 @@ export const supportsPercentStackView = (q: InsightQueryNode | null | undefined)
 export const getShowPercentStackView = (query: InsightQueryNode): boolean | undefined =>
     supportsPercentStackView(query) && (query as TrendsQuery)?.trendsFilter?.showPercentStackView
 
+export const supportsBarValueStacking = (q: InsightQueryNode | null | undefined): boolean =>
+    isTrendsQuery(q) && getDisplay(q) === ChartDisplayType.ActionsBarValue && hasBreakdownFilter(getBreakdown(q))
+
+export const getStackBreakdownValues = (query: InsightQueryNode): boolean | undefined =>
+    supportsBarValueStacking(query) && (query as TrendsQuery)?.trendsFilter?.stackBreakdownValues
+
 export const nodeKindToFilterProperty: Record<ProductAnalyticsInsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
@@ -632,6 +722,18 @@ export function escapePropertyAsHogQLIdentifier(identifier: string): string {
         return identifier // This identifier is already quoted
     }
     return !identifier.includes('"') ? `"${identifier}"` : `\`${identifier}\``
+}
+
+/** Quote each segment of a dotted HogQL reference independently. */
+export function escapeDottedHogQLIdentifier(identifier: string): string {
+    if (isQuoted(identifier) || !identifier.includes('.')) {
+        return escapePropertyAsHogQLIdentifier(identifier)
+    }
+
+    return identifier
+        .split('.')
+        .map((segment) => escapePropertyAsHogQLIdentifier(segment))
+        .join('.')
 }
 
 export function taxonomicEventFilterToHogQL(
@@ -728,6 +830,27 @@ function isHogQLRaw(value: any): value is HogQLRaw {
     return !!value?.__hogql_raw
 }
 
+const ESCAPE_CHARS_MAP: Record<string, string> = {
+    '\b': '\\b',
+    '\f': '\\f',
+    '\r': '\\r',
+    '\n': '\\n',
+    '\t': '\\t',
+    '\0': '\\0',
+    '\x07': '\\a',
+    '\v': '\\v',
+    '\\': '\\\\',
+    "'": "\\'",
+}
+
+export function escapeHogQLString(value: string): string {
+    let escaped = ''
+    for (const char of value) {
+        escaped += ESCAPE_CHARS_MAP[char] ?? char
+    }
+    return `'${escaped}'`
+}
+
 function formatHogQLValue(value: any): string {
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQLValue).join(', ')}]`
@@ -739,7 +862,7 @@ function formatHogQLValue(value: any): string {
     } else if (isHogQLRaw(value)) {
         return value.raw
     } else if (typeof value === 'string') {
-        return `'${value}'`
+        return escapeHogQLString(value)
     } else if (typeof value === 'number') {
         return String(value)
     } else if (value === null) {
@@ -764,23 +887,45 @@ export function hogql(strings: TemplateStringsArray, ...values: any[]): HogQLQue
 hogql.identifier = hogQLIdentifier
 hogql.raw = hogQLRaw
 
-/**
- * Wether we have a valid `breakdownFilter` or not.
- */
-export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is BreakdownFilter {
-    return !!(
-        breakdownFilter &&
-        ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
-            (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
-    )
+type SingleBreakdownFilter = BreakdownFilter & {
+    breakdown: NonNullable<BreakdownFilter['breakdown']>
+}
+
+type MultiBreakdownFilter = BreakdownFilter & {
+    breakdowns: NonNullable<BreakdownFilter['breakdowns']>
+}
+
+type PopulatedBreakdownFilter = SingleBreakdownFilter | MultiBreakdownFilter
+
+export function hasSingleBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is SingleBreakdownFilter {
+    return breakdownFilter?.breakdown != null
+}
+
+export function hasMultiBreakdown(breakdownFilter?: BreakdownFilter | null): breakdownFilter is MultiBreakdownFilter {
+    return (breakdownFilter?.breakdowns?.length ?? 0) > 0
+}
+
+export function hasBreakdownFilter(
+    breakdownFilter?: BreakdownFilter | null
+): breakdownFilter is PopulatedBreakdownFilter {
+    return hasSingleBreakdown(breakdownFilter) || hasMultiBreakdown(breakdownFilter)
 }
 
 export function isValidQueryForExperiment(query: Node): boolean {
-    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+    if (!isNodeWithSource(query) || !isFunnelsQuery(query.source)) {
+        return false
+    }
+
+    const { series } = query.source
+    return series.length >= 2 && !series?.some((node) => isDataWarehouseNode(node))
 }
 
 export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
     return node?.kind === NodeKind.GroupsQuery
+}
+
+export function isAccountsQuery(node?: Record<string, any> | null): node is AccountsQuery {
+    return node?.kind === NodeKind.AccountsQuery
 }
 
 export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])

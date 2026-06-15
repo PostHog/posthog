@@ -9,10 +9,21 @@ import {
     INTEGER_REGEX_MATCH_GROUPS,
     SHORT_CODE_REGEX_MATCH_GROUPS,
     UUID_REGEX_MATCH_GROUPS,
+    buildNotebookNodeClipboardHTML,
     createUrlRegex,
     sortProperties,
     useSyncedAttributes,
 } from './utils'
+
+// Mock dependencies for Group revenue utilities
+jest.mock('lib/utils', () => ({
+    ...jest.requireActual('lib/utils'),
+    percentage: jest.fn((value: number) => `${(value * 100).toFixed(1)}%`),
+}))
+
+jest.mock('lib/utils/geography/currency', () => ({
+    formatCurrency: jest.fn((value: number) => `$${value.toFixed(2)}`),
+}))
 
 describe('notebook node utils', () => {
     jest.useFakeTimers()
@@ -143,6 +154,88 @@ describe('notebook node utils', () => {
 
             jest.runOnlyPendingTimers()
             expect(nodeViewProps.updateAttributes).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('buildNotebookNodeClipboardHTML', () => {
+        // Reads back an attribute the same way the per-attribute parseHTML in `createPostHogWidgetNode`
+        // does, so each round-trip exercises the actual paste path end-to-end.
+        function roundTrip(value: unknown): unknown {
+            const html = buildNotebookNodeClipboardHTML('ph-test-node', { x: value })
+            const parsed = new DOMParser().parseFromString(html, 'text/html')
+            const element = parsed.querySelector('ph-test-node')!
+            const raw = element.getAttribute('x')
+            return raw === null ? null : JSON.parse(raw)
+        }
+
+        it('uses the given tag name', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {})
+            expect(html.startsWith('<ph-query-node')).toBe(true)
+            expect(html.endsWith('</ph-query-node>')).toBe(true)
+        })
+
+        it('always includes the ProseMirror slice marker', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {})
+            expect(html).toContain('data-pm-slice="0 0 []"')
+        })
+
+        it('skips nodeId so paste does not duplicate IDs', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', { nodeId: 'abc-123', kind: 'X' })
+            expect(html).not.toContain('abc-123')
+            expect(html).toContain('kind=')
+        })
+
+        it('skips internal __-prefixed keys', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                __init: true,
+                __anything: 'private',
+                kind: 'X',
+            })
+            expect(html).not.toContain('__init')
+            expect(html).not.toContain('__anything')
+            expect(html).toContain('kind=')
+        })
+
+        it('skips null and undefined values', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                absent: null,
+                missing: undefined,
+                kind: 'X',
+            })
+            expect(html).not.toContain('absent')
+            expect(html).not.toContain('missing')
+            expect(html).toContain('kind=')
+        })
+
+        it.each([
+            ['object', { kind: 'DataTableNode', source: { kind: 'HogQLQuery' } }],
+            ['nested object', { a: { b: { c: 'deep' } } }],
+            ['array', [1, 2, 3]],
+            ['array of objects', [{ id: 1 }, { id: 2 }]],
+            ['string', 'print(1)'],
+            ['empty string', ''],
+            ['number', 42],
+            ['zero', 0],
+            ['negative number', -7.5],
+            ['boolean true', true],
+            ['boolean false', false],
+            ['string with apostrophe', "don't"],
+            ['string with double quotes', 'say "hi"'],
+            ['string with both quotes', `it's "fine"`],
+            ['string with angle brackets', '<div>x</div>'],
+            ['string with ampersand', 'a & b'],
+        ])('round-trips %s through copy and paste', (_label, value) => {
+            expect(roundTrip(value)).toEqual(value)
+        })
+
+        it('produces HTML that a DOMParser parses without errors', () => {
+            const html = buildNotebookNodeClipboardHTML('ph-query-node', {
+                query: { kind: 'X', source: { value: 'it\'s "tricky"' } },
+                count: 5,
+            })
+            const doc = new DOMParser().parseFromString(html, 'text/html')
+            expect(doc.querySelector('parsererror')).toBeNull()
+            expect(doc.querySelector('ph-query-node')).not.toBeNull()
         })
     })
 
@@ -379,6 +472,231 @@ describe('notebook node utils', () => {
                     ['another', 'valueY'],
                     ['unpinned', 'valueX'],
                 ])
+            })
+        })
+    })
+
+    describe('Group revenue utilities', () => {
+        const baseGroupData = {
+            created_at: '2024-01-15T10:00:00Z',
+            group_key: 'test-key',
+            group_type_index: 0,
+            group_properties: {},
+            notebook: null,
+        }
+
+        describe('calculateMRRData', () => {
+            test.each([
+                {
+                    name: 'returns null when mrr is missing',
+                    group: baseGroupData,
+                    expected: null,
+                },
+                {
+                    name: 'returns null when mrr is null',
+                    group: { ...baseGroupData, group_properties: { mrr: null } },
+                    expected: null,
+                },
+                {
+                    name: 'returns null when mrr is NaN',
+                    group: { ...baseGroupData, group_properties: { mrr: 'not a number' } },
+                    expected: null,
+                },
+                {
+                    name: 'returns zero when mrr is zero',
+                    group: { ...baseGroupData, group_properties: { mrr: 0 } },
+                    expected: {
+                        mrr: 0,
+                        forecastedMrr: null,
+                        percentageDiff: null,
+                        tooltipText: null,
+                        trendDirection: null,
+                    },
+                },
+                {
+                    name: 'returns data without forecast',
+                    group: { ...baseGroupData, group_properties: { mrr: 1000 } },
+                    expected: {
+                        mrr: 1000,
+                        forecastedMrr: null,
+                        percentageDiff: null,
+                        tooltipText: null,
+                        trendDirection: null,
+                    },
+                },
+                {
+                    name: 'calculates positive trend',
+                    group: { ...baseGroupData, group_properties: { mrr: 1000, forecasted_mrr: 1200 } },
+                    expected: {
+                        mrr: 1000,
+                        forecastedMrr: 1200,
+                        percentageDiff: 0.2,
+                        tooltipText: '20.0% MRR growth forecasted to $1200.00',
+                        trendDirection: 'up',
+                    },
+                },
+                {
+                    name: 'calculates negative trend',
+                    group: { ...baseGroupData, group_properties: { mrr: 1000, forecasted_mrr: 800 } },
+                    expected: {
+                        mrr: 1000,
+                        forecastedMrr: 800,
+                        percentageDiff: -0.2,
+                        tooltipText: '20.0% MRR decrease forecasted to $800.00',
+                        trendDirection: 'down',
+                    },
+                },
+                {
+                    name: 'calculates flat trend',
+                    group: { ...baseGroupData, group_properties: { mrr: 1000, forecasted_mrr: 1000 } },
+                    expected: {
+                        mrr: 1000,
+                        forecastedMrr: 1000,
+                        percentageDiff: 0,
+                        tooltipText: 'No MRR change forecasted, flat at $1000.00',
+                        trendDirection: 'flat',
+                    },
+                },
+                {
+                    name: 'handles negative MRR',
+                    group: { ...baseGroupData, group_properties: { mrr: -100 } },
+                    expected: {
+                        mrr: -100,
+                        forecastedMrr: null,
+                        percentageDiff: null,
+                        tooltipText: null,
+                        trendDirection: null,
+                    },
+                },
+            ])('$name', ({ group, expected }) => {
+                const { calculateMRRData } = require('./utils')
+                const result = calculateMRRData(group, 'USD')
+                expect(result).toEqual(expected)
+            })
+        })
+
+        describe('getPaidProducts', () => {
+            test.each([
+                {
+                    name: 'returns empty array when mrr_per_product is missing',
+                    group: baseGroupData,
+                    expected: [],
+                },
+                {
+                    name: 'returns empty array when mrr_per_product is empty',
+                    group: { ...baseGroupData, group_properties: { mrr_per_product: {} } },
+                    expected: [],
+                },
+                {
+                    name: 'returns empty array when all products have zero MRR',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: { mrr_per_product: { product_a: 0, product_b: 0 } },
+                    },
+                    expected: [],
+                },
+                {
+                    name: 'returns single formatted product',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: { mrr_per_product: { product_analytics: 100 } },
+                    },
+                    expected: ['Product analytics'],
+                },
+                {
+                    name: 'returns multiple formatted products',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: {
+                            mrr_per_product: { product_analytics: 100, feature_flags: 200, session_replay: 150 },
+                        },
+                    },
+                    expected: ['Product analytics', 'Feature flags', 'Session replay'],
+                },
+                {
+                    name: 'filters out zero MRR products and formats names',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: {
+                            mrr_per_product: { product_analytics: 100, feature_flags: 0, session_replay: 150 },
+                        },
+                    },
+                    expected: ['Product analytics', 'Session replay'],
+                },
+                {
+                    name: 'filters out negative MRR products and formats names',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: { mrr_per_product: { product_a: -100, product_b: 200 } },
+                    },
+                    expected: ['Product b'],
+                },
+                {
+                    name: 'formats complex product names with underscores',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: { mrr_per_product: { data_warehouse_analytics: 500 } },
+                    },
+                    expected: ['Data warehouse analytics'],
+                },
+                {
+                    name: 'formats single word product names',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: { mrr_per_product: { experiments: 300 } },
+                    },
+                    expected: ['Experiments'],
+                },
+                {
+                    name: 'filters out products with invalid MRR values',
+                    group: {
+                        ...baseGroupData,
+                        group_properties: { mrr_per_product: { valid_product: 100, invalid_product: 'not_a_number' } },
+                    },
+                    expected: ['Valid product'],
+                },
+            ])('$name', ({ group, expected }) => {
+                const { getPaidProducts } = require('./utils')
+                const result = getPaidProducts(group)
+                expect(result).toEqual(expected)
+            })
+        })
+
+        describe('getLifetimeValue', () => {
+            test.each([
+                {
+                    name: 'returns null when customer_lifetime_value is missing',
+                    group: baseGroupData,
+                    expected: null,
+                },
+                {
+                    name: 'returns null when customer_lifetime_value is null',
+                    group: { ...baseGroupData, group_properties: { customer_lifetime_value: null } },
+                    expected: null,
+                },
+                {
+                    name: 'returns null when customer_lifetime_value is not a number',
+                    group: { ...baseGroupData, group_properties: { customer_lifetime_value: 'invalid' } },
+                    expected: null,
+                },
+                {
+                    name: 'returns lifetime value when present',
+                    group: { ...baseGroupData, group_properties: { customer_lifetime_value: 5000 } },
+                    expected: 5000,
+                },
+                {
+                    name: 'returns zero when customer_lifetime_value is zero',
+                    group: { ...baseGroupData, group_properties: { customer_lifetime_value: 0 } },
+                    expected: 0,
+                },
+                {
+                    name: 'returns negative value when customer_lifetime_value is negative',
+                    group: { ...baseGroupData, group_properties: { customer_lifetime_value: -100 } },
+                    expected: -100,
+                },
+            ])('$name', ({ group, expected }) => {
+                const { getLifetimeValue } = require('./utils')
+                expect(getLifetimeValue(group)).toBe(expected)
             })
         })
     })

@@ -6,11 +6,13 @@ import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
@@ -79,7 +81,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         """
         self.client.logout()
         with self.is_cloud(False):
-            with self.settings(OBJECT_STORAGE_ENABLED=False):
+            with self.settings(
+                OBJECT_STORAGE_ENABLED=False,
+            ):
                 response = self.client.get("/_preflight/")
 
         assert response.status_code == status.HTTP_200_OK
@@ -124,7 +128,9 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         self.client.logout()  # make sure it works anonymously
 
         with self.is_cloud(True):
-            with self.settings(OBJECT_STORAGE_ENABLED=False):
+            with self.settings(
+                OBJECT_STORAGE_ENABLED=False,
+            ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
 
@@ -146,7 +152,10 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     @pytest.mark.ee
     def test_cloud_preflight_request(self):
         with self.is_cloud(True):
-            with self.settings(SITE_URL="https://app.posthog.com", OBJECT_STORAGE_ENABLED=False):
+            with self.settings(
+                SITE_URL="https://app.posthog.com",
+                OBJECT_STORAGE_ENABLED=False,
+            ):
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
                 response = response.json()
@@ -161,6 +170,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         "instance_preferences": {
                             "debug_queries": False,
                             "disable_paid_fs": False,
+                            "cloudflare_proxy_enabled": False,
                         },
                         "site_url": "https://app.posthog.com",
                         "email_service_available": True,
@@ -174,7 +184,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_cloud_preflight_limited_db_queries(self):
         with self.is_cloud(True):
             # :IMPORTANT: This code is hit _every_ web request on cloud so avoid ever increasing db load.
-            with self.assertNumQueries(6):  # session (2x), user, team, organization and slack instance setting.
+            with self.assertNumQueries(5):  # session, user, team, organization and slack instance setting.
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
 
@@ -220,7 +230,10 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_demo(self):
         self.client.logout()  # make sure it works anonymously
 
-        with self.settings(DEMO=True, OBJECT_STORAGE_ENABLED=False):
+        with self.settings(
+            DEMO=True,
+            OBJECT_STORAGE_ENABLED=False,
+        ):
             response = self.client.get("/_preflight/")
 
         assert response.status_code == status.HTTP_200_OK
@@ -294,3 +307,18 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["realm"] == "hosted-clickhouse"
             assert response.json()["cloud"] is False
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_preflight_includes_allow_dev_login_when_enabled(self):
+        with self.is_cloud(False):
+            response = self.client.get("/_preflight/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["allow_dev_login"] is True
+        assert is_dev_login_allowed()
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_preflight_omits_allow_dev_login_when_disabled(self):
+        with self.is_cloud(False):
+            response = self.client.get("/_preflight/")
+        assert response.status_code == status.HTTP_200_OK
+        assert "allow_dev_login" not in response.json()

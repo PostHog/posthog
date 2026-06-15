@@ -3,7 +3,7 @@ name = "llm-gateway"
 version = "0.1.0"
 description = "LLM Gateway"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "PostHog", email = "hey@posthog.com" },
 ]
@@ -15,7 +15,7 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "asyncpg>=0.30.0",
     "redis==5.3.1",
-    "litellm>=1.50.0",
+    "litellm==1.83.7",
     "orjson>=3.10.0",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
@@ -23,6 +23,8 @@ dependencies = [
     "httpx>=0.28.0",
     "posthoganalytics>=3.0.0",
     "cachetools>=5.5.0",
+    "python-multipart>=0.0.9",
+    "boto3>=1.42.65",
 ]
 
 [dependency-groups]
@@ -31,14 +33,18 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
+    "pytest-rerunfailures>=16.0",
     "mypy>=1.13.0",
     "respx>=0.22.0",
-    "openai>=1.50.0",
-    "anthropic>=0.40.0",
+    "openai>=2.20.0",
+    "anthropic>=0.80.0",
     "fakeredis==2.23.3",
     "asyncpg-stubs>=0.30.0",
     "types-cachetools>=5.5.0",
 ]
+
+[project.scripts]
+reset-posthog-code-usage = "llm_gateway.cli.reset_posthog_code_usage:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -55,7 +61,7 @@ exclude = [
 ]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 120
 indent-width = 4
 
@@ -67,11 +73,18 @@ select = [
     "I",
     "B",
     "C4",
+    "PLC0415",
     "UP",
 ]
 ignore = [
     "E501",
 ]
+
+# PLC0415 exemptions.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
+[tool.ruff.lint.per-file-ignores]
+"src/**" = ["PLC0415"]
+"tests/**" = ["PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -84,12 +97,14 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = ["--junitxml=junit.xml", "--reruns=2", "--reruns-delay=5"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
 
 [tool.uv]
 managed = true
+exclude-newer = "7 days"

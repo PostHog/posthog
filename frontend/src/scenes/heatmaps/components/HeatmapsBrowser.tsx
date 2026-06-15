@@ -2,15 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonLabel,
-    LemonSkeleton,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -22,13 +14,13 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { FilterPanel } from './FilterPanel'
-import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
+import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 
 function ExportButton({
     iframeRef,
@@ -72,12 +64,7 @@ function ExportButton({
                 data-attr="export-heatmap"
                 disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
             >
-                <div className="flex w-full gap-x-2 justify-between items-center">
-                    Export{' '}
-                    <LemonTag type="warning" size="small">
-                        BETA
-                    </LemonTag>
-                </div>
+                Export
             </LemonButton>
         </div>
     )
@@ -324,15 +311,13 @@ function Warnings(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const heatmapsEnabled = currentTeam?.heatmaps_opt_in
 
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
     return !heatmapsEnabled ? (
         <LemonBanner
             type="warning"
             action={{
                 type: 'secondary',
                 icon: <IconGear />,
-                onClick: () => openSettingsPanel({ sectionId: 'environment-autocapture', settingId: 'heatmaps' }),
+                to: urls.settings('environment-heatmaps', 'heatmaps'),
                 children: 'Configure',
             }}
             dismissKey="heatmaps-might-be-disabled-warning"
@@ -355,12 +340,12 @@ export function HeatmapsBrowser(): JSX.Element {
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
             <SceneContent>
                 <Warnings />
-                <div className="overflow-hidden w-full h-screen">
+                <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel />
                     <LemonDivider className="my-4" />
-                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
+                    <div className="relative border">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : displayUrl ? (

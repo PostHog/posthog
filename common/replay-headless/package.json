@@ -1,0 +1,35 @@
+{
+    "name": "@posthog/replay-headless",
+    "version": "0.0.1",
+    "private": true,
+    "main": "dist/player.html",
+    "typesVersions": {
+        "*": {
+            "protocol": [
+                "src/protocol.ts"
+            ]
+        }
+    },
+    "exports": {
+        "./protocol": {
+            "types": "./src/protocol.ts",
+            "default": "./dist/protocol.js"
+        }
+    },
+    "scripts": {
+        "build": "node build.mjs",
+        "test": "jest"
+    },
+    "dependencies": {
+        "@posthog/replay-shared": "workspace:*",
+        "p-limit": "3.1.0",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@swc/core": "^1.11.29",
+        "@swc/jest": "^0.2.37",
+        "esbuild": "^0.25.11",
+        "jest": "^29.7.0",
+        "puppeteer": "19.0.0"
+    }
+}

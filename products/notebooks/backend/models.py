@@ -3,6 +3,7 @@ from django.db import models
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
@@ -26,7 +27,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     content: JSONField = JSONField(default=None, null=True, blank=True)
     text_content = models.TextField(blank=True, null=True)
     deleted = models.BooleanField(default=False)
-    visibility = models.CharField(choices=Visibility.choices, default=Visibility.DEFAULT, max_length=20)
+    visibility = models.CharField(choices=Visibility, default=Visibility.DEFAULT, max_length=20)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -38,15 +39,18 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
         related_name="modified_notebooks",
     )
+    kernel_cpu_cores = models.FloatField(null=True, blank=True)
+    kernel_memory_gb = models.FloatField(null=True, blank=True)
+    kernel_idle_timeout_seconds = models.IntegerField(null=True, blank=True)
 
     class Meta:
         unique_together = ("team", "short_id")
         db_table = "posthog_notebook"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Notebook"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -60,7 +64,7 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         )
 
 
-RELATED_OBJECTS = ("group",)
+RELATED_OBJECTS = ("group", "account")
 
 
 class ResourceNotebook(UUIDTModel):
@@ -84,6 +88,13 @@ class ResourceNotebook(UUIDTModel):
         blank=True,
         db_column="group_id",
     )
+    account = models.ForeignKey(
+        "customer_analytics.Account",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notebooks",
+    )
 
     class Meta:
         unique_together = ("notebook", *RELATED_OBJECTS)
@@ -97,7 +108,7 @@ class ResourceNotebook(UUIDTModel):
                 for related_field in RELATED_OBJECTS
             ],
             models.CheckConstraint(
-                check=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_notebook_related_resource"
+                condition=build_unique_relationship_check(RELATED_OBJECTS), name="exactly_one_notebook_related_resource"
             ),
         ]
         db_table = "posthog_resourcenotebook"
@@ -130,3 +141,37 @@ class ResourceNotebook(UUIDTModel):
 
     def __str__(self) -> str:
         return f"Notebook {self.notebook.short_id} -> {self.resource_type} {self.resource}"
+
+
+class KernelRuntime(UUIDTModel):
+    class Backend(models.TextChoices):
+        MODAL = "modal", "modal"
+        DOCKER = "docker", "docker"
+
+    class Status(models.TextChoices):
+        STARTING = "starting", "starting"
+        RUNNING = "running", "running"
+        STOPPED = "stopped", "stopped"
+        TIMED_OUT = "timed_out", "timed_out"
+        DISCARDED = "discarded", "discarded"
+        ERROR = "error", "error"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.SET_NULL, null=True, blank=True)
+    notebook_short_id = models.CharField(max_length=12)
+    user = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(default=timezone.now)
+    status = models.CharField(choices=Status, default=Status.STARTING, max_length=20)
+    backend = models.CharField(choices=Backend, default=Backend.DOCKER, max_length=20)
+    kernel_id = models.CharField(max_length=64, null=True, blank=True)
+    kernel_pid = models.IntegerField(null=True, blank=True)
+    connection_file = models.TextField(null=True, blank=True)
+    sandbox_id = models.CharField(max_length=128, null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_kernelruntime"
+        indexes = [
+            models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]

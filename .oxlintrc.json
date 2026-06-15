@@ -1,6 +1,6 @@
 {
     "$schema": "./node_modules/oxlint/configuration_schema.json",
-    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc"],
+    "plugins": ["typescript", "unicorn", "react", "react-perf", "jest", "promise", "jsdoc", "oxc", "import"],
     "env": {
         "builtin": true
     },
@@ -17,9 +17,10 @@
         "common/hogvm/__tests__/__snapshots__",
         "common/hogvm/__tests__/__snapshots__/**",
         "frontend/src/queries/validators.js",
+        "frontend/src/generated/**",
         "services/mcp/**/generated.ts",
         "services/mcp/schema/tool-inputs.json",
-        "services/mcp/python"
+        "products/**/frontend/generated/**"
     ],
     "rules": {
         "no-constant-condition": "off",
@@ -40,7 +41,9 @@
             "error",
             {
                 "ignoreRestSiblings": true,
-                "destructuredArrayIgnorePattern": "^_$"
+                "argsIgnorePattern": "^_",
+                "varsIgnorePattern": "^_",
+                "destructuredArrayIgnorePattern": "^_"
             }
         ],
         "no-useless-spread": "error",
@@ -98,6 +101,19 @@
                     {
                         "name": "~/queries/schema",
                         "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                    },
+                    {
+                        "name": "monaco-editor",
+                        "message": "Value imports of monaco-editor statically couple ~4 MB of editor code into your chunk. Use `import type`, or render via the lazy facade in lib/monaco/CodeEditor.",
+                        "allowTypeImports": true
+                    },
+                    {
+                        "name": "lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                    },
+                    {
+                        "name": "~/lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
                     }
                 ]
             }
@@ -118,14 +134,6 @@
             {
                 "forbid": [
                     {
-                        "element": "Layout",
-                        "message": "use utility classes instead"
-                    },
-                    {
-                        "element": "Tabs",
-                        "message": "use <LemonTabs> instead"
-                    },
-                    {
                         "element": "Space",
                         "message": "use flex or space utility classes instead"
                     },
@@ -134,36 +142,8 @@
                         "message": "use Spinner instead"
                     },
                     {
-                        "element": "Badge",
-                        "message": "use LemonBadge instead"
-                    },
-                    {
-                        "element": "InputNumber",
-                        "message": "use LemonInput with type=\"number\" instead"
-                    },
-                    {
-                        "element": "Collapse",
-                        "message": "use <LemonCollapse> instead"
-                    },
-                    {
-                        "element": "Slider",
-                        "message": "use <LemonSlider> instead"
-                    },
-                    {
-                        "element": "Checkbox",
-                        "message": "use <LemonCheckbox> instead"
-                    },
-                    {
                         "element": "MonacoEditor",
                         "message": "use <CodeEditor> instead"
-                    },
-                    {
-                        "element": "Typography",
-                        "message": "use utility classes instead"
-                    },
-                    {
-                        "element": "Input.TextArea",
-                        "message": "use <LemonTextArea> instead"
                     },
                     {
                         "element": "ReactMarkdown",
@@ -172,54 +152,6 @@
                     {
                         "element": "a",
                         "message": "use <Link> instead"
-                    },
-                    {
-                        "element": "Tag",
-                        "message": "use <LemonTag> instead"
-                    },
-                    {
-                        "element": "Alert",
-                        "message": "use <LemonBanner> instead"
-                    },
-                    {
-                        "element": "ReactJson",
-                        "message": "use <JSONViewer> for dark mode support instead"
-                    },
-                    {
-                        "element": "Radio",
-                        "message": "use <LemonRadio> instead"
-                    },
-                    {
-                        "element": "Skeleton",
-                        "message": "use <LemonSkeleton> instead"
-                    },
-                    {
-                        "element": "Divider",
-                        "message": "use <LemonDivider> instead"
-                    },
-                    {
-                        "element": "Popconfirm",
-                        "message": "use <LemonDialog> instead"
-                    },
-                    {
-                        "element": "Button",
-                        "message": "use <LemonButton> instead"
-                    },
-                    {
-                        "element": "Input",
-                        "message": "use <LemonInput> instead"
-                    },
-                    {
-                        "element": "Modal",
-                        "message": "use <LemonModal> or <LemonDialog> instead"
-                    },
-                    {
-                        "element": "Select",
-                        "message": "use <LemonSelect> instead"
-                    },
-                    {
-                        "element": "Progress",
-                        "message": "use <LemonProgress> instead"
                     }
                 ]
             }
@@ -227,6 +159,12 @@
         "no-constant-binary-expression": "error",
         "no-useless-rename": "error",
         "no-useless-call": "error",
+        "import/no-cycle": [
+            "error",
+            {
+                "maxDepth": 10
+            }
+        ],
         "jest/no-restricted-matchers": [
             "error",
             {
@@ -239,6 +177,70 @@
             "files": ["*.stories.tsx"],
             "rules": {
                 "react-hooks/rules-of-hooks": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
+            "rules": {
+                "no-console": [
+                    "error",
+                    {
+                        "allow": ["debug", "info", "warn", "error"]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["docs/onboarding/**/*.tsx"],
+            "rules": {
+                "react/forbid-elements": "off"
+            }
+        },
+        {
+            "files": ["services/stripe-app/src/**/*.{ts,tsx}"],
+            "rules": {
+                "react/forbid-elements": "off",
+                "react/forbid-dom-props": "off",
+                "no-restricted-imports": "off"
+            }
+        },
+        {
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
+            "rules": {
+                "react/forbid-elements": "off"
+            }
+        },
+        {
+            "files": [
+                "frontend/src/lib/monaco/**",
+                "frontend/src/lib/components/MonacoDiffEditor.tsx",
+                "frontend/src/scenes/data-warehouse/editor/sqlEditorLogic.tsx",
+                "frontend/src/scenes/hog-functions/configuration/HogFunctionTest.tsx"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "chart.js",
+                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "chart.js/auto",
+                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
             }
         }
     ]

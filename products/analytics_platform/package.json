@@ -1,5 +1,6 @@
 {
     "name": "@posthog/products-analytics-platform",
-    "dependencies": {},
-    "peerDependencies": {}
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    }
 }

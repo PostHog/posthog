@@ -26,7 +26,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         ADD_CONTENT_COLUMN_SQL.format(table_name=PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=True,
     ),

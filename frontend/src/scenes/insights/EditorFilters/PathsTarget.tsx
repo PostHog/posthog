@@ -4,8 +4,8 @@ import { combineUrl, encodeParams, router } from 'kea-router'
 import { IconX } from '@posthog/icons'
 
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -75,7 +75,9 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             return <span />
         }
         return startPoint ? (
-            <span className="label">{startPoint}</span>
+            <span className="label line-clamp-2 [overflow-wrap:anywhere]" title={startPoint}>
+                {startPoint}
+            </span>
         ) : (
             <span className="label text-secondary">Add start point</span>
         )
@@ -89,7 +91,9 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             return <span />
         }
         return endPoint ? (
-            <span className="label">{endPoint}</span>
+            <span className="label line-clamp-2 [overflow-wrap:anywhere]" title={endPoint}>
+                {endPoint}
+            </span>
         ) : (
             <span className="label text-secondary">Add end point</span>
         )

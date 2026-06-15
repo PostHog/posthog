@@ -14,11 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,7 +27,7 @@ import {
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
     SupportTicketKind,
-    TARGET_AREA_TO_NAME,
+    TARGET_AREA_OPTIONS,
     supportLogic,
 } from './supportLogic'
 
@@ -121,17 +122,49 @@ export function SupportForm(): JSX.Element | null {
             <LemonField name="kind" label="Message type">
                 <LemonSegmentedButton onChange={changeKind} fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </LemonField>
-            <LemonField name="target_area" label="Topic">
-                <LemonSelect
-                    disabledReason={
-                        !user
-                            ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
-                            : null
-                    }
-                    fullWidth
-                    options={TARGET_AREA_TO_NAME}
-                />
-            </LemonField>
+            <div className="flex gap-2 flex-col">
+                <div className="flex justify-between items-center">
+                    <label className="LemonLabel">
+                        Topic
+                        <Tooltip title="Route your request to the appropriate team.">
+                            <span>
+                                <IconInfo className="opacity-75" />
+                            </span>
+                        </Tooltip>
+                    </label>
+                    <Link
+                        target="_blank"
+                        disableDocsPanel
+                        to="https://posthog.com/handbook/engineering/feature-ownership"
+                    >
+                        Feature ownership
+                    </Link>
+                </div>
+                <LemonField name="target_area">
+                    {({ value, onChange }) => (
+                        <Tooltip
+                            title={
+                                !user
+                                    ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                                    : undefined
+                            }
+                        >
+                            <span className="block">
+                                <LemonInputSelect
+                                    mode="single"
+                                    fullWidth
+                                    disabled={!user}
+                                    placeholder="Search for a topic"
+                                    data-attr="support-form-target-area"
+                                    options={TARGET_AREA_OPTIONS}
+                                    value={value ? [value] : []}
+                                    onChange={([newValue]) => onChange(newValue ?? null)}
+                                />
+                            </span>
+                        </Tooltip>
+                    )}
+                </LemonField>
+            </div>
             {sendSupportRequest.target_area === 'error_tracking' && (
                 <LemonBanner type="warning">
                     This topic is for our Error Tracking <i>product</i>. If you're reporting an error in PostHog please

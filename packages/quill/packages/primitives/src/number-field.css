@@ -1,0 +1,79 @@
+@layer components {
+    .quill-number-field__group {
+        height: 2rem;
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+        border: 1px solid var(--input);
+        border-radius: var(--radius-sm);
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    :is(.dark, [theme='dark']) .quill-number-field__group {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    .quill-number-field__group:has(:focus-visible) {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-number-field__group:has(:disabled) {
+        opacity: 0.5;
+    }
+
+    .quill-number-field__input {
+        flex: 1;
+        width: 100%;
+        min-width: 0;
+        height: 100%;
+        padding-block: 0.125rem;
+        padding-inline: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-variant-numeric: tabular-nums;
+        text-align: center;
+        background-color: transparent;
+        outline: none;
+    }
+
+    .quill-number-field__input::placeholder {
+        color: var(--muted-foreground);
+    }
+
+    .quill-number-field__input:disabled {
+        pointer-events: none;
+        cursor: not-allowed;
+    }
+
+    .quill-number-field__increment,
+    .quill-number-field__decrement {
+        height: 100%;
+        padding-inline: 0.25rem;
+        color: var(--muted-foreground);
+        transition:
+            color 0.15s ease,
+            background-color 0.15s ease,
+            border-color 0.15s ease;
+    }
+
+    .quill-number-field__increment {
+        border-inline-start: 1px solid var(--input);
+    }
+
+    .quill-number-field__decrement {
+        border-inline-end: 1px solid var(--input);
+    }
+
+    .quill-number-field__increment:hover,
+    .quill-number-field__decrement:hover {
+        color: var(--foreground);
+        background-color: var(--fill-hover);
+    }
+
+    .quill-number-field__increment:disabled,
+    .quill-number-field__decrement:disabled {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+}

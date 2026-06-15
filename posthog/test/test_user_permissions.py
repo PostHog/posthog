@@ -1,13 +1,14 @@
 from posthog.test.base import BaseTest
 
 from posthog.constants import AvailableFeature
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.insight import Insight
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.models.dashboard_privilege import DashboardPrivilege
 
@@ -25,15 +26,21 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-            }
+                "name": AvailableFeature.ACCESS_CONTROL,
+                "key": AvailableFeature.ACCESS_CONTROL,
+            },
+            {
+                "name": AvailableFeature.ROLE_BASED_ACCESS,
+                "key": AvailableFeature.ROLE_BASED_ACCESS,
+            },
         ]
         self.organization.save()
 
     def test_team_effective_membership_level(self):
-        with self.assertNumQueries(2):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+        # When no AccessControl rows exist, the default project access level is "admin"
+        # so all org members get ADMIN effective membership level
+        with self.assertNumQueries(3):
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -112,18 +119,20 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         assert self.team.id in self.permissions().team_ids_visible_for_user
 
     def test_team_effective_membership_level_new_access_control_non_private_team(self):
-        """Test that all organization members have access to a non-private team with the new access control system"""
+        """Test that all organization members have access to a non-private team with the new access control system.
+        When no AccessControl rows exist, the default project access level is "admin",
+        so all org members get ADMIN effective membership level."""
 
         # Set up team with new access control system
-        # Team is not private (no AccessControl objects), so organization level is used
+        # Team is not private (no AccessControl objects), default access level is admin
 
         # Set up user as a member
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
-        # Check effective membership level
-        with self.assertNumQueries(2):
-            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+        # Check effective membership level - defaults to ADMIN when no access controls exist
+        with self.assertNumQueries(3):
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_new_access_control_private_team_admin(self):
         """Test that organization admins have access to a private team with the new access control system"""
@@ -206,7 +215,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         # Check effective membership level
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_new_access_control_private_team_with_role_access(self):
@@ -254,12 +263,234 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         with self.assertNumQueries(3):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
+    def test_team_effective_membership_level_higher_project_membership_than_org_membership(self):
+        """Test that users with admin project access will have its effective membership level at admin"""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set up user as a member
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Give the member admin access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_with_higher_role_based_access(self):
+        """Test that users with admin role-based access have its effective membership level at admin"""
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Set up user as a member
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Create a role
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+
+        # Assign the member to the role
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user,
+            organization_member=self.organization_membership,
+        )
+
+        # Give the role access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="admin",
+        )
+
+        # Check effective membership level
+        with self.assertNumQueries(3):
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_role_based_access_inert_without_role_based_access_feature(self):
+        """Role-backed project AccessControl rows must NOT take effect when the org lacks
+        ROLE_BASED_ACCESS — mirrors the UI gate on the project access settings page."""
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        role = Role.objects.create(name="Test Role", organization=self.organization)
+        RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
+
+        # Make the team private and grant the role admin via project-level role override
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="admin",
+        )
+
+        # Without ROLE_BASED_ACCESS the role override is inert, so the private-team default ("none") applies
+        assert self.permissions().current_team.effective_membership_level is None
+
+    def test_team_effective_membership_level_lower_project_membership_than_org_membership(self):
+        """Test that users with admin org access maintain their admin level even with lower member project access"""
+        from ee.models.rbac.access_control import AccessControl
+
+        # Set up user as admin
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Give the user member access to the team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_default_access_level_admin(self):
+        """Test that org members get admin level when the project default access level is set to admin"""
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Set the project's default access level to admin (no specific member or role)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_default_access_level_member(self):
+        """Test that org members get member level when the project default access level is set to member"""
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Set the project's default access level to member
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+
+    def test_team_effective_membership_level_direct_access_overrides_default(self):
+        """Test that direct user access overrides the project default access level"""
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Set the project's default access level to member
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
+
+        # Give the user direct admin access, which should override the default
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_role_admin_access_overrides_direct_member_access(self):
+        """
+        BUG TEST: When a user has both:
+        1. Direct MEMBER access to a project
+        2. Role-based ADMIN access to the same project
+
+        The role admin access should take precedence and return ADMIN level.
+        Currently this fails because direct member access returns early without checking roles.
+        """
+        from ee.models.rbac.access_control import AccessControl
+        from ee.models.rbac.role import Role, RoleMembership
+
+        # Set up user as organization member (not admin)
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Step 1: Give user direct MEMBER access to the project
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="member",
+        )
+
+        # Step 2: Create a role with ADMIN access to the same project
+        admin_role = Role.objects.create(name="Project Admin Role", organization=self.organization)
+
+        # Step 3: Assign the user to this admin role
+        RoleMembership.objects.create(
+            role=admin_role,
+            user=self.user,
+            organization_member=self.organization_membership,
+        )
+
+        # Step 4: Give the role ADMIN access to the project
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=admin_role,
+            access_level="admin",
+        )
+
+        # Expected: Should return ADMIN level (role access trumps direct access)
+        # Currently fails: Returns MEMBER level (direct access returned early)
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
         self.dashboard = Dashboard.objects.create(team=self.team)
@@ -295,6 +526,18 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         )
 
     def test_dashboard_can_restrict(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
         assert not self.dashboard_permissions().can_restrict
 
     def test_dashboard_can_restrict_as_admin(self):
@@ -316,8 +559,21 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_dashboard_effective_privilege_level_when_collaborators_can_edit(self):
+        from ee.models.rbac.access_control import AccessControl
+
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default (which would grant can_restrict)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
 
@@ -348,8 +604,21 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         assert self.dashboard_permissions().can_edit
 
     def test_dashboard_can_edit_not_collaborator(self):
+        from ee.models.rbac.access_control import AccessControl
+
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default (which would grant can_restrict -> can_edit)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         assert not self.dashboard_permissions().can_edit
 
@@ -378,7 +647,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
     def setUp(self):
         super().setUp()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
 
@@ -426,7 +695,20 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         )
 
     def test_effective_privilege_level_all_limited(self):
+        from ee.models.rbac.access_control import AccessControl
+
         Dashboard.objects.all().update(restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT)
+
+        # Explicitly set project default access to member level so the user
+        # doesn't get the implicit admin default (which would grant can_restrict -> can_edit)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
 
@@ -449,7 +731,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_dashboard_efficiency(self):
         self.organization.available_product_features = [
-            {"name": AvailableFeature.ADVANCED_PERMISSIONS, "key": AvailableFeature.ADVANCED_PERMISSIONS},
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL},
         ]
         self.organization.save()
 

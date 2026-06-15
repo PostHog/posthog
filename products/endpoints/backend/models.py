@@ -1,14 +1,75 @@
 import re
 import json
 import uuid
+import logging
 from typing import Any
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor
+
+from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
+from posthog.schema_enums import ProductKey
+
+logger = logging.getLogger(__name__)
+
+
+class _ReplacePlaceholdersWithDummies(CloningVisitor):
+    """Replace all {variables.foo} placeholders with empty string constants."""
+
+    def visit_placeholder(self, node: ast.Placeholder) -> ast.Constant:
+        return ast.Constant(value="")
+
+
+_PLACEHOLDER_REPLACER = _ReplacePlaceholdersWithDummies()
+
+
+# Matches Nullable(...) and LowCardinality(...) — single-arg wrappers
+_TRANSPARENT_WRAPPER_RE = re.compile(r"^(?:Nullable|LowCardinality)\((.+)\)$")
+# Matches SimpleAggregateFunction(func, Type) and AggregateFunction(func, Type)
+_AGG_FUNC_RE = re.compile(r"^(?:Simple)?AggregateFunction\(.+?,\s*(.+)\)$")
+
+
+def _clickhouse_type_to_serialized_type(ch_type: str) -> str:
+    """Map a ClickHouse type string to a serialized endpoint column type."""
+    t = ch_type
+    while True:
+        if m := _TRANSPARENT_WRAPPER_RE.match(t):
+            t = m.group(1)
+        elif m := _AGG_FUNC_RE.match(t):
+            t = m.group(1)
+        else:
+            break
+
+    if t.startswith(("UInt", "Int")):
+        return "integer"
+    if t.startswith("Float"):
+        return "float"
+    if t.startswith("Decimal"):
+        return "decimal"
+    if t.startswith(("String", "UUID", "Enum", "FixedString")):
+        return "string"
+    if t.startswith("DateTime"):
+        return "datetime"
+    if t in ("Date", "Date32"):
+        return "date"
+    if t == "Bool":
+        return "boolean"
+    if t.startswith("Array"):
+        return "array"
+    if t.startswith(("Tuple", "Map")):
+        return "json"
+    logger.warning("Unhandled ClickHouse type: %s", ch_type)
+    return "unknown"
 
 
 def validate_endpoint_name(value: str) -> None:
@@ -26,19 +87,65 @@ def validate_endpoint_name(value: str) -> None:
         )
 
 
-class EndpointVersion(models.Model):
+class EndpointVersion(UpdatedMetaFields, models.Model):
     """Immutable snapshot of an endpoint's query at a specific version.
 
     Each time an endpoint's query is modified, a new version is created.
     This allows users to execute specific versions or track query evolution over time.
     """
 
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     endpoint = models.ForeignKey("Endpoint", on_delete=models.CASCADE, related_name="versions")
+    team = models.ForeignKey(
+        Team,
+        on_delete=models.CASCADE,
+        null=True,
+        help_text="Team this version belongs to (denormalized from endpoint for HogQL system table access)",
+    )
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
+    description = models.TextField(blank=True, default="", help_text="Optional description for this endpoint version")
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="endpoint_versions_created",
+    )
+
+    data_freshness_seconds = models.IntegerField(
+        default=86400,
+        help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
+    )
+    saved_query = models.ForeignKey(
+        "data_modeling.DataWarehouseSavedQuery",
+        null=True,
+        blank=True,
+        db_index=False,
+        on_delete=models.SET_NULL,
+        related_name="endpoint_versions",
+        help_text="The underlying materialized view for this version",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this version is available for execution. Inactive versions cannot be run.",
+    )
+    columns = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="SELECT column names and types. Null means not yet computed; empty list means no columns found.",
+    )
+    bucket_overrides = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-column bucket function overrides for range variable materialization. E.g. {'timestamp': 'toStartOfHour'}",
+    )
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this version was last executed via the run API. Updated with 30-minute granularity.",
+    )
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -52,165 +159,92 @@ class EndpointVersion(models.Model):
             models.Index(fields=["endpoint", "version"], name="endpoint_version_idx"),
             models.Index(fields=["endpoint", "-version"], name="endpoint_version_desc_idx"),
             models.Index(fields=["created_at"], name="endpoint_version_created_idx"),
+            models.Index(fields=["saved_query"], name="endpointvers_saved_q_0dc3_idx"),
         ]
         ordering = ["-version"]
 
     def __str__(self) -> str:
         return f"{self.endpoint.name} v{self.version}"
 
+    def get_columns(self) -> list[dict]:
+        """Return columns, lazily populating from ClickHouse if not yet computed."""
+        if self.columns is None:
+            columns: list[dict] = []
+            exc: Exception | None = None
+            try:
+                columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+            except Exception as e:
+                exc = e
+            # Save before capture_exception (which can hang serializing large AST objects)
+            self.refresh_from_db(fields=["columns"])
+            if self.columns is None:
+                self.columns = columns
+                self.save(update_fields=["columns", "updated_at"])
+            if exc is not None:
+                capture_exception(exc)
+        return self.columns
 
-class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    """Model for storing endpoints that can be accessed via API endpoints.
-
-    Endpoints allow creating reusable query endpoints like:
-    /api/environments/{team_id}/endpoints/{endpoint_name}/run
-
-    The query field follows the same structure as QueryRequest.query, supporting
-    any query type accepted by the /query endpoint (HogQLQuery, TrendsQuery, etc.).
-    """
-
-    name = models.CharField(
-        max_length=128, validators=[validate_endpoint_name], help_text="URL-safe name for the endpoint"
-    )
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-
-    # Use JSONField to store the query, following the same pattern as QueryRequest.query
-    # This can store any of the query types: HogQLQuery, TrendsQuery, FunnelsQuery, etc.
-    query = models.JSONField(help_text="Query definition following QueryRequest.query schema")
-
-    description = models.TextField(blank=True, help_text="Human-readable description of what this query does")
-
-    derived_from_insight = models.CharField(
-        max_length=12,
-        null=True,
-        blank=True,
-        help_text="Short ID of the insight this endpoint was created from",
-    )
-
-    # Parameter schema for query customization
-    parameters = models.JSONField(
-        default=dict, blank=True, help_text="JSON schema defining expected parameters for query customization"
-    )
-
-    is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
-
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Custom cache age in seconds. If not set, uses default caching. Must be between 300 and 86400 seconds.",
-    )
-
-    saved_query = models.ForeignKey(
-        "data_warehouse.DataWarehouseSavedQuery",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="endpoints",
-        help_text="The underlying materialized view that backs this endpoint",
-    )
-
-    current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
-
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    last_executed_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="When this endpoint was last executed via the run API. Updated with hour granularity.",
-    )
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "name"],
-                name="unique_team_endpoint_name",
-            )
-        ]
-        indexes = [
-            models.Index(fields=["team", "is_active"]),
-            models.Index(fields=["team", "name"]),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.team.name}: {self.name}"
-
-    @property
-    def endpoint_path(self) -> str:
-        """Return the API endpoint path for this endpoint."""
-        return f"/api/environments/{self.team.id}/endpoints/{self.name}/run"
-
-    def get_query_with_parameters(self, request_params: dict[str, Any]) -> dict[str, Any]:
-        """Apply request parameters to the stored query.
-
-        This method handles parameter injection for query customization.
-        For now, it returns the query as-is, but can be extended to support
-        parameter substitution in the future.
-        """
-        # TODO: Implement parameter substitution logic
-        # For example, replacing {parameter_name} placeholders in HogQL queries
-        return self.query
-
-    def validate_parameters(self, request_params: dict[str, Any]) -> None:
-        """Validate request parameters against the parameter schema.
-
-        This method can be extended to implement JSON schema validation
-        of incoming parameters.
-        """
-        # TODO: Implement parameter validation logic
-        pass
+    def disable_materialization(self) -> None:
+        """Disable materialization: revert and soft-delete the saved query, clear version fields."""
+        if not self.saved_query:
+            return
+        self.saved_query.revert_materialization()
+        self.saved_query.soft_delete()
+        self.saved_query = None
+        self.save(update_fields=["saved_query", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:
-        """Whether this endpoint's query results are materialized to S3."""
+        """Derived from saved_query.table_id — True only when materialization is complete."""
         if self.saved_query is None:
             return False
-        return bool(self.saved_query.is_materialized)
-
-    @property
-    def materialization_status(self) -> str:
-        """Get status from saved_query."""
-        if not self.saved_query:
-            return "not_materialized"
-        return self.saved_query.status or "Unknown"
-
-    @property
-    def last_materialized_at(self):
-        """Get last run time from saved_query."""
-        if not self.saved_query:
-            return None
-        return self.saved_query.last_run_at
-
-    @property
-    def materialization_error(self) -> str:
-        """Get error from saved_query."""
-        if not self.saved_query:
-            return ""
-        return self.saved_query.latest_error or ""
+        try:
+            return self.saved_query.table_id is not None
+        except ObjectDoesNotExist:
+            return False
 
     def can_materialize(self) -> tuple[bool, str]:
-        """Check if endpoint can be materialized.
+        """Check if this version can be materialized.
 
         Returns: (can_materialize: bool, reason: str)
         """
-        query_kind = self.query.get("kind")
+        query_kind = self.query.get("kind") if self.query else None
 
         MATERIALIZABLE_QUERY_TYPES = {
             "HogQLQuery",
             "TrendsQuery",
-            "FunnelsQuery",
             "LifecycleQuery",
             "RetentionQuery",
-            "PathsQuery",
-            "StickinessQuery",
         }
 
         if query_kind not in MATERIALIZABLE_QUERY_TYPES:
             supported = ", ".join(sorted(MATERIALIZABLE_QUERY_TYPES))
-            return False, f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}"
+            return (
+                False,
+                f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
+            )
+
+        # Block compare mode — materialization can't reconstruct doubled series
+        compare_filter = self.query.get("compareFilter") or {}
+        if compare_filter.get("compare"):
+            return False, "Compare mode is not supported for materialized endpoints."
+
+        # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
+        # inject_series_index tags as separate series, causing a mismatch at read time.
+        breakdown_filter = self.query.get("breakdownFilter") or {}
+        if breakdown_filter.get("breakdown_type") == "cohort":
+            return False, "Cohort breakdowns are not supported for materialized endpoints."
+        for breakdown in breakdown_filter.get("breakdowns") or []:
+            if isinstance(breakdown, dict) and breakdown.get("type") == "cohort":
+                return False, "Cohort breakdowns are not supported for materialized endpoints."
 
         if self.query.get("variables"):
-            return False, "Queries with variables cannot be materialized."
+            from products.endpoints.backend.materialization import analyze_variables_for_materialization
+
+            can_materialize, reason, _ = analyze_variables_for_materialization(self.query)
+
+            if not can_materialize:
+                return False, f"Variables not supported: {reason}"
 
         if query_kind == "HogQLQuery":
             hogql_query = self.query.get("query")
@@ -219,12 +253,106 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         return True, ""
 
+    @staticmethod
+    def extract_columns(query: dict, team_id: int) -> list[dict]:
+        """Extract SELECT column names and types by describing the query against ClickHouse."""
+        if query.get("kind") != "HogQLQuery":
+            return []
+        hogql_string = query.get("query", "")
+        if not hogql_string:
+            return []
+        from posthog.hogql.query import HogQLQueryExecutor
+
+        from posthog.clickhouse.client import sync_execute
+
+        parsed = parse_select(hogql_string)
+        cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
+
+        team = Team.objects.get(pk=team_id)
+        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None)
+        clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
+
+        if not clickhouse_sql:
+            return []
+
+        tag_queries(product=ProductKey.ENDPOINTS, feature=Feature.SCHEMA_INTROSPECTION)
+
+        # nosemgrep: clickhouse-fstring-param-audit (clickhouse_sql is compiler output from HogQLQueryExecutor, not user input)
+        rows = sync_execute(
+            f"DESCRIBE TABLE ({clickhouse_sql})",
+            clickhouse_context.values,
+            team_id=team_id,
+            readonly=True,
+        )
+
+        return [{"name": row[0], "type": _clickhouse_type_to_serialized_type(row[1])} for row in rows]
+
+
+class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTModel):
+    """Model for storing endpoints that can be accessed via API endpoints.
+
+    Endpoints allow creating reusable query endpoints like:
+    /api/projects/{team_id}/endpoints/{endpoint_name}/run
+
+    Query, description, data_freshness_seconds, and materialization settings are stored
+    in EndpointVersion, allowing per-version configuration.
+    """
+
+    name = models.CharField(
+        max_length=128,
+        validators=[validate_endpoint_name],
+        help_text="URL-safe name for the endpoint",
+    )
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+
+    derived_from_insight = models.CharField(
+        max_length=12,
+        null=True,
+        blank=True,
+        help_text="Short ID of the insight this endpoint was created from",
+    )
+
+    is_active = models.BooleanField(default=True, help_text="Whether this endpoint is available via the API")
+
+    current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_executed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this endpoint was last executed via the run API. Updated with 30-minute granularity.",
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "is_active"]),
+            models.Index(fields=["team", "name"]),
+            models.Index(
+                name="team_id_endpoint_name_active",
+                fields=["team", "name"],
+                condition=Q(deleted=False) | Q(deleted__isnull=True),
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.team.name}: {self.name}"
+
+    @property
+    def endpoint_path(self) -> str:
+        """Return the API endpoint path for this endpoint."""
+        return f"/api/projects/{self.team.id}/endpoints/{self.name}/run"
+
     def has_query_changed(self, new_query: dict[str, Any]) -> bool:
         """Deep comparison to check if query has actually changed.
 
         We normalize JSON before comparison to handle key ordering differences.
+        Compares against the current version's query.
         """
-        current_normalized = json.loads(json.dumps(self.query, sort_keys=True))
+        current_version = self.get_version()
+        current_query = current_version.query
+        current_normalized = json.loads(json.dumps(current_query, sort_keys=True))
         new_normalized = json.loads(json.dumps(new_query, sort_keys=True))
         return current_normalized != new_normalized
 
@@ -233,28 +361,54 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
 
         This increments current_version and creates an EndpointVersion record.
         Should be called when the query changes during an update.
+        Snapshots current configuration values from previous version.
         """
-        self.current_version += 1
-        self.query = query
-        self.save(update_fields=["current_version", "query", "updated_at"])
+        # Get previous version's settings before incrementing
+        previous_version = self.get_version()
+        previous_data_freshness = previous_version.data_freshness_seconds if previous_version else 86400
+        previous_description = previous_version.description if previous_version else ""
 
+        self.current_version += 1
+        self.save(update_fields=["current_version", "updated_at"])
+
+        # Create new version, inheriting settings from previous version
+        try:
+            columns: list[dict] | None = EndpointVersion.extract_columns(query, team_id=self.team_id)
+        except Exception:
+            columns = None
         version = EndpointVersion.objects.create(
             endpoint=self,
+            team=self.team,
             version=self.current_version,
             query=query,
             created_by=user,
+            data_freshness_seconds=previous_data_freshness,
+            description=previous_description,
+            columns=columns,
         )
 
         return version
 
-    def get_version(self, version: int | None = None) -> EndpointVersion | None:
-        """Get a specific version, or the latest if version is None.
+    def get_version(self, version: int | None = None) -> EndpointVersion:
+        """Get a specific version, or the latest (highest version number) if version is None.
 
-        Returns None if no versions exist when version is None.
-        Raises EndpointVersion.DoesNotExist if a specific version number is requested but doesn't exist.
+        Raises EndpointVersion.DoesNotExist if the requested version doesn't exist.
         """
         if version is not None:
-            return EndpointVersion.objects.get(endpoint=self, version=version)
+            return self.versions.get(version=version)
 
-        version_instance = self.versions.first()
-        return version_instance
+        latest = self.versions.first()  # Model ordering is -version
+        if latest is None:
+            raise EndpointVersion.DoesNotExist("Endpoint has no versions")
+        return latest
+
+    def soft_delete(self) -> None:
+        for version in self.versions.filter(saved_query__isnull=False):
+            version.disable_materialization()
+
+        self.deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted", "deleted_at", "updated_at"])
+
+    def delete(self, *args, **kwargs):
+        raise Exception("Cannot hard delete Endpoint. Use soft_delete() instead.")

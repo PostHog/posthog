@@ -1,82 +1,40 @@
-import pytest
-from posthog.test.base import FuzzyInt
+import importlib
 
-from posthog.async_migrations.runner import start_async_migration
-from posthog.async_migrations.setup import get_async_migration_definition, setup_async_migrations
+import pytest
+from unittest.mock import patch
+
+from posthog.async_migrations.setup import get_async_migration_definition
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
-from posthog.models.event.util import create_event
-from posthog.models.utils import UUIDT
 
 pytestmark = pytest.mark.async_migrations
 
 MIGRATION_NAME = "0010_move_old_partitions"
-
-uuid1, uuid2, uuid3, uuid4 = (UUIDT() for _ in range(4))
-
-
-MIGRATION_DEFINITION = get_async_migration_definition(MIGRATION_NAME)
-
-
-def run_migration():
-    setup_async_migrations(ignore_posthog_version=True)
-    return start_async_migration(MIGRATION_NAME, ignore_posthog_version=True)
+migration_module = importlib.import_module(f"posthog.async_migrations.migrations.{MIGRATION_NAME}")
 
 
 class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
-    """
-    If you end up here because your PR fails be warned that this test is flaky, it depends on many things
-    in unrelated code to work in a specific way (e.g. it needs some events to be inserted with exact timestamps).
-    """
+    def test_partition_parameters_are_bound_not_interpolated(self):
+        migration = get_async_migration_definition(MIGRATION_NAME)
+        malicious = "200001' OR '1'='1"
 
-    def setUp(self):
-        MIGRATION_DEFINITION.parameters["OLDEST_PARTITION_TO_KEEP"] = (
-            "202301",
-            "",
-            str,
-        )
-        MIGRATION_DEFINITION.parameters["NEWEST_PARTITION_TO_KEEP"] = (
-            "202302",
-            "",
-            str,
-        )
-        MIGRATION_DEFINITION.parameters["OPTIMIZE_TABLE"] = (False, "", bool)
+        with (
+            patch.object(migration_module, "sync_execute", return_value=[]) as mock_sync_execute,
+            patch.object(
+                migration,
+                "get_parameter",
+                side_effect=lambda name: {
+                    "OLDEST_PARTITION_TO_KEEP": malicious,
+                    "NEWEST_PARTITION_TO_KEEP": "202308",
+                }[name],
+            ),
+        ):
+            migration._get_partitions_to_move()  # type: ignore[attr-defined]
 
-        create_event(
-            event_uuid=uuid1,
-            team=self.team,
-            distinct_id="1",
-            event="$pageview",
-            timestamp="1900-01-02T00:00:00Z",
-        )
-        create_event(
-            event_uuid=uuid2,
-            team=self.team,
-            distinct_id="1",
-            event="$pageview",
-            timestamp="2022-02-02T00:00:00Z",
-        )
-        create_event(
-            event_uuid=uuid3,
-            team=self.team,
-            distinct_id="1",
-            event="$pageview",
-            timestamp="2023-02-02T00:00:00Z",
-        )
-        create_event(
-            event_uuid=uuid4,
-            team=self.team,
-            distinct_id="1",
-            event="$pageview",
-            timestamp="2045-02-02T00:00:00Z",
-        )
+        mock_sync_execute.assert_called_once()
+        call = mock_sync_execute.call_args
+        sql = call.args[0]
+        params = call.args[1] if len(call.args) > 1 else call.kwargs.get("args")
 
-        super().setUp()
-
-    def tearDown(self):
-        super().tearDown()
-
-    def test_completes_successfully(self):
-        self.assertTrue(run_migration())
-
-        # this test is not very helpful, but we will at least catch if this changes
-        self.assertEqual(len(MIGRATION_DEFINITION.operations), FuzzyInt(5, 12))
+        assert malicious not in sql
+        assert params is not None
+        assert malicious in params.values()

@@ -1,10 +1,10 @@
 use error::EventError;
 
-use once_cell::sync::Lazy;
 use regex::Regex;
-use serde_json::Value;
-use tracing::warn;
+use std::sync::LazyLock;
 
+use serde_json::Value;
+use tracing::debug;
 use uuid::Uuid;
 
 pub mod app_context;
@@ -13,14 +13,21 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
-pub mod issue_buckets;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
-pub mod pipeline;
 pub mod posthog_utils;
+pub mod router;
+pub mod server;
+pub mod signals;
+pub mod spike_config;
+pub mod stages;
+pub mod suppression_rules;
 pub mod symbol_store;
 pub mod teams;
+#[cfg(test)]
+pub mod test_utils;
+pub mod tokenizer;
 pub mod types;
 
 pub fn recursively_sanitize_properties(
@@ -48,7 +55,7 @@ pub fn recursively_sanitize_properties(
         }
         Value::String(s) => {
             if needs_sanitization(s) {
-                warn!("Sanitizing null bytes from string in event {}", id);
+                debug!("sanitizing null bytes from string in event {}", id);
                 *s = sanitize_string(s.clone());
             }
         }
@@ -57,7 +64,7 @@ pub fn recursively_sanitize_properties(
     Ok(())
 }
 
-static WHITESPACE_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\s{50,}").unwrap());
+static WHITESPACE_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s{50,}").unwrap());
 
 // Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD. We also replace all 50-or-more whitespace sequences with "<ws trimmed>".
 pub fn sanitize_string(s: String) -> String {
@@ -67,13 +74,14 @@ pub fn sanitize_string(s: String) -> String {
         .to_string()
 }
 
-pub fn needs_sanitization(s: &str) -> bool {
-    s.contains('\u{0000}') || s.len() > 512
+/// Sanitize a source code line: replace only null bytes, leave all whitespace intact.
+/// Source context lines have meaningful indentation that must be preserved.
+pub fn sanitize_source_line(s: String) -> String {
+    s.replace('\u{0000}', "\u{FFFD}")
 }
 
-struct WithIndices<T> {
-    indices: Vec<usize>,
-    inner: T,
+pub fn needs_sanitization(s: &str) -> bool {
+    s.contains('\u{0000}') || s.len() > 512
 }
 
 #[cfg(test)]
@@ -101,6 +109,21 @@ mod test {
         let input = "hello     world".to_string();
         let result = sanitize_string(input);
         assert_eq!(result, "hello     world");
+    }
+
+    #[test]
+    fn test_sanitize_source_line_preserves_indentation() {
+        // 65 leading spaces (e.g. Obj-C multi-line method call) must be preserved.
+        let input = format!("{:>65}reason:@\"value\"", "");
+        let result = sanitize_source_line(input.clone());
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn test_sanitize_source_line_strips_nulls() {
+        let input = "hello\u{0000}world".to_string();
+        let result = sanitize_source_line(input);
+        assert_eq!(result, "hello\u{FFFD}world");
     }
 
     #[test]

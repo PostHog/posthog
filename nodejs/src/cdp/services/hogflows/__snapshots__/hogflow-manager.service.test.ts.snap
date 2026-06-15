@@ -36,6 +36,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
         "updated_at": "UPDATED_AT",
       },
     ],
+    "billable_action_types": [],
     "conversion": null,
     "created_at": "CREATED_AT",
     "description": "",
@@ -64,6 +65,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
     },
     "trigger_masking": null,
     "updated_at": "UPDATED_AT",
+    "variables": null,
     "version": 1,
   },
   {
@@ -100,6 +102,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
         "updated_at": "UPDATED_AT",
       },
     ],
+    "billable_action_types": [],
     "conversion": null,
     "created_at": "CREATED_AT",
     "description": "",
@@ -128,6 +131,7 @@ exports[`HogFlowManager returns the hog flow 1`] = `
     },
     "trigger_masking": null,
     "updated_at": "UPDATED_AT",
+    "variables": null,
     "version": 1,
   },
 ]

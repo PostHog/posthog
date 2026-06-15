@@ -31,8 +31,17 @@ export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
+export const QUESTION_TYPE_OPTIONS = [
+    { type: SurveyQuestionType.Open, label: 'Open text', icon: <IconComment /> },
+    { type: SurveyQuestionType.Rating, label: 'Rating', icon: <IconAreaChart /> },
+    { type: SurveyQuestionType.SingleChoice, label: 'Single choice', icon: <IconListView /> },
+    { type: SurveyQuestionType.MultipleChoice, label: 'Multiple choice', icon: <IconGridView /> },
+    { type: SurveyQuestionType.Link, label: 'Link / Announcement', icon: <IconLink /> },
+]
+
 // Rating scale constants
 export const SURVEY_RATING_SCALE = {
+    THUMB_2_POINT: 2,
     EMOJI_3_POINT: 3,
     LIKERT_5_POINT: 5,
     LIKERT_7_POINT: 7,
@@ -161,36 +170,39 @@ export const defaultSurveyFieldValues = {
     },
 }
 
-export interface NewSurvey
-    extends Pick<
-        Survey,
-        | 'name'
-        | 'description'
-        | 'type'
-        | 'conditions'
-        | 'questions'
-        | 'start_date'
-        | 'end_date'
-        | 'linked_flag'
-        | 'targeting_flag'
-        | 'archived'
-        | 'appearance'
-        | 'targeting_flag_filters'
-        | 'responses_limit'
-        | 'iteration_count'
-        | 'iteration_frequency_days'
-        | 'iteration_start_dates'
-        | 'current_iteration'
-        | 'response_sampling_start_date'
-        | 'response_sampling_interval_type'
-        | 'response_sampling_interval'
-        | 'response_sampling_limit'
-        | 'schedule'
-        | 'enable_partial_responses'
-        | 'user_access_level'
-        | 'headline_summary'
-        | 'headline_response_count'
-    > {
+export interface NewSurvey extends Pick<
+    Survey,
+    | 'name'
+    | 'description'
+    | 'type'
+    | 'conditions'
+    | 'questions'
+    | 'start_date'
+    | 'end_date'
+    | 'linked_flag'
+    | 'targeting_flag'
+    | 'archived'
+    | 'appearance'
+    | 'targeting_flag_filters'
+    | 'responses_limit'
+    | 'iteration_count'
+    | 'iteration_frequency_days'
+    | 'iteration_start_dates'
+    | 'current_iteration'
+    | 'response_sampling_start_date'
+    | 'response_sampling_interval_type'
+    | 'response_sampling_interval'
+    | 'response_sampling_limit'
+    | 'schedule'
+    | 'enable_partial_responses'
+    | 'enable_iframe_embedding'
+    | 'user_access_level'
+    | 'headline_summary'
+    | 'headline_response_count'
+    | 'form_content'
+    | 'translations'
+    | 'base_language'
+> {
     id: 'new'
     linked_flag_id: number | null
 }
@@ -225,6 +237,8 @@ export const NEW_SURVEY: NewSurvey = {
     iteration_frequency_days: null,
     enable_partial_responses: true,
     user_access_level: AccessControlLevel.Editor,
+    form_content: null,
+    base_language: 'en',
 }
 
 export enum SurveyTemplateType {
@@ -233,15 +247,19 @@ export enum SurveyTemplateType {
     NPS = 'Net promoter score (NPS)',
     CSAT = 'Customer satisfaction score (CSAT)',
     CES = 'Customer effort score (CES)',
-    CCR = 'Customer churn rate (CCR)',
+    CCR = 'Exit survey',
     PMF = 'Product-market fit (PMF)',
-    ErrorTracking = 'Capture exceptions',
-    TrafficAttribution = 'Traffic attribution',
+    ErrorTracking = 'Error feedback',
+    TrafficAttribution = 'How did you find us?',
     FeatureRequest = 'Feature request',
     OnboardingFeedback = 'Onboarding feedback',
     BetaFeedback = 'Beta feedback',
     Announcement = 'Announcement',
+    UserResearchIntake = 'User research intake',
+    ProductResearch = 'Product research',
 }
+
+export type SurveyTemplateMode = 'in_app' | 'hosted'
 
 export interface QuickSurveyFromTemplate {
     context: QuickSurveyContext
@@ -256,6 +274,8 @@ export type SurveyTemplate = Partial<Survey> & {
     badge?: string
     featured?: boolean
     quickSurvey?: QuickSurveyFromTemplate
+    // Which template modes this template should appear in. Omitted = available in all modes.
+    modes?: SurveyTemplateMode[]
 }
 
 export const defaultSurveyTemplates: SurveyTemplate[] = [
@@ -298,6 +318,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         category: 'Business',
         badge: 'New!',
         featured: true,
+        modes: ['in_app'],
         quickSurvey: {
             context: { type: QuickSurveyType.ANNOUNCEMENT },
             modalTitle: 'New announcement',
@@ -327,7 +348,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Get an industry-recognized benchmark.',
+        description: 'Measure customer loyalty with the 0-10 recommend scale.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -344,12 +365,12 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             },
             {
                 type: SurveyQuestionType.SingleChoice,
-                question: 'How would you feel if you could no longer our product?',
+                question: 'How would you feel if you could no longer use our product?',
                 choices: ['Not disappointed', 'Somewhat disappointed', 'Very disappointed'],
                 skipSubmitButton: true,
             },
         ],
-        description: "40% 'very disappointed' signals product-market fit.",
+        description: 'Discover how essential your product is to users.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -376,7 +397,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Works best after a checkout or support flow.',
+        description: 'Measure satisfaction with a specific experience.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -397,7 +418,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         appearance: {
             thankYouMessageHeader: 'Looking forward to chatting with you!',
         },
-        description: 'Send users straight to your calendar.',
+        description: 'Recruit users for in-depth conversations.',
         tagType: 'completion',
         category: 'Business',
     },
@@ -417,7 +438,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 skipSubmitButton: true,
             },
         ],
-        description: 'Works well with churn surveys.',
+        description: 'Measure how easy it was to complete a task.',
         tagType: 'success',
         category: 'Metrics',
         appearance: defaultSurveyAppearance,
@@ -445,7 +466,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Find out if it was something you said.',
+        description: 'Understand why users are canceling.',
         tagType: 'completion',
         category: 'Business',
         appearance: defaultSurveyAppearance,
@@ -474,7 +495,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
             },
         ],
-        description: 'Find out where your traffic is coming from.',
+        description: 'Learn which channels bring users to your product.',
         tagType: 'completion',
         category: 'Business',
         appearance: defaultSurveyAppearance,
@@ -496,9 +517,10 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             actions: null,
             events: { repeatedActivation: true, values: [{ name: '$exception' }] },
         },
-        description: 'Ask users for context when they hit an exception.',
+        description: 'Get user context when errors occur to debug faster.',
         tagType: 'default',
         category: 'General',
+        modes: ['in_app'],
         appearance: {
             ...defaultSurveyAppearance,
             surveyPopupDelaySeconds: 2,
@@ -564,6 +586,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         description: "Capture first impressions while they're fresh.",
         tagType: 'primary',
         category: 'Product',
+        modes: ['in_app'],
         appearance: defaultSurveyAppearance,
     },
     {
@@ -604,6 +627,105 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
         tagType: 'primary',
         category: 'Product',
         appearance: defaultSurveyAppearance,
+    },
+    {
+        type: SurveyType.ExternalSurvey,
+        templateType: SurveyTemplateType.UserResearchIntake,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'Would you be open to a 30-minute conversation with our team?',
+                description: 'We are exploring how customers use our product and would love to hear from you.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                choices: ['Yes, I am interested', 'Maybe later', 'No thanks'],
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is the best email to reach you at?',
+                description: 'We will send a calendar invite within one business day.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                buttonText: 'Submit',
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'Anything specific you would like to talk about?',
+                description: 'Optional. Helps us prepare for the call.',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                optional: true,
+                buttonText: 'Send',
+            },
+        ],
+        appearance: {
+            ...defaultSurveyAppearance,
+            displayThankYouMessage: true,
+            thankYouMessageHeader: 'Thanks — we will be in touch shortly!',
+            allowGoBack: true,
+        },
+        description: 'Recruit research participants via a shareable link.',
+        tagType: 'completion',
+        category: 'Business',
+        modes: ['hosted'],
+    },
+    {
+        type: SurveyType.ExternalSurvey,
+        templateType: SurveyTemplateType.ProductResearch,
+        questions: [
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How would you describe your role?',
+                choices: ['Founder / leadership', 'Product manager', 'Engineer', 'Designer', 'Marketing', 'Other'],
+                hasOpenChoice: true,
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.SingleChoice,
+                question: 'How often do you use the product?',
+                choices: ['Daily', 'A few times a week', 'A few times a month', 'Rarely', 'Never'],
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Rating,
+                question: 'How likely are you to recommend us to a colleague?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                display: 'number',
+                scale: SURVEY_RATING_SCALE.NPS_10_POINT,
+                lowerBoundLabel: 'Not at all likely',
+                upperBoundLabel: 'Extremely likely',
+                isNpsQuestion: true,
+                skipSubmitButton: true,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What is the single biggest benefit you get from our product?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What would you like us to improve next?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+            },
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What would you use instead if our product did not exist?',
+                description: '',
+                descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+                optional: true,
+            },
+        ],
+        appearance: {
+            ...defaultSurveyAppearance,
+            displayThankYouMessage: true,
+            thankYouMessageHeader: 'Thanks for sharing your perspective!',
+            allowGoBack: true,
+        },
+        description: 'Go deep on segmentation, satisfaction, and roadmap signal.',
+        tagType: 'primary',
+        category: 'Product',
+        modes: ['hosted'],
     },
 ]
 
@@ -647,6 +769,7 @@ export const SURVEY_TYPE_LABEL_MAP = {
 export const LOADING_SURVEY_RESULTS_TOAST_ID = 'survey-results-loading'
 
 export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
+    [SURVEY_RATING_SCALE.THUMB_2_POINT]: '1-2 (thumbs up/down)',
     [SURVEY_RATING_SCALE.EMOJI_3_POINT]: '1 - 3',
     [SURVEY_RATING_SCALE.LIKERT_5_POINT]: '1 - 5',
     [SURVEY_RATING_SCALE.LIKERT_7_POINT]: '1 - 7',
@@ -655,6 +778,7 @@ export const SCALE_LABELS: Record<SurveyRatingScaleValue, string> = {
 
 export const SCALE_OPTIONS = {
     EMOJI: [
+        { label: SCALE_LABELS[SURVEY_RATING_SCALE.THUMB_2_POINT], value: SURVEY_RATING_SCALE.THUMB_2_POINT },
         { label: SCALE_LABELS[SURVEY_RATING_SCALE.EMOJI_3_POINT], value: SURVEY_RATING_SCALE.EMOJI_3_POINT },
         { label: SCALE_LABELS[SURVEY_RATING_SCALE.LIKERT_5_POINT], value: SURVEY_RATING_SCALE.LIKERT_5_POINT },
     ],
@@ -675,14 +799,133 @@ export enum SURVEY_CREATED_SOURCE {
     FEATURE_FLAGS = 'feature_flags',
     MAX_AI = 'max_ai',
     SURVEY_FORM = 'survey_form',
+    SURVEY_WIZARD = 'survey_wizard',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
     CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
     ERROR_TRACKING = 'error_tracking',
     WEB_ANALYTICS = 'web_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {
     WAIT_PERIOD_INPUT = 'survey-wait-period-input',
+}
+
+// Survey appearance themes for the wizard
+export interface SurveyTheme {
+    id: string
+    name: string
+    description: string
+    appearance: Partial<SurveyAppearance>
+}
+
+export const surveyThemes: SurveyTheme[] = [
+    // Light themes
+    {
+        id: 'clean',
+        name: 'Clean',
+        description: 'Light & professional',
+        appearance: {
+            backgroundColor: '#ffffff',
+            textColor: '#1d1f27',
+            borderColor: '#e5e7eb',
+            submitButtonColor: '#1d1f27',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#f3f4f6',
+            ratingButtonActiveColor: '#1d1f27',
+            inputBackground: '#f9fafb',
+        },
+    },
+    {
+        id: 'ocean',
+        name: 'Ocean',
+        description: 'Cool & calming',
+        appearance: {
+            backgroundColor: '#f0f9ff',
+            textColor: '#0c4a6e',
+            borderColor: '#bae6fd',
+            submitButtonColor: '#0284c7',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#e0f2fe',
+            ratingButtonActiveColor: '#0284c7',
+            inputBackground: '#ffffff',
+        },
+    },
+    {
+        id: 'sunset',
+        name: 'Sunset',
+        description: 'Warm & energetic',
+        appearance: {
+            backgroundColor: '#fffbf5',
+            textColor: '#7c2d12',
+            borderColor: '#fed7aa',
+            submitButtonColor: '#ea580c',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#ffedd5',
+            ratingButtonActiveColor: '#ea580c',
+            inputBackground: '#ffffff',
+        },
+    },
+    // Dark themes
+    {
+        id: 'carbon',
+        name: 'Carbon',
+        description: 'Dark & neutral',
+        appearance: {
+            backgroundColor: '#171717',
+            textColor: '#fafafa',
+            borderColor: '#404040',
+            submitButtonColor: '#fafafa',
+            submitButtonTextColor: '#171717',
+            ratingButtonColor: '#262626',
+            ratingButtonActiveColor: '#fafafa',
+            inputBackground: '#262626',
+        },
+    },
+    {
+        id: 'midnight',
+        name: 'Midnight',
+        description: 'Dark & sophisticated',
+        appearance: {
+            backgroundColor: '#1a1a2e',
+            textColor: '#eaeaea',
+            borderColor: '#4a4a6a',
+            submitButtonColor: '#6366f1',
+            submitButtonTextColor: '#ffffff',
+            ratingButtonColor: '#2d2d44',
+            ratingButtonActiveColor: '#6366f1',
+            inputBackground: '#252540',
+        },
+    },
+    {
+        id: 'noir',
+        name: 'Noir',
+        description: 'Pure black & white',
+        appearance: {
+            backgroundColor: '#000000',
+            textColor: '#ffffff',
+            borderColor: '#333333',
+            submitButtonColor: '#ffffff',
+            submitButtonTextColor: '#000000',
+            ratingButtonColor: '#1a1a1a',
+            ratingButtonActiveColor: '#ffffff',
+            inputBackground: '#1a1a1a',
+        },
+    },
+]
+
+export function getMatchingSurveyThemeId(appearance?: Partial<SurveyAppearance> | null): string | null {
+    if (!appearance) {
+        return 'clean'
+    }
+
+    const matchingTheme = surveyThemes.find(
+        (theme) =>
+            theme.appearance.backgroundColor === appearance.backgroundColor &&
+            theme.appearance.submitButtonColor === appearance.submitButtonColor
+    )
+
+    return matchingTheme?.id ?? null
 }

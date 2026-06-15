@@ -72,12 +72,12 @@ describe('alertHclExporter test', () => {
                 threshold: { configuration: { type: 'percentage' } },
             })
 
-            const result = generateAlertHCL(alert)
+            const result = generateAlertHCL(alert, { projectId: 1 })
             const hcl = result.hcl
 
             expect(hcl).toContain('import {')
             expect(hcl).toContain('to = posthog_alert.saved_alert')
-            expect(hcl).toContain('id = "alert-456"')
+            expect(hcl).toContain('id = "1/alert-456"')
         })
 
         it('excludes import block for new alerts', () => {

@@ -1,5 +1,7 @@
 import type { MultivariateFlagVariant } from '~/types'
 
+import type { FeatureFlagKeyValidation } from './variantsPanelLogic'
+
 export type VariantValidationRules = {
     hasFlagKey: boolean
     hasFlagKeyError: boolean
@@ -24,7 +26,7 @@ export const validateVariants = ({
 }: {
     flagKey: string | null
     variants: MultivariateFlagVariant[]
-    featureFlagKeyValidation: { valid: boolean; error: string | null } | null
+    featureFlagKeyValidation: FeatureFlagKeyValidation | null
     mode?: 'create' | 'link'
 }): VariantValidationResult => {
     const hasFlagKey = !!flagKey
@@ -68,6 +70,47 @@ export const validateVariants = ({
             hasDuplicateKeys,
         },
     }
+}
+
+export const getVariantValidationErrors = ({
+    flagKey,
+    variants,
+    featureFlagKeyValidation,
+    mode,
+}: {
+    flagKey: string | null
+    variants: MultivariateFlagVariant[]
+    featureFlagKeyValidation: FeatureFlagKeyValidation | null
+    mode?: 'create' | 'link'
+}): string[] => {
+    const errors: string[] = []
+    const variantsValidation = validateVariants({ flagKey, variants, featureFlagKeyValidation, mode })
+
+    if (!variantsValidation.rules.hasFlagKey) {
+        errors.push('Feature flag key is required')
+    }
+
+    if (variantsValidation.rules.hasFlagKeyError && featureFlagKeyValidation?.error) {
+        errors.push(featureFlagKeyValidation.error)
+    }
+
+    if (!variantsValidation.rules.hasEnoughVariants) {
+        errors.push('At least 2 variants are required')
+    }
+
+    if (!variantsValidation.rules.areVariantKeysValid) {
+        errors.push('All variants must have a key')
+    }
+
+    if (variantsValidation.rules.hasDuplicateKeys) {
+        errors.push('Variant keys must be unique')
+    }
+
+    if (!variantsValidation.rules.isValidRollout) {
+        errors.push(`Variant rollout must total 100% (currently ${variantsValidation.rules.totalRollout}%)`)
+    }
+
+    return errors
 }
 
 export const buildVariantSummary = (variants: MultivariateFlagVariant[], result: VariantValidationResult): string => {

@@ -42,16 +42,17 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
                 closeSidePanel: () => null,
             },
         ],
+        // Not persisted: the panel must only open from an explicit trigger (click or URL #panel hash),
+        // never auto-reopen on returning to the app.
         sidePanelOpen: [
             false,
-            { persist: true },
             {
                 setSidePanelOpen: (_, { open }) => open,
             },
         ],
     })),
     windowValues(() => ({
-        modalMode: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+        modalMode: (window: Window) => window?.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     listeners(({ actions, values }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally

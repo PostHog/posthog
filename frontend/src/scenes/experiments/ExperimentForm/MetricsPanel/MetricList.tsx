@@ -21,19 +21,12 @@ export const MetricList = ({
     onDelete,
     filterTestAccounts,
     className,
-}: MetricListProps): JSX.Element | null => {
-    if (metrics.length === 0) {
-        return null
-    }
-
+}: MetricListProps): JSX.Element => {
     return (
         <div className={clsx('space-y-3', className)}>
-            <div className="flex justify-between items-center">
-                <span className="font-medium text-default">
-                    {metricContext.type.charAt(0).toUpperCase() + metricContext.type.slice(1)} metrics
-                </span>
-                <AddMetricButton metricContext={metricContext} />
-            </div>
+            <span className="font-medium text-default">
+                {metricContext.type.charAt(0).toUpperCase() + metricContext.type.slice(1)} metrics
+            </span>
             {metrics.map((metric) => (
                 <MetricCard
                     key={metric.uuid}
@@ -43,6 +36,9 @@ export const MetricList = ({
                     filterTestAccounts={filterTestAccounts}
                 />
             ))}
+            <div>
+                <AddMetricButton metricContext={metricContext} />
+            </div>
         </div>
     )
 }

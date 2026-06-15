@@ -4,61 +4,51 @@ import { router } from 'kea-router'
 import { IconPeople } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
-import { getCRMColumns } from './crm/utils'
-import { groupViewLogic } from './groupViewLogic'
 import { groupsListLogic } from './groupsListLogic'
 import { groupsSceneLogic } from './groupsSceneLogic'
 
 export const scene: SceneExport = {
     component: GroupsScene,
     logic: groupsSceneLogic,
+    productKey: ProductKey.GROUP_ANALYTICS,
 }
 
-export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupsScene rendered with no tabId')
-    }
+export function GroupsScene(): JSX.Element {
     const { groupTypeIndex, groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
 
     const mountedGroupsListLogic = groupsListLogic({ groupTypeIndex })
     const { query, queryWasModified } = useValues(mountedGroupsListLogic)
     const { setQuery } = useActions(mountedGroupsListLogic)
 
-    const { saveGroupViewModalOpen, groupViewName } = useValues(groupViewLogic)
-    const { setSaveGroupViewModalOpen, setGroupViewName, saveGroupView } = useActions(groupViewLogic)
-
-    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
 
     if (groupTypeIndex === undefined) {
         throw new Error('groupTypeIndex is undefined')
     }
 
-    if (
-        groupsAccessStatus == GroupsAccessStatus.HasAccess ||
-        groupsAccessStatus == GroupsAccessStatus.HasGroupTypes ||
-        groupsAccessStatus == GroupsAccessStatus.NoAccess
-    ) {
+    if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
                 <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
@@ -80,11 +70,6 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             title: groupTypeName,
         },
     } as QueryContext['columns']
-    let hiddenColumns = [] as string[]
-    if (hasCustomerAnalyticsEnabled) {
-        columns = getCRMColumns(groupTypeName, groupTypeIndex)
-        hiddenColumns.push('key')
-    }
 
     return (
         <SceneContent>
@@ -97,24 +82,26 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: 'cohort',
                 }}
                 actions={
-                    hasCustomerAnalyticsEnabled ? (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            data-attr={`new-group-${groupTypeIndex}`}
-                            onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
-                        >
-                            New {aggregationLabel(groupTypeIndex).singular}
-                        </LemonButton>
-                    ) : undefined
+                    <>
+                        <FeedbackButton id="customer-analytics-groups-list-feedback-button" />
+                        {hasCustomerAnalyticsEnabled && (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                data-attr={`new-group-${groupTypeIndex}`}
+                                onClick={() => router.actions.push(urls.group(groupTypeIndex, 'new', false))}
+                            >
+                                New {aggregationLabel(groupTypeIndex).singular}
+                            </LemonButton>
+                        )}
+                    </>
                 }
             />
-            <FeedbackBanner feedbackButtonId="groups-list" />
 
             <Query
-                uniqueKey={`groups-query-${tabId}`}
-                attachTo={groupsSceneLogic({ tabId })}
-                query={{ ...query, hiddenColumns }}
+                uniqueKey="groups-query"
+                attachTo={groupsSceneLogic()}
+                query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
@@ -134,44 +121,10 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     ),
                     columns,
                     groupTypeLabel: groupTypeNamePlural,
+                    baseCurrency,
                 }}
                 dataAttr="groups-table"
             />
-
-            {hasCustomerAnalyticsEnabled && (
-                <LemonModal
-                    isOpen={saveGroupViewModalOpen}
-                    onClose={() => setSaveGroupViewModalOpen(false)}
-                    title="Save filtered groups view"
-                    footer={
-                        <>
-                            <LemonButton onClick={() => setSaveGroupViewModalOpen(false)}>Cancel</LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => saveGroupView(window.location.href, groupTypeIndex)}
-                                disabledReason={!groupViewName.trim() ? 'Name is required' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                        </>
-                    }
-                >
-                    <div className="space-y-4">
-                        <p>Save this filtered view as a shortcut in the People panel.</p>
-                        <LemonInput
-                            placeholder="Enter view name"
-                            value={groupViewName}
-                            onChange={setGroupViewName}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && groupViewName.trim()) {
-                                    saveGroupView(window.location.href, groupTypeIndex)
-                                }
-                            }}
-                            autoFocus
-                        />
-                    </div>
-                </LemonModal>
-            )}
         </SceneContent>
     )
 }

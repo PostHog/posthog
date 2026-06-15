@@ -1,20 +1,22 @@
 import inspect
 from collections import Counter
-from typing import Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import RevenueCurrencyPropertyConfig
-
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
-from posthog.models.action import Action
 from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
+
+from products.actions.backend.models.action import Action
+
+if TYPE_CHECKING:
+    from posthog.schema import RevenueCurrencyPropertyConfig
 
 MathType = Literal[
     "total",
@@ -60,7 +62,7 @@ class Entity(PropertyMixin):
     custom_name: Optional[str]
     math: Optional[MathType]
     math_property: Optional[str]
-    math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig]
+    math_property_revenue_currency: Optional["RevenueCurrencyPropertyConfig"]
     math_hogql: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
@@ -161,7 +163,7 @@ class Entity(PropertyMixin):
 
         return self.id == other.id and len(self_properties - other_properties) == 0
 
-    def get_action(self) -> Action:
+    def get_action(self, team_id: int) -> Action:
         if self.type != TREND_FILTER_TYPE_ACTIONS:
             raise ValueError(
                 f"Action can only be fetched for entities of type {TREND_FILTER_TYPE_ACTIONS}, not {self.type}!"
@@ -174,7 +176,7 @@ class Entity(PropertyMixin):
             raise ValidationError("Action ID cannot be None!")
 
         try:
-            self._action = Action.objects.get(id=self.id)
+            self._action = Action.objects.get(id=self.id, team_id=team_id)
             return self._action
         except:
             raise ValidationError(f"Action ID {self.id} does not exist!")

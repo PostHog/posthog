@@ -21,9 +21,11 @@ type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
     colors: string[]
     selectedColor?: string | null
     onSelectColor: (color: string) => void
+    onClearColor?: () => void
     colorTokens?: never
     selectedColorToken?: never
     onSelectColorToken?: never
+    onClearColorToken?: never
     themeId?: never
 }
 
@@ -31,13 +33,15 @@ type LemonColorPickerTokenProps = LemonColorPickerBaseProps & {
     colorTokens?: DataColorToken[]
     selectedColorToken?: DataColorToken | null
     onSelectColorToken: (colorToken: DataColorToken) => void
+    onClearColorToken?: () => void
     themeId?: number | null
     colors?: never
     selectedColor?: never
     onSelectColor?: never
+    onClearColor?: never
 }
 
-type LemonColorPickerProps = LemonColorPickerColorProps | LemonColorPickerTokenProps
+export type LemonColorPickerProps = LemonColorPickerColorProps | LemonColorPickerTokenProps
 
 type LemonColorPickerOverlayProps = Omit<LemonColorPickerProps, 'hideDropdown'>
 
@@ -49,6 +53,8 @@ export const LemonColorPickerOverlay = ({
     selectedColorToken,
     onSelectColor,
     onSelectColorToken,
+    onClearColor,
+    onClearColorToken,
     showCustomColor = false,
     preventPopoverClose = false,
     customColorValue,
@@ -82,13 +88,19 @@ export const LemonColorPickerOverlay = ({
         >
             <LemonLabel className="mt-1 mb-0.5">Preset colors</LemonLabel>
             {colors ? (
-                <LemonColorList colors={colors} selectedColor={selectedColor} onSelectColor={onSelectColor} />
+                <LemonColorList
+                    colors={colors}
+                    selectedColor={selectedColor}
+                    onSelectColor={onSelectColor}
+                    onClearColor={onClearColor}
+                />
             ) : (
                 <LemonColorList
                     themeId={themeId}
                     colorTokens={colorTokens || getAvailableColorTokens(themeId) || []}
                     selectedColorToken={selectedColorToken}
                     onSelectColorToken={onSelectColorToken}
+                    onClearColorToken={onClearColorToken}
                 />
             )}
             {showCustomColor && (

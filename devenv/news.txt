@@ -1,0 +1,8 @@
+2026-06-08
+objectstorage swapped minio -> seaweedfs; old local files stay on the old volume, run hogli deploy:upgrade-objectstorage to copy them over
+
+2026-05-05
+check product maturity: hogli product:maturity <product>, or --all for a leaderboard
+
+2026-04-30
+hogli now supports detached mode: hogli up -d, then hogli wait / hogli down

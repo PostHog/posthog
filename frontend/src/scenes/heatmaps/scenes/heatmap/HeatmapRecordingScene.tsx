@@ -6,7 +6,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 export const scene: SceneExport = {
     component: HeatmapRecordingScene,
     logic: heatmapRecordingLogic,
-    settingSectionId: 'environment-autocapture',
 }
 
 export function HeatmapRecordingScene(): JSX.Element {

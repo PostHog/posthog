@@ -16,8 +16,12 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { isUUIDLike } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { LogEntry, parseLogEvent } from '../lib/parse-logs'
+import { phDebugQueryParams, phDebugQuerySuffix } from '../lib/ph-debug'
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 import { TaskLogicProps, taskLogic } from './taskLogic'
@@ -27,7 +31,53 @@ const LOG_POLL_INTERVAL_MS = 1000
 
 export type TaskDetailSceneLogicProps = TaskLogicProps
 
-let logPollingInterval: number | null = null
+interface ParsedSseEvent {
+    data: string
+    eventType: string | null
+    id: string | null
+}
+
+function buildToolMap(entries: LogEntry[]): Map<string, LogEntry> {
+    const toolMap = new Map<string, LogEntry>()
+    for (const entry of entries) {
+        if (entry.type === 'tool' && entry.toolCallId) {
+            toolMap.set(entry.toolCallId, { ...entry })
+        }
+    }
+    return toolMap
+}
+
+function parseSseEventBlock(block: string): ParsedSseEvent | null {
+    let data = ''
+    let eventType: string | null = null
+    let id: string | null = null
+
+    for (const line of block.split('\n')) {
+        if (!line) {
+            continue
+        }
+        if (line.startsWith(':')) {
+            continue
+        }
+        if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim() || null
+            continue
+        }
+        if (line.startsWith('id:')) {
+            id = line.slice(3).trim() || null
+            continue
+        }
+        if (line.startsWith('data:')) {
+            data = data ? `${data}\n${line.slice(5).trimStart()}` : line.slice(5).trimStart()
+        }
+    }
+
+    if (!data && !eventType && !id) {
+        return null
+    }
+
+    return { data, eventType, id }
+}
 
 export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     path(['products', 'tasks', 'taskDetailSceneLogic']),
@@ -35,7 +85,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task']],
+        values: [taskLogic(props), ['task', 'taskLoading'], teamLogic, ['currentProjectId']],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
@@ -48,6 +98,12 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         clearShouldSelectLatestRun: true,
         startPolling: true,
         stopPolling: true,
+        startStreaming: true,
+        stopStreaming: true,
+        markStreamingFailed: true,
+        appendStreamEntries: (entries: LogEntry[]) => ({ entries }),
+        updateStreamEntries: (entries: LogEntry[]) => ({ entries }),
+        recordStreamProgress: (lastEventId: string | null, seenEventIds: string[]) => ({ lastEventId, seenEventIds }),
         setLogs: (logs: string) => ({ logs }),
         updateRun: (run: TaskRun) => ({ run }),
     }),
@@ -78,6 +134,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             {
                 setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? true : state),
                 setLogs: () => false,
+                appendStreamEntries: () => false,
             },
         ],
         runs: [
@@ -87,6 +144,79 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     state.map((r) => (r.id === run.id ? run : r)),
             },
         ],
+        streamEntries: [
+            [] as LogEntry[],
+            {
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? [] : state),
+                appendStreamEntries: (state, { entries }) => {
+                    if (entries.length === 0) {
+                        return state
+                    }
+                    const last = state[state.length - 1]
+                    const first = entries[0]
+                    if (last?.type === first.type && (first.type === 'agent' || first.type === 'thinking')) {
+                        return [
+                            ...state.slice(0, -1),
+                            { ...last, message: (last.message || '') + (first.message || '') },
+                            ...entries.slice(1),
+                        ]
+                    }
+                    return [...state, ...entries]
+                },
+                updateStreamEntries: (state, { entries }) => {
+                    if (entries.length === 0) {
+                        return state
+                    }
+                    const entriesById = new Map(entries.map((entry) => [entry.id, entry]))
+                    let changed = false
+                    const nextState = state.map((entry) => {
+                        const updatedEntry = entriesById.get(entry.id)
+                        if (!updatedEntry) {
+                            return entry
+                        }
+                        changed = true
+                        return updatedEntry
+                    })
+                    return changed ? nextState : state
+                },
+            },
+        ],
+        lastStreamEventId: [
+            null as string | null,
+            {
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? null : state),
+                recordStreamProgress: (state, { lastEventId }) => lastEventId ?? state,
+            },
+        ],
+        seenStreamEventIds: [
+            {} as Record<string, true>,
+            {
+                setSelectedRunId: (state, { taskId }) => (taskId === props.taskId ? {} : state),
+                recordStreamProgress: (state, { seenEventIds }) => {
+                    if (seenEventIds.length === 0) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...Object.fromEntries(seenEventIds.map((eventId) => [eventId, true])),
+                    }
+                },
+            },
+        ],
+        isStreaming: [
+            false,
+            {
+                startStreaming: () => true,
+                stopStreaming: () => false,
+            },
+        ],
+        streamingFailed: [
+            false,
+            {
+                setSelectedRunId: () => false,
+                markStreamingFailed: () => true,
+            },
+        ],
     })),
 
     loaders(({ props, values, actions }) => ({
@@ -94,7 +224,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             [] as TaskRun[],
             {
                 loadRuns: async () => {
-                    const response = await api.tasks.runs.list(props.taskId)
+                    const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
                     return response.results
                 },
             },
@@ -106,10 +236,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                     if (!values.selectedRunId) {
                         return null
                     }
-                    const run = await api.tasks.runs.get(props.taskId, values.selectedRunId)
+                    const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
                     // Use proxy endpoint to avoid CORS issues with direct S3 access
                     actions.loadLogs({
-                        url: `/api/projects/@current/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/`,
+                        url: `/api/projects/${values.currentProjectId}/tasks/${props.taskId}/runs/${values.selectedRunId}/logs/${phDebugQuerySuffix()}`,
                     })
                     return run
                 },
@@ -182,12 +312,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         setSelectedRunId: ({ taskId }) => {
             if (taskId !== props.taskId) {
                 return
             }
             actions.stopPolling()
+            actions.stopStreaming()
             actions.loadSelectedRun()
         },
         runTaskSuccess: ({ task }) => {
@@ -216,9 +347,14 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             }
             actions.loadTask()
             if (values.shouldPoll) {
-                actions.startPolling()
+                if (values.streamingFailed) {
+                    actions.startPolling()
+                } else if (!values.isStreaming) {
+                    actions.startStreaming()
+                }
             } else {
                 actions.stopPolling()
+                actions.stopStreaming()
             }
         },
         loadTaskSuccess: ({ task }) => {
@@ -232,19 +368,147 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 actions.setLogs(rawLogs)
             }
         },
+        startStreaming: () => {
+            // Stop any existing polling — streaming replaces it
+            actions.stopPolling()
+
+            cache.disposables.add(() => {
+                const abortController = new AbortController()
+                const runId = values.selectedRunId
+                if (!runId) {
+                    return () => {}
+                }
+
+                // TODO(no-at-current-in-api-urls): migrate to `currentProjectIdStrict`. Rule misses this site because the URL is bound to a const and passed to fetch via the variable.
+                const streamUrl = `/api/projects/@current/tasks/${props.taskId}/runs/${runId}/stream/`
+                const toolMap = buildToolMap(values.streamEntries)
+                let eventIndex = values.streamEntries.length
+
+                const consume = async (): Promise<void> => {
+                    try {
+                        const response = await fetch(streamUrl, {
+                            signal: abortController.signal,
+                            headers: {
+                                Accept: 'text/event-stream',
+                                ...(values.lastStreamEventId ? { 'Last-Event-ID': values.lastStreamEventId } : {}),
+                            },
+                        })
+
+                        if (!response.ok || !response.body) {
+                            // Stream not available — fall back to polling
+                            actions.stopStreaming()
+                            actions.markStreamingFailed()
+                            actions.startPolling()
+                            return
+                        }
+
+                        const reader = response.body.getReader()
+                        const decoder = new TextDecoder()
+                        let buffer = ''
+
+                        while (true) {
+                            const { done, value } = await reader.read()
+                            if (done) {
+                                break
+                            }
+
+                            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+                            const blocks = buffer.split('\n\n')
+                            buffer = blocks.pop() || ''
+
+                            const batch: LogEntry[] = []
+                            const updatedEntriesById = new Map<string, LogEntry>()
+                            let lastProcessedEventId: string | null = null
+                            const newlySeenEventIds: string[] = []
+
+                            for (const block of blocks) {
+                                const parsedEvent = parseSseEventBlock(block)
+                                if (!parsedEvent || parsedEvent.eventType === 'keepalive' || !parsedEvent.data) {
+                                    continue
+                                }
+
+                                if (parsedEvent.id) {
+                                    if (
+                                        values.seenStreamEventIds[parsedEvent.id] ||
+                                        newlySeenEventIds.includes(parsedEvent.id)
+                                    ) {
+                                        continue
+                                    }
+                                    newlySeenEventIds.push(parsedEvent.id)
+                                    lastProcessedEventId = parsedEvent.id
+                                }
+
+                                try {
+                                    const event = JSON.parse(parsedEvent.data) as Record<string, unknown>
+                                    const entryId = parsedEvent.id
+                                        ? `stream-${parsedEvent.id}`
+                                        : `stream-${eventIndex++}`
+                                    const entry = parseLogEvent(event, entryId, toolMap, (updatedEntry) => {
+                                        updatedEntriesById.set(updatedEntry.id, updatedEntry)
+                                    })
+                                    if (entry) {
+                                        // Merge consecutive agent/thinking messages
+                                        const last = batch[batch.length - 1]
+                                        if (
+                                            last?.type === entry.type &&
+                                            (entry.type === 'agent' || entry.type === 'thinking')
+                                        ) {
+                                            last.message = (last.message || '') + (entry.message || '')
+                                        } else {
+                                            batch.push(entry)
+                                        }
+                                    }
+                                } catch {
+                                    // Skip invalid JSON
+                                }
+                            }
+
+                            if (newlySeenEventIds.length > 0) {
+                                actions.recordStreamProgress(lastProcessedEventId, newlySeenEventIds)
+                            }
+                            if (updatedEntriesById.size > 0) {
+                                actions.updateStreamEntries(Array.from(updatedEntriesById.values()))
+                            }
+                            if (batch.length > 0) {
+                                actions.appendStreamEntries(batch)
+                            }
+                        }
+
+                        // Clear streaming state before refreshing the run so in-progress
+                        // runs can reconnect cleanly after an EOF.
+                        actions.stopStreaming()
+                        // Stream ended normally — do a final poll to get the latest run status
+                        actions.loadSelectedRun()
+                    } catch (e) {
+                        if ((e as Error).name === 'AbortError') {
+                            return
+                        }
+                        // Stream failed — fall back to polling
+                        console.warn('SSE stream error, falling back to polling:', e)
+                        actions.stopStreaming()
+                        actions.markStreamingFailed()
+                        actions.startPolling()
+                    }
+                }
+
+                consume()
+
+                return () => abortController.abort()
+            }, 'sseStream')
+        },
+        stopStreaming: () => {
+            cache.disposables.dispose('sseStream')
+        },
         startPolling: () => {
-            if (logPollingInterval) {
-                clearInterval(logPollingInterval)
-            }
-            logPollingInterval = window.setInterval(() => {
-                actions.loadSelectedRun()
-            }, LOG_POLL_INTERVAL_MS)
+            cache.disposables.add(() => {
+                const intervalId = window.setInterval(() => {
+                    actions.loadSelectedRun()
+                }, LOG_POLL_INTERVAL_MS)
+                return () => clearInterval(intervalId)
+            }, 'logPolling')
         },
         stopPolling: () => {
-            if (logPollingInterval) {
-                clearInterval(logPollingInterval)
-                logPollingInterval = null
-            }
+            cache.disposables.dispose('logPolling')
         },
     })),
 
@@ -255,11 +519,13 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     beforeUnmount(({ actions }) => {
         actions.stopPolling()
+        actions.stopStreaming()
     }),
 
     propsChanged(({ actions, props }, oldProps) => {
         if (props.taskId !== oldProps.taskId) {
             actions.stopPolling()
+            actions.stopStreaming()
             actions.loadTask()
             actions.loadRuns()
         }
@@ -272,7 +538,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return
             }
             const runIdFromUrl = searchParams.runId
-            if (runIdFromUrl && runIdFromUrl !== values.selectedRunId) {
+            if (runIdFromUrl && isUUIDLike(runIdFromUrl) && runIdFromUrl !== values.selectedRunId) {
                 actions.setSelectedRunId(runIdFromUrl, props.taskId)
             }
         },

@@ -4,6 +4,8 @@ from langchain_core.runnables import RunnableConfig
 
 from posthog.models import Team, User
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.context import get_node_path
 from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -16,7 +18,6 @@ from ee.hogai.utils.types.base import (
     PartialStateType,
     StateType,
 )
-from ee.models import Conversation
 
 
 class BaseAssistantNode(BaseAgentExecutable[StateType, PartialStateType]):
@@ -42,8 +43,12 @@ class BaseAssistantNode(BaseAgentExecutable[StateType, PartialStateType]):
 
         self.dispatcher.dispatch(NodeStartAction())
 
-        thread_id = (config.get("configurable") or {}).get("thread_id")
-        if thread_id and await self._is_conversation_cancelled(thread_id):
+        configurable = config.get("configurable") or {}
+        # Skip cancellation check for subagents - they share the conversation with the parent
+        # agent and LangGraph may modify the thread_id in the config for subagraphs
+        is_subagent = configurable.get("is_subagent", False)
+        thread_id = configurable.get("thread_id")
+        if thread_id and not is_subagent and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
 
         new_state = await self._execute(state, config)

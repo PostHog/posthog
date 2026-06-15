@@ -1,31 +1,41 @@
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import JsonResponse
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
+from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.cohort.cohort import Cohort
+from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.error_tracking.backend.facade import api as facade_api
+from products.error_tracking.backend.issue_serializers import ErrorTrackingIssueAssignmentSerializer
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
-    ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
 )
+from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
-from .utils import ErrorTrackingIssueAssignmentSerializer
+
+IssueNotFoundError = facade_api.IssueNotFoundError
 
 DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 DEFAULT_EMBEDDING_VERSION = 1
@@ -34,13 +44,35 @@ DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
-    first_seen = serializers.DateTimeField()
-    assignee = ErrorTrackingIssueAssignmentSerializer(source="assignment")
+class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
+    id = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
 
-    class Meta:
-        model = ErrorTrackingIssue
-        fields = ["id", "status", "name", "description", "first_seen", "assignee"]
+
+class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class ErrorTrackingIssueReadSerializer(serializers.Serializer):
+    """Read-only serializer for issue contract types returned by the facade."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    name = serializers.CharField(allow_null=True)
+    description = serializers.CharField(allow_null=True)
+    first_seen = serializers.DateTimeField(allow_null=True)
+    assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
+
+
+DEPRECATED_ISSUE_STATUSES = frozenset({ErrorTrackingIssue.Status.ARCHIVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
+SUPPORTED_WRITE_STATUSES = (
+    ErrorTrackingIssue.Status.ACTIVE,
+    ErrorTrackingIssue.Status.RESOLVED,
+    ErrorTrackingIssue.Status.SUPPRESSED,
+)
 
 
 class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
@@ -53,6 +85,22 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
         model = ErrorTrackingIssue
         fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
 
+    def validate_status(self, value: str) -> str:
+        # Reads of legacy archived/pending_release rows still pass through; only block new writes.
+        if value in DEPRECATED_ISSUE_STATUSES:
+            raise serializers.ValidationError(f"Status '{value}' is no longer supported. Use 'resolved' instead.")
+        return value
+
+    @extend_schema_field(
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+            },
+        }
+    )
     def get_cohort(self, instance):
         first_cohort = instance.cohorts.filter(cohort__deleted=False).first()
         return {"id": first_cohort.cohort_id, "name": first_cohort.cohort.name} if first_cohort is not None else None
@@ -99,12 +147,90 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
                     changes=changes,
                 ),
             )
+            sync_issues_to_clickhouse(issue_ids=[updated_instance.id], team_id=team.id)
 
         return updated_instance
 
 
+class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=SUPPORTED_WRITE_STATUSES,
+        required=False,
+        help_text="Issue status to set. Deprecated archived and pending_release values are rejected.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional issue display name.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional issue description.",
+    )
+
+
+class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="IDs of the issues to merge into the current issue.",
+    )
+
+
+class ErrorTrackingIssueMergeResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the merge completed successfully.")
+
+
+class ErrorTrackingIssueSplitFingerprintSerializer(serializers.Serializer):
+    fingerprint = serializers.CharField(help_text="Fingerprint to split into a new issue.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the new issue created from this fingerprint.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional description for the new issue created from this fingerprint.",
+    )
+
+
+class ErrorTrackingIssueSplitRequestSerializer(serializers.Serializer):
+    fingerprints = serializers.ListField(
+        child=ErrorTrackingIssueSplitFingerprintSerializer(),
+        required=False,
+        default=list,
+        help_text="Fingerprints to split into new issues. Each fingerprint becomes its own new issue.",
+    )
+
+
+class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the split completed successfully.")
+    new_issue_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the new issues created by the split.",
+    )
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
+    # These override the base defaults, so keep the standard DRF actions too.
+    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "merge",
+        "split",
+        "assign",
+        "cohort",
+        "bulk",
+    ]
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
     serializer_class = ErrorTrackingIssueFullSerializer
 
@@ -116,45 +242,69 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .filter(team_id=self.team.id)
         )
 
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
+    def update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request)
+
+    @extend_schema(request=ErrorTrackingIssueWriteSerializer, responses={200: ErrorTrackingIssueFullSerializer})
+    def partial_update(self, request: request.Request, *args: object, **kwargs: object) -> Response:
+        return self._update_issue(request)
+
+    def _update_issue(self, request: request.Request) -> Response:
+        issue = self.get_object()
+        request_serializer = ErrorTrackingIssueWriteSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        serializer = self.get_serializer(issue, data=request_serializer.validated_data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    @action(methods=["GET"], detail=False)
+    def exists(self, request, **kwargs):
+        has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
+        return Response({"exists": has_issues})
+
     def retrieve(self, request, *args, **kwargs):
+        issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
+
         if fingerprint:
-            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
-                team=self.team
-            )
-            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+            resolved_id = facade_api.get_issue_id_for_fingerprint(team_id=self.team.id, fingerprint=fingerprint)
+            if resolved_id and resolved_id != issue_id:
+                return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-            if record:
-                if not str(record.issue_id) == self.kwargs.get("pk"):
-                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+        try:
+            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
 
-                issue = (
-                    ErrorTrackingIssue.objects.with_first_seen()
-                    .select_related("assignment")
-                    .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id)
-                )
-                serializer = self.get_serializer(issue)
-                return Response(serializer.data)
+        serializer = ErrorTrackingIssueReadSerializer(issue)
+        return Response(serializer.data)
 
-        return super().retrieve(request, *args, **kwargs)
-
+    @validated_request(
+        request_serializer=ErrorTrackingIssueMergeRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueMergeResponseSerializer)},
+    )
     @action(methods=["POST"], detail=True)
-    def merge(self, request, **kwargs):
+    def merge(self, request: ValidatedRequest, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        ids: list[str] = request.data.get("ids", [])
+        ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
         return Response({"success": True})
 
+    @validated_request(
+        request_serializer=ErrorTrackingIssueSplitRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueSplitResponseSerializer)},
+    )
     @action(methods=["POST"], detail=True)
-    def split(self, request, **kwargs):
+    def split(self, request: ValidatedRequest, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        fingerprints: list[str] = request.data.get("fingerprints", [])
-        exclusive: bool = request.data.get("exclusive", True)
-        issue.split(fingerprints=fingerprints, exclusive=exclusive)
-        return Response({"success": True})
+        fingerprints = request.validated_data["fingerprints"]
+        new_issues = issue.split(fingerprints=fingerprints)
+        return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)
     def assign(self, request, **kwargs):
@@ -164,6 +314,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assign_issue(
             instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
         )
+        sync_issues_to_clickhouse(issue_ids=[instance.id], team_id=instance.team_id)
 
         return Response({"success": True})
 
@@ -180,6 +331,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         try:
             ## Upsert cohort_id as a cohort might have been soft deleted
+            # nosemgrep: idor-lookup-without-team (cohort scoped to team before use)
             _ = ErrorTrackingIssueCohort.objects.update_or_create(issue=issue, defaults={"cohort_id": cohort.id})
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -202,7 +354,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             elif key == "issue_description":
                 issue_values = queryset.filter(description__icontains=value).values_list("description", flat=True)
 
-        return Response([{"name": value} for value in issue_values])
+        return Response({"results": [{"name": value} for value in issue_values], "refreshing": False})
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
@@ -247,8 +399,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                         issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
                     )
 
+        sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=self.team_id)
+
         return Response({"success": True})
 
+    @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -283,15 +438,32 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
     )
 
     if assignee:
+        if assignee["type"] == "user":
+            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
+                raise ValidationError("Assignee user does not belong to this organization.")
+        elif assignee["type"] == "role":
+            from ee.models.rbac.role import Role
+
+            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+                raise ValidationError("Assignee role does not belong to this organization.")
+
+        # nosemgrep: idor-lookup-without-team (assignee validated against org above)
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={
+                "team_id": issue.team_id,
                 "user_id": None if assignee["type"] != "user" else assignee["id"],
                 "role_id": None if assignee["type"] != "role" else assignee["id"],
             },
         )
 
         send_error_tracking_issue_assigned.delay(assignment_after.id, user.id)
+
+        dispatch_issue_assigned_realtime(
+            assignment=assignment_after,
+            assignee=assignee,
+            assigner=user,
+        )
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None

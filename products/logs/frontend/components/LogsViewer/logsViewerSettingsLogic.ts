@@ -1,4 +1,5 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import type { logsViewerSettingsLogicType } from './logsViewerSettingsLogicType'
 
@@ -33,12 +34,21 @@ export const logsViewerSettingsLogic = kea<logsViewerSettingsLogicType>([
             },
         ],
 
+        // Not persisted: no toolbar control anymore; avoid stale localStorage. Default off — use row FAB / p to prettify per row.
         prettifyJson: [
-            true,
-            { persist: true },
+            false,
             {
                 setPrettifyJson: (_, { prettifyJson }) => prettifyJson,
             },
         ],
+    })),
+
+    listeners(() => ({
+        setTimezone: ({ timezone }) => {
+            posthog.capture('logs setting changed', { setting: 'timezone', value: timezone })
+        },
+        setWrapBody: ({ wrapBody }) => {
+            posthog.capture('logs setting changed', { setting: 'wrap_body', value: wrapBody })
+        },
     })),
 ])

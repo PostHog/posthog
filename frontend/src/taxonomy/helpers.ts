@@ -1,10 +1,18 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
 import { CoreFilterDefinition } from '~/types'
 
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from './taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinitionsGroup } from './taxonomy'
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
+
+const hasCoreFilterDefinitionsForGroup = (
+    type: TaxonomicFilterGroupType
+): Record<string, CoreFilterDefinition> | null =>
+    type in CORE_FILTER_DEFINITIONS_BY_GROUP
+        ? CORE_FILTER_DEFINITIONS_BY_GROUP[type as CoreFilterDefinitionsGroup]
+        : null
 
 export function isCoreFilter(key: string): boolean {
     return Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))
@@ -22,8 +30,9 @@ export function getCoreFilterDefinition(
 
     value = value.toString()
     const isGroupTaxonomicFilterType = type.startsWith('groups_')
-    if (type in CORE_FILTER_DEFINITIONS_BY_GROUP && value in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
-        return { ...CORE_FILTER_DEFINITIONS_BY_GROUP[type][value] }
+    const groupDefinitions = hasCoreFilterDefinitionsForGroup(type)
+    if (groupDefinitions && value in groupDefinitions) {
+        return { ...groupDefinitions[value] }
     } else if (
         isGroupTaxonomicFilterType &&
         value in CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.GroupsPrefix]
@@ -46,16 +55,37 @@ export function getCoreFilterDefinition(
             }
         }
     } else if (value.startsWith('$survey_response_')) {
-        const surveyIndex = value.replace(/^\$survey_response_/, '')
-        if (surveyIndex) {
-            const index = Number(surveyIndex) + 1
-            // yes this will return 21th, but I'm applying the domain logic of
-            // it being very unlikely that someone will have more than 20 questions,
-            // rather than hyper optimising the suffix.
-            const suffix = index === 1 ? 'st' : index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+        const suffix = value.replace(/^\$survey_response_/, '')
+        if (suffix) {
+            // If `surveyQuestionLabelsLogic` is mounted (a `PropertyKeyInfo` for any
+            // survey response key triggers the mount, which auto-loads the slim labels
+            // endpoint), prefer the actual question text. This branch covers every
+            // call site — `PropertyKeyInfo`, the property definitions popover, chart
+            // legends, breakdown labels, the admin definitions page — so all of them
+            // benefit once the labels have loaded.
+            const resolved = surveyQuestionLabelsLogic.findMounted()?.values.surveyQuestionLabels?.[suffix]
+            if (resolved) {
+                return {
+                    label: `${resolved.questionText} · ${resolved.surveyName}`,
+                    description: `Response to "${resolved.questionText}" in survey "${resolved.surveyName}".`,
+                }
+            }
+            const parsedIndex = Number(suffix)
+            if (Number.isInteger(parsedIndex) && parsedIndex >= 0) {
+                const index = parsedIndex + 1
+                const ordinal = index === 1 ? 'st' : index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+                return {
+                    label: `Survey response for ${index}${ordinal} question`,
+                    description: `The response value for the ${index}${ordinal} question in the survey.`,
+                }
+            }
+            // Modern format `$survey_response_<question-uuid>`, but the labels haven't
+            // loaded yet (or this consumer doesn't subscribe so it won't re-render
+            // when they do). Emit a generic short-ID label as a placeholder.
+            const shortId = suffix.slice(0, 8)
             return {
-                label: `Survey Response Question ID: ${surveyIndex}`,
-                description: `The response value for the ${index}${suffix} question in the survey.`,
+                label: `Survey response (${shortId}…)`,
+                description: `Response for survey question with ID "${suffix}".`,
             }
         }
     } else if (value.startsWith('$feature/')) {
@@ -90,9 +120,9 @@ export function getCoreFilterDefinition(
 }
 
 export function getFirstFilterTypeFor(propertyKey: string): TaxonomicFilterGroupType | null {
-    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as TaxonomicFilterGroupType[]) {
+    for (const type of Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP) as CoreFilterDefinitionsGroup[]) {
         if (propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP[type]) {
-            return type
+            return type as TaxonomicFilterGroupType
         }
     }
     return null
@@ -105,7 +135,7 @@ export function getFilterLabel(key: PropertyKey, type: TaxonomicFilterGroupType)
 
 export function getPropertyKey(value: string, type: TaxonomicFilterGroupType): string {
     // Find the key by looking through the mapping
-    const group = CORE_FILTER_DEFINITIONS_BY_GROUP[type]
+    const group = hasCoreFilterDefinitionsForGroup(type)
     if (group) {
         const foundKey = Object.entries(group).find(([_, def]) => (def as any).label === value || _ === value)?.[0]
         return foundKey || value

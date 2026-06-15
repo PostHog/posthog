@@ -53,7 +53,6 @@ import structlog
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team.team import Team
-from posthog.redis import get_client
 from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches as get_teams_generic,
@@ -103,6 +102,7 @@ TEAM_METADATA_FIELDS = [
     "cookieless_server_hash_mode",
     "survey_config",
     "surveys_opt_in",
+    "product_tours_opt_in",
     "capture_console_log_opt_in",
     "capture_performance_opt_in",
     "capture_dead_clicks",
@@ -111,6 +111,9 @@ TEAM_METADATA_FIELDS = [
     "autocapture_exceptions_errors_to_ignore",
     "autocapture_web_vitals_opt_in",
     "autocapture_web_vitals_allowed_metrics",
+    "logs_settings",
+    "conversations_enabled",
+    "conversations_settings",
     "inject_web_apps",
     "heatmaps_opt_in",
     "flags_persistence_default",
@@ -138,7 +141,15 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     elif field == "organization_id":
         return str(value) if value else None
     elif field == "session_recording_sample_rate":
-        return float(value) if value is not None else None
+        # Match the logic in decide.py and remote_config.py:
+        # - Convert Decimal to string directly (preserves precision like "1.00")
+        # - Return None for 100% sampling (no sampling needed)
+        if value is not None:
+            str_value = str(value)
+            if str_value == "1.00":
+                return None
+            return str_value
+        return None
     return value
 
 
@@ -266,13 +277,20 @@ def verify_team_metadata(
         Dict with 'status' ("match", "miss", "mismatch") and 'issue' type.
         When verbose=True, includes 'diffs' list with detailed diff information.
     """
-    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch)
+    # Get cached data - use pre-loaded batch data if available (single MGET for whole batch).
+    # The third tuple element (etag) is unused for team-metadata verification.
     if cache_batch_data and team.id in cache_batch_data:
-        cached_data, source = cache_batch_data[team.id]
+        cached_data, source, _ = cache_batch_data[team.id]
     else:
         # Fall back to individual lookup
         cached_data = get_team_metadata(team)
         source = "redis" if cached_data else "miss"
+
+    # Get database comparison data - use db_batch_data if available to avoid redundant serialization
+    if db_batch_data and team.id in db_batch_data:
+        db_data = db_batch_data[team.id]
+    else:
+        db_data = _serialize_team_to_metadata(team)
 
     # Handle cache miss
     if not cached_data or source == "miss":
@@ -280,13 +298,8 @@ def verify_team_metadata(
             "status": "miss",
             "issue": "CACHE_MISS",
             "details": "No cached data found",
+            "db_data": db_data,
         }
-
-    # Get database comparison data - use db_batch_data if available to avoid redundant serialization
-    if db_batch_data and team.id in db_batch_data:
-        db_data = db_batch_data[team.id]
-    else:
-        db_data = _serialize_team_to_metadata(team)
 
     # Compare only fields we care about (defined in TEAM_METADATA_FIELDS + derived fields).
     # This allows removing fields from the cache without triggering unnecessary fixes.
@@ -309,6 +322,7 @@ def verify_team_metadata(
         "issue": "DATA_MISMATCH",
         "details": f"{len(diffs)} field(s) differ",
         "diff_fields": diff_fields,
+        "db_data": db_data,
     }
 
     if verbose:
@@ -380,23 +394,6 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
         kinds: Optional list of cache types to clear (["redis", "s3"])
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
-
-    # Remove from expiry tracking sorted set
-    try:
-        redis_client = get_client(team_metadata_hypercache.redis_url)
-
-        # Derive identifier using HyperCache's centralized logic
-        if isinstance(team, Team):
-            identifier = team_metadata_hypercache.get_cache_identifier(team)
-        elif isinstance(team, str):
-            identifier = team  # Already have the token
-        else:
-            # If team ID, skip sorted set cleanup (rare case)
-            return
-
-        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, identifier)
-    except Exception as e:
-        logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 
 
 # ===================================================================

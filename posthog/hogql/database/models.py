@@ -1,15 +1,22 @@
 import datetime
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field as PydanticField,
+)
 
 from posthog.hogql.base import Expr
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.errors import NotImplementedError, ResolutionError
 
+# Import Workload at module level for Pydantic (needed at runtime)
+from posthog.clickhouse.workload import Workload
+
 if TYPE_CHECKING:
-    from posthog.hogql.ast import LazyJoinType, SelectQuery
+    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
 
@@ -89,6 +96,19 @@ class StringJSONDatabaseField(DatabaseField):
         return ""
 
 
+class StructDatabaseField(DatabaseField):
+    fields: dict[str, "DatabaseField"] = PydanticField(default_factory=dict)
+
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import TupleType
+
+        return TupleType(
+            nullable=self.is_nullable(),
+            item_types=[field.get_constant_type() for field in self.fields.values()],
+            field_names=list(self.fields.keys()),
+        )
+
+
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringArrayType
@@ -101,9 +121,9 @@ class StringArrayDatabaseField(DatabaseField):
 
 class FloatArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import FloatType
+        from posthog.hogql.ast import ArrayType, FloatType
 
-        return FloatType(nullable=self.is_nullable())
+        return ArrayType(nullable=self.is_nullable(), item_type=FloatType(nullable=False))
 
     def default_value(self) -> Any:
         return ""
@@ -162,7 +182,10 @@ class FieldTraverser(FieldOrTable):
 
 
 class Table(FieldOrTable):
+    name: str | None = None
     fields: dict[str, FieldOrTable]
+    top_level_settings: Optional[HogQLQuerySettings] = None
+    workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
@@ -179,6 +202,9 @@ class Table(FieldOrTable):
 
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
+
+    def get_predicates(self) -> list[Expr]:
+        return []
 
     def avoid_asterisk_fields(self) -> list[str]:
         return []
@@ -209,6 +235,9 @@ class TableNode(BaseModel):
     name: Literal["root"] | str = "root"  # Default to root for ease of use
     table: FieldOrTable | None = None
     children: dict[str, "TableNode"] = {}
+    # When True, the table is reachable by the resolver (so other tables can reference it
+    # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
+    hidden: bool = False
 
     def get(self) -> FieldOrTable:
         """
@@ -238,7 +267,7 @@ class TableNode(BaseModel):
 
         first, *rest_of_path = path
         if first not in self.children:
-            raise ResolutionError(f"Unknown child `{first}` at `{self.name}`.")
+            raise ResolutionError(f"Unknown table `{first}`.")
 
         return self.children[first].get_child(rest_of_path)
 
@@ -302,6 +331,31 @@ class TableNode(BaseModel):
 
         return names
 
+    def resolve_visible_table_names(self) -> list[str]:
+        """Same as `resolve_all_table_names` but skips nodes marked `hidden=True`.
+
+        Use this for surfaces aimed at users (SQL editor schema sidebar, autocomplete,
+        access-control allowlists). The resolver itself should keep using
+        `resolve_all_table_names` so that hidden tables remain reachable via
+        subqueries — they're just kept out of the catalog.
+        """
+        names: list[str] = []
+
+        if self.table is not None and not self.hidden:
+            names.append(self.name)
+
+        for child in self.children.values():
+            if child.hidden:
+                continue
+            child_names = child.resolve_visible_table_names()
+
+            if self.name == "root":
+                names.extend(child_names)
+            else:
+                names.extend([f"{self.name}.{x}" for x in child_names])
+
+        return names
+
     @staticmethod
     def create_nested_for_chain(chain: list[str], table: Table) -> "TableNode":
         assert len(chain) > 0
@@ -323,7 +377,12 @@ class TableNode(BaseModel):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
+    # A lazy join is described entirely as plain, serializable data: a `resolver` tag naming a
+    # join recipe in the registry, plus JSON-able `resolver_params` for anything the recipe
+    # needs at resolution time. Keeping the LazyJoin free of closures is what makes the whole
+    # Database serializable and cacheable.
+    resolver: str
+    resolver_params: dict[str, Any] = PydanticField(default_factory=dict)
     join_table: Table | str
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
@@ -336,6 +395,13 @@ class LazyJoin(FieldOrTable):
             raise ResolutionError("Database is not set")
 
         return context.database.get_table(self.join_table)
+
+    def resolve_join_to_add(
+        self, join_to_add: "LazyJoinToAdd", context: "HogQLContext", node: "SelectQuery"
+    ) -> "JoinExpr":
+        from posthog.hogql.database.lazy_join_registry import get_lazy_join_resolver  # noqa: PLC0415 — circular import
+
+        return get_lazy_join_resolver(self.resolver)(join_to_add, context, node)
 
 
 class LazyTable(Table):
@@ -409,13 +475,13 @@ class SavedQuery(Table):
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):
-        from products.data_warehouse.backend.models import validate_saved_query_name
+        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
 
     def to_printed_hogql(self):
-        from products.data_warehouse.backend.models import validate_saved_query_name
+        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name

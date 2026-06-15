@@ -1,61 +1,112 @@
-import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
+import { CommonConfig } from './common/config'
+import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
+import { isDevEnv } from './utils/env-utils'
 
-export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
+// =============================================================================
+// Capability Groups for Local Development
+// These can be combined via hogli dev:setup to reduce event loop contention and memory overhead
+// =============================================================================
+
+/** CDP - destinations, webhooks, and realtime alerts */
+export const CAPABILITIES_CDP: PluginServerCapabilities = {
+    cdpProcessedEvents: true,
+    cdpPersonUpdates: true,
+    cdpInternalEvents: true,
+    cdpCyclotronWorker: true,
+    cdpApi: true,
+    appManagementSingleton: true,
+    cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
+    cdpLegacyOnEvent: false, // most of the times not needed
+    cdpRerunWorker: true,
+}
+
+/** CDP + Workflows - full CDP with HogFlow workflow automation */
+export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
+    ...CAPABILITIES_CDP,
+    cdpBatchHogFlow: true,
+    cdpCyclotronWorkerHogFlow: true,
+    cdpCyclotronWorkerEmail: true,
+    cdpCyclotronV2Janitor: isDevEnv(),
+    cdpHogflowScheduler: isDevEnv(),
+    cdpHogflowSubscriptionMatcher: isDevEnv(),
+}
+
+/** Realtime Cohorts - precalculated filters and cohort membership */
+export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
+    cdpPrecalculatedFilters: true,
+    cdpCohortMembership: true,
+}
+
+/** Error Tracking - exception event ingestion */
+export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
+    errorTrackingIngestion: true,
+}
+
+/** Feature Flags - evaluation scheduler for flags and experiments */
+export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
+    evaluationScheduler: true,
+}
+
+// =============================================================================
+// Helper to merge capability groups
+// =============================================================================
+
+function mergeCapabilities(...groups: PluginServerCapabilities[]): PluginServerCapabilities {
+    return Object.assign({}, ...groups)
+}
+
+// =============================================================================
+// Main capability resolution
+// =============================================================================
+
+/** Map of capability group names to their capabilities */
+const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
+    cdp: CAPABILITIES_CDP,
+    cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
+    realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
+    feature_flags: CAPABILITIES_FEATURE_FLAGS,
+}
+
+export function getPluginServerCapabilities(
+    config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'>
+): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null
 
     switch (mode) {
+        // Local development modes - composable groups
         case null:
-            return {
-                ingestionV2Combined: true,
-                sessionRecordingBlobIngestionV2: true,
-                sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
-                appManagementSingleton: true,
-                cdpProcessedEvents: true,
-                cdpDataWarehouseEvents: true,
-                cdpPersonUpdates: true,
-                cdpInternalEvents: true,
-                cdpCyclotronWorker: true,
-                cdpCyclotronWorkerHogFlow: true,
-                cdpCyclotronWorkerDelay: true,
-                cdpPrecalculatedFilters: true,
-                cdpCohortMembership: true,
-                cdpApi: true,
-                evaluationScheduler: true,
-                logsIngestion: true,
+            // Check if specific capability groups are requested via env var
+            if (config.NODEJS_CAPABILITY_GROUPS && config.NODEJS_CAPABILITY_GROUPS.trim()) {
+                const requestedGroups = config.NODEJS_CAPABILITY_GROUPS.split(',').map((g) => g.trim())
+                const capabilities: PluginServerCapabilities[] = []
+
+                for (const group of requestedGroups) {
+                    const groupCapabilities = CAPABILITY_GROUP_MAP[group]
+                    if (groupCapabilities) {
+                        capabilities.push(groupCapabilities)
+                    } else {
+                        console.warn(`Unknown Node.js capability group: ${group}`)
+                    }
+                }
+
+                return mergeCapabilities(...capabilities)
             }
+
+            // Default local dev: run everything except ingestion, recordings, logs, and traces (they run in separate processes)
+            return mergeCapabilities(
+                CAPABILITIES_CDP_WORKFLOWS,
+                CAPABILITIES_REALTIME_COHORTS,
+                CAPABILITIES_ERROR_TRACKING,
+                CAPABILITIES_FEATURE_FLAGS
+            )
 
         case PluginServerMode.local_cdp:
-            return {
-                ingestionV2: true,
-                cdpProcessedEvents: true,
-                cdpDataWarehouseEvents: true,
-                cdpPersonUpdates: true,
-                cdpInternalEvents: true,
-                cdpCyclotronWorker: true,
-                cdpCyclotronWorkerHogFlow: true,
-                cdpCyclotronWorkerDelay: true,
-                cdpPrecalculatedFilters: true,
-                cdpCohortMembership: true,
-                cdpApi: true,
-            }
+            // Local CDP development: CDP + workflows + realtime cohorts (ingestion runs separately)
+            return mergeCapabilities(CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
 
-        case PluginServerMode.ingestion_v2:
-            // NOTE: this mode will be removed in the future and replaced with
-            // `analytics-ingestion` and `recordings-ingestion` modes.
-            return {
-                ingestionV2: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion_v2:
-            return {
-                sessionRecordingBlobIngestionV2: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion_v2_overflow:
-            return {
-                sessionRecordingBlobIngestionV2Overflow: true,
-            }
-
+        // Production modes - granular control for dedicated pods
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,
@@ -76,13 +127,21 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_delay:
+        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
             return {
-                cdpCyclotronWorkerDelay: true,
+                cdpCyclotronWorkerHogFlowLegacyPg: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_email:
+            return {
+                cdpCyclotronWorkerEmail: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
+            }
+        case PluginServerMode.cdp_hogflow_subscription_matcher:
+            return {
+                cdpHogflowSubscriptionMatcher: true,
             }
         case PluginServerMode.cdp_cohort_membership:
             return {
@@ -103,12 +162,41 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
+        case PluginServerMode.ingestion_metrics:
+        case PluginServerMode.ingestion_traces:
+            throw new Error(`Mode ${mode} is handled by a dedicated server, not PluginServer`)
+        case PluginServerMode.ingestion_error_tracking:
             return {
-                logsIngestion: true,
+                errorTrackingIngestion: true,
+            }
+        case PluginServerMode.cdp_batch_hogflow_requests:
+            return {
+                cdpBatchHogFlow: true,
             }
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
             }
+        case PluginServerMode.cdp_cyclotron_v2_janitor:
+            return {
+                cdpCyclotronV2Janitor: true,
+            }
+        case PluginServerMode.cdp_rerun_worker:
+            return {
+                cdpRerunWorker: true,
+            }
+        case PluginServerMode.ingestion_v2:
+        case PluginServerMode.ingestion_v2_combined:
+            throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
+        case PluginServerMode.ingestion_api:
+            throw new Error(`Mode ${mode} is handled by IngestionApiServer, not PluginServer`)
+        case PluginServerMode.cdp_hogflow_scheduler:
+            return {
+                cdpHogflowScheduler: true,
+            }
+        case PluginServerMode.recordings_blob_ingestion_v2:
+        case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recording_api:
+            throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }
 }

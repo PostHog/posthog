@@ -6,29 +6,21 @@ import os
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
-import django.utils.timezone
-
-import orjson
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
-from posthog.schema import SurveyCreationSchema, SurveyQuestionSchema, SurveyQuestionType, SurveyType
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
+from products.surveys.backend.models import Survey
 
-from posthog.models import FeatureFlag, Insight, Survey
-
-from products.surveys.backend.max_tools import SurveyAnalysisOutput, ThemeWithExamples
-
-from .max_tools import CreateSurveyTool, SurveyAnalysisTool, SurveyLoopNode, SurveyToolkit
-
-OPENAI_PATCH_PATH = "products.surveys.backend.max_tools.MaxChatOpenAI"
+from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
 
 
 class TestSurveyCreatorTool(BaseTest):
     def setUp(self):
         super().setUp()
-        # Set mock OpenAI API key for tests
         os.environ["OPENAI_API_KEY"] = "test-api-key"
         self._config: RunnableConfig = {
             "configurable": {
@@ -39,17 +31,13 @@ class TestSurveyCreatorTool(BaseTest):
 
     def tearDown(self):
         super().tearDown()
-        # Clean up the mock API key
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
     def _setup_tool(self):
-        """Helper to create a SurveyCreatorTool instance with mocked dependencies"""
-        tool = CreateSurveyTool(team=self.team, user=self.user, config=self._config)
-        return tool
+        return CreateSurveyTool(team=self.team, user=self.user, config=self._config)
 
     def test_get_team_survey_config(self):
-        """Test team survey configuration function"""
         from products.surveys.backend.max_tools import get_team_survey_config
 
         config = get_team_survey_config(self.team)
@@ -58,122 +46,84 @@ class TestSurveyCreatorTool(BaseTest):
         assert "default_settings" in config
         assert config["default_settings"]["type"] == "popover"
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_success(self, mock_create_survey):
-        """Test successful survey creation through _arun_impl"""
+    async def test_arun_impl_success(self):
         tool = self._setup_tool()
 
-        # Mock the LLM response
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(
             name="Test Survey",
             description="A simple test survey",
-            type=SurveyType.POPOVER,
             questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.OPEN,
-                    question="How do you feel about our product?",
-                    description="Please share your thoughts",
-                    optional=False,
-                )
+                SimpleSurveyQuestion(
+                    type="open", question="How do you feel about our product?", description="Please share your thoughts"
+                ),
             ],
-            should_launch=False,
-            enable_partial_responses=True,
         )
 
-        # Set up the mock to return our test data
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create a test survey")
-
-        # Verify success response
-        assert "✅ Survey" in content
+        assert "Survey" in content
         assert "created" in content
         assert "successfully" in content
         assert "survey_id" in artifact
         assert "survey_name" in artifact
 
-        # Verify survey was created in database
         survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
         assert survey.name == "Test Survey"
         assert survey.description == "A simple test survey"
         assert survey.type == "popover"
+        assert survey.questions is not None
         assert len(survey.questions) == 1
         assert not survey.archived
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_no_questions_validation(self, mock_create_survey):
-        """Test validation error when no questions are provided"""
+    async def test_arun_impl_no_questions_validation(self):
         tool = self._setup_tool()
 
-        # Mock LLM response with no questions
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(name="Test Survey", questions=[])
+
+        assert "Survey must have at least one question" in content
+        assert artifact["error"] == "validation_failed"
+        assert "No questions provided" in artifact["error_message"]
+
+    @parameterized.expand([("single_choice",), ("multiple_choice",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_choice_question_without_choices_validation(self, question_type):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
             name="Test Survey",
-            description="A test survey",
-            type=SurveyType.POPOVER,
-            questions=[],  # Empty questions list
-            should_launch=False,
-            enable_partial_responses=True,
+            questions=[SimpleSurveyQuestion(type=question_type, question="Pick one")],
         )
 
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create a survey")
-
-        # Verify error response
-        assert "❌ Survey must have at least one question" in content
+        assert "Survey validation failed" in content
         assert artifact["error"] == "validation_failed"
-        assert "No questions were created from the survey instructions" in artifact["error_message"]
+        assert "choices" in artifact["error_message"]
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_with_launch(self, mock_create_survey):
-        """Test survey creation with immediate launch"""
+    async def test_arun_impl_with_launch(self):
         tool = self._setup_tool()
 
-        # Mock the LLM response with launch=True
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(
             name="Launch Survey",
             description="A survey to launch",
-            type=SurveyType.POPOVER,
-            questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.OPEN,
-                    question="Test question?",
-                    optional=False,
-                )
-            ],
-            should_launch=True,  # This should launch the survey
-            enable_partial_responses=True,
+            questions=[SimpleSurveyQuestion(type="open", question="Test question?")],
+            should_launch=True,
         )
 
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create and launch a survey")
-
-        # Verify success response with launch message
-        assert "✅ Survey" in content
+        assert "Survey" in content
         assert "successfully" in content
 
-        # Verify survey was created and launched
         survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
-        assert survey.start_date is not None  # Should have a start date when launched
+        assert survey.start_date is not None
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_survey_with_feature_flag(self, mock_create_survey):
-        """Test creating a survey with a linked feature flag"""
+    async def test_create_survey_with_feature_flag(self):
         tool = self._setup_tool()
 
-        # Create a test feature flag
         flag = await sync_to_async(FeatureFlag.objects.create)(
             team=self.team,
             key="test-feature",
@@ -182,46 +132,25 @@ class TestSurveyCreatorTool(BaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
-        # Mock the LLM response with linked flag
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(
             name="Feature Flag Survey",
             description="Survey for users with test feature",
-            type=SurveyType.POPOVER,
-            questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.RATING,
-                    question="How satisfied are you with the new feature?",
-                    scale=5,
-                    optional=False,
-                )
-            ],
+            questions=[SimpleSurveyQuestion(type="csat", question="How satisfied are you with the new feature?")],
             linked_flag_id=flag.id,
-            should_launch=False,
-            enable_partial_responses=True,
         )
 
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for users with test-feature flag")
-
-        # Verify success response
-        assert "✅ Survey" in content
+        assert "Survey" in content
         assert "successfully" in content
 
-        # Verify survey was created with feature flag
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "Feature Flag Survey"
         assert survey.linked_flag_id == flag.id
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_survey_with_feature_flag_variant(self, mock_create_survey):
-        """Test creating a survey with a feature flag variant"""
+    async def test_create_survey_with_feature_flag_variant(self):
         tool = self._setup_tool()
 
-        # Create a multivariate feature flag
         flag = await sync_to_async(FeatureFlag.objects.create)(
             team=self.team,
             key="ab-test-feature",
@@ -238,48 +167,34 @@ class TestSurveyCreatorTool(BaseTest):
             },
         )
 
-        # Mock the LLM response with linked flag and variant
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(
             name="A/B Test Control Survey",
             description="Survey for users in control variant",
-            type=SurveyType.POPOVER,
             questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.SINGLE_CHOICE,
+                SimpleSurveyQuestion(
+                    type="single_choice",
                     question="Which version do you prefer?",
                     choices=["Version A", "Version B", "No preference"],
-                    optional=False,
                 )
             ],
             linked_flag_id=flag.id,
-            conditions={"linkedFlagVariant": "control"},
-            should_launch=False,
-            enable_partial_responses=True,
+            linked_flag_variant="control",
         )
 
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for users in control variant of ab-test-feature")
-
-        # Verify success response
-        assert "✅ Survey" in content
+        assert "Survey" in content
         assert "successfully" in content
 
-        # Verify survey was created with feature flag and variant
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "A/B Test Control Survey"
         assert survey.linked_flag_id == flag.id
+        assert survey.conditions is not None
         assert survey.conditions["linkedFlagVariant"] == "control"
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_survey_with_feature_flag_variant_any(self, mock_create_survey):
-        """Test creating a survey with linkedFlagVariant set to 'any'"""
+    async def test_create_survey_with_feature_flag_variant_any(self):
         tool = self._setup_tool()
 
-        # Create a multivariate feature flag
         flag = await sync_to_async(FeatureFlag.objects.create)(
             team=self.team,
             key="multivariate-feature",
@@ -297,52 +212,65 @@ class TestSurveyCreatorTool(BaseTest):
             },
         )
 
-        # Mock the LLM response with linked flag and 'any' variant
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(
             name="All Variants Survey",
             description="Survey for all users with the feature enabled",
-            type=SurveyType.POPOVER,
-            questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.OPEN,
-                    question="How is the new feature working for you?",
-                    optional=False,
-                )
-            ],
+            questions=[SimpleSurveyQuestion(type="open", question="How is the new feature working for you?")],
             linked_flag_id=flag.id,
-            conditions={"linkedFlagVariant": "any"},
-            should_launch=False,
-            enable_partial_responses=True,
+            linked_flag_variant="any",
         )
 
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for all users with multivariate-feature enabled")
-
-        # Verify success response
-        assert "✅ Survey" in content
+        assert "Survey" in content
         assert "successfully" in content
 
-        # Verify survey was created with feature flag and 'any' variant
         survey = await sync_to_async(Survey.objects.select_related("linked_flag").get)(id=artifact["survey_id"])
         assert survey.name == "All Variants Survey"
         assert survey.linked_flag_id == flag.id
+        assert survey.conditions is not None
         assert survey.conditions["linkedFlagVariant"] == "any"
 
-    @patch.object(CreateSurveyTool, "_create_survey_from_instructions")
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_create_survey_with_linked_insight(self, mock_create_survey):
-        """Test creating a survey with a linked insight (from funnel cross-sell)"""
-        # Create a test insight
+    async def test_is_dangerous_operation_with_launch(self):
+        tool = self._setup_tool()
+        is_dangerous = await tool.is_dangerous_operation(should_launch=True)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_without_launch(self):
+        tool = self._setup_tool()
+        is_dangerous = await tool.is_dangerous_operation(should_launch=False)
+        assert is_dangerous is False
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_format_dangerous_operation_preview(self):
+        tool = self._setup_tool()
+
+        preview = await tool.format_dangerous_operation_preview(
+            name="NPS Survey",
+            questions=[
+                SimpleSurveyQuestion(type="nps", question="How likely are you to recommend us?"),
+                SimpleSurveyQuestion(type="open", question="Why?", optional=True),
+            ],
+            should_launch=True,
+        )
+
+        assert "Create and launch" in preview
+        assert "NPS Survey" in preview
+        assert "2 question(s)" in preview
+        assert "start collecting responses" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_with_linked_insight(self):
         insight = await sync_to_async(Insight.objects.create)(
             team=self.team,
             name="Test Funnel",
             created_by=self.user,
         )
 
-        # Create tool with insight_id in context
         tool = CreateSurveyTool(
             team=self.team,
             user=self.user,
@@ -355,155 +283,289 @@ class TestSurveyCreatorTool(BaseTest):
             },
         )
 
-        # Mock the LLM response
-        mock_output = SurveyCreationSchema(
+        content, artifact = await tool._arun_impl(
             name="Funnel Survey",
             description="Survey for funnel conversion",
-            type=SurveyType.POPOVER,
-            questions=[
-                SurveyQuestionSchema(
-                    type=SurveyQuestionType.OPEN,
-                    question="Why didn't you complete the checkout?",
-                    optional=False,
-                )
-            ],
-            should_launch=False,
-            enable_partial_responses=True,
+            questions=[SimpleSurveyQuestion(type="open", question="Why didn't you complete the checkout?")],
         )
 
-        mock_create_survey.return_value = mock_output
-
-        # Run the method
-        content, artifact = await tool._arun_impl("Create a survey for this funnel")
-
-        # Verify success response
-        assert "✅ Survey" in content
+        assert "Survey" in content
         assert "successfully" in content
 
-        # Verify survey was created with linked insight
         survey = await sync_to_async(Survey.objects.select_related("linked_insight").get)(id=artifact["survey_id"])
         assert survey.name == "Funnel Survey"
         assert survey.linked_insight_id == insight.id
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_nps_survey_builds_correct_question(self):
+        tool = self._setup_tool()
 
-class TestSurveyLoopNode(BaseTest):
-    def setUp(self):
-        super().setUp()
+        content, artifact = await tool._arun_impl(
+            name="NPS Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="nps",
+                    question="How likely are you to recommend us?",
+                    lower_bound_label="Not likely at all",
+                    upper_bound_label="Extremely likely",
+                )
+            ],
+        )
 
-    def _setup_node(self):
-        """Helper to create a TestSurveyLoopNode instance"""
-        return SurveyLoopNode(team=self.team, user=self.user, toolkit_class=SurveyToolkit)
+        assert "successfully" in content
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.questions is not None
+        assert len(survey.questions) > 0
+
+        q = survey.questions[0]
+        assert q["type"] == "rating"
+        assert q["scale"] == 10
+        assert q["display"] == "number"
+        assert q["lowerBoundLabel"] == "Not likely at all"
+        assert q["upperBoundLabel"] == "Extremely likely"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_existing_surveys_summary_empty(self):
-        """Test getting existing surveys summary when no surveys exist"""
-        node = self._setup_node()
+    async def test_create_survey_with_url_targeting(self):
+        tool = self._setup_tool()
 
-        summary = await node._get_existing_surveys_summary()
+        content, artifact = await tool._arun_impl(
+            name="Pricing Feedback",
+            questions=[SimpleSurveyQuestion(type="open", question="Is our pricing clear?")],
+            target_url="/pricing",
+            target_url_match="contains",
+        )
 
-        assert summary == "No existing surveys"
+        assert "successfully" in content
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+
+        assert survey.conditions is not None
+        assert survey.conditions["url"] == "/pricing"
+        assert survey.conditions["urlMatchType"] == "icontains"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_existing_surveys_summary_with_surveys(self):
-        """Test getting existing surveys summary with existing surveys"""
-        node = self._setup_node()
+    async def test_create_survey_sanitizes_question_html(self):
+        tool = self._setup_tool()
 
-        # Create test surveys
-        await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Draft Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "Test?"}],
-            created_by=self.user,
+        content, artifact = await tool._arun_impl(
+            name="Sanitized Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="link",
+                    question="<b>Click here</b><script>alert('xss')</script>",
+                    description="<i>Learn more</i><script>evil()</script>",
+                    button_text="<strong>Open</strong><script>bad()</script>",
+                    link="https://example.com",
+                )
+            ],
         )
 
-        # Create an active survey (with start_date but no end_date)
-        await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Active Survey",
-            type="email",
-            questions=[{"type": "rating", "question": "How satisfied?", "scale": 5}],
-            created_by=self.user,
-            start_date=django.utils.timezone.now(),
-        )
+        assert "successfully" in content
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.questions is not None
 
-        summary = await node._get_existing_surveys_summary()
-
-        # Verify both surveys are included
-        assert "Draft Survey" in summary
-        assert "Active Survey" in summary
-        assert "draft" in summary
-        assert "active" in summary
-        assert "popover" in summary
-        assert "email" in summary
+        question = survey.questions[0]
+        assert "<b>Click here</b>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<i>Learn more</i>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Open</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_get_existing_surveys_summary_excludes_archived(self):
-        """Test that archived surveys are excluded from the summary"""
-        node = self._setup_node()
+    async def test_create_survey_rejects_javascript_link(self):
+        tool = self._setup_tool()
 
-        # Create a regular survey
-        await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Regular Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "Test?"}],
-            created_by=self.user,
+        content, artifact = await tool._arun_impl(
+            name="Unsafe Survey",
+            questions=[
+                SimpleSurveyQuestion(
+                    type="link",
+                    question="Open this link",
+                    link="javascript:alert('xss')",
+                )
+            ],
         )
 
-        # Create an archived survey (should be excluded)
-        await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Archived Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "Test?"}],
-            created_by=self.user,
-            archived=True,
-        )
-
-        summary = await node._get_existing_surveys_summary()
-
-        # Only the non-archived survey should be included
-        assert "Regular Survey" in summary
-        assert "Archived Survey" not in summary
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_get_existing_surveys_summary_limits_to_five(self):
-        """Test that the summary is limited to 5 surveys"""
-        node = self._setup_node()
-
-        # Create 6 surveys
-        survey_names = []
-        for i in range(6):
-            name = f"Survey {i+1}"
-            survey_names.append(name)
-            await sync_to_async(Survey.objects.create)(
-                team=self.team,
-                name=name,
-                type="popover",
-                questions=[{"type": "open", "question": "Test?"}],
-                created_by=self.user,
-            )
-
-        summary = await node._get_existing_surveys_summary()
-
-        # Count the number of survey entries (lines starting with "- '")
-        summary_lines = [line for line in summary.split("\n") if line.strip().startswith("- '")]
-        assert len(summary_lines) == 5  # Should be limited to 5
-
-        # Verify it contains survey information
-        assert "Survey" in summary
-        assert "draft" in summary
+        assert "validation failed" in content.lower()
+        assert artifact["error"] == "validation_failed"
+        assert "schemes" in artifact["error_message"]
+        assert not await sync_to_async(Survey.objects.filter(name="Unsafe Survey").exists)()
 
 
 class TestSurveyAnalysisTool(BaseTest):
     def setUp(self):
         super().setUp()
-        # Set mock OpenAI API key for tests
+        self._config: RunnableConfig = {
+            "configurable": {
+                "team": self.team,
+                "user": self.user,
+            },
+        }
+
+    def _setup_tool(self):
+        return SurveyAnalysisTool(
+            team=self.team,
+            user=self.user,
+            config=self._config,
+        )
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_no_survey_id(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl()
+
+        assert "no survey id provided" in content.lower()
+        assert artifact["error"] == "no_survey_id"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_survey_not_found(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(survey_id="00000000-0000-0000-0000-000000000000")
+
+        assert "not found" in content.lower()
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_no_responses(self):
+        from unittest.mock import patch
+
+        with patch("products.surveys.backend.max_tools.fetch_responses", return_value=[]):
+            survey = await sync_to_async(Survey.objects.create)(
+                team=self.team,
+                name="Test Survey",
+                type="popover",
+                questions=[{"type": "open", "question": "Test?", "id": "q1"}],
+                created_by=self.user,
+            )
+            tool = self._setup_tool()
+
+            content, artifact = await tool._arun_impl(survey_id=str(survey.id))
+
+            assert "no open-ended responses" in content.lower()
+            assert artifact["response_count"] == 0
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_returns_formatted_responses(self):
+        from unittest.mock import patch
+
+        mock_responses = [
+            "Love the app but need dark mode",
+            "Mobile version is slow",
+            "Great overall experience",
+        ]
+
+        with patch("products.surveys.backend.max_tools.fetch_responses", return_value=mock_responses):
+            survey = await sync_to_async(Survey.objects.create)(
+                team=self.team,
+                name="Product Feedback Survey",
+                type="popover",
+                questions=[{"type": "open", "question": "How can we improve?", "id": "q1"}],
+                created_by=self.user,
+            )
+            tool = self._setup_tool()
+
+            content, artifact = await tool._arun_impl(survey_id=str(survey.id))
+
+            assert "Product Feedback Survey" in content
+            assert "3" in content
+            assert "How can we improve?" in content
+            assert "Love the app but need dark mode" in content
+            assert "Mobile version is slow" in content
+            assert "Great overall experience" in content
+            assert "themes" in content.lower()
+            assert "sentiment" in content.lower()
+
+            assert artifact["survey_id"] == str(survey.id)
+            assert artifact["survey_name"] == "Product Feedback Survey"
+            assert artifact["response_count"] == 3
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_multiple_questions(self):
+        from unittest.mock import patch
+
+        with patch(
+            "products.surveys.backend.max_tools.fetch_responses",
+            side_effect=[
+                ["Great UI", "Fast performance"],
+                ["Add dark mode"],
+            ],
+        ):
+            survey = await sync_to_async(Survey.objects.create)(
+                team=self.team,
+                name="Multi-Question Survey",
+                type="popover",
+                questions=[
+                    {"type": "open", "question": "What do you like?", "id": "q1"},
+                    {"type": "open", "question": "What could be better?", "id": "q2"},
+                ],
+                created_by=self.user,
+            )
+            tool = self._setup_tool()
+
+            content, artifact = await tool._arun_impl(survey_id=str(survey.id))
+
+            assert "What do you like?" in content
+            assert "What could be better?" in content
+            assert "Great UI" in content
+            assert "Fast performance" in content
+            assert "Add dark mode" in content
+            assert artifact["response_count"] == 3
+
+    def test_format_responses_for_analysis(self):
+        from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
+
+        tool = self._setup_tool()
+
+        question_groups = [
+            SurveyAnalysisQuestionGroup(
+                questionName="What do you think?",
+                questionId="q1",
+                responses=[
+                    SurveyAnalysisResponseItem(responseText="Great product", isOpenEnded=True),
+                    SurveyAnalysisResponseItem(responseText="Could be better", isOpenEnded=True),
+                ],
+            ),
+        ]
+
+        formatted = tool._format_responses_for_analysis(question_groups)
+
+        assert 'Question: "What do you think?"' in formatted
+        assert '- "Great product"' in formatted
+        assert '- "Could be better"' in formatted
+
+    def test_format_responses_for_analysis_empty_responses(self):
+        from posthog.schema import SurveyAnalysisQuestionGroup
+
+        tool = self._setup_tool()
+
+        question_groups = [
+            SurveyAnalysisQuestionGroup(
+                questionName="Empty question",
+                questionId="q1",
+                responses=[],
+            ),
+        ]
+
+        formatted = tool._format_responses_for_analysis(question_groups)
+
+        assert 'Question: "Empty question"' in formatted
+        assert "Responses: (none)" in formatted
+
+
+class TestEditSurveyTool(BaseTest):
+    def setUp(self):
+        super().setUp()
         os.environ["OPENAI_API_KEY"] = "test-api-key"
         self._config: RunnableConfig = {
             "configurable": {
@@ -514,548 +576,538 @@ class TestSurveyAnalysisTool(BaseTest):
 
     def tearDown(self):
         super().tearDown()
-        # Clean up the mock API key
         if "OPENAI_API_KEY" in os.environ:
             del os.environ["OPENAI_API_KEY"]
 
-    def _setup_tool_with_context(self, context=None):
-        """Helper to create a SurveyAnalysisTool instance with context"""
-        tool = SurveyAnalysisTool(
-            team=self.team,
-            user=self.user,
-            config={
-                **self._config,
-                "configurable": {
-                    **self._config.get("configurable", {}),
-                    "contextual_tools": {"analyze_survey_responses": context},
+    def _setup_tool(self):
+        return EditSurveyTool(team=self.team, user=self.user, config=self._config)
+
+    async def _create_test_survey(self, **kwargs):
+        defaults = {
+            "team": self.team,
+            "name": "Test Survey",
+            "description": "A test survey",
+            "type": "popover",
+            "questions": [{"type": "open", "question": "Test question?", "id": "q1"}],
+            "created_by": self.user,
+        }
+        defaults.update(kwargs)
+        return await sync_to_async(Survey.objects.create)(**defaults)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_name_description(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id), name="Updated Name", description="Updated description"
+        )
+
+        assert "Updated Name" in content
+        assert "updated_fields" in artifact
+        assert "name" in artifact["updated_fields"]
+        assert "description" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.name == "Updated Name"
+        assert updated_survey.description == "Updated description"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(type="csat", question="New rating question?"),
+                SimpleSurveyQuestion(type="open", question="Follow-up?", optional=True),
+            ],
+        )
+
+        assert "updated successfully" in content
+        assert "questions" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert len(updated_survey.questions) == 2
+        assert updated_survey.questions[0]["type"] == "rating"
+        assert updated_survey.questions[0]["scale"] == 5
+
+    @parameterized.expand([("single_choice",), ("multiple_choice",)])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_choice_question_without_choices_validation(self, question_type):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[SimpleSurveyQuestion(type=question_type, question="Pick one")],
+        )
+
+        assert "Survey validation failed" in content
+        assert artifact["error"] == "validation_failed"
+        assert "choices" in artifact["error_message"]
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_preserves_ids_with_numeric_labels(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="First (edited)?"),
+                SimpleSurveyQuestion(id="2", type="open", question="Second (edited)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-first"
+        assert updated_survey.questions[1]["id"] == "uuid-second"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_reorder_preserves_ids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="2", type="open", question="Second (now first)?"),
+                SimpleSurveyQuestion(id="1", type="open", question="First (now second)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-second"
+        assert updated_survey.questions[1]["id"] == "uuid-first"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_new_question_gets_fresh_id(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "open", "question": "Existing?", "id": "uuid-existing"}]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="Existing (kept)?"),
+                SimpleSurveyQuestion(type="open", question="Brand new?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-existing"
+        assert updated_survey.questions[1]["id"] != "uuid-existing"
+        assert updated_survey.questions[1]["id"]  # non-empty fresh UUID
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_remove_question_keeps_remaining_ids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="First (kept)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert len(updated_survey.questions) == 1
+        assert updated_survey.questions[0]["id"] == "uuid-first"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_url_targeting(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id), target_url="/dashboard", target_url_match="contains"
+        )
+
+        assert "updated successfully" in content
+        assert "conditions" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.conditions is not None
+        assert updated_survey.conditions["url"] == "/dashboard"
+        assert updated_survey.conditions["urlMatchType"] == "icontains"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    @parameterized.expand(
+        [
+            (
+                "flag_variant_preserves_url",
+                False,
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
                 },
+                {"linked_flag_variant": "control"},
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+            ),
+            (
+                "url_preserves_flag_variant",
+                True,
+                {
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+                {
+                    "target_url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "target_url_match": "regex",
+                },
+                {
+                    "url": "app.heygen.com/(home|projects|voices|templates|labs)",
+                    "urlMatchType": "regex",
+                    "seenSurveyWaitPeriodInDays": 7,
+                    "linkedFlagVariant": "control",
+                },
+            ),
+        ]
+    )
+    async def test_edit_survey_targeting_updates_preserve_existing_conditions(
+        self,
+        _case_name,
+        initial_linked_flag,
+        initial_conditions,
+        tool_kwargs,
+        expected_conditions,
+    ):
+        tool = self._setup_tool()
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        if "linked_flag_variant" in tool_kwargs:
+            tool_kwargs = {**tool_kwargs, "linked_flag_id": flag.id}
+
+        survey = await self._create_test_survey(
+            linked_flag=flag if initial_linked_flag else None,
+            conditions=initial_conditions,
+        )
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), **tool_kwargs)
+
+        assert "updated successfully" in content
+        assert "conditions" in artifact["updated_fields"]
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        if "linked_flag_id" in tool_kwargs or initial_linked_flag:
+            assert updated_survey.linked_flag_id == flag.id
+        assert updated_survey.conditions == expected_conditions
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_can_explicitly_remove_targeting(self):
+        tool = self._setup_tool()
+        flag = await sync_to_async(FeatureFlag.objects.create)(
+            team=self.team,
+            key="survey-targeting-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        survey = await self._create_test_survey(
+            linked_flag=flag,
+            conditions={
+                "url": "/old-page",
+                "urlMatchType": "icontains",
+                "seenSurveyWaitPeriodInDays": 7,
+                "linkedFlagVariant": "control",
             },
         )
-        return tool
 
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_extract_open_ended_responses_empty_context(self):
-        """Test _extract_open_ended_responses with empty context"""
-        tool = self._setup_tool_with_context()
-
-        responses = tool._extract_open_ended_responses()
-
-        assert responses == []
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_extract_open_ended_responses_null_context(self):
-        """Test _extract_open_ended_responses with null context"""
-        tool = self._setup_tool_with_context(context=None)
-
-        responses = tool._extract_open_ended_responses()
-
-        assert responses == []
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_extract_open_ended_responses_no_formatted_responses(self):
-        """Test _extract_open_ended_responses with context but no formatted_responses"""
-        context = {"survey_id": "test-id", "survey_name": "Test Survey"}
-        tool = self._setup_tool_with_context(context)
-
-        responses = tool._extract_open_ended_responses()
-
-        assert responses == []
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_extract_open_ended_responses_valid_data(self):
-        """Test _extract_open_ended_responses with valid data"""
-        context = {
-            "survey_id": "test-id",
-            "survey_name": "Test Survey",
-            "formatted_responses": [
-                {
-                    "questionName": "What do you think?",
-                    "questionId": "q1",
-                    "responses": [
-                        {
-                            "responseText": "Great product",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        },
-                        {
-                            "responseText": "Could be better",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        },
-                    ],
-                },
-                {
-                    "questionName": "Any suggestions?",
-                    "questionId": "q2",
-                    "responses": [
-                        {
-                            "responseText": "Add dark mode",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        },
-                    ],
-                },
-            ],
-        }
-        tool = self._setup_tool_with_context(context)
-
-        responses = tool._extract_open_ended_responses()
-
-        assert len(responses) == 2
-        assert responses[0].questionName == "What do you think?"
-        assert len(responses[0].responses) == 2
-        assert responses[1].questionName == "Any suggestions?"
-        assert len(responses[1].responses) == 1
-
-        # Test individual response properties
-        first_response = responses[0].responses[0]
-        assert first_response.responseText == "Great product"
-        assert first_response.timestamp == "2023-01-01T00:00:00Z"
-        assert first_response.isOpenEnded
-
-    @patch(OPENAI_PATCH_PATH)
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_analyze_responses_success(self, mock_chat_openai):
-        """Test successful response analysis with mocked LLM"""
-        # Mock LLM response
-        mock_response = {
-            "themes": [
-                ThemeWithExamples(
-                    theme="User Interface",
-                    description="Users like the design but want improvements",
-                    examples=["Great UI design", "Add dark mode"],
-                ),
-                ThemeWithExamples(
-                    theme="Performance", description="Users experience slow loading times", examples=["Slow loading"]
-                ),
-            ],
-            "sentiment": "mixed",
-            "insights": ["Users appreciate the design but want improvements"],
-            "recommendations": ["Implement dark mode", "Optimize loading speed"],
-            "response_count": 3,
-        }
-
-        mock_analysis_output = SurveyAnalysisOutput(**mock_response)
-        mock_llm_instance = mock_chat_openai.return_value.with_structured_output.return_value
-        mock_llm_instance.ainvoke.return_value = mock_analysis_output
-
-        tool = self._setup_tool_with_context()
-        # Ensure we have valid team/user for the LLM initialization
-        tool._team = self.team
-        tool._user = self.user
-        from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
-
-        responses_data = [
-            SurveyAnalysisQuestionGroup(
-                questionName="What do you think?",
-                questionId="q1",
-                responses=[
-                    SurveyAnalysisResponseItem(
-                        responseText="Great UI design",
-                        timestamp="2023-01-01T00:00:00Z",
-                        isOpenEnded=True,
-                    ),
-                    SurveyAnalysisResponseItem(
-                        responseText="Slow loading",
-                        timestamp="2023-01-01T00:00:00Z",
-                        isOpenEnded=True,
-                    ),
-                    SurveyAnalysisResponseItem(
-                        responseText="Add dark mode",
-                        timestamp="2023-01-01T00:00:00Z",
-                        isOpenEnded=True,
-                    ),
-                ],
-            )
-        ]
-
-        result = await tool._analyze_responses(responses_data, "comprehensive")
-
-        # Verify the mock was called and response structure is correct
-        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.assert_called_once()
-        # Since this is a unit test focusing on logic, not LLM responses,
-        # verify that a result was returned with proper structure
-        assert isinstance(result.themes, list)
-        assert isinstance(result.sentiment, str)
-        assert isinstance(result.insights, list)
-        assert isinstance(result.recommendations, list)
-        assert isinstance(result.response_count, int)
-        # Verify the response_count matches the input data
-        assert result.response_count == 3
-
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_analyze_responses_json_parsing_error(self):
-        """Test LLM response with malformed JSON"""
-
-        # Mock malformed JSON response
-        class MockResponse:
-            content = "This is not JSON"
-
-        tool = self._setup_tool_with_context()
-        tool._team = self.team
-        tool._user = self.user
-
-        # Create a mock LLM that returns our bad JSON
-        class MockLLM:
-            async def ainvoke(self, messages):
-                return MockResponse()
-
-        # Override the LLM initialization in the analyze method
-        original_method = tool._analyze_responses
-
-        async def mock_analyze_responses(question_groups, analysis_focus):
-            # Manually mock the LLM part
-            if not question_groups:
-                return original_method(question_groups, analysis_focus)
-
-            total_response_count = sum(len(group.responses) for group in question_groups)
-
-            try:
-                # Create fake LLM response with bad JSON
-                response = MockResponse()
-
-                # Parse the LLM response - this should trigger JSONDecodeError
-                try:
-                    content = response.content if isinstance(response.content, str) else str(response.content)
-                    orjson.loads(content.strip())
-                    # Won't reach here
-                except orjson.JSONDecodeError:
-                    # Fallback if LLM doesn't return valid JSON
-                    from products.surveys.backend.max_tools import SurveyAnalysisOutput
-
-                    return SurveyAnalysisOutput(
-                        themes=[
-                            ThemeWithExamples(
-                                theme="Analysis completed",
-                                description="Analysis completed with fallback method",
-                                examples=[],
-                            )
-                        ],
-                        sentiment="neutral",
-                        insights=[f"LLM Analysis: {response.content[:200]}..."],
-                        recommendations=["Review the full analysis for detailed insights"],
-                        response_count=total_response_count,
-                        question_breakdown={},
-                    )
-            except Exception as e:
-                from products.surveys.backend.max_tools import SurveyAnalysisOutput
-
-                error_message = f"❌ Survey analysis failed: {str(e)}"
-                return SurveyAnalysisOutput(
-                    themes=[],
-                    sentiment="neutral",
-                    insights=[error_message],
-                    recommendations=["Try the analysis again, or contact support if the issue persists"],
-                    response_count=total_response_count,
-                    question_breakdown={},
-                )
-
-        # Replace the method
-        tool._analyze_responses = mock_analyze_responses
-        from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
-
-        responses_data = [
-            SurveyAnalysisQuestionGroup(
-                questionName="What do you think?",
-                questionId="q1",
-                responses=[
-                    SurveyAnalysisResponseItem(
-                        responseText="Good",
-                        timestamp="2023-01-01T00:00:00Z",
-                        isOpenEnded=True,
-                    )
-                ],
-            )
-        ]
-
-        result = await tool._analyze_responses(responses_data, "comprehensive")
-
-        # Should return fallback structure for JSON parsing failure
-        assert len(result.themes) == 1
-        assert result.themes[0].theme == "Analysis completed"
-        assert result.sentiment == "neutral"
-        assert "LLM Analysis" in result.insights[0]
-
-    @patch(OPENAI_PATCH_PATH)
-    @pytest.mark.django_db
-    @pytest.mark.asyncio
-    async def test_analyze_responses_llm_error(self, mock_chat_openai):
-        """Test LLM invocation error handling"""
-        # Mock LLM error
-        mock_llm_instance = mock_chat_openai.return_value.with_structured_output.return_value
-        mock_llm_instance.ainvoke.side_effect = Exception("LLM API error")
-
-        tool = self._setup_tool_with_context()
-        # Ensure we have valid team/user for the LLM initialization
-        tool._team = self.team
-        tool._user = self.user
-        from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
-
-        responses_data = [
-            SurveyAnalysisQuestionGroup(
-                questionName="What do you think?",
-                questionId="q1",
-                responses=[
-                    SurveyAnalysisResponseItem(
-                        responseText="Good",
-                        timestamp="2023-01-01T00:00:00Z",
-                        isOpenEnded=True,
-                    )
-                ],
-            )
-        ]
-
-        result = await tool._analyze_responses(responses_data, "comprehensive")
-
-        # Should return error structure for LLM failure
-        assert "❌ Survey analysis failed" in result.insights[0]
-        assert "LLM API error" in result.insights[0]
-
-    def test_format_analysis_for_user_success(self):
-        """Test successful analysis formatting"""
-        from products.surveys.backend.max_tools import SurveyAnalysisOutput
-
-        analysis = SurveyAnalysisOutput(
-            themes=[
-                ThemeWithExamples(
-                    theme="User Interface",
-                    description="Users love the design",
-                    examples=["Great design", "Clean interface"],
-                ),
-                ThemeWithExamples(
-                    theme="Performance",
-                    description="Users want faster loading",
-                    examples=["Slow loading times", "Need optimization"],
-                ),
-            ],
-            sentiment="mixed",
-            insights=["Users love the design but want faster loading"],
-            recommendations=["Implement caching", "Optimize images"],
-            response_count=5,
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            remove_url_targeting=True,
+            remove_linked_flag=True,
+            remove_wait_period=True,
         )
 
-        tool = self._setup_tool_with_context()
-        formatted = tool._format_analysis_for_user(analysis, "Test Product Survey")
+        assert "updated successfully" in content
+        assert "linked_flag_id" in artifact["updated_fields"]
+        assert "conditions" in artifact["updated_fields"]
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.linked_flag_id is None
+        assert updated_survey.conditions == {}
 
-        assert "✅ **Survey Analysis: 'Test Product Survey'**" in formatted
-        assert "**🎯 Key Themes:**" in formatted
-        assert "User Interface" in formatted
-        assert "Performance" in formatted
-        assert "**📊 Overall Sentiment:**" in formatted
-        assert "Mixed" in formatted
-        assert "**💡 Key Insights:**" in formatted
-        assert "Users love the design" in formatted
-        assert "**🚀 Recommendations:**" in formatted
-        assert "Implement caching" in formatted
-        assert "5 open-ended responses" in formatted
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_remove_targeting_is_dangerous(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
 
-    def test_format_analysis_for_user_test_data_detected(self):
-        """Test analysis formatting when test data is detected"""
-        from products.surveys.backend.max_tools import SurveyAnalysisOutput
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), remove_url_targeting=True)
+        preview = await tool.format_dangerous_operation_preview(
+            survey_id=str(survey.id), remove_url_targeting=True, remove_linked_flag=True
+        )
 
-        analysis = SurveyAnalysisOutput(
-            themes=[
-                ThemeWithExamples(
-                    theme="Test Data", description="Most responses appear to be test data", examples=["test", "asdf"]
+        assert is_dangerous is True
+        assert "Remove URL targeting" in preview
+        assert "Remove linked feature flag targeting" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_launch(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), launch=True)
+
+        assert "launched" in content
+        assert "start_date" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.start_date is not None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_stop(self):
+        import django.utils.timezone
+
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(start_date=django.utils.timezone.now())
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), stop=True)
+
+        assert "stopped" in content
+        assert "end_date" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.end_date is not None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_archive(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), archive=True)
+
+        assert "archived" in content
+        assert "archived" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.archived is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_not_found(self):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(survey_id="00000000-0000-0000-0000-000000000000", name="New Name")
+
+        assert "not found" in content.lower()
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_wrong_team(self):
+        from posthog.models import Organization, Team
+
+        other_org = await sync_to_async(Organization.objects.create)(name="Other Org")
+        other_team = await sync_to_async(Team.objects.create)(organization=other_org, name="Other Team")
+        other_survey = await sync_to_async(Survey.objects.create)(
+            team=other_team,
+            name="Other Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Test?"}],
+            created_by=self.user,
+        )
+
+        tool = self._setup_tool()
+        content, artifact = await tool._arun_impl(survey_id=str(other_survey.id), name="Hacked Name")
+
+        assert "not found" in content.lower()
+        assert artifact["error"] == "not_found"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_no_updates(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id))
+
+        assert "no updates" in content.lower()
+        assert artifact["error"] == "no_updates"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_stop_and_archive(self):
+        import django.utils.timezone
+
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(start_date=django.utils.timezone.now())
+
+        content, artifact = await tool._arun_impl(survey_id=str(survey.id), stop=True, archive=True)
+
+        assert "stopped" in content
+        assert "archived" in content
+        assert "end_date" in artifact["updated_fields"]
+        assert "archived" in artifact["updated_fields"]
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.end_date is not None
+        assert updated_survey.archived is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_sanitizes_question_html(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="1",
+                    type="open",
+                    question="<b>Updated question</b><script>alert('xss')</script>",
+                    description="<i>Details</i><script>bad()</script>",
+                    button_text="<strong>Send</strong><script>evil()</script>",
                 )
             ],
-            sentiment="neutral",
-            insights=["Most responses appear to be test data"],
-            recommendations=["Collect genuine user feedback"],
-            response_count=10,
         )
 
-        tool = self._setup_tool_with_context()
-        formatted = tool._format_analysis_for_user(analysis, "Test Survey")
+        assert "updated successfully" in content
+        assert "questions" in artifact["updated_fields"]
 
-        assert "**🎯 Key Themes:**" in formatted
-        assert "Test Data" in formatted
-        assert "**💡 Key Insights:**" in formatted
-        assert "Most responses appear" in formatted
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        question = updated_survey.questions[0]
+        assert "<b>Updated question</b>" in question["question"]
+        assert "<script>" not in question["question"]
+        assert "<i>Details</i>" in question["description"]
+        assert "<script>" not in question["description"]
+        assert "<strong>Send</strong>" in question["buttonText"]
+        assert "<script>" not in question["buttonText"]
 
-    def test_format_analysis_for_user_error(self):
-        """Test analysis formatting with error"""
-        from products.surveys.backend.max_tools import SurveyAnalysisOutput
-
-        analysis = SurveyAnalysisOutput(
-            themes=[],
-            sentiment="neutral",
-            insights=["❌ Analysis failed: LLM analysis failed due to API timeout"],
-            recommendations=["Try the analysis again"],
-            response_count=0,
-        )
-
-        tool = self._setup_tool_with_context()
-        formatted = tool._format_analysis_for_user(analysis, "Test Survey")
-
-        assert "**💡 Key Insights:**" in formatted
-        assert "❌ Analysis failed" in formatted
-        assert "LLM analysis failed due to API timeout" in formatted
-
-    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_no_responses(self, mock_chat_openai):
-        """Test _arun_impl with no open-ended responses"""
-        # Create real survey with proper UUID
-        survey = await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Test Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "Test?", "id": "q1"}],
-            created_by=self.user,
+    async def test_edit_survey_rejects_javascript_link(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "link", "question": "Safe question?", "link": "https://example.com", "id": "q1"}]
         )
-        context = {"survey_id": str(survey.id), "survey_name": "Test Survey", "formatted_responses": []}
-        tool = self._setup_tool_with_context(context)
 
-        user_message, artifact = await tool._arun_impl()
+        content, artifact = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(
+                    id="1",
+                    type="link",
+                    question="Unsafe question?",
+                    link="javascript:alert('xss')",
+                )
+            ],
+        )
 
-        assert "no open-ended responses" in user_message.lower() or "no survey data provided" in user_message.lower()
-        # When there are no responses, the implementation might return different artifact structures
-        if "survey_id" in artifact:
-            assert artifact["survey_id"] == str(survey.id)
-            assert artifact["analysis"]["response_count"] == 0
-        else:
-            # Error case - no survey data provided
-            assert "error" in artifact
-        # LLM should not be called - but we don't test this since the LLM instantiation happens in _analyze_responses
-        # which is not called when there are no responses
+        assert "validation failed" in content.lower()
+        assert artifact["error"] == "validation_failed"
+        assert "schemes" in artifact["error_message"]
 
-    @patch(OPENAI_PATCH_PATH)
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["question"] == "Safe question?"
+        assert updated_survey.questions[0]["link"] == "https://example.com"
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_success_flow(self, mock_chat_openai):
-        """Test complete _arun_impl success flow"""
+    async def test_is_dangerous_operation_launch(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
 
-        # Mock LLM response
-        mock_analysis = {
-            "themes": [
-                ThemeWithExamples(
-                    theme="Product Feedback",
-                    description="Users appreciate current features",
-                    examples=["Love the app but need dark mode", "Great overall experience"],
-                ),
-                ThemeWithExamples(
-                    theme="Feature Requests",
-                    description="Users want more customization options",
-                    examples=["Mobile version is slow"],
-                ),
-            ],
-            "sentiment": "positive",
-            "insights": ["Users appreciate current features but want more customization"],
-            "recommendations": ["Add theme customization", "Improve mobile experience"],
-            "response_count": 3,
-        }
-        # Create SurveyAnalysisOutput object directly since we use structured output
-        from products.surveys.backend.max_tools import SurveyAnalysisOutput
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), launch=True)
+        assert is_dangerous is True
 
-        mock_analysis_output = SurveyAnalysisOutput(**mock_analysis)
-        mock_llm_instance = mock_chat_openai.return_value.with_structured_output.return_value
-        mock_llm_instance.ainvoke.return_value = mock_analysis_output
-
-        # Create real survey with proper UUID
-        survey = await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Product Feedback Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "How can we improve?", "id": "q1"}],
-            created_by=self.user,
-        )
-        context = {
-            "survey_id": str(survey.id),
-            "survey_name": "Product Feedback Survey",
-            "formatted_responses": [
-                {
-                    "questionName": "How can we improve?",
-                    "questionId": "q1",
-                    "responses": [
-                        {
-                            "responseText": "Love the app but need dark mode",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        },
-                        {
-                            "responseText": "Mobile version is slow",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        },
-                        {
-                            "responseText": "Great overall experience",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        },
-                    ],
-                }
-            ],
-        }
-        tool = self._setup_tool_with_context(context)
-
-        user_message, artifact = await tool._arun_impl()
-
-        # Verify user message contains formatted analysis
-        assert "Survey Analysis" in user_message
-        # Check if analysis was attempted (user message should contain analysis markers)
-        # Since the LLM is mocked, we focus on testing the flow rather than exact content
-        assert "Survey Analysis" in user_message or "analysis" in user_message.lower()
-
-        # Verify artifact structure
-        assert artifact["survey_id"] == str(survey.id)
-        assert artifact["survey_name"] == "Product Feedback Survey"
-        # Verify analysis structure exists (themes might be empty if mock doesn't parse correctly)
-        assert "themes" in artifact["analysis"]
-        assert isinstance(artifact["analysis"]["themes"], list)
-
-        # Verify LLM was called
-        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.assert_called_once()
-
-    @patch(OPENAI_PATCH_PATH)
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_arun_impl_handles_llm_failure(self, mock_chat_openai):
-        """Test _arun_impl handles LLM failure gracefully"""
-        # Mock LLM failure
-        mock_chat_openai.return_value.with_structured_output.return_value.ainvoke.side_effect = Exception(
-            "OpenAI API timeout"
+    async def test_is_dangerous_operation_stop(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), stop=True)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_archive(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        is_dangerous = await tool.is_dangerous_operation(survey_id=str(survey.id), archive=True)
+        assert is_dangerous is True
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_is_dangerous_operation_regular_update(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        is_dangerous = await tool.is_dangerous_operation(
+            survey_id=str(survey.id), name="New Name", description="New description"
         )
+        assert is_dangerous is False
 
-        # Create real survey with proper UUID
-        survey = await sync_to_async(Survey.objects.create)(
-            team=self.team,
-            name="Test Survey",
-            type="popover",
-            questions=[{"type": "open", "question": "Feedback?", "id": "q1"}],
-            created_by=self.user,
-        )
-        context = {
-            "survey_id": str(survey.id),
-            "survey_name": "Test Survey",
-            "formatted_responses": [
-                {
-                    "questionName": "Feedback?",
-                    "questionId": "q1",
-                    "responses": [
-                        {
-                            "responseText": "Good",
-                            "timestamp": "2023-01-01T00:00:00Z",
-                            "isOpenEnded": True,
-                        }
-                    ],
-                }
-            ],
-        }
-        tool = self._setup_tool_with_context(context)
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_format_dangerous_operation_preview_launch(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(name="My NPS Survey")
 
-        user_message, artifact = await tool._arun_impl()
+        preview = await tool.format_dangerous_operation_preview(survey_id=str(survey.id), launch=True)
 
-        # Should handle error gracefully - check if it's handled in analysis or formatted
-        has_error_in_message = "❌ Failed to analyze survey responses" in user_message
-        has_error_in_insights = any("❌" in insight for insight in artifact.get("analysis", {}).get("insights", []))
-        assert has_error_in_message or has_error_in_insights
-        if "error" in artifact:
-            assert artifact["error"] == "analysis_failed"
+        assert "Launch" in preview
+        assert "My NPS Survey" in preview
+        assert "start collecting responses" in preview
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_format_dangerous_operation_preview_multiple_actions(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(name="Survey to Archive")
+
+        preview = await tool.format_dangerous_operation_preview(survey_id=str(survey.id), stop=True, archive=True)
+
+        assert "Stop" in preview
+        assert "Archive" in preview
+        assert "Survey to Archive" in preview

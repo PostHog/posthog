@@ -1,14 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -18,13 +21,14 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { Onboarding } from './Onboarding'
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
+import { RevenueAnalyticsViewStatusIcon } from './RevenueAnalyticsViewStatusIcon'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 import { GrossRevenueTile, MRRTile, MetricsTile, OverviewTile, TopCustomersTile } from './tiles'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
     logic: revenueAnalyticsLogic,
-    settingSectionId: 'environment-revenue-analytics',
+    productKey: ProductKey.REVENUE_ANALYTICS,
 }
 
 export const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
@@ -33,6 +37,7 @@ export const PRODUCT_THING_NAME = 'revenue source'
 export function RevenueAnalyticsScene(): JSX.Element {
     const { dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
     const { revenueEnabledDataWarehouseSources } = useValues(revenueAnalyticsLogic)
+    const { featureFlags: enabledFlags } = useValues(enabledFeaturesLogic)
 
     const sourceRunningForTheFirstTime = revenueEnabledDataWarehouseSources?.find(
         (source) => source.status === 'Running' && !source.last_run_at
@@ -52,25 +57,30 @@ export function RevenueAnalyticsScene(): JSX.Element {
                     resourceType={{
                         type: sceneConfigurations[Scene.RevenueAnalytics].iconType || 'default',
                     }}
+                    actions={<RevenueAnalyticsViewStatusIcon />}
                 />
 
-                <LemonBanner
-                    type="info"
-                    action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
-                >
-                    <p>
-                        Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any
-                        issues directly to us!
-                    </p>
-                    <p>
-                        At this stage, Revenue Analytics is optimized for small/medium-sized companies. If you process
-                        more than 20,000 transactions/month you might have performance issues.
-                    </p>
-                    <p>
-                        Similarly, at this stage we're optimized for customers running on a subscription model (mostly
-                        SaaS). If you're running a business where your revenue is not coming from recurring payments,
-                        you might find Revenue analytics to be less useful/more empty than expected.
-                    </p>
+                <LemonBanner type="warning" className="mb-4">
+                    <strong>Revenue analytics is being deprecated.</strong> We'll remove this page on or after June
+                    30th, 2026.
+                    <br />
+                    <br />
+                    We're not stepping away from revenue in PostHog — we're rethinking how it should work. We don't
+                    believe a single, opinionated Revenue analytics dashboard is the right shape for it. Instead, we're
+                    focusing on exposing revenue properties on persons and groups so you can use them everywhere:
+                    insights, SQL, and persons/groups profiles.
+                    <br />
+                    <br />
+                    Removing the dashboard lets us move faster and ship this in a shape that works across the whole app,
+                    rather than maintaining many bespoke dashboards. Each use-case (ecommerce, SaaS, recurring revenue,
+                    one-off, services, multi-tenant) can then build the dashboard it actually needs — or have PostHog AI
+                    and agents via our MCP build it for you.
+                    {enabledFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && (
+                        <>
+                            {' '}
+                            In the meantime, check out <Link to={urls.customerAnalytics()}>Customer analytics</Link>.
+                        </>
+                    )}
                 </LemonBanner>
 
                 {sourceRunningForTheFirstTime && (

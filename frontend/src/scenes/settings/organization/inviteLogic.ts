@@ -1,15 +1,14 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { lazyLoaders, loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
 import { pluralize } from 'lib/utils'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AccessControlLevel, OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
@@ -36,7 +35,6 @@ export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
     connect(() => ({
         values: [preflightLogic, ['preflight']],
-        actions: [router, ['locationChanged']],
     })),
     actions({
         showInviteModal: true,
@@ -71,7 +69,7 @@ export const inviteLogic = kea<inviteLogicType>([
                         payload.forEach((payload) => (payload.message = values.message))
                     }
                     return await api.create<OrganizationInviteType[]>(
-                        'api/organizations/@current/invites/bulk/',
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/bulk/`,
                         payload
                     )
                 },
@@ -109,13 +107,15 @@ export const inviteLogic = kea<inviteLogicType>([
                     return organizationLogic.values.currentOrganization
                         ? (
                               await api.get<PaginatedResponse<OrganizationInviteType>>(
-                                  'api/organizations/@current/invites/'
+                                  `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/`
                               )
                           ).results
                         : []
                 },
                 deleteInvite: async (invite: OrganizationInviteType) => {
-                    await api.delete(`api/organizations/@current/invites/${invite.id}/`)
+                    await api.delete(
+                        `api/organizations/${organizationLogic.values.currentOrganizationId}/invites/${invite.id}/`
+                    )
                     preflightLogic.actions.loadPreflight() // Make sure licensed_users_available is updated
                     lemonToast.success(`Invite for ${invite.target_email} has been canceled`)
                     return values.invites.filter((thisInvite) => thisInvite.id !== invite.id)
@@ -129,7 +129,6 @@ export const inviteLogic = kea<inviteLogicType>([
             {
                 showInviteModal: () => true,
                 hideInviteModal: () => false,
-                locationChanged: () => false,
             },
         ],
         invitesToSend: [
@@ -233,24 +232,16 @@ export const inviteLogic = kea<inviteLogicType>([
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
             }
-
-            if (inviteCount > 0) {
-                // We want to avoid this updating the team before the onboarding is finished
-                setTimeout(() => {
-                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
-                }, 1000)
-            }
         },
         addProjectAccess: ({ projectId }) => {
             // Load access control for the project when it's added
             actions.loadProjectAccessControl(projectId)
         },
     })),
-    urlToAction(({ actions }) => ({
-        '*': (_, searchParams) => {
-            if (searchParams.invite_modal) {
-                actions.showInviteModal()
-            }
-        },
-    })),
+    bindModalToUrl({
+        urlKey: 'invite-members',
+        openActionKey: 'showInviteModal',
+        closeActionKey: 'hideInviteModal',
+        isOpenKey: 'isInviteModalShown',
+    }),
 ])

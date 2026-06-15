@@ -1,15 +1,18 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-
-from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 from posthog.models.team import Team
+from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
+
+# This model loads at django.setup() in every process; posthog.schema (the pydantic models)
+# is runtime-imported in the accessors that materialize typed objects.
+if TYPE_CHECKING:
+    from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +22,7 @@ logger = logging.getLogger(__name__)
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
-    filter_test_accounts = field_access_control(models.BooleanField(default=False), "revenue_analytics", "editor")
+    filter_test_accounts = field_access_control(models.BooleanField(default=False), "project", "admin")
     notified_first_sync = models.BooleanField(default=False, null=True)
 
     # Because we want to validate the schema for these fields, we'll have mangled DB fields/columns
@@ -33,24 +36,37 @@ class TeamRevenueAnalyticsConfig(models.Model):
     base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     @property
-    def events(self) -> list[RevenueAnalyticsEventItem]:
+    def events(self) -> list["RevenueAnalyticsEventItem"]:
+        from posthog.schema import RevenueAnalyticsEventItem  # noqa: PLC0415
+
         return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events or []]
 
     @events.setter
     def events(self, value: list[dict]) -> None:
+        from posthog.schema import RevenueAnalyticsEventItem  # noqa: PLC0415
+
         value = value or []
         try:
             dumped_value = [RevenueAnalyticsEventItem.model_validate(event).model_dump() for event in value]
+            # Sanitize empty strings to None for optional property fields
+            for event in dumped_value:
+                for key in ("subscriptionProperty", "productProperty", "couponProperty"):
+                    if event.get(key) == "":
+                        event[key] = None
             self._events = dumped_value
         except Exception as e:
             raise ValidationError(f"Invalid events schema: {str(e)}")
 
     @property
-    def goals(self) -> list[RevenueAnalyticsGoal]:
+    def goals(self) -> list["RevenueAnalyticsGoal"]:
+        from posthog.schema import RevenueAnalyticsGoal  # noqa: PLC0415
+
         return [RevenueAnalyticsGoal.model_validate(goal) for goal in self._goals or []]
 
     @goals.setter
     def goals(self, value: list[dict]) -> None:
+        from posthog.schema import RevenueAnalyticsGoal  # noqa: PLC0415
+
         value = value or []
         try:
             dumped_value = sorted(
@@ -70,14 +86,4 @@ class TeamRevenueAnalyticsConfig(models.Model):
         }
 
 
-# This is best effort, we always attempt to create the config manually
-# when accessing it via `Team.revenue_analytics_config`.
-# In theory, this shouldn't ever fail, but it does fail in some tests cases
-# so let's make it very forgiving
-@receiver(post_save, sender=Team)
-def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
-    try:
-        if created:
-            TeamRevenueAnalyticsConfig.objects.get_or_create(team=instance)
-    except Exception as e:
-        logger.warning(f"Error creating team revenue analytics config: {e}")
+register_team_extension_signal(TeamRevenueAnalyticsConfig, logger=logger)

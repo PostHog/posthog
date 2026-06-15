@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook } from '@posthog/icons'
+import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconDocumentExpand } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconDocumentExpand } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { NotebookSyncStatus } from '../types'
+import { notebookCollabLogic } from './notebookCollabLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
@@ -85,10 +89,51 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
     ) : null
 }
 
-export const NotebookExpandButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
+/**
+ * Surfaces when the collab SSE is disconnected *and* no reconnect attempt is in flight,
+ * so the user only sees the warning when something is actually wrong — not during the
+ * initial connect or the brief gap on a normal reconnect.
+ */
+export const NotebookCollabStatus = (props: NotebookLogicProps): JSX.Element | null => {
+    const { collabEnabled } = useValues(notebookLogic(props))
+    const { streamConnected, isConnecting, streamError } = useValues(notebookCollabLogic({ shortId: props.shortId }))
+
+    if (!collabEnabled || streamConnected || isConnecting) {
+        return null
+    }
+
+    const tooltip = streamError ? `Live updates paused. Last error: ${streamError}` : 'Live updates paused.'
+
+    return (
+        <Tooltip title={tooltip} placement="left">
+            <LemonButton size="small" icon={<IconWarning className="text-warning" />} type="tertiary" />
+        </Tooltip>
+    )
+}
+
+interface NotebookExpandButtonProps extends Pick<LemonButtonProps, 'size' | 'type'> {
+    inPanel: boolean
+}
+
+export const NotebookExpandButton = (props: NotebookExpandButtonProps): JSX.Element => {
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { setIsExpanded } = useActions(notebookSettingsLogic)
 
+    if (props.inPanel) {
+        return (
+            <ButtonPrimitive
+                onClick={() => setIsExpanded(!isExpanded)}
+                iconOnly
+                tooltip={isExpanded ? 'Fix content width' : 'Fill content width'}
+                tooltipPlacement="left"
+            >
+                <IconDocumentExpand
+                    className="text-tertiary size-4 group-hover:text-primary z-10"
+                    mode={isExpanded ? 'expand' : 'collapse'}
+                />
+            </ButtonPrimitive>
+        )
+    }
     return (
         <LemonButton
             {...props}
@@ -110,6 +155,26 @@ export const NotebookTableOfContentsButton = (props: Pick<LemonButtonProps, 'siz
             onClick={() => setShowTableOfContents(!showTableOfContents)}
             icon={<IconBook />}
             tooltip={showTableOfContents ? 'Hide table of contents' : 'Show table of contents'}
+            tooltipPlacement="left"
+        />
+    )
+}
+
+export const NotebookKernelInfoButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element | null => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            {...props}
+            onClick={() => setShowKernelInfo(!showKernelInfo)}
+            icon={<IconTerminal />}
+            tooltip={showKernelInfo ? 'Hide kernel info' : 'Show kernel info'}
             tooltipPlacement="left"
         />
     )

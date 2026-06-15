@@ -5,6 +5,7 @@ from posthog.management.migration_analysis.operations import (
     AddConstraintAnalyzer,
     AddFieldAnalyzer,
     AddIndexAnalyzer,
+    AddIndexConcurrentlyAnalyzer,
     AlterFieldAnalyzer,
     AlterIndexTogetherAnalyzer,
     AlterModelTableAnalyzer,
@@ -13,6 +14,7 @@ from posthog.management.migration_analysis.operations import (
     DeleteModelAnalyzer,
     RemoveFieldAnalyzer,
     RemoveIndexAnalyzer,
+    RemoveIndexConcurrentlyAnalyzer,
     RenameFieldAnalyzer,
     RenameModelAnalyzer,
     RunPythonAnalyzer,
@@ -44,6 +46,7 @@ class RiskAnalyzer:
         "RenameModel": RenameModelAnalyzer(),
         "AlterModelTable": AlterModelTableAnalyzer(),
         "AddIndex": AddIndexAnalyzer(),
+        "AddIndexConcurrently": AddIndexConcurrentlyAnalyzer(),
         "AddConstraint": AddConstraintAnalyzer(),
         "RunSQL": RunSQLAnalyzer(),
         "RunPython": RunPythonAnalyzer(),
@@ -51,21 +54,27 @@ class RiskAnalyzer:
         "AlterUniqueTogether": AlterUniqueTogetherAnalyzer(),
         "AlterIndexTogether": AlterIndexTogetherAnalyzer(),
         "RemoveIndex": RemoveIndexAnalyzer(),
+        "RemoveIndexConcurrently": RemoveIndexConcurrentlyAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
     }
 
-    def analyze_migration(self, migration, path: str) -> MigrationRisk:
+    def analyze_migration(self, migration, path: str, file_path: str | None = None) -> MigrationRisk:
         """Analyze migration without migration loader context (for backwards compatibility)."""
-        return self.analyze_migration_with_context(migration, path, loader=None)
+        return self.analyze_migration_with_context(migration, path, loader=None, file_path=file_path)
 
-    def analyze_migration_with_context(self, migration, path: str, loader=None) -> MigrationRisk:
+    def analyze_migration_with_context(
+        self, migration, path: str, loader=None, file_path: str | None = None
+    ) -> MigrationRisk:
         """
         Analyze migration with optional migration loader for enhanced validation.
 
         Args:
             migration: Django migration object
-            path: Path to migration file (for reporting)
+            path: Label for reporting (typically "<app>.<name>")
             loader: Optional Django MigrationLoader for checking migration history
+            file_path: Optional repo-relative path to the migration file on disk;
+                forwarded to MigrationRisk for downstream consumers that need to
+                map analyzer verdicts back to PR file paths.
         """
         # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
         # Only count models that are managed=True (skipping unmanaged ones to avoid misleading messages)
@@ -136,6 +145,7 @@ class RiskAnalyzer:
             combination_risks=combination_risks,
             policy_violations=policy_violations,
             info_messages=info_messages,
+            file_path=file_path,
         )
 
     def _is_safe_on_new_table(self, op, risk: OperationRisk) -> bool:

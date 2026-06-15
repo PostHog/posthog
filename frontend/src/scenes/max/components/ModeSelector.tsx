@@ -1,22 +1,21 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 
 import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { identifierToHuman } from 'lib/utils'
-import { Scene } from 'scenes/sceneTypes'
-import { sceneConfigurations } from 'scenes/scenes'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
+import { ConversationType } from '~/types'
 
 import {
     MODE_DEFINITIONS,
     SPECIAL_MODES,
     SpecialMode,
-    TOOL_DEFINITIONS,
     ToolDefinition,
     getDefaultTools,
     getToolsForMode,
@@ -27,7 +26,7 @@ type ModeValue = AgentMode | SpecialMode | null
 
 function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Element {
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className="max-h-[calc(100vh - (var(--spacing) * 5))] overflow-y-auto show-scrollbar-on-hover flex flex-col gap-1.5">
             <div>{description}</div>
             {tools.length > 0 && (
                 <div>
@@ -46,6 +45,11 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
                                                 BETA
                                             </LemonTag>
                                         )}
+                                        {tool.alpha && (
+                                            <LemonTag size="small" type="danger" className="ml-1 not-italic">
+                                                ALPHA
+                                            </LemonTag>
+                                        )}
                                     </strong>
                                     {tool.description?.replace(tool.name, '')}
                                 </span>
@@ -59,24 +63,13 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
 }
 
 function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]): JSX.Element {
-    // Group tools by their product (Scene), excluding some scenes
-    const excludedScenes = [Scene.Insight, Scene.SQLEditor, Scene.Replay]
-    const toolsByProduct = Object.values(TOOL_DEFINITIONS).reduce(
-        (acc, tool) => {
-            if (!tool.product || excludedScenes.includes(tool.product)) {
-                return acc
-            }
-            if (!acc[tool.product]) {
-                acc[tool.product] = []
-            }
-            acc[tool.product]!.push(tool)
-            return acc
-        },
-        {} as Partial<Record<Scene, ToolDefinition[]>>
-    )
+    const modeEntries = Object.entries(MODE_DEFINITIONS) as [
+        AgentMode,
+        (typeof MODE_DEFINITIONS)[keyof typeof MODE_DEFINITIONS],
+    ][]
 
     return (
-        <div className="flex flex-col gap-1.5">
+        <div className="max-w-sm flex flex-col gap-1.5">
             <div>{description}</div>
             {defaultTools.length > 0 && (
                 <div>
@@ -87,51 +80,30 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
                                 <span className="flex text-base text-success shrink-0 ml-1 mr-2 h-[1.25em]">
                                     {tool.icon || <IconWrench />}
                                 </span>
-                                <span>
-                                    <strong className="italic">
-                                        {tool.name}
-                                        {tool.beta && (
-                                            <LemonTag size="small" type="warning" className="ml-1 not-italic">
-                                                BETA
-                                            </LemonTag>
-                                        )}
-                                    </strong>
-                                    {tool.description?.replace(tool.name, '')}
-                                </span>
+                                <span>{tool.name}</span>
                             </li>
                         ))}
                     </ul>
                 </div>
             )}
-            {Object.keys(toolsByProduct).length > 0 && (
+            {modeEntries.length > 0 && (
                 <div>
-                    <div className="font-semibold mb-0.5">Contextual tools:</div>
+                    <div className="font-semibold mb-0.5">Mode-specific tools:</div>
                     <ul className="space-y-0.5 text-sm *:flex *:items-start">
-                        {Object.entries(toolsByProduct).map(([product, tools]) => (
-                            <li key={product}>
-                                <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
-                                <span>
-                                    <em>
-                                        In {sceneConfigurations[product as Scene]?.name || identifierToHuman(product)}
-                                        :{' '}
-                                    </em>
-                                    {tools.map((tool, index) => (
-                                        <span key={tool.name}>
-                                            <strong className="italic">
-                                                {tool.name}
-                                                {tool.beta && (
-                                                    <LemonTag size="small" type="warning" className="ml-1 not-italic">
-                                                        BETA
-                                                    </LemonTag>
-                                                )}
-                                            </strong>
-                                            {tool.description?.replace(tool.name, '')}
-                                            {index < tools.length - 1 && <>; </>}
-                                        </span>
-                                    ))}
-                                </span>
-                            </li>
-                        ))}
+                        {modeEntries.map(([mode, def]) => {
+                            const tools = getToolsForMode(mode)
+                            if (tools.length === 0) {
+                                return null
+                            }
+                            return (
+                                <li key={mode}>
+                                    <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
+                                    <span>
+                                        <em>{def.name}:</em> {tools.map((tool) => tool.name).join(', ')}
+                                    </span>
+                                </li>
+                            )
+                        })}
                     </ul>
                 </div>
             )}
@@ -140,36 +112,84 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
 }
 
 interface GetModeOptionsParams {
-    deepResearchEnabled: boolean
-    webSearchEnabled: boolean
-    errorTrackingModeEnabled: boolean
+    planModeEnabled: boolean
+    researchEnabled: boolean
+    sandboxModeEnabled: boolean
+    featureFlags: Record<string, boolean | string>
+    hasExistingMessages: boolean
 }
 
 function getModeOptions({
-    deepResearchEnabled,
-    webSearchEnabled,
-    errorTrackingModeEnabled,
+    planModeEnabled,
+    researchEnabled,
+    sandboxModeEnabled,
+    featureFlags,
+    hasExistingMessages,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
     const specialOptions = [
         {
             value: null as ModeValue,
-            label: SPECIAL_MODES.auto.name,
+            label: SPECIAL_MODES.auto.name as string | JSX.Element,
             icon: SPECIAL_MODES.auto.icon,
-            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools({ webSearchEnabled })),
+            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
         },
     ]
-
-    if (deepResearchEnabled) {
+    if (planModeEnabled) {
         specialOptions.push({
-            value: 'deep_research' as ModeValue,
-            label: SPECIAL_MODES.deep_research.name,
-            icon: SPECIAL_MODES.deep_research.icon,
-            tooltip: <div>{SPECIAL_MODES.deep_research.description}</div>,
+            value: 'plan' as ModeValue,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.plan.name}
+                    {SPECIAL_MODES.plan.beta && (
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            icon: SPECIAL_MODES.plan.icon,
+            tooltip: buildModeTooltip(SPECIAL_MODES.plan.description, getDefaultTools()),
         })
     }
 
-    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([mode]) => {
-        if (mode === AgentMode.ErrorTracking && !errorTrackingModeEnabled) {
+    if (researchEnabled && !hasExistingMessages) {
+        specialOptions.push({
+            value: 'research' as ModeValue,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.research.name}
+                    {SPECIAL_MODES.research.beta && (
+                        <LemonTag size="small" type="warning">
+                            BETA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            icon: SPECIAL_MODES.research.icon,
+            tooltip: <div>{SPECIAL_MODES.research.description}</div>,
+        })
+    }
+
+    if (sandboxModeEnabled && !hasExistingMessages) {
+        specialOptions.push({
+            value: 'sandbox' as ModeValue,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.sandbox.name}
+                    {SPECIAL_MODES.sandbox.alpha && (
+                        <LemonTag size="small" type="danger">
+                            ALPHA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            icon: SPECIAL_MODES.sandbox.icon,
+            tooltip: <div>{SPECIAL_MODES.sandbox.description}</div>,
+        })
+    }
+
+    const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([_, def]) => {
+        if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
             return false
         }
         return true
@@ -180,7 +200,24 @@ function getModeOptions({
         {
             options: modeEntries.map(([mode, def]) => ({
                 value: mode as AgentMode,
-                label: def.name,
+                label:
+                    def.beta || def.alpha ? (
+                        <span className="flex items-center gap-1">
+                            {def.name}
+                            {def.beta && (
+                                <LemonTag size="small" type="warning">
+                                    BETA
+                                </LemonTag>
+                            )}
+                            {def.alpha && (
+                                <LemonTag size="small" type="danger">
+                                    ALPHA
+                                </LemonTag>
+                            )}
+                        </span>
+                    ) : (
+                        def.name
+                    ),
                 icon: def.icon,
                 tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
             })),
@@ -188,45 +225,62 @@ function getModeOptions({
     ]
 }
 
-export function ModeSelector(): JSX.Element {
-    const { agentMode, deepResearchMode } = useValues(maxThreadLogic)
-    const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
-    const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
-    const webSearchEnabled = useFeatureFlag('PHAI_WEB_SEARCH')
-    const errorTrackingModeEnabled = useFeatureFlag('PHAI_ERROR_TRACKING_MODE')
+export function ModeSelector(): JSX.Element | null {
+    const { agentMode, isSandboxMode, contextDisabledReason, conversation, threadMessageCount } =
+        useValues(maxThreadLogic)
+    const { setAgentMode, setIsSandboxMode } = useActions(maxThreadLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
+    const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
 
-    const currentValue: ModeValue = deepResearchMode ? 'deep_research' : agentMode
-
+    const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
-        () => getModeOptions({ deepResearchEnabled, webSearchEnabled, errorTrackingModeEnabled }),
-        [deepResearchEnabled, webSearchEnabled, errorTrackingModeEnabled]
+        () =>
+            getModeOptions({
+                planModeEnabled,
+                researchEnabled,
+                sandboxModeEnabled,
+                featureFlags,
+                hasExistingMessages,
+            }),
+        [planModeEnabled, researchEnabled, sandboxModeEnabled, featureFlags, hasExistingMessages]
     )
 
-    const handleChange = (value: ModeValue): void => {
-        posthog.capture('phai mode switched', {
-            previous_mode: currentValue,
-            new_mode: value,
-        })
+    const handleChange = useCallback(
+        (value: ModeValue): void => {
+            posthog.capture('phai mode switched', {
+                previous_mode: isSandboxMode ? 'sandbox' : agentMode,
+                new_mode: value,
+            })
+            if (value === 'sandbox') {
+                setIsSandboxMode(true)
+                setAgentMode(null)
+            } else {
+                setIsSandboxMode(false)
+                setAgentMode(value as AgentMode | null)
+            }
+        },
+        [agentMode, isSandboxMode, setAgentMode, setIsSandboxMode]
+    )
 
-        if (value === 'deep_research') {
-            setDeepResearchMode(true)
-            setAgentMode(null)
-        } else {
-            setDeepResearchMode(false)
-            setAgentMode(value as AgentMode | null)
-        }
-    }
+    const isDeepResearch = conversation?.type === ConversationType.DeepResearch
 
     return (
         <LemonSelect
-            value={currentValue}
+            value={isDeepResearch ? 'research' : isSandboxMode ? 'sandbox' : agentMode}
             onChange={handleChange}
             options={modeOptions}
             size="xxsmall"
             type="tertiary"
+            disabledReason={
+                isDeepResearch
+                    ? "You're in research mode, start a new conversation to change mode"
+                    : contextDisabledReason
+            }
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
-                getDefaultTools({ webSearchEnabled })
+                getDefaultTools()
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}

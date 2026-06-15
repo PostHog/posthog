@@ -1,15 +1,12 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
+import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
-import { useEffect } from 'react'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -171,7 +168,7 @@ const meta: Meta = {
                     200,
                     { success: true },
                 ],
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === 'HogQLQuery' && body.query.query.includes('$session_id as session_id')) {
@@ -206,7 +203,7 @@ const meta: Meta = {
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const RecentRecordings: Story = {
     parameters: { pageUrl: sceneUrl(urls.replay()) },
 }
@@ -216,7 +213,7 @@ export const RecordingsPlayListNoPinnedRecordings: Story = {
 }
 
 export const RecordingsPlayListWithPinnedRecordings: Story = {
-    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')) },
+    parameters: { pageUrl: sceneUrl(urls.replayPlaylist('1234567')), testOptions: { snapshotBrowsers: [] } },
 }
 
 export const SecondRecordingInList: Story = {
@@ -239,7 +236,7 @@ export const RecentRecordingsEmpty: Story = {
                 'api/projects/:team/notebooks': { count: 0, next: null, previous: null, results: [] },
             },
             post: {
-                '/api/environments/:team_id/query': () => [200, { results: [] }],
+                '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
             },
         }),
     ],
@@ -279,64 +276,45 @@ const manyRecordingsMock: MockSignature = (req) => {
     return [200, { has_next: false, results: generateManyRecordings(25), version }]
 }
 
-const filtersExpandedStory = (extraMocks: Record<string, any> = {}): StoryFn => {
-    const Story: StoryFn = () => {
-        useStorybookMocks({
-            get: {
-                '/api/users/@me/': userSeenReplayIntroMock,
-                ...extraMocks,
-            },
-        })
-        router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
-        return <App />
+const filtersExpandedStory = (extraMocks: Record<string, any> = {}): Story => {
+    return {
+        render: () => {
+            useStorybookMocks({
+                get: {
+                    '/api/users/@me/': userSeenReplayIntroMock,
+                    ...extraMocks,
+                },
+            })
+            router.actions.push(sceneUrl(urls.replay(), { showFilters: true }))
+            return <App />
+        },
     }
-    return Story
 }
 
-export const FiltersExpanded: StoryFn = filtersExpandedStory()
-FiltersExpanded.parameters = {
-    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
-}
-
-export const FiltersExpandedLotsOfResults: StoryFn = filtersExpandedStory({
-    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
-})
-FiltersExpandedLotsOfResults.parameters = {
-    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
-}
-
-export const FiltersExpandedLotsOfResultsNarrow: StoryFn = filtersExpandedStory({
-    '/api/environments/:team_id/session_recordings': manyRecordingsMock,
-})
-FiltersExpandedLotsOfResultsNarrow.parameters = {
-    waitForSelector: '[data-attr="session-recordings-filters-tab"]',
-    testOptions: {
-        viewport: { width: 568, height: 1024 },
+export const FiltersExpanded: Story = {
+    ...filtersExpandedStory(),
+    parameters: {
+        waitForSelector: '[data-attr="session-recordings-filters-tab"]',
     },
 }
 
-const cinemaModeStory = (mocks: Record<string, any> = {}): StoryFn => {
-    const Story: StoryFn = () => {
-        const { setIsCinemaMode } = useActions(playerSettingsLogic)
-        useStorybookMocks({ get: mocks })
-        useEffect(() => setIsCinemaMode(true), [setIsCinemaMode])
-        router.actions.push(sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }))
-        return <App />
-    }
-    return Story
+export const FiltersExpandedLotsOfResults: Story = {
+    ...filtersExpandedStory({
+        '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+    }),
+    parameters: {
+        waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+    },
 }
 
-const cinemaModeWideParameters = { testOptions: { viewport: { width: 1300, height: 720 } } }
-const cinemaModeNarrowParameters = { testOptions: { viewport: { width: 568, height: 1024 } } }
-
-export const CinemaModeWithIntro: StoryFn = cinemaModeStory()
-CinemaModeWithIntro.parameters = cinemaModeWideParameters
-
-export const CinemaModeSeenIntro: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntro.parameters = cinemaModeWideParameters
-
-export const CinemaModeWithIntroNarrow: StoryFn = cinemaModeStory()
-CinemaModeWithIntroNarrow.parameters = cinemaModeNarrowParameters
-
-export const CinemaModeSeenIntroNarrow: StoryFn = cinemaModeStory({ '/api/users/@me/': userSeenReplayIntroMock })
-CinemaModeSeenIntroNarrow.parameters = cinemaModeNarrowParameters
+export const FiltersExpandedLotsOfResultsNarrow: Story = {
+    ...filtersExpandedStory({
+        '/api/environments/:team_id/session_recordings': manyRecordingsMock,
+    }),
+    parameters: {
+        waitForSelector: '[data-attr="session-recordings-filters-tab"]',
+        testOptions: {
+            viewport: { width: 568, height: 1024 },
+        },
+    },
+}

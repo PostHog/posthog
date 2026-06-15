@@ -1,4 +1,3 @@
-import { id } from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
@@ -20,6 +19,18 @@ import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } f
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
+
+const MASKING_HASH_ALL = 'all'
+const MASKING_HASH_PER_PERSON = '{person.id}'
+const MASKING_HASH_PER_PERSON_PER_EVENT = '{concat(person.id, event.event)}'
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY =
+    "{concat(toString(person.id), '-', event.event, '-', formatDateTime(now(), '%Y-%m-%d'))}"
+
+const CALENDAR_DAY_HASHES = [MASKING_HASH_PER_PERSON_PER_DAY, MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY] as string[]
+// TTL for calendar-day options: 24h is sufficient for Redis cleanup since the date is in the hash
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+const DEFAULT_INTERVAL_TTL = 60 * 30
 
 function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
     if (!filters) {
@@ -130,7 +141,9 @@ export function HogFunctionFilters({
         return types
     }, [isTransformation, groupsTaxonomicTypes, isDataWarehouse])
 
-    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
+    // Masking trigger options are event/person based (hashes of person.id / event.event and
+    // event-count thresholds), so they don't apply to data-warehouse row triggers.
+    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions && !isDataWarehouse
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
@@ -162,8 +175,8 @@ export function HogFunctionFilters({
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
                             <br />
-                            <b>Data warehouse</b> will trigger whenever a new row has been synced into the data
-                            warehouse.
+                            <b>Warehouse table</b> will trigger whenever a new row is synced into a data warehouse
+                            table.
                         </>
                     }
                 >
@@ -176,7 +189,7 @@ export function HogFunctionFilters({
                                         ? [{ value: 'person-updates', label: 'Person updates' }]
                                         : []),
                                     ...(cdpDwhTableSourceEnabled
-                                        ? [{ value: 'data-warehouse-table', label: 'Data warehouse' }]
+                                        ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
                                         : []),
                                 ]}
                                 value={value?.source ?? 'events'}
@@ -238,7 +251,7 @@ export function HogFunctionFilters({
                                             }
                                             onChange(newValue as CyclotronJobFiltersType)
                                         }}
-                                        pageKey={`HogFunctionPropertyFilters.${id}`}
+                                        pageKey={`HogFunctionPropertyFilters.${type}`}
                                         excludedProperties={excludedProperties}
                                     />
                                 </>
@@ -364,27 +377,42 @@ export function HogFunctionFilters({
                                         label: 'Run every time',
                                     },
                                     {
-                                        value: 'all',
+                                        value: MASKING_HASH_ALL,
                                         label: 'Run once per interval',
                                     },
                                     {
-                                        value: '{person.id}',
+                                        value: MASKING_HASH_PER_PERSON,
                                         label: 'Run once per person per interval',
                                     },
                                     {
-                                        value: '{concat(person.id, event.event)}',
+                                        value: MASKING_HASH_PER_PERSON_PER_EVENT,
                                         label: 'Run once per person per event name per interval',
+                                    },
+                                    {
+                                        value: MASKING_HASH_PER_PERSON_PER_DAY,
+                                        label: 'Once per person per day (UTC)',
+                                    },
+                                    {
+                                        value: MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY,
+                                        label: 'Once per person per event per day (UTC)',
                                     },
                                 ]}
                                 value={value?.hash ?? null}
-                                onChange={(val) =>
+                                onChange={(val) => {
+                                    const isCalendarDay = CALENDAR_DAY_HASHES.includes(val)
+                                    const wasCalendarDay = CALENDAR_DAY_HASHES.includes(value?.hash)
                                     onChange({
                                         hash: val,
-                                        ttl: value?.ttl ?? 60 * 30,
+                                        ttl: isCalendarDay
+                                            ? CALENDAR_DAY_TTL
+                                            : wasCalendarDay
+                                              ? DEFAULT_INTERVAL_TTL
+                                              : (value?.ttl ?? DEFAULT_INTERVAL_TTL),
                                     })
-                                }
+                                }}
                             />
-                            {configuration.masking?.hash ? (
+                            {configuration.masking?.hash &&
+                            !CALENDAR_DAY_HASHES.includes(configuration.masking.hash) ? (
                                 <>
                                     <div className="flex flex-wrap gap-1 items-center">
                                         <span>of</span>
@@ -465,6 +493,19 @@ export function HogFunctionFilters({
                         </div>
                     )}
                 </LemonField>
+            ) : null}
+            {(configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT ||
+                configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY) &&
+            (configuration.filters?.actions?.length ?? 0) > 0 ? (
+                <LemonBanner type="info">
+                    When filtering by an action that matches multiple event names, this destination will trigger once
+                    per event name per person, not once per action. If you want to trigger only once regardless of event
+                    name, use "
+                    {configuration.masking?.hash === MASKING_HASH_PER_PERSON_PER_EVENT_PER_DAY
+                        ? 'Once per person per day (UTC)'
+                        : 'Run once per person per interval'}
+                    " instead.
+                </LemonBanner>
             ) : null}
         </div>
     )

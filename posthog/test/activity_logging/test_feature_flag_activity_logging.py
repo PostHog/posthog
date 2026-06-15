@@ -4,8 +4,9 @@ from posthog.test.base import APIBaseTest
 
 from dateutil import parser
 
-from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Change, changes_between
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestChangesBetweenFeatureFlags(APIBaseTest):
@@ -64,39 +65,6 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
         ]
         assert actual == expected
 
-    def test_adding_a_rollout_percentage_can_be_logged(self) -> None:
-        actual = changes_between(
-            model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(),
-            current=self._a_feature_flag_with(rollout_percentage=23),
-        )
-        expected = [
-            Change(
-                type="FeatureFlag",
-                field="rollout_percentage",
-                action="created",
-                after=23,
-            )
-        ]
-        assert actual == expected
-
-    def test_a_change_of_rollout_percentage_can_be_logged(self) -> None:
-        actual = changes_between(
-            model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(rollout_percentage=12),
-            current=self._a_feature_flag_with(rollout_percentage=23),
-        )
-        expected = [
-            Change(
-                type="FeatureFlag",
-                field="rollout_percentage",
-                action="changed",
-                before=12,
-                after=23,
-            )
-        ]
-        assert actual == expected
-
     def test_a_change_of_soft_delete_can_be_logged(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
@@ -134,8 +102,8 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
     def test_can_exclude_changed_fields_in_feature_flags(self) -> None:
         actual = changes_between(
             model_type="FeatureFlag",
-            previous=self._a_feature_flag_with(created_at="before", created_by="before", is_simple_flag=True),
-            current=self._a_feature_flag_with(created_at="after", created_by="after", is_simple_flag=False),
+            previous=self._a_feature_flag_with(created_at="before", created_by="before"),
+            current=self._a_feature_flag_with(created_at="after", created_by="after"),
         )
         self.assertEqual(actual, [])
 
@@ -146,7 +114,6 @@ class TestChangesBetweenFeatureFlags(APIBaseTest):
 
         return FeatureFlag(
             deleted=kwargs.get("deleted", False),
-            rollout_percentage=kwargs.get("rollout_percentage", None),
             active=kwargs.get("active", True),
             id=id,
             key=kwargs.get("key", "the-key"),

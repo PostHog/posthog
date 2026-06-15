@@ -49,6 +49,8 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.IS_NOT: "is not",
     PropertyOperator.ICONTAINS: "contains",
     PropertyOperator.NOT_ICONTAINS: "doesn't contain",
+    PropertyOperator.ICONTAINS_MULTI: "contains any of",
+    PropertyOperator.NOT_ICONTAINS_MULTI: "doesn't contain any of",
     PropertyOperator.REGEX: "matches regex",
     PropertyOperator.NOT_REGEX: "doesn't match regex",
     PropertyOperator.GT: "greater than",
@@ -68,6 +70,15 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.NOT_IN: "is not one of the values in",
     PropertyOperator.IS_CLEANED_PATH_EXACT: "has a link without a hash and URL parameters that matches exactly",
     PropertyOperator.FLAG_EVALUATES_TO: "evaluates to",
+    PropertyOperator.SEMVER_EQ: "equals semver",
+    PropertyOperator.SEMVER_NEQ: "does not equal semver",
+    PropertyOperator.SEMVER_GT: "is semver greater than",
+    PropertyOperator.SEMVER_GTE: "is semver greater than or equal to",
+    PropertyOperator.SEMVER_LT: "is semver less than",
+    PropertyOperator.SEMVER_LTE: "is semver less than or equal to",
+    PropertyOperator.SEMVER_TILDE: "matches semver tilde range",
+    PropertyOperator.SEMVER_CARET: "matches semver caret range",
+    PropertyOperator.SEMVER_WILDCARD: "matches semver wildcard",
 }
 
 

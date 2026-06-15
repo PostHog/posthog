@@ -1,25 +1,27 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Team } from '../../types'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { emitIngestionWarning } from '../common/ingestion-warnings'
+import { IngestionWarningsOutput } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { TeamIdContext } from './builders/batch-pipeline-builders'
 
 export class IngestionWarningHandlingBatchPipeline<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team } = CInput,
-> implements BatchPipeline<TInput, TOutput, CInput, COutput>
+    CInput extends TeamIdContext,
+    COutput extends TeamIdContext = CInput,
+    R extends string = never,
+> implements BatchPipeline<TInput, TOutput, CInput, COutput, R>
 {
     constructor(
-        private kafkaProducer: KafkaProducerWrapper,
-        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput>
+        private outputs: IngestionOutputs<IngestionWarningsOutput>,
+        private previousPipeline: BatchPipeline<TInput, TOutput, CInput, COutput, R>
     ) {}
 
-    feed(elements: BatchPipelineResultWithContext<TInput, CInput>): void {
+    feed(elements: OkResultWithContext<TInput, CInput>[]): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, R> | null> {
         const results = await this.previousPipeline.next()
         if (results === null) {
             return null
@@ -28,8 +30,8 @@ export class IngestionWarningHandlingBatchPipeline<
         return results.map((resultWithContext) => {
             if (resultWithContext.context.warnings && resultWithContext.context.warnings.length > 0) {
                 const warningPromises = resultWithContext.context.warnings.map((warning) =>
-                    captureIngestionWarning(
-                        this.kafkaProducer,
+                    emitIngestionWarning(
+                        this.outputs,
                         resultWithContext.context.team.id,
                         warning.type,
                         warning.details,

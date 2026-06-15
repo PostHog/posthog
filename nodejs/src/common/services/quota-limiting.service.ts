@@ -5,7 +5,14 @@ import { LazyLoader } from '../../utils/lazy-loader'
 import { logger } from '../../utils/logger'
 
 // subset of resources that we care about in this service
-export type QuotaResource = 'events' | 'cdp_trigger_events'
+export type QuotaResource =
+    | 'events'
+    | 'cdp_trigger_events'
+    | 'workflow_emails'
+    | 'workflow_destinations_dispatched'
+    | 'logs_mb_ingested'
+    | 'metrics_mb_ingested'
+    | 'traces_mb_ingested'
 
 export const QUOTA_LIMITER_CACHE_KEY = '@posthog/quota-limits/'
 

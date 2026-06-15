@@ -5,11 +5,12 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
-from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
@@ -500,16 +501,16 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, friday["reached_from_step_count"])
         self.assertEqual(0, friday["conversion_rate"])
 
+    @freeze_time("2021-05-02 12:00:00")
     def test_period_not_final(self):
-        # Use timezone-aware datetime to ensure consistent behavior across environments
-        now = datetime.now(tz=ZoneInfo("UTC"))
+        now = datetime(2021, 5, 2, 12, 0, 0)
 
         journeys_for(
             {
                 "user_eight": [
-                    {"event": "step one", "timestamp": now.strftime("%Y-%m-%d %H:%M:%S.%f")},
-                    {"event": "step two", "timestamp": (now + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f")},
-                    {"event": "step three", "timestamp": (now + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f")},
+                    {"event": "step one", "timestamp": now},
+                    {"event": "step two", "timestamp": now + timedelta(minutes=1)},
+                    {"event": "step three", "timestamp": now + timedelta(minutes=2)},
                 ]
             },
             self.team,
@@ -520,8 +521,8 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 "insight": INSIGHT_FUNNELS,
                 "display": TRENDS_LINEAR,
                 "interval": "day",
-                "date_from": (now - timedelta(1)).strftime(FORMAT_TIME),
-                "date_to": now.strftime(FORMAT_TIME_DAY_END),
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-02 23:59:59",
                 "funnel_window_days": 1,
                 "events": [
                     {"id": "step one", "order": 0},
@@ -540,7 +541,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["conversion_rate"], 0)
         self.assertEqual(
             day["timestamp"].replace(tzinfo=ZoneInfo("UTC")),
-            (datetime(now.year, now.month, now.day) - timedelta(1)).replace(tzinfo=ZoneInfo("UTC")),
+            datetime(2021, 5, 1, tzinfo=ZoneInfo("UTC")),
         )
 
         day = results[1]  # today
@@ -549,7 +550,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(day["conversion_rate"], 100)
         self.assertEqual(
             day["timestamp"].replace(tzinfo=ZoneInfo("UTC")),
-            datetime(now.year, now.month, now.day).replace(tzinfo=ZoneInfo("UTC")),
+            datetime(2021, 5, 2, tzinfo=ZoneInfo("UTC")),
         )
 
     def test_two_runs_by_single_user_in_one_period(self):

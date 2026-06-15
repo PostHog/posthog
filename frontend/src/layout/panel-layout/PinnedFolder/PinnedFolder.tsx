@@ -17,11 +17,11 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { EditCustomProductsModal } from '~/layout/panel-layout/PinnedFolder/EditCustomProductsModal'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
 
@@ -49,7 +49,7 @@ export function PinnedFolder(): JSX.Element {
                     buttonProps={{
                         iconOnly: true,
                         size: 'xs',
-                        tooltip: 'Add shortcut',
+                        tooltip: 'Add to starred',
                         tooltipPlacement: 'top',
                         children: <IconPlusSmall className="size-4 text-tertiary" />,
                     }}
@@ -62,6 +62,7 @@ export function PinnedFolder(): JSX.Element {
                     tooltipPlacement="top"
                     onClick={openEditCustomProductsModal}
                     size="xs"
+                    data-attr="edit-sidebar-apps-button"
                 >
                     <CustomProductsIcon className="size-3 text-secondary" />
                 </ButtonPrimitive>

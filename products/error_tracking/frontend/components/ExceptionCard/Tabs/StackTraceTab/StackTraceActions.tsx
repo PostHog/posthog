@@ -1,102 +1,77 @@
-import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+import { IconCode, IconInfo, IconWrench } from '@posthog/icons'
 
+import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
-import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuCheckboxItem,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItemIndicator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { useErrorTrackingExplainIssueMaxTool } from '../../../ExplainIssueTool'
-import { FixModal } from '../../FixModal'
-import { exceptionCardLogic } from '../../exceptionCardLogic'
+import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
+import { GitMetadataParser } from '../../../ReleasesPreview/gitMetadataParser'
+import { buildExplainPrompt, buildFixPrompt } from '../../aiPrompts'
 
 export interface StackTraceActionsProps {
     issue: ErrorTrackingRelationalIssue
 }
 
+function getReleaseRepository(release?: ErrorTrackingRelease | null): string | undefined {
+    const git = release?.metadata?.git
+    if (!git) {
+        return undefined
+    }
+    if (git.repo_name) {
+        return git.repo_name
+    }
+    const parsedRemoteUrl = git.remote_url ? GitMetadataParser.parseRemoteUrl(git.remote_url) : undefined
+    return parsedRemoteUrl ? `${parsedRemoteUrl.owner}/${parsedRemoteUrl.repository}` : undefined
+}
+
 export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Element {
-    const { exceptionList } = useValues(errorPropertiesLogic)
-    const showFixButton = hasResolvedStackFrames(exceptionList)
-    const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool(issue.id, issue.name)
+    const { exceptionList, release } = useValues(errorPropertiesLogic)
+    const { copyableStacktraceText, ready, stacktraceText } = useStacktraceDisplay()
 
     return (
-        <ButtonGroupPrimitive size="sm">
-            {showFixButton && (
-                <ButtonPrimitive
-                    onClick={() => setShowFixModal(true)}
-                    className="px-2 h-[1.4rem]"
-                    tooltip="Generate AI prompt to fix this error"
-                >
-                    <IconMagicWand />
-                    Get AI prompt
-                </ButtonPrimitive>
+        <div className="flex items-center gap-1">
+            {exceptionList.length > 0 && ready && (
+                <AgentPromptButton
+                    storageKey="error-tracking-issue"
+                    defaultActionKey="fix"
+                    defaultAgentKey="clipboard"
+                    size="sm"
+                    data-attr="error-tracking-fix-with-ai"
+                    repository={getReleaseRepository(release)}
+                    actions={[
+                        {
+                            key: 'fix',
+                            label: 'Fix prompt',
+                            icon: <IconWrench />,
+                            buildPrompt: () => buildFixPrompt(stacktraceText, issue.id),
+                        },
+                        {
+                            key: 'explain',
+                            label: 'Explain prompt',
+                            icon: <IconInfo />,
+                            buildPrompt: () => buildExplainPrompt(stacktraceText, issue.id),
+                        },
+                        {
+                            key: 'stacktrace',
+                            label: 'Stack trace',
+                            icon: <IconCode />,
+                            buildPrompt: () => copyableStacktraceText,
+                        },
+                    ]}
+                    onRun={({ actionKey, agentKey }) =>
+                        posthog.capture('error_tracking_prompt_used', {
+                            issue_id: issue.id,
+                            mode: actionKey,
+                            agent: agentKey,
+                        })
+                    }
+                />
             )}
-            {openMax && (
-                <ButtonPrimitive
-                    onClick={() => openMax()}
-                    className="px-2 h-[1.4rem]"
-                    tooltip="Ask PostHog AI for an explanation of this issue"
-                >
-                    <IconMagicWand />
-                    Explain
-                </ButtonPrimitive>
-            )}
-            <ShowDropDownMenu>
-                <ButtonPrimitive className="px-2 h-[1.4rem]">
-                    Show
-                    <IconChevronDown />
-                </ButtonPrimitive>
-            </ShowDropDownMenu>
-            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} issueId={issue.id} />
-        </ButtonGroupPrimitive>
+        </div>
     )
-}
-
-function ShowDropDownMenu({ children }: { children: React.ReactNode }): JSX.Element {
-    const { showAllFrames, showAsText } = useValues(exceptionCardLogic)
-    const { setShowAllFrames, setShowAsText } = useActions(exceptionCardLogic)
-
-    return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>{children}</DropdownMenuTrigger>
-            <DropdownMenuContent>
-                <DropdownMenuGroup>
-                    <DropdownMenuCheckboxItem checked={showAllFrames} onCheckedChange={setShowAllFrames} asChild>
-                        <ButtonPrimitive menuItem size="sm">
-                            <DropdownMenuItemIndicator intent="checkbox" />
-                            All frames
-                        </ButtonPrimitive>
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuCheckboxItem checked={showAsText} onCheckedChange={setShowAsText} asChild>
-                        <ButtonPrimitive menuItem size="sm">
-                            <DropdownMenuItemIndicator intent="checkbox" />
-                            As text
-                        </ButtonPrimitive>
-                    </DropdownMenuCheckboxItem>
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
-    )
-}
-
-// Helper function to check if any exception has resolved stack frames
-function hasResolvedStackFrames(exceptionList: ErrorTrackingException[]): boolean {
-    return exceptionList.some((exception) => {
-        if (exception.stacktrace?.type === 'resolved' && exception.stacktrace?.frames) {
-            return exception.stacktrace.frames.some((frame) => frame.resolved)
-        }
-        return false
-    })
 }

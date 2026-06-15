@@ -5,9 +5,12 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
+import {
+    PlayerSidebarOverviewOtherWatchers,
+    PlayerSidebarOverviewOtherWatchersProps,
+} from './PlayerSidebarOverviewOtherWatchers'
 
-const meta: Meta<typeof PlayerSidebarOverviewOtherWatchers> = {
+const meta: Meta<PlayerSidebarOverviewOtherWatchersProps> = {
     title: 'Replay/Overview Tab/Other Watchers',
     component: PlayerSidebarOverviewOtherWatchers,
     parameters: {

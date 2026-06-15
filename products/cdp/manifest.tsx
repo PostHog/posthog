@@ -1,9 +1,36 @@
 import { urls } from 'scenes/urls'
 
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'CDP',
+    scenes: {
+        Transformations: {
+            import: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
+            projectBased: true,
+            name: 'Transformations',
+            description:
+                'Transformations let you modify, filter, and enrich event data to improve data quality, privacy, and consistency.',
+            activityScope: 'HogFunction',
+            iconType: 'data_pipeline',
+        },
+        EventFiltering: {
+            import: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
+            projectBased: true,
+            name: 'Event ingestion filtering',
+            description: 'Drop events at ingestion time based on event metadata.',
+            iconType: 'data_pipeline',
+        },
+    },
+    routes: {
+        '/transformations': ['Transformations', 'transformations'],
+        '/event-filtering': ['EventFiltering', 'eventFiltering'],
+    },
+    urls: {
+        transformations: (): string => '/transformations',
+        eventFiltering: (): string => '/event-filtering',
+    },
     treeItemsNew: [
         {
             path: `Data/Source`,
@@ -27,56 +54,56 @@ export const manifest: ProductManifest = {
             sceneKeys: ['HogFunction'],
         },
         {
-            path: `Data/Site app`,
+            path: `Data/Web script`,
             type: 'hog_function/site_app',
-            href: urls.dataPipelinesNew('site_app'),
+            href: urls.webScriptsNew(),
             iconColor: ['var(--color-product-data-pipeline-light)'],
             sceneKeys: ['HogFunction'],
         },
     ],
     treeItemsProducts: [
         {
-            path: `Data pipelines`,
-            category: 'Tools',
+            path: 'Web scripts',
+            intents: [ProductKey.SITE_APPS],
+            category: ProductItemCategory.TOOLS,
             type: 'hog_function',
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-pipeline-light)'],
-            href: urls.dataPipelines(),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
+            href: urls.webScripts(),
+            sceneKey: 'WebScripts',
+            sceneKeys: ['WebScripts'],
         },
     ],
     treeItemsMetadata: [
-        {
-            path: 'Data pipelines',
-            category: 'Tools',
-            type: 'hog_function',
-            iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-pipeline-light)'],
-            href: urls.dataPipelines(),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
-        },
         {
             path: `Transformations`,
             category: 'Pipeline',
             type: 'hog_function/transformation',
             iconType: 'data_pipeline_metadata',
-            href: urls.dataPipelines('transformations'),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
+            href: urls.transformations(),
+            sceneKey: 'Transformations',
+            sceneKeys: ['Transformations'],
+        },
+        {
+            path: 'Event ingestion filtering',
+            category: 'Pipeline',
+            type: 'event_filter',
+            iconType: 'data_pipeline_metadata',
+            href: urls.eventFiltering(),
+            sceneKey: 'EventFiltering',
+            sceneKeys: ['EventFiltering'],
         },
         {
             path: `Destinations`,
             category: 'Pipeline',
             type: 'hog_function/destination',
             iconType: 'data_pipeline_metadata',
-            href: urls.dataPipelines('destinations'),
-            sceneKey: 'DataPipelines',
-            sceneKeys: ['DataPipelines'],
+            href: urls.destinations(),
+            sceneKey: 'Destinations',
+            sceneKeys: ['Destinations'],
         },
         {
-            path: 'Ingestion warnings',
+            path: 'Event ingestion warnings',
             category: 'Pipeline',
             iconType: 'ingestion_warning',
             href: urls.ingestionWarnings(),

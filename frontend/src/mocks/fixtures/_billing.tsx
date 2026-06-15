@@ -2,6 +2,8 @@ import { dayjs } from 'lib/dayjs'
 
 import { BillingPlan, BillingType } from '~/types'
 
+import { defaultPlatformAddons } from './_billing_platform_addons'
+
 export const billingJson: BillingType = {
     customer_id: 'cus_Pg7PIL8MsKi6bx',
     deactivated: false,
@@ -334,6 +336,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: '960.00',
             projected_amount_usd_with_limit: '960.00',
             unit: 'event',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [
                 {
                     name: 'Group analytics',
@@ -425,6 +430,9 @@ export const billingJson: BillingType = {
                     included_with_main_product: false,
                     subscribed: true,
                     unit: 'event',
+                    display_unit: null,
+                    display_decimals: null,
+                    display_divisor: null,
                     unit_amount_usd: null,
                     current_amount_usd: null,
                     current_usage: 882128,
@@ -1082,6 +1090,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: '775.00',
             projected_amount_usd_with_limit: '775.00',
             unit: 'recording',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [
                 {
                     name: 'Mobile session replay',
@@ -1151,6 +1162,9 @@ export const billingJson: BillingType = {
                     included_with_main_product: false,
                     subscribed: true,
                     unit: 'mobile recording',
+                    display_unit: null,
+                    display_decimals: null,
+                    display_divisor: null,
                     unit_amount_usd: null,
                     current_amount_usd: '100.00',
                     current_usage: 0,
@@ -1854,6 +1868,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: '235.00',
             projected_amount_usd_with_limit: '235.00',
             unit: 'request',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [],
             contact_support: false,
             inclusion_only: false,
@@ -2319,6 +2336,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: null,
             projected_amount_usd_with_limit: null,
             unit: 'survey response',
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [],
             contact_support: false,
             inclusion_only: false,
@@ -2618,6 +2638,9 @@ export const billingJson: BillingType = {
             projected_amount_usd: null,
             projected_amount_usd_with_limit: null,
             unit: null,
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
             addons: [],
             contact_support: false,
             inclusion_only: true,
@@ -2725,15 +2748,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: 'environment',
-                            limit: 1,
-                            note: null,
-                        },
-                        {
                             key: 'api_access',
                             name: 'API access',
                             description: 'Access your data via our developer-friendly API.',
@@ -2806,15 +2820,6 @@ export const billingJson: BillingType = {
                             description:
                                 'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
                             unit: 'projects',
-                            limit: 2,
-                            note: null,
-                        },
-                        {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: 'environment',
                             limit: 2,
                             note: null,
                         },
@@ -2905,15 +2910,6 @@ export const billingJson: BillingType = {
                             note: 'Unlimited',
                         },
                         {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
                             key: 'tracked_users',
                             name: 'Tracked users',
                             description: 'Track users across devices and sessions.',
@@ -2943,14 +2939,6 @@ export const billingJson: BillingType = {
                             name: 'Ingestion taxonomy',
                             description:
                                 'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'tagging',
-                            name: 'Dashboard tags',
-                            description: 'Organize dashboards with tags.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -3133,354 +3121,10 @@ export const billingJson: BillingType = {
             projected_amount_usd: null,
             projected_amount_usd_with_limit: null,
             unit: null,
-            addons: [
-                {
-                    name: 'Teams',
-                    description:
-                        'Priority support, unlimited projects, white labelling, SSO enforcement, and features for collaboration with team members',
-                    price_description: null,
-                    image_url: 'None',
-                    icon_key: 'IconBuilding',
-                    docs_url: 'https://posthog.com/pricing',
-                    type: 'teams',
-                    tiers: [],
-                    tiered: false,
-                    included_with_main_product: false,
-                    subscribed: false,
-                    unit: null,
-                    unit_amount_usd: null,
-                    current_amount_usd: null,
-                    current_usage: 0,
-                    projected_usage: 0,
-                    projected_amount_usd: null,
-                    plans: [
-                        {
-                            plan_key: 'addon-20240411',
-                            product_key: 'teams',
-                            name: 'Teams addon',
-                            description:
-                                'Priority support, unlimited projects, white labelling, SSO enforcement, and features for collaboration with team members',
-                            image_url: null,
-                            docs_url: 'https://posthog.com/pricing',
-                            note: null,
-                            unit: 'month',
-                            flat_rate: true,
-                            free_allocation: null,
-                            features: [
-                                {
-                                    key: 'organizations_projects',
-                                    name: 'Projects',
-                                    description:
-                                        'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
-                                    unit: null,
-                                    limit: null,
-                                    note: 'Unlimited',
-                                },
-                                {
-                                    key: 'environments',
-                                    name: 'Environments',
-                                    description:
-                                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                                    unit: null,
-                                    limit: null,
-                                    note: 'Unlimited',
-                                },
-                                {
-                                    key: 'sso_enforcement',
-                                    name: 'Enforce SSO login',
-                                    description:
-                                        'Users can only sign up and log in to your PostHog organization with your specified SSO provider.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: '2fa_enforcement',
-                                    name: 'Enforce 2FA',
-                                    description:
-                                        'Require all users in your organization to enable two-factor authentication.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'configuration_support',
-                                    name: 'Personalized onboarding',
-                                    description:
-                                        'Get help from our team to create dashboards that will help you understand your data and your business.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'priority_support',
-                                    name: 'Priority support',
-                                    description: 'Get help from our team faster than other customers.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'white_labelling',
-                                    name: 'White labeling',
-                                    description:
-                                        'Use your own branding on surveys, shared dashboards, shared insights, and more.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'advanced_permissions',
-                                    name: 'Access control',
-                                    description:
-                                        'Control who can access and modify data and features within your organization.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'access_control',
-                                    name: 'Access control',
-                                    description:
-                                        'Control who can access and modify data and features within your organization.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'audit_logs',
-                                    name: 'Audit logs',
-                                    description:
-                                        'See who in your organization has accessed or modified entities within PostHog.',
-                                    unit: null,
-                                    limit: null,
-                                    note: 'Basic',
-                                },
-                                {
-                                    key: 'security_assessment',
-                                    name: 'Security assessment',
-                                    description: 'Security assessment',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'hipaa_baa',
-                                    name: 'HIPAA BAA',
-                                    description:
-                                        'Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'ingestion_taxonomy',
-                                    name: 'Ingestion taxonomy',
-                                    description:
-                                        'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'tagging',
-                                    name: 'Dashboard tags',
-                                    description: 'Organize dashboards with tags.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'support_response_time',
-                                    name: 'Support response time',
-                                    description: 'Get help from our team!',
-                                    unit: null,
-                                    limit: null,
-                                    note: '12 hours',
-                                },
-                                {
-                                    key: 'automatic_provisioning',
-                                    name: 'Automatic provisioning',
-                                    description:
-                                        'Verify your domains to enforce SSO and automatically add users with matching email addresses to your organization.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
-                                    key: 'managed_reverse_proxy',
-                                    name: 'Managed reverse proxy',
-                                    description:
-                                        'Send events through your own domain to capture more usage data without having to self-host PostHog.',
-                                    images: null,
-                                    icon_key: null,
-                                    type: null,
-                                },
-                            ],
-                            tiers: [],
-                            current_plan: false,
-                            included_if: null,
-                            contact_support: null,
-                            unit_amount_usd: '450.00',
-                        },
-                    ],
-                    contact_support: null,
-                    inclusion_only: false,
-                    included_if: null,
-                    features: [
-                        {
-                            key: 'automatic_provisioning',
-                            name: 'Automatic provisioning',
-                            description:
-                                'Verify your domains to enforce SSO and automatically add users with matching email addresses to your organization.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'sso_enforcement',
-                            name: 'Enforce SSO login',
-                            description:
-                                'Users can only sign up and log in to your PostHog organization with your specified SSO provider.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: '2fa_enforcement',
-                            name: 'Enforce 2FA',
-                            description: 'Require all users in your organization to enable two-factor authentication.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'priority_support',
-                            name: 'Priority support',
-                            description: 'Get help from our team faster than other customers.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'white_labelling',
-                            name: 'White labeling',
-                            description:
-                                'Use your own branding on surveys, shared dashboards, shared insights, and more.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'hipaa_baa',
-                            name: 'HIPAA BAA',
-                            description:
-                                'Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'advanced_permissions',
-                            name: 'Access control',
-                            description:
-                                'Control who can access and modify data and features within your organization.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'access_control',
-                            name: 'Access control',
-                            description:
-                                'Control who can access and modify data and features within your organization.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'configuration_support',
-                            name: 'Personalized onboarding',
-                            description:
-                                'Get help from our team to create dashboards that will help you understand your data and your business.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'security_assessment',
-                            name: 'Security assessment',
-                            description: 'Security assessment',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'ingestion_taxonomy',
-                            name: 'Ingestion taxonomy',
-                            description:
-                                'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'tagging',
-                            name: 'Dashboard tags',
-                            description: 'Organize dashboards with tags.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'organizations_projects',
-                            name: 'Projects',
-                            description:
-                                'Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'environments',
-                            name: 'Environments',
-                            description:
-                                'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                            unit: null,
-                            limit: null,
-                            note: 'Unlimited',
-                        },
-                        {
-                            key: 'support_response_time',
-                            name: 'Support response time',
-                            description: 'Get help from our team!',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'audit_logs',
-                            name: 'Audit logs',
-                            description:
-                                'See who in your organization has accessed or modified entities within PostHog.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
-                            key: 'managed_reverse_proxy',
-                            name: 'Managed reverse proxy',
-                            description:
-                                'Send events through your own domain to capture more usage data without having to self-host PostHog.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                    ],
-                    usage_key: undefined,
-                    usage_limit: null,
-                },
-            ],
+            display_unit: null,
+            display_decimals: null,
+            display_divisor: null,
+            addons: defaultPlatformAddons,
             contact_support: false,
             inclusion_only: true,
             features: [
@@ -3516,15 +3160,6 @@ export const billingJson: BillingType = {
                     images: null,
                     icon_key: null,
                     type: null,
-                },
-                {
-                    key: 'environments',
-                    name: 'Environments',
-                    description:
-                        'Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.',
-                    unit: null,
-                    limit: null,
-                    note: 'Unlimited',
                 },
                 {
                     key: 'social_sso',
@@ -3722,14 +3357,6 @@ export const billingJson: BillingType = {
                     name: 'Ingestion taxonomy',
                     description:
                         'Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'tagging',
-                    name: 'Dashboard tags',
-                    description: 'Organize dashboards with tags.',
                     images: null,
                     icon_key: null,
                     type: null,

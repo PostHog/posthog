@@ -3,10 +3,15 @@ import {
     IconBook,
     IconBrain,
     IconCheckbox,
+    IconCloud,
     IconCreditCard,
     IconDocument,
     IconGlobe,
     IconMemory,
+    IconNotebook,
+    IconNotification,
+    IconPeople,
+    IconPlug,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -17,11 +22,24 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { isObject } from '~/lib/utils'
-import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import {
+    AgentMode,
+    AssistantTool,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    TaskExecutionStatus,
+} from '~/queries/schema/schema-assistant-messages'
 import { RecordingUniversalFilters } from '~/types'
 
-import { EnhancedToolCall } from './Thread'
-import { isAgentMode } from './maxTypes'
+import type { SessionSummarizationUpdate } from './messages/SessionSummarizationProgress'
+
+export interface EnhancedToolCall extends AssistantToolCall {
+    status: TaskExecutionStatus
+    isLastPlanningMessage?: boolean
+    updates?: string[]
+    /** The tool call result message, if available */
+    result?: AssistantToolCallMessage
+}
 
 export interface DisplayFormatterContext {
     registeredToolMap: Record<string, ToolRegistration>
@@ -47,7 +65,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: DisplayFormatterContext
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | SessionSummarizationWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -58,6 +76,8 @@ export interface ToolDefinition<N extends string = string> {
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     /** If the tool is in beta, set this to true to display a beta badge */
     beta?: boolean
+    /** If the tool is in alpha, set this to true to display an alpha badge */
+    alpha?: boolean
     /** Agent modes this tool is available in (defined in backend presets) */
     modes?: AgentMode[]
 }
@@ -104,24 +124,61 @@ export interface RecordingsWidgetDef {
     args: RecordingUniversalFilters
 }
 
+export interface SessionSummarizationWidgetDef {
+    widget: 'session_summarization'
+    args: { updates: SessionSummarizationUpdate[] }
+}
+
 /** Static mode definition for display purposes. */
 export interface ModeDefinition {
     name: string
     description: string
     icon: JSX.Element
     /** Scenes that should trigger this agent mode */
-    scenes: Set<Scene>
+    scenes?: Set<Scene>
+    beta?: boolean
+    alpha?: boolean
+    /** Feature flag key that gates this mode. When set, the mode is only available if the flag is enabled. */
+    flag?: keyof typeof FEATURE_FLAGS
 }
 
 /** Default tools available in all modes */
 export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'read_taxonomy',
     'read_data',
+    'list_data',
+    'list_feature_flags',
     'search',
     'switch_mode',
+    'list_llm_skills',
+    'get_llm_skill',
+    'get_llm_skill_file',
 ]
 
+function skillStatusFormatter(
+    toolCall: EnhancedToolCall,
+    { completedLabel, pendingLabel, nameArgKey }: { completedLabel: string; pendingLabel: string; nameArgKey?: string }
+): string {
+    const rawName = nameArgKey ? toolCall.args?.[nameArgKey] : undefined
+    const suffix = typeof rawName === 'string' && rawName ? ` "${rawName}"` : ''
+    if (toolCall.status === 'completed') {
+        return `${completedLabel}${suffix}`
+    }
+    return `${pendingLabel}${suffix}...`
+}
+
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    call_mcp_server: {
+        name: 'Call an MCP server',
+        description: 'Call an MCP server',
+        icon: <IconPlug />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Called an MCP server'
+            }
+            return 'Calling an MCP server...'
+        },
+    },
     todo_write: {
         name: 'Write a todo',
         description: 'Write a todo to remember a task',
@@ -142,7 +199,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return `Task (${title})`
             }
-            return `Running a task (${title})...`
+            return title ? `Running a task (${title})...` : 'Running a task...'
         },
     },
     create_form: {
@@ -156,12 +213,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating a form...'
         },
     },
-    create_dashboard: {
-        name: 'Create dashboards',
-        description: 'Create dashboards with insights based on your requirements',
-        icon: iconForType('dashboard'),
-        modes: [AgentMode.ProductAnalytics],
-    },
     search: {
         name: 'Search PostHog data',
         description:
@@ -171,7 +222,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             toolCall: EnhancedToolCall,
             context: DisplayFormatterContext
         ) {
-            if (this.subtools && 'kind' in toolCall.args && typeof toolCall.args.kind === 'string') {
+            if (
+                this.subtools &&
+                'kind' in toolCall.args &&
+                typeof toolCall.args.kind === 'string' &&
+                toolCall.args.kind in this.subtools
+            ) {
                 const { displayFormatter } = this.subtools[toolCall.args.kind]
                 if (displayFormatter) {
                     return displayFormatter(toolCall, context)
@@ -441,6 +497,34 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             },
         },
     },
+    list_data: {
+        name: 'List data',
+        description: 'List data with pagination to browse PostHog entities',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const kind = typeof toolCall.args?.kind === 'string' ? toolCall.args.kind : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const entityLabel = (kind ? kind.replace(/_/g, ' ') : 'entities').toLowerCase()
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+
+            if (toolCall.status === 'completed') {
+                return `Listed ${entityLabel}${pageInfo}`
+            }
+            return `Listing ${entityLabel}${pageInfo}...`
+        },
+    },
+    list_feature_flags: {
+        name: 'List feature flags',
+        description: 'List feature flags with their status, filterable by stale/enabled/disabled',
+        icon: <IconSearch />,
+        displayFormatter: (toolCall) => {
+            const status = typeof toolCall.args?.status === 'string' ? toolCall.args.status : null
+            const offset = typeof toolCall.args?.offset === 'number' ? toolCall.args.offset : 0
+            const pageInfo = offset > 0 ? ` (page ${Math.floor(offset / 100) + 1})` : ''
+            const label = status ? `${status} feature flags` : 'feature flags'
+            return toolCall.status === 'completed' ? `Listed ${label}${pageInfo}` : `Listing ${label}${pageInfo}...`
+        },
+    },
     create_insight: {
         name: 'Create an insight or edit an existing one',
         description: "Create an insight or edit an existing one you're viewing",
@@ -493,6 +577,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed user interviews'
@@ -500,10 +585,24 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Analyzing user interviews...'
         },
     },
+    create_user_interview_topic: {
+        name: 'Set up user interviews',
+        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
+        product: Scene.UserInterviews,
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+        icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created interview topic'
+            }
+            return 'Setting up interview topic...'
+        },
+    },
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -515,7 +614,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_transformation_function: {
         name: 'Write and tweak Hog code',
         description: 'Write and tweak Hog code of transformations',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -527,7 +626,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     create_hog_function_inputs: {
         name: 'Manage function variables',
         description: 'Manage function variables in Hog functions',
-        product: Scene.DataPipelines,
+        product: Scene.Transformations,
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
@@ -548,11 +647,54 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering issues...'
         },
     },
+    upsert_account: {
+        name: 'Manage accounts',
+        description: 'Manage accounts by creating them or updating roles, properties, and tags',
+        product: Scene.CustomerAnalytics,
+        icon: iconForType('cohort'),
+        modes: [AgentMode.CustomerAnalytics],
+        displayFormatter: (toolCall) => {
+            const action = toolCall.args?.action
+            const isUpdate = isObject(action) && 'action' in action && action.action === 'update'
+            if (isUpdate) {
+                return toolCall.status === 'completed' ? 'Updated account' : 'Updating account...'
+            }
+            return toolCall.status === 'completed' ? 'Created account' : 'Creating account...'
+        },
+    },
+    upsert_account_notebook: {
+        name: 'Manage account notes',
+        description: 'Manage account notes — call recaps, summaries, or edits to an existing note',
+        product: Scene.CustomerAnalytics,
+        icon: iconForType('notebook'),
+        modes: [AgentMode.CustomerAnalytics],
+        displayFormatter: (toolCall) => {
+            const action = toolCall.args?.action
+            const isUpdate = isObject(action) && 'action' in action && action.action === 'update'
+            if (isUpdate) {
+                return toolCall.status === 'completed' ? 'Updated account note' : 'Updating account note...'
+            }
+            return toolCall.status === 'completed' ? 'Created account note' : 'Creating account note...'
+        },
+    },
+    open_account: {
+        name: 'Open account',
+        description: 'Open account details and tabs',
+        product: Scene.CustomerAnalytics,
+        icon: <IconPeople />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Opened account'
+            }
+            return 'Opening account...'
+        },
+    },
     search_error_tracking_issues: {
         name: 'Search issues',
         description: 'Search issues in error tracking',
         product: Scene.ErrorTracking,
         icon: iconForType('error_tracking'),
+        modes: [AgentMode.ErrorTracking],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Found issues'
@@ -573,24 +715,12 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Finding impactful issues...'
         },
     },
-    error_tracking_explain_issue: {
-        name: 'Explain an issue',
-        description: 'Explain an issue by analyzing its stack trace',
-        product: Scene.ErrorTracking,
-        icon: iconForType('error_tracking'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Issue explained'
-            }
-            return 'Analyzing issue...'
-        },
-    },
     experiment_results_summary: {
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',
         product: Scene.Experiment,
-        flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized experiment results'
@@ -598,11 +728,62 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
+    experiment_session_replays_summary: {
+        name: 'Summarize experiment session replays',
+        description:
+            'Summarize experiment session replays to analyze user behavior patterns across experiment variants using session recordings',
+        product: Scene.Experiment,
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.Flags],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Analyzed session replay patterns'
+            }
+            return 'Analyzing session replays...'
+        },
+    },
+    summarize_replay_vision_summaries: {
+        name: 'Summarize session summaries',
+        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized session summaries'
+            }
+            return 'Summarizing session summaries...'
+        },
+    },
+    draft_replay_vision_scanner_prompt: {
+        name: 'Write scanner prompts',
+        description: 'Write scanner prompts for Replay Vision scanners',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Drafted scanner prompt'
+            }
+            return 'Drafting scanner prompt...'
+        },
+    },
+    search_replay_vision_observations: {
+        name: 'Search observations',
+        description: "Search observations by the meaning of a Replay Vision scanner's model reasoning",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched observations'
+            }
+            return 'Searching observations...'
+        },
+    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
         product: Scene.Surveys,
         icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created surveys'
@@ -610,11 +791,25 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating surveys...'
         },
     },
+    edit_survey: {
+        name: 'Edit survey',
+        description: 'Edit survey',
+        product: Scene.Surveys,
+        icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Edited survey'
+            }
+            return 'Editing survey...'
+        },
+    },
     analyze_survey_responses: {
         name: 'Analyze survey responses',
         description: 'Analyze survey responses to extract themes and actionable insights',
         product: Scene.Surveys,
         icon: iconForType('survey'),
+        modes: [AgentMode.Survey],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed survey responses'
@@ -668,17 +863,83 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Filtering web analytics...'
         },
     },
-    edit_current_dashboard: {
-        name: 'Add an insight to the dashboard',
-        description: "Add an insight to the dashboard you're viewing",
-        product: Scene.Dashboard,
-        icon: iconForType('dashboard'),
+    web_analytics_doctor: {
+        name: 'Diagnose web analytics',
+        description: 'Diagnose web analytics setup issues like missing pageviews or partial proxy coverage',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Added an insight to the dashboard'
-            }
-            return 'Adding an insight to the dashboard...'
+            return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
         },
+    },
+    assess_heatmap: {
+        name: 'Assess a heatmap',
+        description:
+            'Assess a heatmap for a page — click, rageclick, and scroll-depth data plus the elements under the hot spots — and recommend concrete changes',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Assessed heatmap' : 'Assessing heatmap...'
+        },
+    },
+    marketing_diagnose_setup: {
+        name: 'Diagnose marketing analytics',
+        description:
+            'Diagnose marketing analytics setup with a health check across data sources, attribution, and conversion goals',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Diagnosed marketing analytics' : 'Diagnosing marketing analytics...',
+    },
+    marketing_explain_conversion_goal: {
+        name: 'Explain a conversion goal',
+        description:
+            'Explain a conversion goal by showing which events drove its count, broken down by source and integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Explained conversion goal' : 'Explaining conversion goal...',
+    },
+    marketing_list_conversion_goals: {
+        name: 'List conversion goals',
+        description: 'List conversion goals with their last-30d performance',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed conversion goals' : 'Listing conversion goals...',
+    },
+    marketing_list_data_sources: {
+        name: 'List marketing data sources',
+        description: 'List marketing data sources with platform-side health for every connected ad integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed marketing data sources' : 'Listing marketing data sources...',
+    },
+    marketing_audit_utm: {
+        name: 'Audit UTM tagging',
+        description: 'Audit UTM tagging to find issues that prevent attribution to ad platforms',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Audited UTM tagging' : 'Auditing UTM tagging...',
+    },
+    marketing_suggest_conversion_goals: {
+        name: 'Suggest conversion goals',
+        description: 'Suggest conversion goals by ranking custom events that are good candidates',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested conversion goals' : 'Suggesting conversion goals...',
+    },
+    marketing_suggest_utm_mappings: {
+        name: 'Suggest UTM mappings',
+        description:
+            'Suggest UTM mappings by detecting unmatched utm_source values and proposing custom_source_mappings entries',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested UTM mappings' : 'Suggesting UTM mappings...',
     },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
@@ -704,6 +965,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create a feature flag in seconds',
         product: Scene.FeatureFlags,
         icon: iconForType('feature_flag'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created feature flag'
@@ -716,6 +978,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         description: 'Create an experiment in seconds',
         product: Scene.Experiments,
         icon: iconForType('experiment'),
+        modes: [AgentMode.Flags],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Created experiment'
@@ -820,7 +1083,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             'Switch agent mode to another specialized mode like product analytics, SQL, or session replay analysis',
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
-            const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
+            if (toolCall.args.new_mode === AgentMode.Execution) {
+                if (toolCall.status === 'completed') {
+                    return 'Plan is complete, switching to execution mode'
+                }
+                return 'Finalizing plan...'
+            } else if (toolCall.args.new_mode === AgentMode.Plan) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to plan mode'
+                }
+                return 'Switching to plan mode...'
+            } else if (toolCall.args.new_mode === AgentMode.Research) {
+                if (toolCall.status === 'completed') {
+                    return 'Switched to research mode'
+                }
+                return 'Switching to research mode...'
+            }
+            // Use optional chaining since Plan and Research modes are not in MODE_DEFINITIONS
+            const newMode = toolCall.args.new_mode as string
+            const modeName =
+                newMode in MODE_DEFINITIONS ? MODE_DEFINITIONS[newMode as keyof typeof MODE_DEFINITIONS].name : null
             const modeText = (modeName ? ` to the ${modeName} mode` : 'mode').toLowerCase()
 
             if (toolCall.status === 'completed') {
@@ -840,21 +1122,36 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             if (toolCall.status === 'completed') {
                 return 'Executed SQL'
             }
-            return 'Writing an SQL query...'
+            return 'Writing a SQL query...'
         },
     },
     summarize_sessions: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
-        flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
         beta: true,
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Summarized sessions'
+            const text = toolCall.status === 'completed' ? 'Summarized sessions' : 'Summarizing sessions...'
+            // Parse structured updates from the tool call updates
+            const updates = toolCall.updates
+            if (updates && updates.length > 0) {
+                const parsedUpdates: SessionSummarizationUpdate[] = []
+                for (const update of updates) {
+                    try {
+                        const parsed = JSON.parse(update)
+                        if (isObject(parsed) && (parsed.type === 'sessions_discovered' || parsed.type === 'progress')) {
+                            parsedUpdates.push(parsed as unknown as SessionSummarizationUpdate)
+                        }
+                    } catch {
+                        // Not a structured update, skip
+                    }
+                }
+                if (parsedUpdates.length > 0) {
+                    return [text, { widget: 'session_summarization', args: { updates: parsedUpdates } }]
+                }
             }
-            return 'Summarizing sessions...'
+            return text
         },
     },
     web_search: {
@@ -868,11 +1165,163 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             }
             return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
-        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
+    },
+    manage_memories: {
+        name: 'Manage memories',
+        description: 'Manage memories to store and retrieve persistent information',
+        icon: <IconMemory />,
+    },
+    create_notebook: {
+        name: 'Create a document',
+        description: 'Create a document to write down your thoughts',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.args.draft_content) {
+                if (toolCall.status === 'completed') {
+                    return 'Created a draft document'
+                }
+                return 'Creating a draft document...'
+            }
+            if (toolCall.status === 'completed') {
+                return 'Created a document'
+            }
+            return 'Creating a document...'
+        },
+    },
+    upsert_alert: {
+        name: 'Manage alerts',
+        description: 'Manage alerts to monitor insight metrics',
+        icon: <IconNotification />,
+        product: Scene.Insight,
+        modes: [AgentMode.ProductAnalytics],
+        displayFormatter: (toolCall) => {
+            if (isObject(toolCall.args?.action) && 'alert_id' in toolCall.args.action) {
+                return toolCall.status === 'completed' ? 'Updated alert' : 'Updating alert...'
+            }
+            return toolCall.status === 'completed' ? 'Created alert' : 'Creating alert...'
+        },
+    },
+    diagnose_proxy: {
+        name: 'Diagnose reverse proxy',
+        description: 'Diagnose reverse proxy stuck or erroring states',
+        icon: <IconCloud />,
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed reverse proxy' : 'Diagnosing reverse proxy...'
+        },
+    },
+    finalize_plan: {
+        name: 'Finalize plan',
+        description: 'Finalize plan',
+        icon: iconForType('notebook'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Finalized plan'
+            }
+            return 'Finalizing plan...'
+        },
+    },
+    search_llm_traces: {
+        name: 'Search LLM traces',
+        description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
+        icon: iconForType('llm_analytics'),
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Searched LLM traces'
+            }
+            return 'Searching LLM traces...'
+        },
+    },
+    run_hog_eval_test: {
+        name: 'Test evaluation',
+        description: 'Test evaluation code against sample events',
+        product: Scene.AIObservabilityEvaluation,
+        icon: iconForType('llm_evaluations'),
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Tested evaluation code'
+            }
+            return 'Testing evaluation code...'
+        },
+    },
+    list_llm_skills: {
+        name: 'List shared skills',
+        description: 'List shared skills stored for this team',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Listed shared skills',
+                pendingLabel: 'Listing shared skills',
+            }),
+    },
+    get_llm_skill: {
+        name: 'Load shared skill',
+        description: 'Load shared skill body and file manifest',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded shared skill',
+                pendingLabel: 'Loading shared skill',
+                nameArgKey: 'skill_name',
+            }),
+    },
+    get_llm_skill_file: {
+        name: 'Load shared skill file',
+        description: 'Load shared skill file bundled in a skill',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded skill file',
+                pendingLabel: 'Loading skill file',
+                nameArgKey: 'file_path',
+            }),
+    },
+    create_llm_skill: {
+        name: 'Create shared skill',
+        description: 'Create shared skill to save a reusable workflow',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Created shared skill',
+                pendingLabel: 'Creating shared skill',
+                nameArgKey: 'name',
+            }),
+    },
+    update_llm_skill: {
+        name: 'Update shared skill',
+        description: 'Update shared skill by publishing a new version',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Updated shared skill',
+                pendingLabel: 'Updating shared skill',
+                nameArgKey: 'skill_name',
+            }),
+    },
+    archive_llm_skill: {
+        name: 'Archive shared skill',
+        description: 'Archive shared skill to hide it from suggestions',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Archived shared skill',
+                pendingLabel: 'Archiving shared skill',
+                nameArgKey: 'skill_name',
+            }),
     },
 }
 
-export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
+export const MODE_DEFINITIONS: Record<
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
+    ModeDefinition
+> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',
@@ -903,20 +1352,86 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
         icon: iconForType('error_tracking'),
         scenes: new Set([Scene.ErrorTracking]),
     },
+    [AgentMode.Survey]: {
+        name: 'Surveys',
+        description: 'Creates and analyzes surveys to collect user feedback.',
+        icon: iconForType('survey'),
+        scenes: new Set([Scene.Surveys, Scene.Survey]),
+    },
+    [AgentMode.Flags]: {
+        name: 'Flags',
+        description: 'Creates and manages feature flags and experiments.',
+        icon: iconForType('feature_flag'),
+        scenes: new Set([
+            Scene.FeatureFlags,
+            Scene.FeatureFlag,
+            Scene.EarlyAccessFeature,
+            Scene.EarlyAccessFeatures,
+            Scene.Experiment,
+            Scene.Experiments,
+            Scene.ExperimentsSharedMetric,
+            Scene.ExperimentsSharedMetrics,
+        ]),
+    },
+    [AgentMode.AIObservability]: {
+        name: 'AI observability',
+        description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
+        icon: iconForType('llm_analytics'),
+        scenes: new Set([
+            Scene.AIObservability,
+            Scene.AIObservabilityTrace,
+            Scene.AIObservabilityEvaluation,
+            Scene.AIObservabilityEvaluations,
+            Scene.AIObservabilityDataset,
+            Scene.AIObservabilityDatasets,
+            Scene.AIObservabilityPlayground,
+            Scene.AIObservabilityUsers,
+        ]),
+    },
+    [AgentMode.UserInterview]: {
+        name: 'User interviews',
+        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
+        icon: iconForType('user_interview'),
+        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
+        flag: 'USER_INTERVIEWS',
+    },
+    [AgentMode.CustomerAnalytics]: {
+        name: 'Customer analytics',
+        description:
+            'Works with your customer accounts — assign owners, review notes and usage, and dig into account data.',
+        icon: iconForType('cohort'),
+        scenes: new Set([Scene.CustomerAnalytics]),
+        flag: 'CUSTOMER_ANALYTICS_CSP',
+    },
 }
 
-export const SPECIAL_MODES = {
+export const SPECIAL_MODES: Record<string, ModeDefinition> = {
     auto: {
         name: 'Auto',
         description:
             'Automatically selects the best mode based on your request. The tools that are available in all modes are listed below.',
         icon: <IconShuffle />,
     },
-    deep_research: {
+    plan: {
+        name: 'Plan',
+        description:
+            "Creates a plan to guide the agent's actions and achieve your goals. The tools that are available in all modes are listed below.",
+        icon: <IconNotebook />,
+        beta: true,
+    },
+    research: {
         name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,
+        beta: true,
+    },
+    sandbox: {
+        name: 'Sandbox',
+        description: 'Spawns a cloud coding agent to work on the PostHog codebase.',
+        icon: <IconCloud />,
+        flag: 'PHAI_SANDBOX_MODE',
+        alpha: true,
     },
 }
 
@@ -926,12 +1441,10 @@ export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
 }
 
 /** Get default tools available in auto mode */
-export function getDefaultTools({ webSearchEnabled }: { webSearchEnabled: boolean }): ToolDefinition[] {
+export function getDefaultTools(): ToolDefinition[] {
     const defaultTools = DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
-    if (webSearchEnabled) {
-        // Add web search after `search`
-        defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
-    }
+    // Add web search after `search`
+    defaultTools.splice(defaultTools.indexOf(TOOL_DEFINITIONS.search) + 1, 0, TOOL_DEFINITIONS.web_search)
     return defaultTools
 }
 
@@ -950,8 +1463,12 @@ export const AI_GENERALLY_CANNOT: string[] = [
 ]
 
 export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
-    const identifier = toolCall.args.kind ?? toolCall.name
-    return getToolDefinition(identifier as string)
+    const definition = getToolDefinition(toolCall.name)
+    // Only use args.kind for subtool lookup if the parent tool has subtools
+    if (definition?.subtools && typeof toolCall.args.kind === 'string') {
+        return definition.subtools[toolCall.args.kind] ?? definition
+    }
+    return definition
 }
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {

@@ -119,10 +119,10 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
     }),
 
     actionToUrl(({ values }) => {
-        const stateToUrl = (): [string, Record<string, string>] => {
+        const stateToUrl = (): [string, Record<string, any>] => {
             const { properties, dateRange } = values
 
-            const urlParams = {}
+            const urlParams: Record<string, any> = {}
             if (properties.length > 0) {
                 urlParams['properties'] = properties
             }
@@ -142,7 +142,10 @@ export const sessionAttributionExplorerLogic = kea<sessionAttributionExplorerLog
     urlToAction(({ actions }) => ({
         [urls.sessionAttributionExplorer()]: (_, { properties, dateRange }) => {
             const parsedProperties = isSessionPropertyFilters(properties) ? properties : initialProperties
-            const parsedDateRange = dateRange ?? null
+            const parsedDateRange: DateRange | null =
+                dateRange && typeof dateRange === 'object' && ('date_from' in dateRange || 'date_to' in dateRange)
+                    ? (dateRange as DateRange)
+                    : null
 
             actions.setStateFromUrl({
                 properties: parsedProperties,

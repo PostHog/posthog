@@ -2,12 +2,14 @@ import os
 
 from posthog.settings import TEST
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.data_stores import DATABASE_URL, PRODUCT_DB_WRITER_URLS
 from posthog.settings.utils import get_from_env, str_to_bool
 
-AIRBYTE_BUCKET_REGION = os.getenv("AIRBYTE_BUCKET_REGION", "us-east-1")
-AIRBYTE_BUCKET_KEY = os.getenv("AIRBYTE_BUCKET_KEY", "object_storage_root_user")
-AIRBYTE_BUCKET_SECRET = os.getenv("AIRBYTE_BUCKET_SECRET", "object_storage_root_password")
-AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", "objectstorage:19000")
+DATAWAREHOUSE_LOCAL_BUCKET_REGION = os.getenv("DATAWAREHOUSE_LOCAL_BUCKET_REGION", "us-east-1")
+DATAWAREHOUSE_LOCAL_ACCESS_KEY = os.getenv("DATAWAREHOUSE_LOCAL_ACCESS_KEY", "object_storage_root_user")
+DATAWAREHOUSE_LOCAL_ACCESS_SECRET = os.getenv("DATAWAREHOUSE_LOCAL_ACCESS_SECRET", "object_storage_root_password")
+DATAWAREHOUSE_BUCKET_DOMAIN = os.getenv("DATAWAREHOUSE_BUCKET_DOMAIN", "objectstorage:19000")
+
 
 DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
 BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
@@ -37,3 +39,11 @@ CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT: str | None = os.getenv("CLICKHOUSE_HOGQL_RD
 CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_USER: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_USER")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD")
+
+WAREHOUSE_SOURCES_DATABASE_URL: str = (
+    os.getenv("WAREHOUSE_SOURCES_DATABASE_URL") or PRODUCT_DB_WRITER_URLS.get("warehouse_sources_queue") or DATABASE_URL
+)
+
+# Warehouse-pipeline and cyclotron Kafka config live in `posthog/settings/kafka.py`
+# (profiles `warehouse_sources` and `cyclotron`) — read from `settings.KAFKA_PROFILES[...]`
+# or via the back-compat top-level names that settings/kafka.py exposes.

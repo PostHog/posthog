@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { notebooksModel } from '~/models/notebooksModel'
 
@@ -10,9 +11,10 @@ import { NotebookListItemType } from '../types'
 export type NotebookListMiniProps = {
     selectedNotebookId?: string
     onSelectNotebook: (notebook: NotebookListItemType) => void
+    buttonProps?: ButtonPrimitiveProps
 }
 
-export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps): JSX.Element {
+export function NotebookListMini({ selectedNotebookId, buttonProps }: NotebookListMiniProps): JSX.Element {
     const { notebooks, notebookTemplates } = useValues(notebooksModel)
 
     const selectedTitle =
@@ -24,9 +26,12 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
 
     return (
         <NotebookSelectPopover placement="bottom-start">
-            <LemonButton size="small" truncate>
-                {selectedTitle || 'Notebooks'}
-            </LemonButton>
+            {(open) => (
+                <ButtonPrimitive data-state={open ? 'open' : 'closed'} {...buttonProps}>
+                    <span className="truncate">{selectedTitle || 'Notebooks'}</span>
+                    <MenuOpenIndicator />
+                </ButtonPrimitive>
+            )}
         </NotebookSelectPopover>
     )
 }

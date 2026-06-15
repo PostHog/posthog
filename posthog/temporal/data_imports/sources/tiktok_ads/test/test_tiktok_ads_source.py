@@ -4,15 +4,19 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
+from posthog.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsPaginator
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
@@ -38,13 +42,51 @@ class TestTikTokAdsSource:
         """Test that source type is correctly identified."""
         assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
+    @parameterized.expand(
+        [
+            ("advertiser_deleted", 40001, "The advertiser 123 doesn't exist or has been deleted."),
+            ("invalid_parameter", 40002, "Invalid parameter"),
+        ]
+    )
+    def test_non_retryable_paginator_error_matches_source_pattern(self, name, api_code, message):
+        """The ValueError the paginator raises for non-retryable codes must match a
+        pattern in get_non_retryable_errors, otherwise the job retries forever."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": api_code, "message": message, "data": {}}
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"TikTok non-retryable error '{error_message}' does not match any non-retryable pattern"
+        )
+
+    def test_retryable_paginator_error_does_not_match_source_pattern(self):
+        """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": 50000, "message": "Internal server error", "data": {}}
+
+        # Retryable codes raise TikTokAdsAPIError, not ValueError; capture its message.
+        with pytest.raises(Exception) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)
+
     def test_get_source_config(self):
         """Test source configuration generation."""
         config = self.source.get_source_config
 
         assert config.name.value == "TikTokAds"
         assert config.label == "TikTok Ads"
-        assert config.betaSource is True
+        assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
         advertiser_field = config.fields[0]
@@ -102,12 +144,24 @@ class TestTikTokAdsSource:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
 
+    def test_get_resumable_source_manager(self):
+        """The source must expose a ResumableSourceManager instance."""
+        inputs = MagicMock()
+        inputs.team_id = self.team_id
+        inputs.job_id = self.job_id
+        inputs.logger = MagicMock()
+
+        manager = self.source.get_resumable_source_manager(inputs)
+
+        assert isinstance(manager, ResumableSourceManager)
+
     @patch("posthog.temporal.data_imports.sources.tiktok_ads.source.tiktok_ads_source")
     def test_source_for_pipeline_success(self, mock_tiktok_source):
         """Test successful pipeline source creation."""
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
+            source_id="source-id",
             team_id=self.team_id,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime.now() - timedelta(days=1),
@@ -116,15 +170,17 @@ class TestTikTokAdsSource:
             incremental_field_type=IncrementalFieldType.DateTime,
             job_id=self.job_id,
             logger=structlog.get_logger(),
+            reset_pipeline=False,
         )
 
         mock_response = Mock()
         mock_tiktok_source.return_value = mock_response
+        manager = MagicMock()
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
             mock_get_integration.return_value = self.mock_integration
 
-            result = self.source.source_for_pipeline(self.config, inputs)
+            result = self.source.source_for_pipeline(self.config, manager, inputs)
 
             assert result == mock_response
             mock_tiktok_source.assert_called_once_with(
@@ -133,6 +189,7 @@ class TestTikTokAdsSource:
                 team_id=self.team_id,
                 job_id=self.job_id,
                 access_token="test_access_token",
+                resumable_source_manager=manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             )
@@ -142,6 +199,7 @@ class TestTikTokAdsSource:
         inputs = SourceInputs(
             schema_name="campaigns",
             schema_id="campaigns_schema",
+            source_id="source-id",
             team_id=self.team_id,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
@@ -150,6 +208,7 @@ class TestTikTokAdsSource:
             incremental_field_type=None,
             job_id=self.job_id,
             logger=structlog.get_logger(),
+            reset_pipeline=False,
         )
 
         self.mock_integration.access_token = None
@@ -158,7 +217,7 @@ class TestTikTokAdsSource:
             mock_get_integration.return_value = self.mock_integration
 
             with pytest.raises(ValueError, match="TikTok Ads access token not found"):
-                self.source.source_for_pipeline(self.config, inputs)
+                self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
     def test_validate_credentials_exception_handling(self):
         """Test credential validation handles exceptions properly."""

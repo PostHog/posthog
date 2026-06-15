@@ -1,0 +1,38 @@
+name: Inkeep Agent
+on:
+    pull_request:
+        types: [closed]
+    issue_comment:
+        types: [created]
+    pull_request_review_comment:
+        types: [created]
+    pull_request_review:
+        types: [submitted]
+permissions:
+    contents: read
+    pull-requests: read
+    id-token: write
+jobs:
+    trigger-agent:
+        if: |
+            !contains(github.event.pull_request.labels.*.name, 'skip-inkeep-docs') &&
+            !contains(github.event.issue.labels.*.name, 'skip-inkeep-docs') &&
+            (
+              (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.user.login != 'inkeep[bot]') ||
+              (
+                (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@inkeep') &&
+                 (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')) ||
+                (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@inkeep') &&
+                 (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR')) ||
+                (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '@inkeep') &&
+                 (github.event.review.author_association == 'OWNER' || github.event.review.author_association == 'MEMBER' || github.event.review.author_association == 'COLLABORATOR'))
+              )
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Trigger Inkeep Agent
+              uses: inkeep/inkeep-agents-action@fbbc92842bd025f044cb7e4d827882fd85914f26
+              with:
+                  trigger-url: ${{ secrets.INKEEP_TRIGGER_URL }}
+                  pr-title-regex: '^(feat|fix|docs|chore)(\(.+\))?:'

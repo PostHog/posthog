@@ -32,7 +32,7 @@
 #       source will appear in frontend dropdowns and menus.
 # 14. TODO: phew! you're done. just delete these TODOs before you PR
 
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -65,7 +65,7 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
         )
 
     def validate_credentials(
-        self, config: Config, team_id: int
+        self, config: Config, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:  # replace `Config` with the generated class
         return (
             True,
@@ -73,7 +73,7 @@ class TemplateSource(SimpleSource[Config]):  # rename this class and replace `Co
         )  # implement logic to validate the credentials of your source, e.g. check the validity of API keys. return a tuple of whether the credentials are valid, and if not, return an error message to return to the user
 
     def get_schemas(
-        self, config: Config, team_id: int, with_counts: bool = False
+        self, config: Config, team_id: int, with_counts: bool = False, names: list[str] | None = None, force_refresh: bool = False
     ) -> list[SourceSchema]:  # replace `Config` with the generated class
         return []  # implement your source logic
 

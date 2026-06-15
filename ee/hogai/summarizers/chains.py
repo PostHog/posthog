@@ -10,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from posthoganalytics.ai.langchain import CallbackHandler
 
-from posthog.models import Action
+from products.actions.backend.models.action import Action
 
 from .actions import ActionSummarizer
 from .prompts import ACTIONS_SUMMARIZER_SYSTEM_PROMPT
@@ -29,6 +29,7 @@ async def abatch_summarize_actions(
             **props,
             "batch_processing": True,
             "domain": "actions",
+            "ai_product": "posthog_ai",
         },
         trace_id=trace_id,
     )

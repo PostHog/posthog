@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
+import { CyclotronPerson } from '~/cdp/types'
 import { HogFlowAction } from '~/schema/hogflow'
 
 import { findActionByType } from '../hogflow-utils'
-import { getWaitUntilTime } from './wait_until_time_window'
+import { getWaitUntilTime, resolveTimezone } from './wait_until_time_window'
 
 describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
     let action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>
@@ -156,6 +157,174 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 `"2025-01-01T21:00:00.000+09:00"`
             )
             expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-02T14:00:00.000+09:00"`)
+        })
+    })
+
+    describe('person timezone handling', () => {
+        const createPerson = (properties: Record<string, unknown>): CyclotronPerson => ({
+            id: 'person-123',
+            properties,
+            name: 'Test Person',
+            url: '/person/person-123',
+        })
+
+        it('should use person timezone when use_person_timezone is enabled', () => {
+            action.config.use_person_timezone = true
+            action.config.timezone = 'UTC'
+            const person = createPerson({ $geoip_time_zone: 'America/New_York' })
+
+            const result = getWaitUntilTime(action, person)
+            // Person is in New York (UTC-5), so 14:00 EST
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000-05:00"`)
+        })
+
+        it('should fall back to fallback_timezone when person has no timezone', () => {
+            action.config.use_person_timezone = true
+            action.config.fallback_timezone = 'Europe/London'
+            action.config.timezone = 'UTC'
+            const person = createPerson({})
+
+            const result = getWaitUntilTime(action, person)
+            // Falls back to London timezone
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000+00:00"`)
+        })
+
+        it('should fall back to configured timezone when no fallback_timezone is set', () => {
+            action.config.use_person_timezone = true
+            action.config.fallback_timezone = null
+            action.config.timezone = 'America/Chicago'
+            const person = createPerson({})
+
+            const result = getWaitUntilTime(action, person)
+            // Falls back to Chicago timezone
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000-06:00"`)
+        })
+
+        it('should use configured timezone when use_person_timezone is false', () => {
+            action.config.use_person_timezone = false
+            action.config.timezone = 'America/Los_Angeles'
+            const person = createPerson({ $geoip_time_zone: 'America/New_York' })
+
+            const result = getWaitUntilTime(action, person)
+            // Should use Los Angeles, ignoring person timezone
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000-08:00"`)
+        })
+
+        it('should handle person with null timezone property', () => {
+            action.config.use_person_timezone = true
+            action.config.fallback_timezone = 'Asia/Tokyo'
+            const person = createPerson({ $geoip_time_zone: null })
+
+            const result = getWaitUntilTime(action, person)
+            // Falls back to Tokyo timezone
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-02T14:00:00.000+09:00"`)
+        })
+
+        it('should handle no person object when use_person_timezone is enabled', () => {
+            action.config.use_person_timezone = true
+            action.config.fallback_timezone = 'Europe/Paris'
+
+            const result = getWaitUntilTime(action, undefined)
+            // Falls back to Paris timezone
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000+01:00"`)
+        })
+
+        it('should fall back when person has invalid timezone', () => {
+            action.config.use_person_timezone = true
+            action.config.fallback_timezone = 'Europe/Berlin'
+            const person = createPerson({ $geoip_time_zone: 'Invalid/Not_A_Timezone' })
+
+            const result = getWaitUntilTime(action, person)
+            // Falls back to Berlin timezone since person timezone is invalid
+            expect(result!.toISO()).toMatchInlineSnapshot(`"2025-01-01T14:00:00.000+01:00"`)
+        })
+    })
+
+    describe('resolveTimezone', () => {
+        const createPerson = (properties: Record<string, unknown>): CyclotronPerson => ({
+            id: 'person-123',
+            properties,
+            name: 'Test Person',
+            url: '/person/person-123',
+        })
+
+        it.each([
+            {
+                name: 'uses person timezone when enabled and available',
+                config: { use_person_timezone: true, timezone: 'UTC', fallback_timezone: null },
+                person: { $geoip_time_zone: 'America/New_York' },
+                expected: 'America/New_York',
+            },
+            {
+                name: 'uses fallback when person has no timezone',
+                config: { use_person_timezone: true, timezone: 'UTC', fallback_timezone: 'Europe/London' },
+                person: {},
+                expected: 'Europe/London',
+            },
+            {
+                name: 'uses configured timezone as fallback when no fallback_timezone set',
+                config: { use_person_timezone: true, timezone: 'America/Chicago', fallback_timezone: null },
+                person: {},
+                expected: 'America/Chicago',
+            },
+            {
+                name: 'uses configured timezone when use_person_timezone is false',
+                config: { use_person_timezone: false, timezone: 'Asia/Tokyo', fallback_timezone: null },
+                person: { $geoip_time_zone: 'America/New_York' },
+                expected: 'Asia/Tokyo',
+            },
+            {
+                name: 'defaults to UTC when no timezone configured',
+                config: { use_person_timezone: false, timezone: null, fallback_timezone: null },
+                person: {},
+                expected: 'UTC',
+            },
+            {
+                name: 'handles undefined use_person_timezone as false',
+                config: { timezone: 'Europe/Berlin', fallback_timezone: null },
+                person: { $geoip_time_zone: 'America/New_York' },
+                expected: 'Europe/Berlin',
+            },
+            {
+                name: 'falls back when person timezone is invalid',
+                config: { use_person_timezone: true, timezone: 'UTC', fallback_timezone: 'Europe/London' },
+                person: { $geoip_time_zone: 'Invalid/Timezone' },
+                expected: 'Europe/London',
+            },
+            {
+                name: 'falls back to configured timezone when person timezone is invalid and no fallback set',
+                config: { use_person_timezone: true, timezone: 'America/Chicago', fallback_timezone: null },
+                person: { $geoip_time_zone: 'Not_A_Real_Zone' },
+                expected: 'America/Chicago',
+            },
+            {
+                name: 'falls back to UTC when person timezone is invalid and no fallback or timezone set',
+                config: { use_person_timezone: true, timezone: null, fallback_timezone: null },
+                person: { $geoip_time_zone: 'garbage' },
+                expected: 'UTC',
+            },
+        ])('$name', ({ config, person, expected }) => {
+            const fullConfig = {
+                day: 'any' as const,
+                time: 'any' as const,
+                timezone: config.timezone,
+                use_person_timezone: config.use_person_timezone,
+                fallback_timezone: config.fallback_timezone,
+            }
+            const result = resolveTimezone(fullConfig, createPerson(person))
+            expect(result).toBe(expected)
+        })
+
+        it('handles no person object', () => {
+            const config = {
+                day: 'any' as const,
+                time: 'any' as const,
+                timezone: 'America/Denver',
+                use_person_timezone: true,
+                fallback_timezone: 'Europe/Paris',
+            }
+            const result = resolveTimezone(config, undefined)
+            expect(result).toBe('Europe/Paris')
         })
     })
 })

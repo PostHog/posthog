@@ -15,7 +15,10 @@ from django.dispatch import receiver
 import structlog
 from celery import shared_task
 
+from posthog.models.organization import Organization
+from posthog.models.project import Project
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
@@ -30,6 +33,7 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
 def update_team_metadata_cache_task(team_id: int) -> None:
     """
     Update the metadata cache for a specific team.
@@ -53,6 +57,28 @@ def update_team_metadata_cache_task(team_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def update_related_teams_metadata_cache_task(organization_id: int | None = None, project_id: int | None = None) -> None:
+    """
+    Refresh team metadata caches for every team under a changed organization or project.
+
+    Organization and project names are denormalized into each team's cached metadata, so renaming
+    either must refresh every dependent team. Fanning out here keeps the originating request O(1):
+    the signal enqueues a single task no matter how many teams the org or project owns, and each
+    per-team update runs as its own task so the work spreads across workers.
+    """
+    if organization_id is not None:
+        team_ids = Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
+    elif project_id is not None:
+        team_ids = Team.objects.filter(project_id=project_id).values_list("id", flat=True)
+    else:
+        return
+
+    for team_id in team_ids:
+        update_team_metadata_cache_task.delay(team_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def refresh_expiring_team_metadata_cache_entries() -> None:
     """
     Periodic task to refresh team metadata caches before they expire.
@@ -63,7 +89,7 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     This job just prevents expiration-related cache misses.
 
     For initial cache build or schema migrations, use the management command:
-        python manage.py warm_team_metadata_cache [--invalidate-first]
+        python manage.py warm_team_metadata_cache
     """
 
     if not settings.FLAGS_REDIS_URL:
@@ -115,9 +141,7 @@ def update_team_metadata_cache_on_save(sender: type[Team], instance: Team, creat
         try:
             update_team_metadata_cache_task.delay(instance.id)
         except Exception as e:
-            HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-                namespace="team_metadata", operation="enqueue", result="failure"
-            ).inc()
+            _record_enqueue_failure()
             logger.exception(
                 "Failed to enqueue cache update task",
                 team_id=instance.id,
@@ -138,6 +162,60 @@ def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kw
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     clear_team_metadata_cache(instance, kinds=kinds)
+
+
+def _record_enqueue_failure() -> None:
+    HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="team_metadata", operation="enqueue", result="failure").inc()
+
+
+def _name_may_have_changed(update_fields: frozenset[str] | None) -> bool:
+    """Whether a save could have touched the `name` field.
+
+    A `None` update_fields means a full save, where we can't tell, so we assume it might have.
+    """
+    return update_fields is None or "name" in update_fields
+
+
+def _enqueue_related_team_metadata_fanout(*, organization_id: int | None = None, project_id: int | None = None) -> None:
+    try:
+        update_related_teams_metadata_cache_task.delay(organization_id=organization_id, project_id=project_id)
+    except Exception as e:
+        _record_enqueue_failure()
+        logger.exception(
+            "Failed to enqueue related team metadata fan-out",
+            organization_id=organization_id,
+            project_id=project_id,
+            error=str(e),
+        )
+
+
+# Organization and project names are denormalized into team metadata, but only the Team signal
+# refreshes the cache. These receivers cover org/project renames, which never touch the Team row.
+# Deletes need no receiver: both FKs cascade to Team, firing the Team pre_delete handler above.
+@receiver(post_save, sender=Organization)
+def update_team_metadata_cache_on_organization_save(
+    sender: type[Organization], instance: Organization, created: bool, **kwargs: Any
+) -> None:
+    """Refresh dependent team metadata caches when an organization is renamed."""
+    if created or not settings.FLAGS_REDIS_URL:
+        return
+    if not _name_may_have_changed(kwargs.get("update_fields")):
+        return
+
+    transaction.on_commit(lambda: _enqueue_related_team_metadata_fanout(organization_id=instance.id))
+
+
+@receiver(post_save, sender=Project)
+def update_team_metadata_cache_on_project_save(
+    sender: type[Project], instance: Project, created: bool, **kwargs: Any
+) -> None:
+    """Refresh dependent team metadata caches when a project is renamed."""
+    if created or not settings.FLAGS_REDIS_URL:
+        return
+    if not _name_may_have_changed(kwargs.get("update_fields")):
+        return
+
+    transaction.on_commit(lambda: _enqueue_related_team_metadata_fanout(project_id=instance.id))
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

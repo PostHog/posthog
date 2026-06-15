@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom'
+
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -34,7 +35,7 @@ describe('FixedRangeWithTimePicker', () => {
         expect(screen.getAllByText(/end:/i).length).toBeGreaterThan(0)
     })
 
-    it('calls onClose when close button is clicked', () => {
+    it('calls onClose when close button is clicked', async () => {
         const { container } = render(
             <FixedRangeWithTimePicker
                 rangeDateFrom={dayjs('2024-01-15T10:00:00')}
@@ -46,11 +47,11 @@ describe('FixedRangeWithTimePicker', () => {
 
         const closeButton = container.querySelector('[aria-label="close"]') as HTMLElement
         expect(closeButton).toBeTruthy()
-        userEvent.click(closeButton)
+        await userEvent.click(closeButton)
         expect(onClose).toHaveBeenCalled()
     })
 
-    it('calls setDate with ISO format when Apply is clicked', () => {
+    it('calls setDate with ISO format when Apply is clicked', async () => {
         const { container } = render(
             <FixedRangeWithTimePicker
                 rangeDateFrom={dayjs('2024-01-15T10:00:00')}
@@ -61,11 +62,11 @@ describe('FixedRangeWithTimePicker', () => {
         )
 
         const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
-        userEvent.click(within(footer).getByText(/apply/i))
+        await userEvent.click(within(footer).getByText(/apply/i))
         expect(setDate).toHaveBeenCalledWith('2024-01-15T10:00:00', '2024-01-15T11:00:00', false, true)
     })
 
-    it('swaps dates on Apply if start is after end', () => {
+    it('swaps dates on Apply if start is after end', async () => {
         const { container } = render(
             <FixedRangeWithTimePicker
                 rangeDateFrom={dayjs('2024-01-15T14:00:00')}
@@ -76,11 +77,11 @@ describe('FixedRangeWithTimePicker', () => {
         )
 
         const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
-        userEvent.click(within(footer).getByText(/apply/i))
+        await userEvent.click(within(footer).getByText(/apply/i))
         expect(setDate).toHaveBeenCalledWith('2024-01-15T10:00:00', '2024-01-15T14:00:00', false, true)
     })
 
-    it('preserves PM time when initialized with PM', () => {
+    it('preserves PM time when initialized with PM', async () => {
         const { container } = render(
             <FixedRangeWithTimePicker
                 rangeDateFrom={dayjs('2024-01-15T14:30:00')}
@@ -91,11 +92,11 @@ describe('FixedRangeWithTimePicker', () => {
         )
 
         const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
-        userEvent.click(within(footer).getByText(/apply/i))
+        await userEvent.click(within(footer).getByText(/apply/i))
         expect(setDate).toHaveBeenCalledWith('2024-01-15T14:30:00', '2024-01-15T16:00:00', false, true)
     })
 
-    it('adjusts end time when start hour is changed to be after end', () => {
+    it('adjusts end time when start hour is changed to be after end', async () => {
         const { container } = render(
             <FixedRangeWithTimePicker
                 rangeDateFrom={dayjs('2024-01-15T10:00:00')}
@@ -108,20 +109,121 @@ describe('FixedRangeWithTimePicker', () => {
         // Click on hour 12 (PM) - this should be after the end time of 11:00 AM
         const hourButton = container.querySelector('[data-attr="12-h"]') as HTMLElement
         expect(hourButton).toBeTruthy()
-        userEvent.click(hourButton)
+        await userEvent.click(hourButton)
 
         // Click PM to make it 12 PM (noon)
         const pmButton = container.querySelector('[data-attr="pm-a"]') as HTMLElement
         expect(pmButton).toBeTruthy()
-        userEvent.click(pmButton)
+        await userEvent.click(pmButton)
 
         // Apply and verify end was adjusted (start 12:00 PM, end should be 1:00 PM)
         const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
-        userEvent.click(within(footer).getByText(/apply/i))
+        await userEvent.click(within(footer).getByText(/apply/i))
 
         // The handleApply swaps if needed, so result should be valid
         expect(setDate).toHaveBeenCalled()
         const [from, to] = setDate.mock.calls[0]
         expect(dayjs(from).isBefore(dayjs(to))).toBe(true)
+    })
+
+    it('allows setting the start time when no start date is initially set', async () => {
+        const { container } = render(
+            <FixedRangeWithTimePicker
+                rangeDateFrom={null}
+                rangeDateTo={null}
+                setDate={setDate}
+                onClose={onClose}
+                use24HourFormat
+            />
+        )
+
+        // Default mode is selectingStart=true. With no rangeDateFrom, clicking a
+        // time button used to silently do nothing. Verify the click takes effect.
+        const hourButton = container.querySelector('[data-attr="14-h"]') as HTMLElement
+        expect(hourButton).toBeTruthy()
+        await userEvent.click(hourButton)
+
+        const minuteButton = container.querySelector('[data-attr="30-m"]') as HTMLElement
+        expect(minuteButton).toBeTruthy()
+        await userEvent.click(minuteButton)
+
+        // Start label should reflect the chosen time (regardless of fallback date).
+        expect(screen.getByRole('button', { name: /^Start: .* 14:30$/ })).toBeInTheDocument()
+    })
+
+    describe('24-hour format', () => {
+        it('displays times in HH:mm format', () => {
+            render(
+                <FixedRangeWithTimePicker
+                    rangeDateFrom={dayjs('2024-01-15T14:30:00')}
+                    rangeDateTo={dayjs('2024-01-15T16:45:00')}
+                    setDate={setDate}
+                    onClose={onClose}
+                    use24HourFormat
+                />
+            )
+
+            expect(screen.getByRole('button', { name: 'Start: Jan 15, 2024 14:30' })).toBeInTheDocument()
+            expect(screen.getByRole('button', { name: 'End: Jan 15, 2024 16:45' })).toBeInTheDocument()
+        })
+
+        it('sets hours directly without AM/PM conversion', async () => {
+            const { container } = render(
+                <FixedRangeWithTimePicker
+                    rangeDateFrom={dayjs('2024-01-15T10:00:00')}
+                    rangeDateTo={dayjs('2024-01-15T22:00:00')}
+                    setDate={setDate}
+                    onClose={onClose}
+                    use24HourFormat
+                />
+            )
+
+            // Click on hour 20 (only available in 24h mode)
+            const hourButton = container.querySelector('[data-attr="20-h"]') as HTMLElement
+            expect(hourButton).toBeTruthy()
+            await userEvent.click(hourButton)
+
+            const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
+            await userEvent.click(within(footer).getByText(/apply/i))
+
+            expect(setDate).toHaveBeenCalledWith('2024-01-15T20:00:00', '2024-01-15T22:00:00', false, true)
+        })
+
+        it('handles midnight (hour 0) correctly', async () => {
+            const { container } = render(
+                <FixedRangeWithTimePicker
+                    rangeDateFrom={dayjs('2024-01-15T10:00:00')}
+                    rangeDateTo={dayjs('2024-01-15T11:00:00')}
+                    setDate={setDate}
+                    onClose={onClose}
+                    use24HourFormat
+                />
+            )
+
+            // Click on hour 0 (midnight)
+            const hourButton = container.querySelector('[data-attr="0-h"]') as HTMLElement
+            expect(hourButton).toBeTruthy()
+            await userEvent.click(hourButton)
+
+            const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
+            await userEvent.click(within(footer).getByText(/apply/i))
+
+            expect(setDate).toHaveBeenCalledWith('2024-01-15T00:00:00', '2024-01-15T11:00:00', false, true)
+        })
+
+        it('does not render AM/PM buttons', () => {
+            const { container } = render(
+                <FixedRangeWithTimePicker
+                    rangeDateFrom={dayjs('2024-01-15T10:00:00')}
+                    rangeDateTo={dayjs('2024-01-15T11:00:00')}
+                    setDate={setDate}
+                    onClose={onClose}
+                    use24HourFormat
+                />
+            )
+
+            expect(container.querySelector('[data-attr="am-a"]')).toBeNull()
+            expect(container.querySelector('[data-attr="pm-a"]')).toBeNull()
+        })
     })
 })

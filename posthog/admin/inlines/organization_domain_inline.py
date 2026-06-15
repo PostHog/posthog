@@ -18,6 +18,10 @@ class OrganizationDomainInline(TabularInlinePaginated):
         "verification_challenge",
     )
 
-    readonly_fields = ("verification_challenge", "verified_at")
+    readonly_fields = ("id", "domain", "verification_challenge", "verified_at")
 
     ordering = ("domain",)
+
+    def has_add_permission(self, request, obj=None):
+        # Prevent adding Domains through the admin (they should be created via API)
+        return False

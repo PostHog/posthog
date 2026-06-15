@@ -12,18 +12,17 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
-    ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SCIM = "scim"
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = "access_control"
+    PROPERTY_ACCESS_CONTROL = "property_access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
     GROUP_ANALYTICS = "group_analytics"
-    TAGGING = "tagging"
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
@@ -40,6 +39,7 @@ class AvailableFeature(StrEnum):
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
     ALERTS = "alerts"
+    HIGH_FREQUENCY_ALERTS = "high_frequency_alerts"
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
@@ -48,6 +48,8 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     AUDIT_LOGS = "audit_logs"
+    APPROVALS = "approvals"
+    XAA_AUTHENTICATION = "xaa_authentication"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -65,6 +67,7 @@ TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
 TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
+TRENDS_BOX_PLOT = "BoxPlot"
 
 # Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
 NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -76,7 +79,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -311,6 +314,13 @@ class FlagRequestType(StrEnum):
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
+
+# Server-side evaluation via posthoganalytics; keep in sync with frontend FEATURE_FLAGS.
+HACKATHONS_SUBSCRIPTIONS_FEATURE_FLAG_KEY = "hackathons_subscriptions"
+SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY = "subscription-ai-summary-prompt-guide"
+SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
+ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY = "alerts-15-minute-interval"
+EXPERIMENTS_SYNC_QUERIES_FEATURE_FLAG_KEY = "experiments-sync-queries"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
@@ -374,6 +384,11 @@ LOGIN_METHODS = [
         "key": "saml",
         "display": "SAML",
         "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+    {
+        "key": "passkey",
+        "display": "Passkey",
+        "backends": ["posthog.auth.WebauthnBackend"],
     },
 ]
 

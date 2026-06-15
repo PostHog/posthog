@@ -1,0 +1,10 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  stop_on_error = true
+  cmd = "go build -o ./tmp/livestream ."
+  bin = "./tmp/livestream"
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "vendor", "mocks"]
+  delay = 1000

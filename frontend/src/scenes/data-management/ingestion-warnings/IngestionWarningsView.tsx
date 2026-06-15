@@ -1,16 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { IconOpenSidebar } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { ReadingHog } from 'lib/components/hedgehogs'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
-import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -20,7 +21,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
 
-const WARNING_TYPE_TO_DESCRIPTION = {
+export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
@@ -32,6 +33,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
     set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
+    schema_validation_failed: 'Event rejected due to schema validation failure',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -246,6 +248,43 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            eventName: string
+            distinctId: string
+            errors: Array<{
+                property: string
+                reason: 'missing_required' | 'type_mismatch'
+                expectedTypes?: string[]
+                actualValue?: string
+            }>
+        }
+        return (
+            <>
+                Event <strong>{details.eventName}</strong> was rejected because it failed schema validation for
+                distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
+                uuid: <code>{details.eventUuid}</code>):
+                <ul>
+                    {details.errors.map((error, index) => (
+                        <li key={index}>
+                            {error.reason === 'missing_required' ? (
+                                <>
+                                    Required property <code>{error.property}</code> is missing
+                                </>
+                            ) : (
+                                <>
+                                    Property <code>{error.property}</code> has invalid type (expected{' '}
+                                    {error.expectedTypes?.join(' or ')}, got{' '}
+                                    <code>{error.actualValue ?? 'unknown'}</code>)
+                                </>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            </>
+        )
+    },
 }
 
 export function IngestionWarningsView(): JSX.Element {
@@ -262,81 +301,102 @@ export function IngestionWarningsView(): JSX.Element {
                     type: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
                 }}
             />
-            <SceneSection>
-                <LemonInput
-                    fullWidth
-                    value={searchQuery}
-                    onChange={setSearchQuery}
-                    type="search"
-                    placeholder="Try pasting a person or session id or an ingestion warning type"
-                />
-                <LemonTable
-                    dataSource={data}
-                    loading={dataLoading}
-                    columns={[
-                        {
-                            title: 'Warning',
-                            dataIndex: 'type',
-                            render: function Render(_, summary: IngestionWarningSummary) {
-                                const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
-                                return (
-                                    <>
-                                        {type} (
-                                        <Link
-                                            to={`https://posthog.com/docs/data#${type
-                                                .toLowerCase()
-                                                .replace(',', '')
-                                                .split(' ')
-                                                .join('-')}`}
-                                        >
-                                            docs)
-                                        </Link>
-                                    </>
-                                )
-                            },
-                        },
-                        {
-                            title: 'Graph',
-                            render: function Render(_, summary: IngestionWarningSummary) {
-                                return <Sparkline className="h-8" labels={dates} data={summaryDatasets[summary.type]} />
-                            },
-                        },
-                        {
-                            title: 'Events',
-                            dataIndex: 'count',
-                            align: 'right',
-                            sorter: (a, b) => a.count - b.count,
-                        },
-                        {
-                            title: 'Last Seen',
-                            dataIndex: 'lastSeen',
-                            render: function Render(_, summary: IngestionWarningSummary) {
-                                return <TZLabel time={summary.lastSeen} showSeconds />
-                            },
-                            align: 'right',
-                            sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
-                        },
-                    ]}
-                    expandable={{
-                        expandedRowRender: RenderNestedWarnings,
-                    }}
-                    defaultSorting={{
-                        columnKey: 'lastSeen',
-                        order: -1,
-                    }}
-                    noSortingCancellation
-                />
-            </SceneSection>
-            {showProductIntro && (
+            {showProductIntro ? (
                 <ProductIntroduction
                     productName="Ingestion warnings"
                     thingName="ingestion warning"
                     productKey={ProductKey.INGESTION_WARNINGS}
                     isEmpty={true}
-                    description="Nice! You've had no ingestion warnings in the past 30 days. If we detect any issues with your data, we'll show them here."
+                    titleOverride="Nice! No ingestion warnings in the past 30 days"
+                    description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
                     customHog={ReadingHog}
+                    actionElementOverride={
+                        <LemonButton
+                            type="primary"
+                            to={urls.eventDefinitions()}
+                            data-attr="ingestion-warnings-empty-state-events"
+                            sideIcon={<IconOpenSidebar className="w-4 h-4" />}
+                        >
+                            Explore your events
+                        </LemonButton>
+                    }
                 />
+            ) : (
+                <SceneSection>
+                    <LemonInput
+                        fullWidth
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        type="search"
+                        placeholder="Try pasting a person or session id or an ingestion warning type"
+                    />
+                    <LemonTable
+                        dataSource={data}
+                        loading={dataLoading}
+                        columns={[
+                            {
+                                title: 'Warning',
+                                dataIndex: 'type',
+                                render: function Render(_, summary: IngestionWarningSummary) {
+                                    const type =
+                                        WARNING_TYPE_TO_DESCRIPTION[
+                                            summary.type as keyof typeof WARNING_TYPE_TO_DESCRIPTION
+                                        ] || summary.type
+                                    return (
+                                        <>
+                                            {type} (
+                                            <Link
+                                                to={`https://posthog.com/docs/data#${type
+                                                    .toLowerCase()
+                                                    .replace(',', '')
+                                                    .split(' ')
+                                                    .join('-')}`}
+                                            >
+                                                docs)
+                                            </Link>
+                                        </>
+                                    )
+                                },
+                            },
+                            {
+                                title: 'Graph',
+                                render: function Render(_, summary: IngestionWarningSummary) {
+                                    return (
+                                        <Sparkline
+                                            className="h-8"
+                                            labels={dates}
+                                            data={summaryDatasets[summary.type]}
+                                        />
+                                    )
+                                },
+                            },
+                            {
+                                title: 'Events',
+                                dataIndex: 'count',
+                                align: 'right',
+                                sorter: (a, b) => a.count - b.count,
+                            },
+                            {
+                                title: 'Last Seen',
+                                dataIndex: 'lastSeen',
+                                render: function Render(_, summary: IngestionWarningSummary) {
+                                    return <TZLabel time={summary.lastSeen} showSeconds />
+                                },
+                                align: 'right',
+                                sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
+                            },
+                        ]}
+                        expandable={{
+                            expandedRowRender: RenderNestedWarnings,
+                        }}
+                        defaultSorting={{
+                            columnKey: 'lastSeen',
+                            order: -1,
+                        }}
+                        noSortingCancellation
+                    />
+                </SceneSection>
             )}
         </SceneContent>
     )
@@ -351,7 +411,7 @@ function RenderNestedWarnings(warningSummary: IngestionWarningSummary): JSX.Elem
                     title: 'Description',
                     key: 'description',
                     render: function Render(_, warning: IngestionWarning) {
-                        const renderer = WARNING_TYPE_RENDERER[warning.type]
+                        const renderer = WARNING_TYPE_RENDERER[warning.type as keyof typeof WARNING_TYPE_RENDERER]
                         return renderer ? renderer(warning) : <pre>{JSON.stringify(warning.details, null, 2)}</pre>
                     },
                 },

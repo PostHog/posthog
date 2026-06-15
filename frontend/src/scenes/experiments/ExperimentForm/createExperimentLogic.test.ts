@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -9,7 +11,7 @@ import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
-import { createExperimentLogic } from './createExperimentLogic'
+import { createExperimentLogic, DRAFT_STORAGE_KEY } from './createExperimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -27,12 +29,13 @@ describe('createExperimentLogic', () => {
     let routerPushSpy: jest.SpyInstance
 
     beforeEach(() => {
-        // Clear localStorage to prevent persisted state from affecting tests
+        // Clear persisted state to prevent it from affecting tests
         localStorage.clear()
+        sessionStorage.clear()
 
         useMocks({
             post: {
-                '/api/projects/@current/experiments': async (req) => {
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async (req) => {
                     const body = (await req.json()) as Experiment
                     if (!body.name || !body.description) {
                         return [400, { detail: 'Validation error' }]
@@ -52,7 +55,7 @@ describe('createExperimentLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': () => [200, {}],
+                '/api/environments/:team_id/add_product_intent/': () => [200, {}],
             },
         })
         initKeaTests()
@@ -63,7 +66,9 @@ describe('createExperimentLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         routerPushSpy.mockRestore()
     })
 
@@ -133,7 +138,7 @@ describe('createExperimentLogic', () => {
             expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', '456')
         })
 
-        it('navigates to experiment page after creation', async () => {
+        it('navigates to experiment view page after creating a draft', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
@@ -281,8 +286,8 @@ describe('createExperimentLogic', () => {
         })
     })
 
-    describe('experiment prop initialization', () => {
-        it('defaults to NEW_EXPERIMENT when no prop is provided', async () => {
+    describe('initialization', () => {
+        it('defaults to NEW_EXPERIMENT', async () => {
             const defaultLogic = createExperimentLogic()
             defaultLogic.mount()
 
@@ -298,33 +303,7 @@ describe('createExperimentLogic', () => {
             defaultLogic.unmount()
         })
 
-        it('uses provided experiment prop as default', async () => {
-            const existingExperiment: Experiment = {
-                ...NEW_EXPERIMENT,
-                id: 123,
-                name: 'Existing Experiment',
-                description: 'Existing hypothesis',
-                type: 'web',
-                feature_flag_key: 'existing-flag',
-            }
-
-            const propsLogic = createExperimentLogic({ experiment: existingExperiment })
-            propsLogic.mount()
-
-            await expectLogic(propsLogic).toMatchValues({
-                experiment: partial({
-                    id: 123,
-                    name: 'Existing Experiment',
-                    description: 'Existing hypothesis',
-                    type: 'web',
-                    feature_flag_key: 'existing-flag',
-                }),
-            })
-
-            propsLogic.unmount()
-        })
-
-        it('resetExperiment resets to NEW_EXPERIMENT when no prop provided', async () => {
+        it('resetExperiment resets to NEW_EXPERIMENT', async () => {
             const defaultLogic = createExperimentLogic()
             defaultLogic.mount()
 
@@ -357,98 +336,223 @@ describe('createExperimentLogic', () => {
 
             defaultLogic.unmount()
         })
+    })
 
-        it('resetExperiment resets to provided experiment prop', async () => {
-            const existingExperiment: Experiment = {
+    describe('form navigation scenarios', () => {
+        beforeEach(() => {
+            sessionStorage.clear()
+            // Fully unmount the shared singleton so each test controls the
+            // mount lifecycle and afterMount/beforeUnmount fire as expected.
+            logic.unmount()
+        })
+
+        it('draft from sessionStorage is loaded when creating a new experiment', async () => {
+            const storedDraft: Experiment = {
                 ...NEW_EXPERIMENT,
-                id: 456,
-                name: 'Original Experiment',
-                description: 'Original hypothesis',
-                type: 'web',
+                name: 'Stored Draft',
+                feature_flag_key: 'stored-draft',
             }
 
-            const propsLogic = createExperimentLogic({ experiment: existingExperiment })
-            propsLogic.mount()
+            sessionStorage.setItem(
+                DRAFT_STORAGE_KEY,
+                JSON.stringify({ experiment: storedDraft, timestamp: Date.now() })
+            )
 
-            await expectLogic(propsLogic, () => {
-                propsLogic.actions.setExperiment({
-                    ...existingExperiment,
-                    name: 'Modified Name',
-                    description: 'Modified Description',
-                })
+            const newLogic = createExperimentLogic()
+            newLogic.mount()
+
+            await expectLogic(newLogic).toMatchValues({
+                experiment: partial({
+                    id: 'new',
+                    name: 'Stored Draft',
+                    feature_flag_key: 'stored-draft',
+                }),
             })
-                .toDispatchActions(['setExperiment'])
-                .toMatchValues({
-                    experiment: partial({
-                        name: 'Modified Name',
-                        description: 'Modified Description',
-                    }),
-                })
 
-            await expectLogic(propsLogic, () => {
-                propsLogic.actions.resetExperiment()
+            newLogic.unmount()
+        })
+
+        it('form state does not leak between new experiment sessions', async () => {
+            const firstNew = createExperimentLogic()
+            firstNew.mount()
+
+            firstNew.actions.setExperimentValue('name', 'First Attempt')
+            firstNew.actions.setExperimentValue('feature_flag_key', 'first-attempt')
+
+            await expectLogic(firstNew).toMatchValues({
+                experiment: partial({ name: 'First Attempt', feature_flag_key: 'first-attempt' }),
             })
-                .toDispatchActions(['resetExperiment'])
-                .toMatchValues({
-                    experiment: partial({
-                        id: 456,
-                        name: 'Original Experiment',
-                        description: 'Original hypothesis',
-                        type: 'web',
-                    }),
-                })
 
-            propsLogic.unmount()
+            firstNew.unmount()
+
+            sessionStorage.clear()
+
+            const secondNew = createExperimentLogic()
+            secondNew.mount()
+
+            await expectLogic(secondNew).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondNew.unmount()
+        })
+
+        it('unmount/remount with no draft starts fresh', async () => {
+            const freshLogic = createExperimentLogic()
+            freshLogic.mount()
+
+            freshLogic.actions.setExperiment({
+                ...NEW_EXPERIMENT,
+                id: 123,
+                name: 'Saved Experiment',
+                description: 'Already saved',
+            })
+
+            freshLogic.unmount()
+
+            const remounted = createExperimentLogic()
+            remounted.mount()
+
+            await expectLogic(remounted).toMatchValues({
+                experiment: partial({ id: 'new', name: '', description: '' }),
+            })
+
+            remounted.unmount()
+        })
+
+        it('draft written on unmount is read back by a freshly-built logic', async () => {
+            const firstNew = createExperimentLogic()
+            firstNew.mount()
+
+            firstNew.actions.setExperimentValue('name', 'Work In Progress')
+            firstNew.actions.setExperimentValue('feature_flag_key', 'wip-flag')
+
+            await expectLogic(firstNew).toMatchValues({
+                experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+            })
+
+            // Navigating away without saving writes the draft to sessionStorage
+            firstNew.unmount()
+
+            const secondNew = createExperimentLogic()
+            secondNew.mount()
+
+            await expectLogic(secondNew).toMatchValues({
+                experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+            })
+
+            secondNew.unmount()
+        })
+    })
+
+    describe('post-save state reset', () => {
+        beforeEach(() => {
+            sessionStorage.clear()
+            // Fully unmount the shared singleton so each test controls the
+            // mount lifecycle and afterMount/beforeUnmount fire as expected.
+            logic.unmount()
+        })
+
+        it('form resets to NEW_EXPERIMENT after saving and re-entering create mode', async () => {
+            const firstLogic = createExperimentLogic()
+            firstLogic.mount()
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '' }),
+            })
+
+            // Simulate what saveExperiment does on success:
+            // the server response replaces the form state
+            firstLogic.actions.setExperiment({
+                ...NEW_EXPERIMENT,
+                id: 999,
+                name: 'Saved Experiment',
+                description: 'Already persisted',
+                feature_flag_key: 'saved-experiment',
+            })
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ id: 999, name: 'Saved Experiment' }),
+            })
+
+            // Scene transitions away from create mode — component unmounts the logic
+            firstLogic.unmount()
+
+            // User navigates back to /experiments/new — component remounts the logic
+            const secondLogic = createExperimentLogic()
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondLogic.unmount()
+        })
+
+        it('navigating away without saving preserves draft for next visit', async () => {
+            const firstLogic = createExperimentLogic()
+            firstLogic.mount()
+
+            firstLogic.actions.setExperimentValue('name', 'Work In Progress')
+            firstLogic.actions.setExperimentValue('feature_flag_key', 'wip-flag')
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+            })
+
+            // User navigates away — no cancel, no save
+            firstLogic.unmount()
+
+            // User comes back to /experiments/new
+            const secondLogic = createExperimentLogic()
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
+            })
+
+            secondLogic.unmount()
+        })
+
+        it('cancel clears draft so re-entering create mode starts fresh', async () => {
+            const firstLogic = createExperimentLogic()
+            firstLogic.mount()
+
+            firstLogic.actions.setExperimentValue('name', 'Will Cancel')
+            firstLogic.actions.setExperimentValue('feature_flag_key', 'will-cancel')
+
+            await expectLogic(firstLogic).toMatchValues({
+                experiment: partial({ name: 'Will Cancel', feature_flag_key: 'will-cancel' }),
+            })
+
+            // User clicks cancel — clears draft then navigates away
+            firstLogic.actions.cancelForm()
+            firstLogic.unmount()
+
+            // User navigates back to /experiments/new
+            const secondLogic = createExperimentLogic()
+            secondLogic.mount()
+
+            await expectLogic(secondLogic).toMatchValues({
+                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
+            })
+
+            secondLogic.unmount()
         })
     })
 
     describe('feature flag key auto-generation', () => {
-        it('auto-generates flag key when changing name in create mode with new flag', async () => {
+        it('does not auto-generate a flag key when changing experiment name', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperimentValue('name', 'My New Experiment')
-            })
-                .toDispatchActions(['setExperimentValue', 'setFeatureFlagConfig'])
-                .toMatchValues({
-                    experiment: partial({
-                        name: 'My New Experiment',
-                        feature_flag_key: 'my-new-experiment',
-                    }),
-                })
-        })
-
-        it('does NOT auto-generate flag key when linking an existing flag and renaming', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagConfig({
-                    feature_flag_key: 'existing-linked-flag',
-                    feature_flag_variants: [
-                        { key: 'control', rollout_percentage: 50 },
-                        { key: 'test', rollout_percentage: 50 },
-                    ],
-                })
-            }).toMatchValues({
-                experiment: partial({
-                    feature_flag_key: 'existing-linked-flag',
-                }),
-            })
-
-            const variantsPanelLogicInstance = await import('./variantsPanelLogic').then((m) =>
-                m.variantsPanelLogic({ experiment: logic.values.experiment, disabled: false })
-            )
-            variantsPanelLogicInstance.mount()
-            variantsPanelLogicInstance.actions.setMode('link')
-
-            await expectLogic(logic, () => {
-                logic.actions.setExperimentValue('name', 'Renamed Experiment')
             })
                 .toDispatchActions(['setExperimentValue'])
                 .toMatchValues({
                     experiment: partial({
-                        name: 'Renamed Experiment',
-                        feature_flag_key: 'existing-linked-flag',
+                        name: 'My New Experiment',
+                        feature_flag_key: '',
                     }),
                 })
-
-            variantsPanelLogicInstance.unmount()
         })
     })
 

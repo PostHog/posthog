@@ -13,14 +13,19 @@ from unittest import mock
 
 from django.test import override_settings
 
-from posthog.schema import TrendsFilter, TrendsQuery
+from parameterized import parameterized
+
+from posthog.schema import Breakdown, BreakdownFilter, MultipleBreakdownType, TrendsFilter, TrendsQuery
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.constants import TRENDS_BOLD_NUMBER, TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.models import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -621,6 +626,86 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             [series["data"] for series in response],
         )
 
+    @snapshot_clickhouse_queries
+    def test_breakdown_hogql_with_as_alias(self):
+        self._run(
+            {
+                "breakdownFilter": {
+                    "breakdown": 'properties.location AS "Location"',
+                    "breakdown_type": "hogql",
+                }
+            }
+        )
+
+    @parameterized.expand(
+        [
+            ("bare", "properties.location AS Location"),
+            ("double_quoted", 'properties.location AS "Some Location"'),
+            ("backticked", "properties.location AS `Some Location`"),
+            ("nested", 'properties.location AS Inner AS "Outer"'),
+            ("inside_call", "concat(properties.location AS Inner, '') AS \"Outer\""),
+            ("system_alias_collision", "properties.location AS breakdown_value"),
+        ]
+    )
+    def test_breakdown_hogql_alias_forms(self, _name: str, breakdown_expr: str):
+        response = self._run(
+            {
+                "breakdownFilter": {
+                    "breakdown": breakdown_expr,
+                    "breakdown_type": "hogql",
+                }
+            }
+        )
+        baseline = self._run(
+            {
+                "breakdownFilter": {
+                    "breakdown": "properties.location",
+                    "breakdown_type": "hogql",
+                }
+            }
+        )
+        self.assertEqual(
+            [series["breakdown_value"] for series in response],
+            [series["breakdown_value"] for series in baseline],
+        )
+        self.assertEqual(
+            [series["data"] for series in response],
+            [series["data"] for series in baseline],
+        )
+
+    def test_multiple_breakdowns_with_hogql_aliases(self):
+        response = self._run(
+            {
+                "breakdownFilter": BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(property='properties.location AS "Location"', type=MultipleBreakdownType.HOGQL),
+                        Breakdown(
+                            property="person.properties.$some_prop AS `Some Prop`",
+                            type=MultipleBreakdownType.HOGQL,
+                        ),
+                    ]
+                ),
+            }
+        )
+        baseline = self._run(
+            {
+                "breakdownFilter": BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(property="properties.location", type=MultipleBreakdownType.HOGQL),
+                        Breakdown(property="person.properties.$some_prop", type=MultipleBreakdownType.HOGQL),
+                    ]
+                ),
+            }
+        )
+        self.assertEqual(
+            [series["breakdown_value"] for series in response],
+            [series["breakdown_value"] for series in baseline],
+        )
+        self.assertEqual(
+            [series["data"] for series in response],
+            [series["data"] for series in baseline],
+        )
+
     def test_breakdown_mismatching_sizes(self):
         response = self._run(
             {
@@ -800,3 +885,51 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             )[0]["data"],
             [0, 0, 0, 0, 0, 2, 2, 0],
         )
+
+    @snapshot_clickhouse_queries
+    def test_formula_with_hogql_math_no_matching_events(self):
+        # Regression test: formula with HogQL math should not crash when one series has no matching events
+        # (math="hogql" has no ifNull wrapper, so NULL values can propagate into FormulaAST)
+        with freeze_time("2020-01-04T13:01:01Z"):
+            response = self._run(
+                {
+                    "trendsFilter": {
+                        "display": TRENDS_BOLD_NUMBER,
+                        "formula": "A + B",
+                    },
+                    "series": [
+                        {
+                            "event": "nonexistent_event_that_has_no_data",
+                            "name": "custom hogql",
+                            "math": "hogql",
+                            "math_hogql": "sum(toFloat(properties.xyz))",
+                        },
+                        {
+                            "event": "session start",
+                            "name": "session start",
+                            "math": "sum",
+                            "math_property": "xyz",
+                        },
+                    ],
+                }
+            )
+
+        # Series A (hogql math with no data) should be treated as 0, not None
+        # The formula A + B should equal 0 + 1800 = 1800
+        self.assertEqual(response[0]["aggregated_value"], 1800)
+        self.assertEqual(response[0]["label"], "Formula (A + B)")
+
+    def test_formula_referencing_missing_series_returns_error(self):
+        with self.assertRaises(ExposedHogQLError):
+            self._run(
+                {
+                    "series": [
+                        {
+                            "event": "session start",
+                            "math": "sum",
+                            "math_property": "xyz",
+                        },
+                    ],
+                    "trendsFilter": {"formula": "A/B"},
+                }
+            )

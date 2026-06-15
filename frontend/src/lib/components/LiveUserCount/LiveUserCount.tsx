@@ -77,7 +77,7 @@ export function LiveUserCount({
     const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs }))
 
-    const isVisible = usePageVisibility()
+    const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
             resumeStream()
@@ -121,7 +121,7 @@ export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveCountProps):
     const { activeRecordings } = useValues(liveUserCountLogic({ pollIntervalMs }))
     const { pauseStream, resumeStream } = useActions(liveUserCountLogic({ pollIntervalMs }))
 
-    const isVisible = usePageVisibility()
+    const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
             resumeStream()

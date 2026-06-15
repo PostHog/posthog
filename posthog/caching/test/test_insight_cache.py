@@ -12,9 +12,11 @@ import orjson as json
 from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import upsert
 from posthog.caching.test.test_insight_caching_state import create_insight, filter_dict
-from posthog.models import InsightCachingState, Team, User
+from posthog.models import Team, User
 from posthog.models.signals import mute_selected_signals
 from posthog.utils import get_safe_cache
+
+from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
 
 
 def create_insight_caching_state(
@@ -43,7 +45,9 @@ def create_insight_caching_state(
 
 # Reaching into the internals of LocMemCache
 def cache_keys(cache):
-    return {key.split(":", 2)[-1] for key in cache._cache.keys()}
+    # Filter to only insight cache keys (prefixed with "cache_") to avoid
+    # picking up unrelated cache entries (e.g. group_types_for_project_*)
+    return {key.split(":", 2)[-1] for key in cache._cache.keys() if key.split(":", 2)[-1].startswith("cache_")}
 
 
 @pytest.mark.django_db

@@ -9,7 +9,7 @@ on:
             - 'master'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -17,24 +17,34 @@ jobs:
         runs-on: ubuntu-24.04
         permissions:
             contents: read
+            pull-requests: read
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       node_files:
                         - 'nodejs/**'
                         - 'common/hogvm/typescript/**'
                         - 'common/plugin_transpiler/**'
                         - 'common/esbuilder/**'
+                        - 'common/replay-shared/**'
+                        - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
@@ -49,120 +59,104 @@ jobs:
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
             github.event_name == 'merge_group' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master')
+            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
         runs-on: depot-ubuntu-latest
+        timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents
             packages: write # allow push to ghcr.io
 
-        outputs:
-            digest: ${{ steps.build.outputs.digest }}
-
         steps:
             - name: Check out
-              uses: actions/checkout@v4
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+              uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
             - name: Set up Depot CLI
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
 
-            - name: Configure AWS credentials
-              uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+            - name: Docker meta and registry login
+              id: docker-meta
+              uses: ./.github/actions/docker-meta
               with:
-                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
-                  aws-region: us-east-1
-
-            - name: Login to Amazon ECR
-              id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2
-
-            - name: Login to ghcr.io
-              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
-              with:
-                  registry: ghcr.io
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-                  logout: false
-
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5
-              with:
-                  images: |
-                      ${{ steps.aws-ecr.outputs.registry }}/posthog-node
-                  tags: |
-                      type=ref,event=pr
-                      type=ref,event=branch
-                      type=sha
-                      type=raw,value=latest,enable={{is_default_branch}}
+                  image-name: posthog-node
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Build and push container image
               id: build
-              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: .
                   buildx-fallback: false
                   project: '00mrvlsdvh'
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.node
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
 
             - name: Container image digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
               run: |
-                  echo "Image digest: ${{ steps.build.outputs.digest }}"
-                  echo "Full image reference: $${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                  echo "Image digest: $IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST"
                   echo "## Container image built :rocket:" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image reference:** \`$${{ steps.aws-ecr.outputs.registry }}/posthog-node:${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image reference:** \`$IMAGE_REGISTRY/posthog-node:${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Image SHA:** \`${{ github.sha }}@${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
             - name: Report failure
               if: failure()
-              uses: PostHog/posthog-github-action@v0.1
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'node-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
-
-    deploy:
-        name: Deploy node services
-        runs-on: ubuntu-24.04
-        needs: build
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        permissions:
-            contents: read
-        steps:
-            - name: Check out
-              uses: actions/checkout@v4
+            - name: Report failure to DevEx PostHog
+              if: failure()
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'node-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
             - name: Get deployer token
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true'
               id: deployer
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
 
             - name: Get PR labels
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true'
               id: labels
               uses: ./.github/actions/get-pr-labels
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Trigger node deployment
-              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
                   repository: PostHog/charts
@@ -171,7 +165,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ needs.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
                           }
                         },
                         "release": "node",

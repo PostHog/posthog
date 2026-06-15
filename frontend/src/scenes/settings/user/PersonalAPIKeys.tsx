@@ -1,33 +1,31 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Fragment, useEffect } from 'react'
+import { useEffect } from 'react'
 
-import { IconWarning } from '@posthog/icons'
-import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
+import { IconInfo, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonDialog,
     LemonInput,
     LemonLabel,
-    LemonMenu,
     LemonModal,
     LemonModalProps,
-    LemonSegmentedButton,
     LemonSelect,
-    LemonTable,
+    LemonTableColumn,
     LemonTag,
-    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
-import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { PersonalAPIKeyType } from '~/types'
+
+import { APIKeyTable } from '../shared/APIKeyTable'
+import { ScopeAccessRow } from '../shared/ScopeAccessRow'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import ScopeAccessSelector from './scopes/ScopeAccessSelector'
 
@@ -42,17 +40,32 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         editingKeyChanged,
         formScopeRadioValues,
         allAccessSelected,
+        isEditingKeyLegacy,
         editingKey,
         allTeams,
         allOrganizations,
         filteredScopes,
         searchTerm,
     } = useValues(personalAPIKeysLogic)
-    const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes, setSearchTerm } =
+    const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes, setSearchTerm, rollKey } =
         useActions(personalAPIKeysLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
+
+    const submitDisabledReason = !editingKeyChanged
+        ? 'No changes to save'
+        : !editingKey.label
+          ? 'Add a label'
+          : !editingKey.scopes?.length
+            ? 'Select at least one scope'
+            : !editingKey.access_type
+              ? 'Select access mode'
+              : editingKey.access_type === 'organizations' && !editingKey.scoped_organizations?.length
+                ? 'Select at least one organization'
+                : editingKey.access_type === 'teams' && !editingKey.scoped_teams?.length
+                  ? 'Select at least one project'
+                  : undefined
 
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
@@ -73,7 +86,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                             type="primary"
                             htmlType="submit"
                             loading={isEditingKeySubmitting}
-                            disabled={!editingKeyChanged}
+                            disabledReason={submitDisabledReason}
                             onClick={() => submitEditingKey()}
                         >
                             {isNew ? 'Create key' : 'Save key'}
@@ -82,6 +95,43 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                 }
             >
                 <>
+                    {!isNew && isEditingKeyLegacy && (
+                        <LemonBanner
+                            type="warning"
+                            className="mb-4"
+                            action={{
+                                children: 'Roll key',
+                                onClick: () => {
+                                    if (editingKeyId) {
+                                        const id = editingKeyId
+                                        LemonDialog.open({
+                                            title: 'Roll key to upgrade hashing?',
+                                            description:
+                                                'This will generate a new key. The old key will immediately stop working.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Roll',
+                                                type: 'primary',
+                                                onClick: () => {
+                                                    // Close the edit modal first so the post-roll new key value
+                                                    // is shown via the table's standard roll confirmation flow.
+                                                    setEditingKeyId(null)
+                                                    rollKey(id)
+                                                },
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'secondary',
+                                            },
+                                        })
+                                    }
+                                },
+                            }}
+                        >
+                            <b>This key uses legacy hashing.</b> Roll it to upgrade to the new secure format. Your
+                            existing key value will become invalid.
+                        </LemonBanner>
+                    )}
                     <LemonField name="label" label="Label">
                         <LemonInput placeholder='For example "Reports bot" or "Zapier"' maxLength={40} />
                     </LemonField>
@@ -107,12 +157,13 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                         {({ error }) => (
                             <>
                                 <p className="mb-0">
-                                    API keys are scoped to limit what actions they are able to do. We highly recommend
-                                    you only give the key the permissions it needs to do its job. You can add or revoke
-                                    scopes later.
+                                    Personal API keys are scoped to limit what actions they are able to do. We highly
+                                    recommend you only give the key the permissions it needs to do its job. You can add
+                                    or revoke scopes later.
                                 </p>
                                 <p className="m-0">
-                                    Your API key can never take actions for which your account is missing permissions.
+                                    Your personal API key can never take actions for which your account is missing
+                                    permissions.
                                 </p>
 
                                 {error && (
@@ -129,8 +180,8 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                             onClick: () => resetScopes(),
                                         }}
                                     >
-                                        <b>This API key has full access to all supported endpoints!</b> We highly
-                                        recommend scoping this to only what it needs.
+                                        <b>This personal API key has full access to all supported endpoints!</b> We
+                                        highly recommend scoping this to only what it needs.
                                     </LemonBanner>
                                 ) : (
                                     <div>
@@ -160,63 +211,40 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                         const disabledDueToProjectScope =
                                                             disabledWhenProjectScoped &&
                                                             editingKey.access_type === 'teams'
+                                                        const selectedScopeAction = formScopeRadioValues[key]
+                                                        const warningScopeAction =
+                                                            selectedScopeAction === 'read' ||
+                                                            selectedScopeAction === 'write'
+                                                                ? selectedScopeAction
+                                                                : null
                                                         return (
-                                                            <Fragment key={key}>
-                                                                <div className="flex items-center justify-between gap-2 min-h-8">
-                                                                    <div
-                                                                        className={clsx(
-                                                                            'flex items-center gap-1',
-                                                                            disabledDueToProjectScope && 'text-muted'
-                                                                        )}
-                                                                    >
-                                                                        <b>{objectName}</b>
-
-                                                                        {info ? (
-                                                                            <Tooltip title={info}>
-                                                                                <IconInfo className="text-secondary text-base" />
-                                                                            </Tooltip>
-                                                                        ) : null}
-                                                                    </div>
-                                                                    <LemonSegmentedButton
-                                                                        onChange={(value) =>
-                                                                            setScopeRadioValue(key, value)
-                                                                        }
-                                                                        value={formScopeRadioValues[key] ?? 'none'}
-                                                                        options={[
-                                                                            { label: 'No access', value: 'none' },
-                                                                            {
-                                                                                label: 'Read',
-                                                                                value: 'read',
-                                                                                disabledReason:
-                                                                                    disabledActions?.includes('read')
-                                                                                        ? 'Does not apply to this resource'
-                                                                                        : disabledDueToProjectScope
-                                                                                          ? 'Not available for project scoped keys'
-                                                                                          : undefined,
-                                                                            },
-                                                                            {
-                                                                                label: 'Write',
-                                                                                value: 'write',
-                                                                                disabledReason:
-                                                                                    disabledActions?.includes('write')
-                                                                                        ? 'Does not apply to this resource'
-                                                                                        : disabledDueToProjectScope
-                                                                                          ? 'Not available for project scoped keys'
-                                                                                          : undefined,
-                                                                            },
-                                                                        ]}
-                                                                        size="xsmall"
-                                                                    />
-                                                                </div>
-                                                                {warnings?.[formScopeRadioValues[key]] && (
-                                                                    <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                        <IconWarning className="text-base text-secondary mt-0.5" />
-                                                                        <span>
-                                                                            {warnings[formScopeRadioValues[key]]}
-                                                                        </span>
-                                                                    </div>
-                                                                )}
-                                                            </Fragment>
+                                                            <ScopeAccessRow
+                                                                key={key}
+                                                                label={objectName}
+                                                                info={info}
+                                                                muted={disabledDueToProjectScope}
+                                                                value={formScopeRadioValues[key] ?? 'none'}
+                                                                onChange={(value) => setScopeRadioValue(key, value)}
+                                                                readDisabledReason={
+                                                                    disabledActions?.includes('read')
+                                                                        ? 'Does not apply to this resource'
+                                                                        : disabledDueToProjectScope
+                                                                          ? 'Not available for project scoped keys'
+                                                                          : undefined
+                                                                }
+                                                                writeDisabledReason={
+                                                                    disabledActions?.includes('write')
+                                                                        ? 'Does not apply to this resource'
+                                                                        : disabledDueToProjectScope
+                                                                          ? 'Not available for project scoped keys'
+                                                                          : undefined
+                                                                }
+                                                                warning={
+                                                                    warningScopeAction
+                                                                        ? warnings?.[warningScopeAction]
+                                                                        : undefined
+                                                                }
+                                                            />
                                                         )
                                                     }
                                                 )
@@ -233,7 +261,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
     )
 }
 
-type TagListProps = { onMoreClick: () => void; tags: string[] }
+type TagListProps = { onMoreClick?: () => void; tags: string[] }
 
 export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
     return (
@@ -245,7 +273,9 @@ export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
             ))}
             {tags.length > 4 && (
                 <Tooltip title={tags.slice(4).join(', ')}>
-                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                    <LemonTag onClick={onMoreClick} forceClickable={!!onMoreClick}>
+                        +{tags.length - 4} more
+                    </LemonTag>
                 </Tooltip>
             )}
         </span>
@@ -272,7 +302,9 @@ export function TagListWithRestrictions({ tags, onMoreClick }: TagListWithRestri
                         .map((tag) => tag.name)
                         .join(', ')}
                 >
-                    <LemonTag onClick={onMoreClick}>+{tags.length - 4} more</LemonTag>
+                    <LemonTag onClick={onMoreClick} forceClickable>
+                        +{tags.length - 4} more
+                    </LemonTag>
                 </Tooltip>
             )}
         </span>
@@ -293,292 +325,190 @@ function PersonalAPIKeysTable(): JSX.Element {
 
     useEffect(() => loadKeys(), [loadKeys])
 
-    return (
-        <LemonTable
-            dataSource={keys}
-            loading={keysLoading}
-            loadingSkeletonRows={3}
-            className="mt-4"
-            nouns={['personal API key', 'personal API keys']}
-            rowClassName={(key) => (isPersonalApiKeyIdDisabled(key.id) ? 'opacity-50' : '')}
-            columns={[
-                {
-                    title: 'Label',
-                    dataIndex: 'label',
-                    key: 'label',
-                    render: function RenderLabel(label, key) {
-                        return (
-                            <div className="flex flex-wrap gap-1 items-center">
-                                <Link
-                                    subtle
-                                    className="text-left font-semibold truncate"
-                                    onClick={() => setEditingKeyId(key.id)}
-                                >
-                                    {String(label)}
-                                </Link>
-                            </div>
-                        )
-                    },
-                },
-                {
-                    title: 'Status',
-                    key: 'status',
-                    dataIndex: 'id',
-                    render: function RenderStatus(_, key) {
-                        const keyDisabled = isPersonalApiKeyIdDisabled(key.id)
-                        const restrictedOrgs = getRestrictedOrganizationsForKey(key.id)
-                        const restrictedTeams = getRestrictedTeamsForKey(key.id)
-                        const hasPartialRestrictions =
-                            (restrictedOrgs.length > 0 || restrictedTeams.length > 0) && !keyDisabled
+    const statusColumn: LemonTableColumn<PersonalAPIKeyType, any> = {
+        title: 'Status',
+        key: 'status',
+        dataIndex: 'id',
+        render: function RenderStatus(_, key) {
+            const keyDisabled = isPersonalApiKeyIdDisabled(key.id)
+            const restrictedOrgs = getRestrictedOrganizationsForKey(key.id)
+            const restrictedTeams = getRestrictedTeamsForKey(key.id)
+            const hasPartialRestrictions = (restrictedOrgs.length > 0 || restrictedTeams.length > 0) && !keyDisabled
 
-                        if (keyDisabled) {
-                            const orgNames = restrictedOrgs.map((org: any) => org.name)
+            const legacyTag = key.is_legacy_hashing ? (
+                <Tooltip title="This key uses legacy hashing. Roll or delete it to upgrade.">
+                    <LemonTag type="caution">Legacy</LemonTag>
+                </Tooltip>
+            ) : null
 
-                            return (
-                                <Tooltip
-                                    title={
-                                        orgNames.length === 1 ? (
-                                            <span>
-                                                Organization <strong>{orgNames[0]}</strong> has restricted the use of
-                                                personal API keys.
-                                            </span>
-                                        ) : (
-                                            <span>
-                                                Organizations <strong>{orgNames.join(', ')}</strong> have restricted the
-                                                use of personal API keys.
-                                            </span>
-                                        )
-                                    }
-                                >
-                                    <LemonTag type="danger">Disabled</LemonTag>
-                                </Tooltip>
-                            )
-                        }
+            let statusTag: JSX.Element | null = null
 
-                        if (hasPartialRestrictions) {
-                            let tooltipMessage: JSX.Element = <span />
+            if (keyDisabled) {
+                const orgNames = restrictedOrgs.map((org: any) => org.name)
 
-                            // Handle project-scoped keys with restrictions
-                            if (restrictedTeams.length > 0) {
-                                const restrictedTeamNames = restrictedTeams.map((team: any) => team.name)
-                                const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
-
-                                if (restrictedOrgNames.length === 1 && restrictedTeamNames.length === 1) {
-                                    tooltipMessage = (
-                                        <span>
-                                            Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use
-                                            of personal API keys. This key will not work for project{' '}
-                                            <strong>{restrictedTeamNames[0]}</strong>.
-                                        </span>
-                                    )
-                                } else if (restrictedOrgNames.length === 1) {
-                                    tooltipMessage = (
-                                        <span>
-                                            Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use
-                                            of personal API keys. This key will not work for projects:{' '}
-                                            <strong>{restrictedTeamNames.join(', ')}</strong>.
-                                        </span>
-                                    )
-                                } else {
-                                    // Multiple organizations affecting projects
-                                    tooltipMessage = (
-                                        <span>
-                                            Multiple organizations have restricted personal API keys. This key will not
-                                            work for projects: <strong>{restrictedTeamNames.join(', ')}</strong>.
-                                        </span>
-                                    )
-                                }
-                            }
-                            // Handle organization-scoped keys with restrictions
-                            else if (restrictedOrgs.length > 0) {
-                                const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
-
-                                tooltipMessage =
-                                    restrictedOrgNames.length === 1 ? (
-                                        <span>
-                                            Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use
-                                            of personal API keys.
-                                        </span>
-                                    ) : (
-                                        <span>
-                                            Organizations <strong>{restrictedOrgNames.join(', ')}</strong> have
-                                            restricted the use of personal API keys.
-                                        </span>
-                                    )
-                            }
-
-                            return (
-                                <Tooltip title={tooltipMessage}>
-                                    <LemonTag type="warning">Partial restrictions</LemonTag>
-                                </Tooltip>
-                            )
-                        }
-
-                        return <LemonTag type="success">Active</LemonTag>
-                    },
-                },
-                {
-                    title: 'Secret key',
-                    dataIndex: 'mask_value',
-                    key: 'mask_value',
-                    render: (_, key) =>
-                        key.mask_value ? (
-                            <span className="font-mono ph-no-capture">{key.mask_value}</span>
-                        ) : (
-                            <Tooltip title="This key was created before the introduction of previews" placement="right">
-                                <span className="inline-flex items-center gap-1 cursor-default">
-                                    <span>No preview</span>
-                                    <IconInfo className="text-base" />
+                statusTag = (
+                    <Tooltip
+                        title={
+                            orgNames.length === 1 ? (
+                                <span>
+                                    Organization <strong>{orgNames[0]}</strong> has restricted the use of personal API
+                                    keys.
                                 </span>
-                            </Tooltip>
-                        ),
-                },
-                {
-                    title: 'Scopes',
-                    key: 'scopes',
-                    dataIndex: 'scopes',
-                    render: function RenderValue(_, key) {
-                        return key.scopes[0] === '*' ? (
-                            <LemonTag type="warning">All access</LemonTag>
-                        ) : (
-                            <TagList tags={key.scopes} onMoreClick={() => setEditingKeyId(key.id)} />
-                        )
-                    },
-                },
-                {
-                    title: 'Organization & project access',
-                    key: 'access',
-                    dataIndex: 'id',
-                    render: function RenderValue(_, key) {
-                        const restrictedOrgs = getRestrictedOrganizationsForKey(key.id)
-                        const restrictedTeams = getRestrictedTeamsForKey(key.id)
-
-                        if (key?.scoped_organizations?.length) {
-                            const orgTags =
-                                key.scoped_organizations?.map((id) => {
-                                    const org = allOrganizations.find((org) => org.id === id)
-                                    return {
-                                        id,
-                                        name: org?.name || '',
-                                        restricted: restrictedOrgs.some((org: any) => org.id === id),
-                                    }
-                                }) || []
-
-                            return (
-                                <TagListWithRestrictions tags={orgTags} onMoreClick={() => setEditingKeyId(key.id)} />
-                            )
-                        } else if (key?.scoped_teams?.length) {
-                            const teamTags =
-                                key.scoped_teams?.map((id) => {
-                                    const team = allTeams?.find((team) => team.id === id)
-                                    return {
-                                        id: String(id),
-                                        name: team?.name || '',
-                                        restricted: restrictedTeams.some((team: any) => team.id === id),
-                                    }
-                                }) || []
-
-                            return (
-                                <TagListWithRestrictions tags={teamTags} onMoreClick={() => setEditingKeyId(key.id)} />
+                            ) : (
+                                <span>
+                                    Organizations <strong>{orgNames.join(', ')}</strong> have restricted the use of
+                                    personal API keys.
+                                </span>
                             )
                         }
-                        return <LemonTag type="warning">All access</LemonTag>
-                    },
-                },
-                {
-                    title: 'Last Used',
-                    dataIndex: 'last_used_at',
-                    key: 'lastUsedAt',
-                    render: (_, key) => {
-                        return (
-                            <Tooltip title={detailedTime(key.last_used_at)} placement="bottom">
-                                {humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A')}
-                            </Tooltip>
+                    >
+                        <LemonTag type="danger">Disabled</LemonTag>
+                    </Tooltip>
+                )
+            } else if (hasPartialRestrictions) {
+                let tooltipMessage: JSX.Element = <span />
+
+                if (restrictedTeams.length > 0) {
+                    const restrictedTeamNames = restrictedTeams.map((team: any) => team.name)
+                    const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
+
+                    if (restrictedOrgNames.length === 1 && restrictedTeamNames.length === 1) {
+                        tooltipMessage = (
+                            <span>
+                                Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use of personal
+                                API keys. This key will not work for project <strong>{restrictedTeamNames[0]}</strong>.
+                            </span>
                         )
-                    },
-                },
-                {
-                    title: 'Created',
-                    dataIndex: 'created_at',
-                    key: 'createdAt',
-                    render: (_, key) => {
-                        return (
-                            <Tooltip title={detailedTime(key.created_at)} placement="bottom">
-                                {humanFriendlyDetailedTime(key.created_at)}
-                            </Tooltip>
+                    } else if (restrictedOrgNames.length === 1) {
+                        tooltipMessage = (
+                            <span>
+                                Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use of personal
+                                API keys. This key will not work for projects:{' '}
+                                <strong>{restrictedTeamNames.join(', ')}</strong>.
+                            </span>
                         )
-                    },
-                },
-                {
-                    title: 'Last Rolled',
-                    dataIndex: 'last_rolled_at',
-                    key: 'lastRolledAt',
-                    render: (_, key) => {
-                        return (
-                            <Tooltip title={detailedTime(key.last_rolled_at)} placement="bottom">
-                                {humanFriendlyDetailedTime(key.last_rolled_at, 'MMMM DD, YYYY', 'h A')}
-                            </Tooltip>
+                    } else {
+                        tooltipMessage = (
+                            <span>
+                                Multiple organizations have restricted personal API keys. This key will not work for
+                                projects: <strong>{restrictedTeamNames.join(', ')}</strong>.
+                            </span>
                         )
-                    },
-                },
-                {
-                    title: '',
-                    key: 'actions',
-                    align: 'right',
-                    width: 0,
-                    render: (_, key) => {
-                        return (
-                            <LemonMenu
-                                items={[
-                                    {
-                                        label: 'Edit',
-                                        onClick: () => setEditingKeyId(key.id),
-                                    },
-                                    {
-                                        label: 'Roll',
-                                        onClick: () => {
-                                            LemonDialog.open({
-                                                title: `Roll key "${key.label}"?`,
-                                                description:
-                                                    'This will generate a new key. The old key will immediately stop working.',
-                                                primaryButton: {
-                                                    status: 'danger',
-                                                    children: 'Roll',
-                                                    type: 'primary',
-                                                    onClick: () => rollKey(key.id),
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'secondary',
-                                                },
-                                            })
-                                        },
-                                    },
-                                    {
-                                        label: 'Delete',
-                                        status: 'danger',
-                                        onClick: () => {
-                                            LemonDialog.open({
-                                                title: `Permanently delete key "${key.label}"?`,
-                                                description:
-                                                    'This action cannot be undone. Make sure to have removed the key from any live integrations first.',
-                                                primaryButton: {
-                                                    status: 'danger',
-                                                    children: 'Permanently delete',
-                                                    onClick: () => deleteKey(key.id),
-                                                },
-                                            })
-                                        },
-                                    },
-                                ]}
-                            >
-                                <LemonButton size="small" icon={<IconEllipsis />} />
-                            </LemonMenu>
+                    }
+                } else if (restrictedOrgs.length > 0) {
+                    const restrictedOrgNames = restrictedOrgs.map((org: any) => org.name)
+
+                    tooltipMessage =
+                        restrictedOrgNames.length === 1 ? (
+                            <span>
+                                Organization <strong>{restrictedOrgNames[0]}</strong> has restricted the use of personal
+                                API keys.
+                            </span>
+                        ) : (
+                            <span>
+                                Organizations <strong>{restrictedOrgNames.join(', ')}</strong> have restricted the use
+                                of personal API keys.
+                            </span>
                         )
-                    },
-                },
-            ]}
-        />
+                }
+
+                statusTag = (
+                    <Tooltip title={tooltipMessage}>
+                        <LemonTag type="warning">Partial restrictions</LemonTag>
+                    </Tooltip>
+                )
+            }
+
+            if (statusTag && legacyTag) {
+                return (
+                    <span className="flex flex-wrap gap-1">
+                        {statusTag}
+                        {legacyTag}
+                    </span>
+                )
+            }
+
+            return statusTag ?? legacyTag ?? <LemonTag type="success">Active</LemonTag>
+        },
+    }
+
+    const accessColumn: LemonTableColumn<PersonalAPIKeyType, any> = {
+        title: 'Organization & project access',
+        key: 'access',
+        dataIndex: 'id',
+        render: function RenderAccess(_, key) {
+            const restrictedOrgs = getRestrictedOrganizationsForKey(key.id)
+            const restrictedTeams = getRestrictedTeamsForKey(key.id)
+
+            if (key?.scoped_organizations?.length) {
+                const orgTags =
+                    key.scoped_organizations?.map((id) => {
+                        const org = allOrganizations.find((org) => org.id === id)
+                        return {
+                            id,
+                            name: org?.name || '',
+                            restricted: restrictedOrgs.some((org: any) => org.id === id),
+                        }
+                    }) || []
+
+                return <TagListWithRestrictions tags={orgTags} onMoreClick={() => setEditingKeyId(key.id)} />
+            } else if (key?.scoped_teams?.length) {
+                const teamTags =
+                    key.scoped_teams?.map((id) => {
+                        const team = allTeams?.find((team) => team.id === id)
+                        return {
+                            id: String(id),
+                            name: team?.name || '',
+                            restricted: restrictedTeams.some((team: any) => team.id === id),
+                        }
+                    }) || []
+
+                return <TagListWithRestrictions tags={teamTags} onMoreClick={() => setEditingKeyId(key.id)} />
+            }
+            return <LemonTag type="warning">All access</LemonTag>
+        },
+    }
+
+    return (
+        <>
+            {keys.some((key) => key.is_legacy_hashing) && (
+                <LemonBanner type="info" className="mt-2">
+                    Some of your personal API keys use legacy hashing. Consider rolling or deleting them to upgrade.
+                </LemonBanner>
+            )}
+            <APIKeyTable<PersonalAPIKeyType>
+                keys={keys}
+                loading={keysLoading}
+                noun="personal API key"
+                onEdit={setEditingKeyId}
+                onRoll={rollKey}
+                onDelete={deleteKey}
+                showActions
+                rowClassName={(key) => (isPersonalApiKeyIdDisabled(key.id) ? 'opacity-50' : '')}
+                deleteDescription="This action cannot be undone. Make sure to have removed the key from any live integrations first."
+                renderMaskValue={(key) =>
+                    key.mask_value ? (
+                        <span className="font-mono ph-no-capture">{key.mask_value}</span>
+                    ) : (
+                        <Tooltip title="This key was created before the introduction of previews" placement="right">
+                            <span className="inline-flex items-center gap-1 cursor-default">
+                                <span>No preview</span>
+                                <IconInfo className="text-base" />
+                            </span>
+                        </Tooltip>
+                    )
+                }
+                renderScopes={(key) =>
+                    key.scopes[0] === '*' ? (
+                        <LemonTag type="warning">All access</LemonTag>
+                    ) : (
+                        <TagList tags={key.scopes} onMoreClick={() => setEditingKeyId(key.id)} />
+                    )
+                }
+                extraColumnsAfterLabel={[statusColumn]}
+                extraColumnsAfterScopes={[accessColumn]}
+            />
+        </>
     )
 }
 
@@ -588,18 +518,6 @@ export function PersonalAPIKeys(): JSX.Element {
 
     return (
         <>
-            <p>
-                These keys allow full access to your personal account through the API, as if you were logged in. You can
-                also use them in integrations, such as{' '}
-                <Link to="https://zapier.com/apps/posthog/">our premium Zapier one</Link>.
-                <br />
-                Try not to keep disused keys around. If you have any suspicion that one of these may be compromised,
-                delete it and use a new one.
-                <br />
-                <Link to="https://posthog.com/docs/api/overview#authentication">
-                    More about API authentication in PostHog Docs.
-                </Link>
-            </p>
             <LemonButton
                 type="primary"
                 icon={<IconPlus />}

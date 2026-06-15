@@ -1,31 +1,66 @@
-import AWS from 'aws-sdk'
+import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { SendMailOptions } from 'nodemailer'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
-import { Hub } from '../../../types'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { addPreheaderToEmail } from './helpers/preheader'
+import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { generateEmailTrackingCode } from './helpers/tracking-code'
+import { RecipientTokensService } from './recipient-tokens.service'
 
-export type EmailServiceHub = Pick<
-    Hub,
-    'SES_ACCESS_KEY_ID' | 'SES_SECRET_ACCESS_KEY' | 'SES_REGION' | 'SES_ENDPOINT' | 'integrationManager'
->
+export interface EmailServiceConfig {
+    sesAccessKeyId: string
+    sesSecretAccessKey: string
+    sesRegion: string
+    sesEndpoint: string
+}
+
+/**
+ * Strips control characters from an email subject to prevent header injection
+ * and delivery issues. Removes ASCII 0-31 (except horizontal tab) and DEL (127).
+ */
+export function sanitizeEmailSubject(subject: string): string {
+    return subject
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        .replace(/[\r\n]+/g, ' ')
+        .trim()
+}
+
+export function parseAddressList(value?: string): string[] | undefined {
+    if (!value || !value.trim()) {
+        return undefined
+    }
+    const result = value
+        .split(',')
+        .map((addr) => addr.trim())
+        .filter((addr) => addr.length > 0)
+    return result.length > 0 ? result : undefined
+}
 
 export class EmailService {
-    ses: AWS.SES
+    sesV2Client: SESv2Client | null
 
-    constructor(private hub: EmailServiceHub) {
-        this.ses = new AWS.SES({
-            accessKeyId: this.hub.SES_ACCESS_KEY_ID,
-            secretAccessKey: this.hub.SES_SECRET_ACCESS_KEY,
-            region: this.hub.SES_REGION,
-            endpoint: this.hub.SES_ENDPOINT || undefined,
-        })
+    private recipientTokensService: RecipientTokensService
+
+    constructor(
+        private sesConfig: EmailServiceConfig,
+        private integrationManager: IntegrationManagerService,
+        encryptionSaltKeys: string,
+        siteUrl: string
+    ) {
+        this.sesV2Client = this.sesConfig.sesRegion
+            ? new SESv2Client({
+                  region: this.sesConfig.sesRegion,
+                  endpoint: this.sesConfig.sesEndpoint || undefined,
+              })
+            : null
+        this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
     }
 
     // Send email
@@ -46,24 +81,33 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
-        const integration = await this.hub.integrationManager.get(params.from.integrationId)
+        const integration = await this.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
 
         try {
-            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
             }
 
-            this.validateEmailDomain(integration, params)
+            const from = this.resolveFromSender(integration)
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params)
+                    await this.sendEmailWithMaildev(result, params, from)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params)
+                    await this.sendEmailWithSES(result, params, from)
                     break
+
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
             }
@@ -76,15 +120,15 @@ export class EmailService {
             result.finished = true
         }
 
-        // Finally we create the response object as the VM expects
-        result.invocation.state.vmState!.stack.push({
+        // Push the response to the VM stack if running inline (not from the email queue)
+        result.invocation.state.vmState?.stack.push({
             success,
         })
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
-            instance_id: invocation.id,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
+            instance_id: invocation.state.actionId || invocation.id,
             metric_kind: 'email',
             metric_name: success ? 'email_sent' : 'email_failed',
             count: 1,
@@ -93,12 +137,7 @@ export class EmailService {
         return result
     }
 
-    private validateEmailDomain(
-        integration: IntegrationType,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): void {
-        // Currently we enforce using the name and email set on the integration
-
+    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -107,23 +146,35 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        params.from.email = integration.config.email
-        params.from.name = integration.config.name
+        return { email: integration.config.email, name: integration.config.name }
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string }
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
-        const response = await mailDevTransport!.sendMail({
-            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+        const mailOptions: SendMailOptions = {
+            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
-            subject: params.subject,
+            subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            html: addTrackingToEmail(params.html, result.invocation),
-        })
+            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation) } : {}),
+        }
+
+        const ccAddresses = parseAddressList(params.cc)
+        const bccAddresses = parseAddressList(params.bcc)
+
+        if (ccAddresses) {
+            mailOptions.cc = ccAddresses
+        }
+        if (bccAddresses) {
+            mailOptions.bcc = bccAddresses
+        }
+
+        const response = await mailDevTransport!.sendMail(mailOptions)
 
         if (!response.accepted) {
             throw new Error(`Failed to send email to maildev: ${JSON.stringify(response)}`)
@@ -134,53 +185,97 @@ export class EmailService {
 
     private async sendEmailWithSES(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string }
     ): Promise<void> {
+        if (!this.sesV2Client) {
+            throw new Error('SES is not configured - set SES_REGION and AWS credentials')
+        }
         const trackingCode = generateEmailTrackingCode(result.invocation)
-        const htmlWithTracking = addTrackingToEmail(params.html, result.invocation)
-        const htmlWithTrackingAndPreheader = params.preheader
-            ? addPreheaderToEmail(htmlWithTracking, params.preheader)
-            : htmlWithTracking
 
-        const sendEmailParams: AWS.SES.SendEmailRequest = {
-            Source: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+        const htmlBody = params.html
+            ? {
+                  Html: {
+                      Data: maybeAddPreheaderToEmail(
+                          addTrackingToEmail(params.html, result.invocation),
+                          params.preheader
+                      ),
+                      Charset: 'UTF-8',
+                  },
+              }
+            : {}
+
+        const sendEmailParams: SendEmailCommandInput = {
+            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
             },
-            Message: {
-                Subject: {
-                    Data: params.subject,
-                    Charset: 'UTF-8',
-                },
-                Body: {
-                    Html: {
-                        Data: htmlWithTrackingAndPreheader,
+            Content: {
+                Simple: {
+                    Subject: {
+                        Data: sanitizeEmailSubject(params.subject),
                         Charset: 'UTF-8',
                     },
-                    Text: {
-                        Data: params.text,
-                        Charset: 'UTF-8',
+                    Body: {
+                        Text: {
+                            Data: params.text,
+                            Charset: 'UTF-8',
+                        },
+                        ...htmlBody,
                     },
                 },
             },
-            ConfigurationSetName: 'posthog-messaging', // This triggers the SNS notifications for email tracking
-            Tags: [{ Name: 'ph_id', Value: trackingCode }],
+            ConfigurationSetName: 'posthog-messaging',
+            EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
+            FeedbackForwardingEmailAddress: from.email,
         }
 
-        if (params.replyTo && params.replyTo.trim()) {
-            sendEmailParams.ReplyToAddresses = params.replyTo
-                .split(',')
-                .map((addr) => addr.trim())
-                .filter((addr) => addr.length > 0)
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+        // Automatically add unsubscribe headers for non-transactional emails
+        if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
+            sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
+                team_id: result.invocation.teamId,
+                identifier: params.to.email,
+            })
+        }
+
+        const replyToAddresses = parseAddressList(params.replyTo)
+        const ccAddresses = parseAddressList(params.cc)
+        const bccAddresses = parseAddressList(params.bcc)
+
+        if (replyToAddresses) {
+            sendEmailParams.ReplyToAddresses = replyToAddresses
+        }
+        if (ccAddresses) {
+            sendEmailParams.Destination!.CcAddresses = ccAddresses
+        }
+        if (bccAddresses) {
+            sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
         try {
-            const response = await this.ses.sendEmail(sendEmailParams).promise()
+            const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
-        } catch (error) {
-            throw new Error(`Failed to send email via SES: ${error.message}`)
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error)
+            throw new Error(`Failed to send email via SES: ${message}`)
         }
+    }
+
+    private generateUnsubscribeHeaders(
+        recipient: Pick<RecipientManagerRecipient, 'team_id' | 'identifier'>
+    ): MessageHeader[] {
+        return [
+            {
+                Name: 'List-Unsubscribe',
+                Value: `<${this.recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}>`,
+            },
+            {
+                Name: 'List-Unsubscribe-Post',
+                Value: 'List-Unsubscribe=One-Click',
+            },
+        ]
     }
 }

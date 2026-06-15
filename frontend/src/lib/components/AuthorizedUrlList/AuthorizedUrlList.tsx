@@ -3,35 +3,38 @@ import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconOpenInApp } from 'lib/lemon-ui/icons'
 
-import { ExperimentIdType } from '~/types'
+import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { EmptyState } from './EmptyState'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
     productTourId?: string | null
+    userIntent?: ToolbarUserIntent
     query?: string | null
     allowWildCards?: boolean
     displaySuggestions?: boolean
     showLaunch?: boolean
     allowAdd?: boolean
     allowDelete?: boolean
+    launchInSameTab?: boolean
 }
 
 export function AuthorizedUrlList({
     actionId,
     experimentId,
     productTourId,
+    userIntent,
     query,
     type,
     addText = 'Add new authorized URL',
@@ -40,24 +43,25 @@ export function AuthorizedUrlList({
     allowAdd = true,
     allowDelete = true,
     showLaunch = true,
+    launchInSameTab = false,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
         productTourId: productTourId ?? null,
         actionId: actionId ?? null,
+        userIntent,
         type,
         query,
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, manualLaunchParamsLoading } =
-        useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
             <EmptyState
                 experimentId={experimentId}
                 productTourId={productTourId}
@@ -98,7 +102,7 @@ export function AuthorizedUrlList({
                 }
 
                 return editUrlIndex === index ? (
-                    <div className="border rounded p-2 bg-surface-primary">
+                    <div key={keyedURL.url} className="border rounded p-2 bg-surface-primary">
                         <AuthorizedUrlForm
                             type={type}
                             actionId={actionId}
@@ -108,7 +112,10 @@ export function AuthorizedUrlList({
                         />
                     </div>
                 ) : (
-                    <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+                    <div
+                        key={keyedURL.url}
+                        className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}
+                    >
                         {keyedURL.type === 'suggestion' && (
                             <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                 <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">
@@ -144,7 +151,7 @@ export function AuthorizedUrlList({
                                                     : // other urls are simply opened directly
                                                       `${keyedURL.url}${query ?? ''}`
                                             }
-                                            targetBlank
+                                            targetBlank={!launchInSameTab}
                                             tooltip={
                                                 type === AuthorizedUrlListType.TOOLBAR_URLS ||
                                                 type === AuthorizedUrlListType.WEB_ANALYTICS
@@ -177,9 +184,8 @@ export function AuthorizedUrlList({
                                                                 type="primary"
                                                                 data-attr="copy-manual-toolbar-launch-code"
                                                                 onClick={() => {
-                                                                    copyLaunchCode(keyedURL.url)
+                                                                    copyLaunchCode()
                                                                 }}
-                                                                loading={manualLaunchParamsLoading}
                                                             >
                                                                 Copy launch code
                                                             </LemonButton>

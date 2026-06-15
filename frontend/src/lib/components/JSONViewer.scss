@@ -1,0 +1,10 @@
+.react-json-view {
+    .copy-to-clipboard-container {
+        display: inline-block !important; // Override library inline style; visibility handles show-on-hover without layout shift
+        visibility: hidden;
+    }
+
+    &:hover .copy-to-clipboard-container {
+        visibility: visible;
+    }
+}

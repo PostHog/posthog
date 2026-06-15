@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import string
+import hashlib
 import secrets
 import datetime
 from collections import defaultdict, namedtuple
@@ -9,9 +10,10 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
 from time import time, time_ns
-from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.ddl_references import Statement
@@ -20,17 +22,21 @@ from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog.hogql import ast
-
 from posthog.constants import MAX_SLUG_LENGTH
 from posthog.person_db_router import PERSONS_DB_MODELS
 
 if TYPE_CHECKING:
     from random import Random
 
+    from posthog.hogql import ast
+
 T = TypeVar("T")
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
+AMBIGUOUS_CHARS = frozenset("01OIl")
+BASE57 = "".join(c for c in BASE62 if c not in AMBIGUOUS_CHARS)  # Base62 minus visually ambiguous characters
+EncryptionModeType = Literal["sha256", "pbkdf2"]
+SHA256_HASH_PREFIX = "sha256$"
 
 
 class UUIDT(uuid.UUID):
@@ -98,11 +104,14 @@ class UUIDT(uuid.UUID):
     def is_valid_uuid(cls, candidate: Any) -> bool:
         if not isinstance(candidate, str):
             return False
-        hex = candidate.replace("urn:", "").replace("uuid:", "")
-        hex = hex.strip("{}").replace("-", "")
-        if len(hex) != 32:
+        hex_str = candidate.replace("urn:", "").replace("uuid:", "")
+        hex_str = hex_str.strip("{}").replace("-", "")
+        if len(hex_str) != 32:
             return False
-        return 0 <= int(hex, 16) < 1 << 128
+        try:
+            return 0 <= int(hex_str, 16) < (1 << 128)
+        except ValueError:
+            return False
 
 
 # Delete this when we can use the version from the stdlib directly, see https://github.com/python/cpython/issues/102461
@@ -234,7 +243,7 @@ class BytecodeModelMixin(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def get_expr(self) -> ast.Expr:
+    def get_expr(self) -> "ast.Expr":
         raise NotImplementedError()
 
 
@@ -261,8 +270,15 @@ def generate_random_token(nbytes: int = 32) -> str:
 
     Random 32 bytes - default value here - is believed to be sufficiently secure for practically all purposes:
     https://docs.python.org/3/library/secrets.html#how-many-bytes-should-tokens-use
+
+    Uses base57 encoding (base62 minus 0, 1, O, I, l) to avoid visually ambiguous characters.
     """
-    return int_to_base(secrets.randbits(nbytes * 8), 62)
+    bits = nbytes * 8
+    # Force the top bit on so the encoded token always has the same number of
+    # digits (costs 1 bit of entropy: 255 instead of 256, still far above any
+    # practical brute-force threshold).
+    value = secrets.randbits(bits) | (1 << (bits - 1))
+    return int_to_base(value, 57, alphabet=BASE57)
 
 
 def generate_random_token_project() -> str:
@@ -298,17 +314,40 @@ def mask_key_value(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
-def int_to_base(number: int, base: int) -> str:
-    if base > 62:
-        raise ValueError("Cannot convert integer to base above 62")
-    alphabet = BASE62[:base]
+def hash_key_value(
+    value: str, mode: EncryptionModeType = "sha256", legacy_salt: Optional[str] = None, iterations: Optional[int] = None
+) -> str:
+    if mode == "pbkdf2":
+        if not iterations:
+            raise ValueError("Iterations must be provided when using legacy PBKDF2 mode")
+        if not legacy_salt:
+            raise ValueError("Salt must be provided when using legacy PBKDF2 mode")
+        hasher = PBKDF2PasswordHasher()
+        return hasher.encode(value, legacy_salt, iterations=iterations)
+
+    if iterations:
+        raise ValueError("Iterations must not be provided when using simple hashing mode")
+
+    # Inspiration on why no salt:
+    # https://github.com/jazzband/django-rest-knox/issues/188
+    value = hashlib.sha256(value.encode()).hexdigest()
+    return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
+
+
+def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
+    if alphabet is None:
+        if base > 62:
+            raise ValueError("Cannot convert integer to base above 62")
+        alphabet = BASE62[:base]
+    elif len(alphabet) != base:
+        raise ValueError(f"Alphabet length {len(alphabet)} does not match base {base}")
     if number < 0:
-        return "-" + int_to_base(-number, base)
+        return "-" + int_to_base(-number, base, alphabet=alphabet)
     value = ""
     while number != 0:
         number, index = divmod(number, len(alphabet))
         value = alphabet[index] + value
-    return value or "0"
+    return value or alphabet[0]
 
 
 class Percentile(models.Aggregate):
@@ -387,7 +426,7 @@ class UniqueConstraintByExpression(BaseConstraint):
         table = model._meta.db_table
         return Statement(
             f"""
-            CREATE UNIQUE INDEX {'CONCURRENTLY' if self.concurrently and not table_creation else ''} %(name)s
+            CREATE UNIQUE INDEX {"CONCURRENTLY" if self.concurrently and not table_creation else ""} %(name)s
             ON %(table)s
             %(expression)s
             """,
@@ -652,5 +691,12 @@ class ActivityDetailEncoder(json.JSONEncoder):
             return {
                 "id": obj.id,
                 "name": obj.name,
+            }
+        if hasattr(obj, "__class__") and obj.__class__.__name__ == "LLMModelConfiguration":
+            return {
+                "id": str(obj.id),
+                "provider": obj.provider,
+                "model": obj.model,
+                "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
         return json.JSONEncoder.default(self, obj)

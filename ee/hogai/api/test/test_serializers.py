@@ -12,11 +12,12 @@ from posthog.schema import (
     ContextMessage,
 )
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+
 from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import AgentArtifact, Conversation
 
 
 class TestConversationSerializers(APIBaseTest):
@@ -52,6 +53,7 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -132,6 +134,7 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -157,6 +160,7 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -181,6 +185,7 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -206,6 +211,7 @@ class TestConversationSerializers(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -259,6 +265,7 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -296,6 +303,7 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 
@@ -338,6 +346,7 @@ class TestConversationSerializerArtifactEnrichment(APIBaseTest):
 
             class MockSnapshot:
                 values = state.model_dump()
+                tasks = []
 
             mock_get_state.return_value = MockSnapshot()
 

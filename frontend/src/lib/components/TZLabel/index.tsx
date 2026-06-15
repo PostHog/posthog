@@ -13,6 +13,7 @@ import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
@@ -37,6 +38,8 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone.
      * Note: When set, forces timestampStyle to 'absolute' to avoid broken relative date comparisons. */
     displayTimezone?: string
+    /** Custom suffix to replace "ago" in relative time display. e.g. suffix="old" renders "5 hours old" */
+    suffix?: string
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -44,13 +47,15 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
-}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & { time: dayjs.Dayjs }): JSX.Element {
+}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
+    time: dayjs.Dayjs
+}): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
     const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
-        void copyToClipboard(dateTime.toDate().toISOString(), label)
+        void copyToClipboard(dateTime.format(DATE_OUTPUT_FORMAT), label)
     }
 
     const copyUnixTimestamp = (unixTimestamp: number, label: string): void => {
@@ -75,7 +80,11 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center border-b-1 p-1">
                 <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
-                <LemonButton icon={<IconGear />} size="xsmall" to={urls.settings('project', 'date-and-time')} />
+                <LemonButton
+                    icon={<IconGear />}
+                    size="xsmall"
+                    to={urls.settings('environment-customization', 'date-and-time')}
+                />
             </div>
             <div className="flex flex-col gap-1 p-2">
                 {displayedTime && (
@@ -175,6 +184,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         className,
         children,
         displayTimezone,
+        suffix,
         ...dropdownProps
     },
     ref
@@ -190,16 +200,21 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             return parsedTime
         }
     }, [parsedTime, displayTimezone])
+    const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
     const format = useCallback(() => {
-        return formatDate || formatTime
-            ? humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
-                  timestampStyle: displayTimezone ? 'absolute' : timestampStyle,
-              })
-            : displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
+        if (formatDate || formatTime || effectiveTimestampStyle === 'absolute') {
+            return humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
+                timestampStyle: effectiveTimestampStyle,
+            })
+        }
+        if (suffix) {
+            return `${displayTime.fromNow(true)} ${suffix}`
+        }
+        return displayTime.fromNow()
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, suffix])
 
-    const [formattedContent, setFormattedContent] = useState(format())
+    const [formattedContent, setFormattedContent] = useState(format)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -224,7 +239,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         <span
             className={
                 !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    ? cn('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
                     : className
             }
             ref={ref}

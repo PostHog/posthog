@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
-import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { Icon123, IconAreaChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
@@ -13,9 +13,50 @@ interface TableDisplayProps extends Pick<LemonSelectProps<ChartDisplayType>, 'di
 
 export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element => {
     const { setVisualizationType } = useActions(dataVisualizationLogic)
-    const { visualizationType } = useValues(dataVisualizationLogic)
+    const { autoVisualizationType, columns, numericalColumns, visualizationType } = useValues(dataVisualizationLogic)
+
+    const canDisplayContinuousChart = columns.length > 1 && numericalColumns.length > 0
+
+    const displayTypeLabels: Record<ChartDisplayType, string> = {
+        [ChartDisplayType.Auto]: 'Auto',
+        [ChartDisplayType.ActionsLineGraph]: 'Line chart',
+        [ChartDisplayType.ActionsBar]: 'Bar chart',
+        [ChartDisplayType.ActionsUnstackedBar]: 'Unstacked bar chart',
+        [ChartDisplayType.ActionsStackedBar]: 'Stacked bar chart',
+        [ChartDisplayType.ActionsAreaGraph]: 'Area chart',
+        [ChartDisplayType.ActionsLineGraphCumulative]: 'Cumulative line chart',
+        [ChartDisplayType.BoldNumber]: 'Big number',
+        [ChartDisplayType.ActionsPie]: 'Pie chart',
+        [ChartDisplayType.ActionsBarValue]: 'Value chart',
+        [ChartDisplayType.ActionsTable]: 'Table',
+        [ChartDisplayType.WorldMap]: 'World map',
+        [ChartDisplayType.CalendarHeatmap]: 'Calendar heatmap',
+        [ChartDisplayType.TwoDimensionalHeatmap]: '2d heatmap',
+        [ChartDisplayType.BoxPlot]: 'Box plot',
+    }
+
+    const renderDisplayTypeLabel = (displayType: ChartDisplayType): string => {
+        const selectedLabel = displayTypeLabels[displayType] ?? displayType
+
+        if (displayType !== ChartDisplayType.Auto) {
+            return selectedLabel
+        }
+
+        const resolvedLabel = displayTypeLabels[autoVisualizationType] ?? autoVisualizationType
+        return `Auto (${resolvedLabel})`
+    }
 
     const options: LemonSelectOptions<ChartDisplayType> = [
+        {
+            title: 'Auto',
+            options: [
+                {
+                    value: ChartDisplayType.Auto,
+                    icon: <IconTrends />,
+                    label: renderDisplayTypeLabel(ChartDisplayType.Auto),
+                },
+            ],
+        },
         {
             title: 'Table',
             options: [
@@ -38,6 +79,9 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconTrends />,
                     label: 'Line chart',
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
@@ -53,6 +97,19 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
                     label: 'Area chart',
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
+                },
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie chart',
+                },
+                {
+                    value: ChartDisplayType.TwoDimensionalHeatmap,
+                    icon: <IconHeatmap />,
+                    label: '2d heatmap',
                 },
             ],
         },
@@ -62,6 +119,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
         <LemonSelect
             disabledReason={disabledReason}
             value={visualizationType}
+            renderButtonContent={() => renderDisplayTypeLabel(visualizationType)}
             onChange={(value) => {
                 setVisualizationType(value)
             }}
@@ -70,6 +128,7 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             options={options}
+            size="small"
         />
     )
 }

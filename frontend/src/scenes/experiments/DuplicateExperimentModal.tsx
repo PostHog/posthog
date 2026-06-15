@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
-import { urls } from 'scenes/urls'
+import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
-import { Experiment, FeatureFlagType } from '~/types'
+import { Experiment } from '~/types'
 
-import { featureFlagEligibleForExperiment } from './utils'
+import { ExperimentFlagKeyInput } from './ExperimentFlagKeyInput'
 
 interface DuplicateExperimentModalProps {
     isOpen: boolean
@@ -28,120 +27,95 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
     const { duplicateExperiment, setFeatureFlagModalFilters, resetFeatureFlagModalFilters } =
         useActions(experimentsLogic)
 
-    const handleDuplicate = (featureFlagKey?: string): void => {
-        duplicateExperiment({ id: experiment.id as number, featureFlagKey })
-        onClose()
+    const [experimentName, setExperimentName] = useState('')
+    const [flagKey, setFlagKey] = useState('')
+    const [flagKeyManuallyEdited, setFlagKeyManuallyEdited] = useState(false)
+    const [isExistingFlag, setIsExistingFlag] = useState(false)
+    const [showReuseFlag, setShowReuseFlag] = useState(false)
+
+    const handleNameChange = (value: string): void => {
+        setExperimentName(value)
+        if (!flagKeyManuallyEdited) {
+            setFlagKey(slugifyFeatureFlagKey(value, { fromTitleInput: true }))
+            setIsExistingFlag(false)
+        }
+    }
+
+    const handleFlagKeyChange = (value: string): void => {
+        setFlagKeyManuallyEdited(true)
+        setIsExistingFlag(false)
+        setFlagKey(slugifyFeatureFlagKey(value))
+    }
+
+    const selectExistingFlag = (key: string): void => {
+        setFlagKeyManuallyEdited(true)
+        setIsExistingFlag(true)
+        setFlagKey(key)
+    }
+
+    const handleDuplicate = (): void => {
+        duplicateExperiment({
+            id: experiment.id as number,
+            featureFlagKey: flagKey || undefined,
+            name: experimentName.trim() || undefined,
+        })
+        handleClose()
     }
 
     const handleClose = (): void => {
         resetFeatureFlagModalFilters()
+        setExperimentName('')
+        setFlagKey('')
+        setFlagKeyManuallyEdited(false)
+        setIsExistingFlag(false)
+        setShowReuseFlag(false)
         onClose()
     }
 
     return (
-        <LemonModal isOpen={isOpen} onClose={handleClose} title="Duplicate experiment" width="max-content">
+        <LemonModal
+            isOpen={isOpen}
+            onClose={handleClose}
+            title="Duplicate experiment"
+            width="max-content"
+            footer={
+                <div className="flex justify-end">
+                    <LemonButton type="primary" onClick={handleDuplicate} data-attr="duplicate-experiment-submit">
+                        Duplicate
+                    </LemonButton>
+                </div>
+            }
+        >
             <div className="space-y-4">
                 <div className="text-muted max-w-xl">
-                    Select a feature flag for the duplicated experiment. You can reuse the original flag or choose a
-                    different one. If the flag doesn't exist, create it first, then return to this page.
+                    Create a new experiment using the configuration from <strong>{experiment.name}</strong>.
                 </div>
 
                 <div>
-                    <div className="font-semibold mb-2">Use the same flag</div>
-                    <div className="flex items-center justify-between p-3 border rounded bg-bg-light">
-                        <div className="flex items-center" style={{ fontSize: '13px' }}>
-                            <div className="font-semibold text-secondary">{experiment.feature_flag?.key}</div>
-                            <Link
-                                to={urls.featureFlag(experiment.feature_flag?.id as number)}
-                                target="_blank"
-                                className="flex items-center text-secondary"
-                            >
-                                <IconOpenInNew className="ml-1" />
-                            </Link>
-                        </div>
-                        <LemonButton type="primary" size="xsmall" onClick={() => handleDuplicate()}>
-                            Select
-                        </LemonButton>
-                    </div>
-                </div>
-
-                <div>
-                    <div className="font-semibold mb-2">Choose an existing flag</div>
-                    <div className="mb-4">
-                        <FeatureFlagFiltersSection
-                            filters={featureFlagModalFilters}
-                            setFeatureFlagsFilters={setFeatureFlagModalFilters}
-                            searchPlaceholder="Search for feature flags"
-                            filtersConfig={{ search: true, type: true }}
-                        />
-                    </div>
-                    <LemonTable
-                        id="ff"
-                        dataSource={featureFlagModalFeatureFlags.results}
-                        loading={featureFlagModalFeatureFlagsLoading}
-                        useURLForSorting={false}
-                        columns={[
-                            {
-                                title: 'Key',
-                                dataIndex: 'key',
-                                sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
-                                render: (key, flag) => (
-                                    <div className="flex items-center">
-                                        <div className="font-semibold">{key}</div>
-                                        <Link
-                                            to={urls.featureFlag(flag.id as number)}
-                                            target="_blank"
-                                            className="flex items-center"
-                                        >
-                                            <IconOpenInNew className="ml-1" />
-                                        </Link>
-                                    </div>
-                                ),
-                            },
-                            {
-                                title: 'Name',
-                                dataIndex: 'name',
-                                sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
-                            },
-                            {
-                                title: null,
-                                render: function RenderActions(_, flag: FeatureFlagType) {
-                                    // Skip the current experiment's flag since we show it separately
-                                    if (flag.key === experiment.feature_flag?.key) {
-                                        return null
-                                    }
-
-                                    let disabledReason: string | undefined = undefined
-                                    try {
-                                        featureFlagEligibleForExperiment(flag)
-                                    } catch (error) {
-                                        disabledReason = (error as Error).message
-                                    }
-                                    return (
-                                        <LemonButton
-                                            size="xsmall"
-                                            type="primary"
-                                            disabledReason={disabledReason}
-                                            onClick={() => handleDuplicate(flag.key)}
-                                        >
-                                            Select
-                                        </LemonButton>
-                                    )
-                                },
-                            },
-                        ]}
-                        emptyState="No feature flags match these filters."
-                        pagination={featureFlagModalPagination}
-                        onSort={(newSorting) =>
-                            setFeatureFlagModalFilters({
-                                order: newSorting
-                                    ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                    : undefined,
-                                page: 1,
-                            })
-                        }
+                    <label className="font-semibold mb-1 block">Experiment name</label>
+                    <LemonInput
+                        value={experimentName}
+                        onChange={handleNameChange}
+                        placeholder={`${experiment.name} (Copy)`}
+                        autoFocus
+                        data-attr="duplicate-experiment-name"
                     />
                 </div>
+
+                <ExperimentFlagKeyInput
+                    flagKey={flagKey}
+                    onFlagKeyChange={handleFlagKeyChange}
+                    isExistingFlag={isExistingFlag}
+                    sourceExperiment={experiment}
+                    featureFlags={featureFlagModalFeatureFlags}
+                    featureFlagsLoading={featureFlagModalFeatureFlagsLoading}
+                    featureFlagFilters={featureFlagModalFilters}
+                    onFeatureFlagFiltersChange={setFeatureFlagModalFilters}
+                    featureFlagPagination={featureFlagModalPagination}
+                    onSelectExistingFlag={selectExistingFlag}
+                    showReuseFlag={showReuseFlag}
+                    onToggleReuseFlag={setShowReuseFlag}
+                />
             </div>
         </LemonModal>
     )

@@ -1,5 +1,5 @@
 import re
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -10,21 +10,22 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.chargebee.chargebee import (
+    ChargebeeResumeConfig,
     chargebee_source,
     validate_credentials as validate_chargebee_credentials,
 )
 from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
+class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
@@ -35,8 +36,15 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
         }
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self,
+        config: ChargebeeSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -46,7 +54,15 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
             for endpoint in list(ENDPOINTS)
         ]
 
-    def validate_credentials(self, config: ChargebeeSourceConfig, team_id: int) -> tuple[bool, str | None]:
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def validate_credentials(
+        self, config: ChargebeeSourceConfig, team_id: int, schema_name: Optional[str] = None
+    ) -> tuple[bool, str | None]:
         subdomain_regex = re.compile("^[a-zA-Z-]+$")
         if not subdomain_regex.match(config.site_name):
             return False, "Chargebee site name is incorrect"
@@ -56,19 +72,32 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
 
         return False, "Invalid credentials"
 
-    def source_for_pipeline(self, config: ChargebeeSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
-            chargebee_source(
-                api_key=config.api_key,
-                site_name=config.site_name,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ChargebeeResumeConfig]:
+        return ResumableSourceManager[ChargebeeResumeConfig](inputs, ChargebeeResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: ChargebeeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[ChargebeeResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        resource = chargebee_source(
+            api_key=config.api_key,
+            site_name=config.site_name,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )
+        return SourceResponse(
+            name=resource.name,
+            items=lambda: resource,
+            primary_keys=["id"],
+            column_hints=resource.column_hints,
         )
 
     @property
@@ -83,9 +112,10 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="site_name",
@@ -93,6 +123,7 @@ class ChargebeeSource(SimpleSource[ChargebeeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                 ],
             ),

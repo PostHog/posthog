@@ -39,7 +39,7 @@
     },
     "applications": {
         "posthog": {
-            "type": "python 3.12",
+            "type": "python 3",
             "processes": $NGINX_UNIT_APP_PROCESSES,
             "working_directory": "/code",
             "path": ".",
@@ -47,11 +47,11 @@
             "protocol": "$NGINX_UNIT_PYTHON_PROTOCOL",
             "user": "nobody",
             "limits": {
-                "requests": 7500
+                "requests": $NGINX_UNIT_REQUEST_LIMIT
             }
         },
         "metrics": {
-            "type": "python 3.12",
+            "type": "python 3",
             "processes": 1,
             "working_directory": "/code/bin",
             "path": ".",

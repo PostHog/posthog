@@ -1,0 +1,357 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Surveys
+feature: surveys
+url_prefix: /surveys
+ui_apps:
+    survey:
+        type: detail
+        view_prop: survey
+    survey-list:
+        type: list
+        detail_tool: survey-get
+        detail_args: '{ surveyId: item.id }'
+    survey-stats:
+        type: detail
+        view_prop: data
+    survey-global-stats:
+        type: detail
+        view_prop: data
+        data_type: SurveyStatsData
+        view_component: SurveyStatsView
+tools:
+    survey-create:
+        operation: surveys_create
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Creates a new survey in the project.
+        description: >
+            Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft
+            creation by default and do not set start_date unless the user explicitly asks to launch immediately. For
+            in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use
+            external_survey. Keep surveys short unless the user asks for a longer flow.
+        include_params:
+            - name
+            - description
+            - type
+            - schedule
+            - questions
+            - conditions
+            - appearance
+            - start_date
+            - responses_limit
+            - iteration_count
+            - iteration_frequency_days
+            - enable_partial_responses
+            - enable_iframe_embedding
+            - linked_flag_id
+            - targeting_flag_filters
+            - translations
+            - form_content
+        param_overrides:
+            type:
+                description: >
+                    Survey type. Use popover for most in-app surveys, widget for always-available feedback entrypoints,
+                    external_survey for hosted forms with a shareable public URL, and api only for headless custom
+                    implementations.
+            schedule:
+                description: >
+                    Survey scheduling behavior. Omit this to use the default once behavior. Use recurring only when the
+                    user explicitly asks for a repeated schedule.
+            questions:
+                description: >
+                    Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
+                    survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the
+                    user wants structured answers. Questions can include inline translations on each question.
+            conditions:
+                description: >
+                    Display and targeting conditions for in-app surveys, such as URL matching, event triggers, device
+                    filters, or linked flag variants. Do not use URL, selector, event, device, or linkedFlagVariant
+                    conditions for external_survey forms.
+            start_date:
+                description: >
+                    Setting this launches the survey immediately. Leave unset unless the user explicitly asks to launch
+                    now.
+            linked_flag_id:
+                description: >
+                    Feature flag ID linked to this survey. Use only when the user explicitly wants the survey linked to
+                    a feature flag. Resolve the flag ID first, preferably with SQL in v2.
+            targeting_flag_filters:
+                description: >
+                    User targeting rules for in-app surveys. Use only when the user wants the survey shown to a subset
+                    of users. Do not use this for external_survey forms.
+            enable_iframe_embedding:
+                description: >
+                    Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks
+                    for iframe embedding.
+            translations:
+                description: >
+                    Optional survey-level translations keyed by language code. Use for translated survey name,
+                    description, and thank-you message fields. Question text translations belong inside each question's
+                    translations object.
+            form_content:
+                description: >
+                    Optional hosted-form content configuration for external_survey forms. Only include this when the
+                    user explicitly asks to customize the hosted form content beyond the standard question flow.
+        ui_app: survey
+    survey-delete:
+        operation: surveys_destroy
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a survey by ID.
+        description: |
+            Delete a survey by ID (soft delete - marks as archived).
+        soft_delete: archived
+    survey-get:
+        operation: surveys_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get a specific survey by ID.
+        description: >
+            Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling
+            details.
+        ui_app: survey
+    survey-launch:
+        operation: surveys_launch
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Launch a survey now.
+        description: >
+            Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual
+            `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey
+            is already launched.
+        ui_app: survey
+    survey-stats:
+        operation: surveys_stats_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{survey_id}'
+        title: Get response statistics for a specific survey.
+        description: >
+            Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
+            unique respondents, conversion rates, and timing data. Supports optional date filtering.
+        ui_app: survey-stats
+    survey-stop:
+        operation: surveys_stop
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Stop a survey now.
+        description: >
+            Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing
+            responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey
+            already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with
+            `archived=true` instead.
+        ui_app: survey
+    survey-update:
+        operation: surveys_partial_update
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update an existing survey by ID.
+        description: >
+            Update an existing survey by ID. Omitted top-level fields are preserved, but nested objects and arrays you
+            provide may replace existing values. Before changing questions, conditions, appearance, targeting,
+            translations, or hosted-form content, retrieve the survey first and preserve fields that should remain. Do
+            not send null to clear a field unless the user explicitly asked to remove it.
+        include_params:
+            - id
+            - name
+            - description
+            - type
+            - questions
+            - appearance
+            - conditions
+            - schedule
+            - start_date
+            - end_date
+            - archived
+            - responses_limit
+            - iteration_count
+            - iteration_frequency_days
+            - enable_partial_responses
+            - enable_iframe_embedding
+            - linked_flag_id
+            - targeting_flag_id
+            - targeting_flag_filters
+            - remove_targeting_flag
+            - translations
+            - form_content
+        param_overrides:
+            questions:
+                description: >
+                    Complete replacement question list. Existing question IDs are tied to response data and must be
+                    preserved. Before sending this field, fetch the survey first, modify the existing question objects
+                    in place, keep every unchanged or edited question's id, and include the complete intended ordered
+                    question list. New questions should omit id. Do not regenerate existing questions from scratch.
+            conditions:
+                description: >
+                    Complete replacement display and targeting conditions object. Do not provide this field unless
+                    changing display targeting. Preserve existing URL, selector, event, device, wait-period, and linked
+                    flag variant conditions unless explicitly changing them.
+            translations:
+                description: >
+                    Complete replacement survey-level translations object. Do not provide this field unless changing
+                    translations. Preserve existing language keys and translated fields that should remain. Use null
+                    only when the user explicitly asks to remove survey-level translations.
+            form_content:
+                description: >
+                    Hosted-form content configuration for external_survey forms. Do not provide this field unless
+                    editing hosted-form content. Preserve existing content fields that should remain.
+        ui_app: survey
+    surveys-activity-retrieve:
+        operation: surveys_activity_retrieve
+        enabled: false
+    surveys-all-activity-retrieve:
+        operation: surveys_all_activity_retrieve
+        enabled: false
+    surveys-archived-response-uuids-retrieve:
+        operation: surveys_archived_response_uuids_retrieve
+        enabled: false
+    surveys-duplicate-to-projects-create:
+        operation: surveys_duplicate_to_projects_create
+        enabled: false
+    surveys-generate-translations-create:
+        operation: surveys_generate_translations_create
+        enabled: false
+    surveys-get-all:
+        operation: surveys_list
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List surveys in the project (server-side search + filters).
+        description: >
+            List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos
+            and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use
+            `archived` to filter archived state. Combine with pagination via `limit`/`offset`.
+
+            Companion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list -
+            For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)
+        ui_app: survey-list
+    surveys-global-stats:
+        operation: surveys_global_stats_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get aggregated response statistics across all surveys.
+        description: >
+            Get aggregated response statistics across all surveys in the project. Includes event counts (shown,
+            dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.
+        ui_app: survey-global-stats
+    surveys-question-labels:
+        operation: surveys_question_labels
+        enabled: false
+    surveys-responses-archive-create:
+        operation: surveys_responses_archive_create
+        enabled: false
+    surveys-responses-count-retrieve:
+        operation: surveys_responses_count_retrieve
+        enabled: false
+    surveys-responses-list:
+        operation: surveys_responses_list
+        enabled: true
+        scopes:
+            - survey:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List individual survey responses with resolved question text.
+        description: >
+            List individual responses for a specific survey. Question text is already resolved server-side — callers do
+            not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and
+            submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of
+            executing raw SQL against `survey sent` events.
+
+            Common patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer
+            mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row,
+            then pull recordings or events for that user.
+
+            For person properties on respondents, follow up with persons-get using the row's distinct_id — this tool
+            only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and
+            the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` /
+            `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving
+            between pages can shift boundaries).
+        ui_app: survey-stats
+    surveys-responses-unarchive-create:
+        operation: surveys_responses_unarchive_create
+        enabled: false
+    surveys-summarize-responses-create:
+        operation: surveys_summarize_responses_create
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: false
+        title: Summarize survey responses (per question, or survey-wide headline).
+        description: >
+            Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or question_index
+            to get a per-question theme summary. Omit both to get the survey-wide headline summary instead — the
+            endpoint dispatches automatically based on what you pass.
+
+            Pass force_refresh=true in the body to bypass cached summaries. Per-question summaries are cached on the
+            survey object; headline summaries are cached on the survey row.
+
+            Use this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use
+            surveys-responses-list instead.
+    surveys-summary-headline-create:
+        operation: surveys_summary_headline_create
+        enabled: false
+    surveys-update:
+        operation: surveys_update
+        enabled: false

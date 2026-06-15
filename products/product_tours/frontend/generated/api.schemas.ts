@@ -1,0 +1,283 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+/**
+ * * `server` - Server
+ * * `client` - Client
+ * * `all` - All
+ */
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+
+export const EvaluationRuntimeEnumApi = {
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * * `distinct_id` - User ID (default)
+ * * `device_id` - Device ID
+ */
+export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
+
+export const BucketingIdentifierEnumApi = {
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
+} as const
+
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
+
+export interface MinimalFeatureFlagApi {
+    readonly id: number
+    readonly team_id: number
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: MinimalFeatureFlagApiFilters
+    deleted?: boolean
+    active?: boolean
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    /** Specifies where this feature flag should be evaluated
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
+    readonly evaluation_contexts: readonly string[]
+}
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
+/**
+ * Return the targeting flag filters, excluding the base exclusion properties.
+ * @nullable
+ */
+export type ProductTourApiTargetingFlagFilters = { [key: string]: unknown } | null
+
+/**
+ * Read-only serializer for ProductTour.
+ */
+export interface ProductTourApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    readonly internal_targeting_flag: MinimalFeatureFlagApi
+    readonly linked_flag: MinimalFeatureFlagApi
+    /**
+     * Return the targeting flag filters, excluding the base exclusion properties.
+     * @nullable
+     */
+    readonly targeting_flag_filters: ProductTourApiTargetingFlagFilters
+    content?: unknown
+    readonly draft_content: unknown
+    readonly has_draft: boolean
+    auto_launch?: boolean
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    archived?: boolean
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
+}
+
+export interface PaginatedProductTourListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProductTourApi[]
+}
+
+/**
+ * * `app` - app
+ * * `toolbar` - toolbar
+ */
+export type ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi =
+    (typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi)[keyof typeof ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi]
+
+export const ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi = {
+    App: 'app',
+    Toolbar: 'toolbar',
+} as const
+
+/**
+ * Serializer for creating and updating ProductTour.
+ */
+export interface ProductTourSerializerCreateUpdateOnlyApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    readonly internal_targeting_flag: MinimalFeatureFlagApi
+    readonly linked_flag: MinimalFeatureFlagApi
+    /** @nullable */
+    linked_flag_id?: number | null
+    targeting_flag_filters?: unknown
+    content?: unknown
+    auto_launch?: boolean
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    archived?: boolean
+    /** Where the tour was created/updated from
+     *
+     * * `app` - app
+     * * `toolbar` - toolbar */
+    creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
+}
+
+/**
+ * Serializer for creating and updating ProductTour.
+ */
+export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    description?: string
+    readonly internal_targeting_flag?: MinimalFeatureFlagApi
+    readonly linked_flag?: MinimalFeatureFlagApi
+    /** @nullable */
+    linked_flag_id?: number | null
+    targeting_flag_filters?: unknown
+    content?: unknown
+    auto_launch?: boolean
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly updated_at?: string
+    archived?: boolean
+    /** Where the tour was created/updated from
+     *
+     * * `app` - app
+     * * `toolbar` - toolbar */
+    creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
+}
+
+export interface DraftStatusResponseApi {
+    updated_at: string
+    has_draft: boolean
+}
+
+export type GenerateRequestApiStepsItem = { [key: string]: unknown }
+
+export interface GenerateRequestApi {
+    title?: string
+    goal?: string
+    steps?: GenerateRequestApiStepsItem[]
+}
+
+export interface GenerateStepResponseApi {
+    step_id: string
+    title: string
+    description: string
+}
+
+export interface GenerateResponseApi {
+    steps: GenerateStepResponseApi[]
+}
+
+export type ProductToursListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Fuzzy match against product tour `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
+     */
+    search?: string
+}

@@ -3,11 +3,21 @@ from typing import Optional
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from posthog.schema import ActionConversionGoal, CalendarHeatmapQuery, CustomEventConversionGoal, DateRange, EventsNode
+from parameterized import parameterized
+
+from posthog.schema import (
+    ActionConversionGoal,
+    CalendarHeatmapFilter,
+    CalendarHeatmapQuery,
+    CustomEventConversionGoal,
+    DateRange,
+    EventsNode,
+)
 
 from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
-from posthog.models import Action
 from posthog.models.utils import uuid7
+
+from products.actions.backend.models.action import Action
 
 
 class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -131,9 +141,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Without test accounts
         response = self._run_calendar_heatmap_query_runner("2023-12-01", "2023-12-03", filter_test_accounts=True)
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 event without test accounts, got {results_dict.get((6, 10))}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 event without test accounts, got {results_dict.get((6, 10))}"
+        )
 
     def test_all_time_range(self):
         self._create_events(
@@ -205,12 +215,12 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Test day-hour combinations
         day_hour_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            day_hour_dict.get((6, 10)) == 2
-        ), f"Expected 2 events on Saturday at 10:00, got {day_hour_dict.get((6, 10))}"
-        assert (
-            day_hour_dict.get((6, 11)) == 1
-        ), f"Expected 1 event on Saturday at 11:00, got {day_hour_dict.get((6, 11))}"
+        assert day_hour_dict.get((6, 10)) == 2, (
+            f"Expected 2 events on Saturday at 10:00, got {day_hour_dict.get((6, 10))}"
+        )
+        assert day_hour_dict.get((6, 11)) == 1, (
+            f"Expected 1 event on Saturday at 11:00, got {day_hour_dict.get((6, 11))}"
+        )
         assert day_hour_dict.get((7, 10)) == 1, f"Expected 1 event on Sunday at 10:00, got {day_hour_dict.get((7, 10))}"
         assert day_hour_dict.get((7, 15)) == 1, f"Expected 1 event on Sunday at 15:00, got {day_hour_dict.get((7, 15))}"
 
@@ -232,15 +242,15 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run_calendar_heatmap_query_runner("2023-12-08", "2023-12-15")
 
         assert response.results.data == [], f"Expected empty data, got {response.results.data}"
-        assert (
-            response.results.rowAggregations == []
-        ), f"Expected empty row aggregations, got {response.results.rowAggregations}"
-        assert (
-            response.results.columnAggregations == []
-        ), f"Expected empty column aggregations, got {response.results.columnAggregations}"
-        assert (
-            response.results.allAggregations == 0
-        ), f"Expected 0 total aggregations, got {response.results.allAggregations}"
+        assert response.results.rowAggregations == [], (
+            f"Expected empty row aggregations, got {response.results.rowAggregations}"
+        )
+        assert response.results.columnAggregations == [], (
+            f"Expected empty column aggregations, got {response.results.columnAggregations}"
+        )
+        assert response.results.allAggregations == 0, (
+            f"Expected 0 total aggregations, got {response.results.allAggregations}"
+        )
 
     def test_custom_event(self):
         self._create_events(
@@ -325,9 +335,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = CalendarHeatmapQueryRunner(team=self.team, query=query)
         response = runner.calculate()
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 custom event conversion goal, got {results_dict.get((6, 10))}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 custom event conversion goal, got {results_dict.get((6, 10))}"
+        )
 
     def test_unique_users_vs_total_events(self):
         # Create events with multiple events per user in the same hour
@@ -368,9 +378,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
         assert results_dict.get((6, 10)) == 2, f"Expected 2 unique users at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 unique users total, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 unique users total, got {response.results.allAggregations}"
+        )
 
     def test_unique_users_across_hours(self):
         # Create events with users active in multiple hours
@@ -415,9 +425,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results_dict.get((6, 10)) == 2, f"Expected 2 unique users at 10:00, got {results_dict.get((6, 10))}"
         assert results_dict.get((6, 11)) == 2, f"Expected 2 unique users at 11:00, got {results_dict.get((6, 11))}"
         assert results_dict.get((6, 12)) == 1, f"Expected 1 unique user at 12:00, got {results_dict.get((6, 12))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 unique users total, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 unique users total, got {response.results.allAggregations}"
+        )
 
     def test_unique_users_across_days(self):
         # Create events with users active across multiple days
@@ -470,9 +480,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert days_dict.get(6) == 2, f"Expected 2 unique users on Saturday, got {days_dict.get(6)}"
         assert days_dict.get(7) == 2, f"Expected 2 unique users on Sunday, got {days_dict.get(7)}"
         assert days_dict.get(1) == 1, f"Expected 1 unique user on Monday, got {days_dict.get(1)}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 unique users total, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 unique users total, got {response.results.allAggregations}"
+        )
 
     def test_filter_test_accounts_both_templates(self):
         """Test that filter_test_accounts works for both all users and unique users templates"""
@@ -532,71 +542,71 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response_dau_without_test = runner_dau_without_test.calculate()
         results_dau_without_test = {(r.row, r.column): r.value for r in response_dau_without_test.results.data}
 
-        assert (
-            results_all_with_test.get((6, 10)) == 4
-        ), f"Expected 4 events with test accounts, got {results_all_with_test.get((6, 10))}"
-        assert (
-            results_all_with_test.get((6, 11)) == 1
-        ), f"Expected 1 event from test user at 11:00, got {results_all_with_test.get((6, 11))}"
-        assert (
-            results_all_with_test.get((6, 12)) == 1
-        ), f"Expected 1 event from regular_user at 12:00, got {results_all_with_test.get((6, 12))}"
-        assert (
-            response_all_with_test.results.allAggregations == 6
-        ), f"Expected 6 events total with test accounts, got {response_all_with_test.results.allAggregations}"
+        assert results_all_with_test.get((6, 10)) == 4, (
+            f"Expected 4 events with test accounts, got {results_all_with_test.get((6, 10))}"
+        )
+        assert results_all_with_test.get((6, 11)) == 1, (
+            f"Expected 1 event from test user at 11:00, got {results_all_with_test.get((6, 11))}"
+        )
+        assert results_all_with_test.get((6, 12)) == 1, (
+            f"Expected 1 event from regular_user at 12:00, got {results_all_with_test.get((6, 12))}"
+        )
+        assert response_all_with_test.results.allAggregations == 6, (
+            f"Expected 6 events total with test accounts, got {response_all_with_test.results.allAggregations}"
+        )
 
-        assert (
-            results_all_without_test.get((6, 10)) == 2
-        ), f"Expected 2 events without test accounts, got {results_all_without_test.get((6, 10))}"
-        assert (
-            (6, 11) not in results_all_without_test
-        ), f"Expected test user's 11:00 event to be filtered out, but found {results_all_without_test.get((6, 11))}"
-        assert (
-            results_all_without_test.get((6, 12)) == 1
-        ), f"Expected 1 event from regular_user at 12:00, got {results_all_without_test.get((6, 12))}"
-        assert (
-            response_all_without_test.results.allAggregations == 3
-        ), f"Expected 3 events total without test accounts, got {response_all_without_test.results.allAggregations}"
+        assert results_all_without_test.get((6, 10)) == 2, (
+            f"Expected 2 events without test accounts, got {results_all_without_test.get((6, 10))}"
+        )
+        assert (6, 11) not in results_all_without_test, (
+            f"Expected test user's 11:00 event to be filtered out, but found {results_all_without_test.get((6, 11))}"
+        )
+        assert results_all_without_test.get((6, 12)) == 1, (
+            f"Expected 1 event from regular_user at 12:00, got {results_all_without_test.get((6, 12))}"
+        )
+        assert response_all_without_test.results.allAggregations == 3, (
+            f"Expected 3 events total without test accounts, got {response_all_without_test.results.allAggregations}"
+        )
 
-        assert (
-            results_dau_with_test.get((6, 10)) == 3
-        ), f"Expected 3 unique users with test accounts, got {results_dau_with_test.get((6, 10))}"
-        assert (
-            results_dau_with_test.get((6, 11)) == 1
-        ), f"Expected 1 unique test user at 11:00, got {results_dau_with_test.get((6, 11))}"
-        assert (
-            results_dau_with_test.get((6, 12)) == 1
-        ), f"Expected 1 unique regular_user at 12:00, got {results_dau_with_test.get((6, 12))}"
-        assert (
-            response_dau_with_test.results.allAggregations == 3
-        ), f"Expected 3 unique users total with test accounts, got {response_dau_with_test.results.allAggregations}"
+        assert results_dau_with_test.get((6, 10)) == 3, (
+            f"Expected 3 unique users with test accounts, got {results_dau_with_test.get((6, 10))}"
+        )
+        assert results_dau_with_test.get((6, 11)) == 1, (
+            f"Expected 1 unique test user at 11:00, got {results_dau_with_test.get((6, 11))}"
+        )
+        assert results_dau_with_test.get((6, 12)) == 1, (
+            f"Expected 1 unique regular_user at 12:00, got {results_dau_with_test.get((6, 12))}"
+        )
+        assert response_dau_with_test.results.allAggregations == 3, (
+            f"Expected 3 unique users total with test accounts, got {response_dau_with_test.results.allAggregations}"
+        )
 
-        assert (
-            results_dau_without_test.get((6, 10)) == 2
-        ), f"Expected 2 unique users without test accounts, got {results_dau_without_test.get((6, 10))}"
-        assert (
-            (6, 11) not in results_dau_without_test
-        ), f"Expected test user's 11:00 to be filtered out, but found {results_dau_without_test.get((6, 11))}"
-        assert (
-            results_dau_without_test.get((6, 12)) == 1
-        ), f"Expected 1 unique regular_user at 12:00, got {results_dau_without_test.get((6, 12))}"
-        assert (
-            response_dau_without_test.results.allAggregations == 2
-        ), f"Expected 2 unique users total without test accounts, got {response_dau_without_test.results.allAggregations}"
+        assert results_dau_without_test.get((6, 10)) == 2, (
+            f"Expected 2 unique users without test accounts, got {results_dau_without_test.get((6, 10))}"
+        )
+        assert (6, 11) not in results_dau_without_test, (
+            f"Expected test user's 11:00 to be filtered out, but found {results_dau_without_test.get((6, 11))}"
+        )
+        assert results_dau_without_test.get((6, 12)) == 1, (
+            f"Expected 1 unique regular_user at 12:00, got {results_dau_without_test.get((6, 12))}"
+        )
+        assert response_dau_without_test.results.allAggregations == 2, (
+            f"Expected 2 unique users total without test accounts, got {response_dau_without_test.results.allAggregations}"
+        )
 
-        assert (
-            results_dau_with_test.get((6, 10)) == 3
-        ), f"Expected 3 unique users with test accounts, got {results_dau_with_test.get((6, 10))}"
-        assert (
-            results_all_with_test.get((6, 10)) == 4
-        ), f"Expected 4 events with test accounts, got {results_all_with_test.get((6, 10))}"
+        assert results_dau_with_test.get((6, 10)) == 3, (
+            f"Expected 3 unique users with test accounts, got {results_dau_with_test.get((6, 10))}"
+        )
+        assert results_all_with_test.get((6, 10)) == 4, (
+            f"Expected 4 events with test accounts, got {results_all_with_test.get((6, 10))}"
+        )
 
-        assert (
-            results_dau_without_test.get((6, 10)) == 2
-        ), f"Expected 2 unique users without test accounts, got {results_dau_without_test.get((6, 10))}"
-        assert (
-            results_all_without_test.get((6, 10)) == 2
-        ), f"Expected 2 events without test accounts, got {results_all_without_test.get((6, 10))}"
+        assert results_dau_without_test.get((6, 10)) == 2, (
+            f"Expected 2 unique users without test accounts, got {results_dau_without_test.get((6, 10))}"
+        )
+        assert results_all_without_test.get((6, 10)) == 2, (
+            f"Expected 2 events without test accounts, got {results_all_without_test.get((6, 10))}"
+        )
 
     def test_multiple_event_types_comprehensive(self):
         """Test calendar heatmap with multiple different event types"""
@@ -650,12 +660,12 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_dict.get((6, 10)) == 2, f"Expected 2 sign_up events at 10:00, got {results_dict.get((6, 10))}"
         assert results_dict.get((6, 11)) == 1, f"Expected 1 sign_up event at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            results_dict.get((6, 14)) is None
-        ), f"Expected no sign_up events at 14:00, got {results_dict.get((6, 14))}"
-        assert (
-            response.results.allAggregations == 3
-        ), f"Expected 3 total sign_up events, got {response.results.allAggregations}"
+        assert results_dict.get((6, 14)) is None, (
+            f"Expected no sign_up events at 14:00, got {results_dict.get((6, 14))}"
+        )
+        assert response.results.allAggregations == 3, (
+            f"Expected 3 total sign_up events, got {response.results.allAggregations}"
+        )
 
         # Test purchase events
         query = CalendarHeatmapQuery(
@@ -670,12 +680,12 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_dict.get((6, 14)) == 1, f"Expected 1 purchase event at 14:00, got {results_dict.get((6, 14))}"
         assert results_dict.get((6, 15)) == 1, f"Expected 1 purchase event at 15:00, got {results_dict.get((6, 15))}"
-        assert (
-            results_dict.get((6, 10)) is None
-        ), f"Expected no purchase events at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 total purchase events, got {response.results.allAggregations}"
+        assert results_dict.get((6, 10)) is None, (
+            f"Expected no purchase events at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 total purchase events, got {response.results.allAggregations}"
+        )
 
     def test_complex_actions_with_multiple_steps(self):
         """Test calendar heatmap with complex actions containing multiple steps"""
@@ -738,21 +748,21 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
 
         # Should only count events that match the action criteria
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 matching sign_up event at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            results_dict.get((6, 14)) == 1
-        ), f"Expected 1 matching purchase event at 14:00, got {results_dict.get((6, 14))}"
-        assert (
-            results_dict.get((6, 11)) is None
-        ), f"Expected no matching events at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            results_dict.get((6, 15)) is None
-        ), f"Expected no matching events at 15:00, got {results_dict.get((6, 15))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 total matching events, got {response.results.allAggregations}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 matching sign_up event at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert results_dict.get((6, 14)) == 1, (
+            f"Expected 1 matching purchase event at 14:00, got {results_dict.get((6, 14))}"
+        )
+        assert results_dict.get((6, 11)) is None, (
+            f"Expected no matching events at 11:00, got {results_dict.get((6, 11))}"
+        )
+        assert results_dict.get((6, 15)) is None, (
+            f"Expected no matching events at 15:00, got {results_dict.get((6, 15))}"
+        )
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 total matching events, got {response.results.allAggregations}"
+        )
 
     def test_comprehensive_property_filtering(self):
         """Test calendar heatmap with comprehensive property filtering scenarios"""
@@ -784,9 +794,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
         assert results_dict.get((6, 10)) == 1, f"Expected 1 Chrome event at 10:00, got {results_dict.get((6, 10))}"
         assert results_dict.get((6, 11)) == 1, f"Expected 1 Chrome event at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 total Chrome events, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 total Chrome events, got {response.results.allAggregations}"
+        )
 
         # Test multiple property filters (AND logic)
         response = self._run_calendar_heatmap_query_runner(
@@ -795,15 +805,15 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "$browser", "value": "Chrome"}, {"key": "$os", "value": "Windows"}],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 Chrome+Windows event at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            results_dict.get((6, 11)) is None
-        ), f"Expected no Chrome+Windows events at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            response.results.allAggregations == 1
-        ), f"Expected 1 total Chrome+Windows event, got {response.results.allAggregations}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 Chrome+Windows event at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert results_dict.get((6, 11)) is None, (
+            f"Expected no Chrome+Windows events at 11:00, got {results_dict.get((6, 11))}"
+        )
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 total Chrome+Windows event, got {response.results.allAggregations}"
+        )
 
         # Test property filter with premium plan
         response = self._run_calendar_heatmap_query_runner(
@@ -814,9 +824,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
         assert results_dict.get((6, 10)) == 2, f"Expected 2 premium events at 10:00, got {results_dict.get((6, 10))}"
         assert results_dict.get((6, 12)) == 1, f"Expected 1 premium event at 12:00, got {results_dict.get((6, 12))}"
-        assert (
-            response.results.allAggregations == 3
-        ), f"Expected 3 total premium events, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 3, (
+            f"Expected 3 total premium events, got {response.results.allAggregations}"
+        )
 
     def test_math_types_comprehensive(self):
         """Test calendar heatmap with different math types - note: currently only supports event counting"""
@@ -852,9 +862,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
 
         # Currently calendar heatmap only counts events, doesn't sum property values
-        assert (
-            results_dict.get((6, 10)) == 3
-        ), f"Expected 3 events at 10:00, got {results_dict.get((6, 10))}"  # 3 events at 10:00
+        assert results_dict.get((6, 10)) == 3, (
+            f"Expected 3 events at 10:00, got {results_dict.get((6, 10))}"
+        )  # 3 events at 10:00
         assert results_dict.get((6, 11)) == 1, f"Expected 1 event at 11:00, got {results_dict.get((6, 11))}"
         assert results_dict.get((6, 12)) == 1, f"Expected 1 event at 12:00, got {results_dict.get((6, 12))}"
         assert response.results.allAggregations == 5, f"Expected 5 total events, got {response.results.allAggregations}"
@@ -904,9 +914,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_dict.get((6, 10)) == 1, f"Expected 1 special event at 10:00, got {results_dict.get((6, 10))}"
         assert results_dict.get((6, 11)) == 1, f"Expected 1 special event at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 total special events, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 total special events, got {response.results.allAggregations}"
+        )
 
         # Test with unicode property filter
         response = self._run_calendar_heatmap_query_runner(
@@ -916,15 +926,15 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             series=[EventsNode(kind="EventsNode", event="special_event_🎯")],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 11)) == 1
-        ), f"Expected 1 unicode filtered event at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            results_dict.get((6, 10)) is None
-        ), f"Expected no unicode filtered events at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            response.results.allAggregations == 1
-        ), f"Expected 1 total unicode filtered event, got {response.results.allAggregations}"
+        assert results_dict.get((6, 11)) == 1, (
+            f"Expected 1 unicode filtered event at 11:00, got {results_dict.get((6, 11))}"
+        )
+        assert results_dict.get((6, 10)) is None, (
+            f"Expected no unicode filtered events at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 total unicode filtered event, got {response.results.allAggregations}"
+        )
 
     def test_edge_cases_empty_and_null_values(self):
         """Test calendar heatmap with empty and null values in events and properties"""
@@ -947,12 +957,12 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "empty_string", "value": ""}],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 empty string event at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            response.results.allAggregations == 1
-        ), f"Expected 1 total empty string event, got {response.results.allAggregations}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 empty string event at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 total empty string event, got {response.results.allAggregations}"
+        )
 
         # Test with non-existent property filter
         response = self._run_calendar_heatmap_query_runner(
@@ -960,12 +970,12 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2023-12-03",
             properties=[{"key": "nonexistent", "value": "anything"}],
         )
-        assert (
-            response.results.data == []
-        ), f"Expected empty results for nonexistent property, got {response.results.data}"
-        assert (
-            response.results.allAggregations == 0
-        ), f"Expected 0 total events for nonexistent property, got {response.results.allAggregations}"
+        assert response.results.data == [], (
+            f"Expected empty results for nonexistent property, got {response.results.data}"
+        )
+        assert response.results.allAggregations == 0, (
+            f"Expected 0 total events for nonexistent property, got {response.results.allAggregations}"
+        )
 
     def test_timezone_handling(self):
         """Test calendar heatmap with different timezone considerations"""
@@ -1008,9 +1018,9 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Should handle large dataset efficiently
         assert results_dict.get((6, 9)) == 100, f"Expected 100 events at 9:00, got {results_dict.get((6, 9))}"
         assert results_dict.get((6, 17)) == 100, f"Expected 100 events at 17:00, got {results_dict.get((6, 17))}"
-        assert (
-            response.results.allAggregations == 900
-        ), f"Expected 900 total events, got {response.results.allAggregations}"  # 100 users * 9 hours
+        assert response.results.allAggregations == 900, (
+            f"Expected 900 total events, got {response.results.allAggregations}"
+        )  # 100 users * 9 hours
 
         # Test aggregations
         hours_dict = {r.column: r.value for r in response.results.columnAggregations}
@@ -1121,14 +1131,14 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 2
-        ), f"Expected 2 events at 10:00 (no filter), got {results_dict.get((6, 10))}"
+        assert results_dict.get((6, 10)) == 2, (
+            f"Expected 2 events at 10:00 (no filter), got {results_dict.get((6, 10))}"
+        )
         assert results_dict.get((6, 11)) == 1, f"Expected 1 event at 11:00 (no filter), got {results_dict.get((6, 11))}"
         assert results_dict.get((6, 12)) == 1, f"Expected 1 event at 12:00 (no filter), got {results_dict.get((6, 12))}"
-        assert (
-            response.results.allAggregations == 4
-        ), f"Expected 4 total events (no filter), got {response.results.allAggregations}"
+        assert response.results.allAggregations == 4, (
+            f"Expected 4 total events (no filter), got {response.results.allAggregations}"
+        )
 
         # Now test Chrome filter - should only see Chrome events
         response = self._run_calendar_heatmap_query_runner(
@@ -1138,15 +1148,15 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
         assert results_dict.get((6, 10)) == 2, f"Expected 2 Chrome events at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            results_dict.get((6, 11)) is None
-        ), f"Expected no Chrome events at 11:00 (Firefox should be filtered out), got {results_dict.get((6, 11))}"
-        assert (
-            results_dict.get((6, 12)) is None
-        ), f"Expected no Chrome events at 12:00 (Safari should be filtered out), got {results_dict.get((6, 12))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 total Chrome events, got {response.results.allAggregations}"
+        assert results_dict.get((6, 11)) is None, (
+            f"Expected no Chrome events at 11:00 (Firefox should be filtered out), got {results_dict.get((6, 11))}"
+        )
+        assert results_dict.get((6, 12)) is None, (
+            f"Expected no Chrome events at 12:00 (Safari should be filtered out), got {results_dict.get((6, 12))}"
+        )
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 total Chrome events, got {response.results.allAggregations}"
+        )
 
         # Test premium filter - should only see premium events
         response = self._run_calendar_heatmap_query_runner(
@@ -1156,13 +1166,13 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
         assert results_dict.get((6, 10)) == 1, f"Expected 1 premium event at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            results_dict.get((6, 11)) is None
-        ), f"Expected no premium events at 11:00 (free should be filtered out), got {results_dict.get((6, 11))}"
+        assert results_dict.get((6, 11)) is None, (
+            f"Expected no premium events at 11:00 (free should be filtered out), got {results_dict.get((6, 11))}"
+        )
         assert results_dict.get((6, 12)) == 1, f"Expected 1 premium event at 12:00, got {results_dict.get((6, 12))}"
-        assert (
-            response.results.allAggregations == 2
-        ), f"Expected 2 total premium events, got {response.results.allAggregations}"
+        assert response.results.allAggregations == 2, (
+            f"Expected 2 total premium events, got {response.results.allAggregations}"
+        )
 
         # Test combined filter - Chrome AND premium
         response = self._run_calendar_heatmap_query_runner(
@@ -1171,18 +1181,18 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "$browser", "value": "Chrome"}, {"key": "plan", "value": "premium"}],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 Chrome+premium event at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            results_dict.get((6, 11)) is None
-        ), f"Expected no Chrome+premium events at 11:00 (Firefox+free should be filtered out), got {results_dict.get((6, 11))}"
-        assert (
-            results_dict.get((6, 12)) is None
-        ), f"Expected no Chrome+premium events at 12:00 (Safari+premium should be filtered out), got {results_dict.get((6, 12))}"
-        assert (
-            response.results.allAggregations == 1
-        ), f"Expected 1 total Chrome+premium event, got {response.results.allAggregations}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 Chrome+premium event at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert results_dict.get((6, 11)) is None, (
+            f"Expected no Chrome+premium events at 11:00 (Firefox+free should be filtered out), got {results_dict.get((6, 11))}"
+        )
+        assert results_dict.get((6, 12)) is None, (
+            f"Expected no Chrome+premium events at 12:00 (Safari+premium should be filtered out), got {results_dict.get((6, 12))}"
+        )
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 total Chrome+premium event, got {response.results.allAggregations}"
+        )
 
     def test_query_runner_receives_properties_correctly(self):
         """Test that the query runner actually receives and processes properties from the query"""
@@ -1281,13 +1291,177 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Should only find Chrome AND Windows events (first event only)
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        assert (
-            results_dict.get((6, 10)) == 1
-        ), f"Expected 1 Chrome+Windows event at 10:00, got {results_dict.get((6, 10))}"
-        assert (
-            results_dict.get((6, 11)) is None
-        ), f"Expected no Chrome+Mac event at 11:00, got {results_dict.get((6, 11))}"
-        assert (
-            results_dict.get((6, 12)) is None
-        ), f"Expected no Firefox+Windows event at 12:00, got {results_dict.get((6, 12))}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 Chrome+Windows event at 10:00, got {results_dict.get((6, 10))}"
+        )
+        assert results_dict.get((6, 11)) is None, (
+            f"Expected no Chrome+Mac event at 11:00, got {results_dict.get((6, 11))}"
+        )
+        assert results_dict.get((6, 12)) is None, (
+            f"Expected no Firefox+Windows event at 12:00, got {results_dict.get((6, 12))}"
+        )
         assert response.results.allAggregations == 1, f"Expected 1 total event, got {response.results.allAggregations}"
+
+    @freeze_time("2026-05-01 14:32:11")
+    def test_explicit_date_keeps_relative_window_exact(self):
+        # Without explicitDate, "-7d" truncates the lower bound to start-of-day and rounds the
+        # upper bound to end-of-day, so the window spans 8 calendar days.
+        query_default = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="-7d"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+        )
+        runner_default = CalendarHeatmapQueryRunner(team=self.team, query=query_default)
+        date_from_default = runner_default.query_date_range.date_from()
+        date_to_default = runner_default.query_date_range.date_to()
+        assert (date_from_default.hour, date_from_default.minute, date_from_default.second) == (0, 0, 0)
+        assert (date_to_default.hour, date_to_default.minute, date_to_default.second) == (23, 59, 59)
+
+        # With explicitDate, both bounds are precise so the window is a true rolling 7 days.
+        query_explicit = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="-7d", explicitDate=True),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+        )
+        runner_explicit = CalendarHeatmapQueryRunner(team=self.team, query=query_explicit)
+        date_from_explicit = runner_explicit.query_date_range.date_from()
+        date_to_explicit = runner_explicit.query_date_range.date_to()
+        assert (date_from_explicit.hour, date_from_explicit.minute, date_from_explicit.second) == (14, 32, 11)
+        assert (date_to_explicit.hour, date_to_explicit.minute, date_to_explicit.second) == (14, 32, 11)
+        assert (date_to_explicit - date_from_explicit).total_seconds() == 7 * 24 * 60 * 60
+
+    @parameterized.expand(
+        [
+            # Default mode (post-#57296): user contributes to every (day-of-week, hour) bucket they have
+            # an event in. All three cells get the user.
+            (
+                "per_event_bucket_default",
+                None,
+                {(6, 23): 1, (7, 0): 1, (7, 1): 1},
+            ),
+            (
+                "per_event_bucket_explicit_false",
+                CalendarHeatmapFilter(bucketBySessionStart=False),
+                {(6, 23): 1, (7, 0): 1, (7, 1): 1},
+            ),
+            # Session-start mode (restored pre-#57296 behaviour, opt-in): user contributes only to the
+            # bucket of their session's first event — matches web overview's session-start attribution.
+            (
+                "per_session_bucket_when_opted_in",
+                CalendarHeatmapFilter(bucketBySessionStart=True),
+                {(6, 23): 1},
+            ),
+        ]
+    )
+    def test_unique_users_bucket_attribution(
+        self, _name: str, calendar_filter: Optional[CalendarHeatmapFilter], expected: dict[tuple[int, int], int]
+    ) -> None:
+        shared_session_id = str(uuid7())
+        timestamps = [
+            "2023-12-02 23:50:00",  # Saturday 23:00
+            "2023-12-03 00:10:00",  # Sunday 00:00 — same session, next day/hour
+            "2023-12-03 01:30:00",  # Sunday 01:00
+        ]
+        with freeze_time(timestamps[0]):
+            _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
+        for timestamp in timestamps:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="userA",
+                timestamp=timestamp,
+                uuid=str(uuid7()),
+                properties={"$session_id": shared_session_id, "$start_timestamp": timestamps[0]},
+            )
+
+        query = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+            calendarHeatmapFilter=calendar_filter,
+        )
+        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+
+        for cell, expected_value in expected.items():
+            assert results_dict.get(cell) == expected_value, (
+                f"Expected {expected_value} at {cell}, got {results_dict.get(cell)}"
+            )
+        # Cells outside the expected set must be empty so the modes can't silently overlap.
+        for cell, value in results_dict.items():
+            if cell not in expected:
+                assert value == 0, f"Unexpected non-zero count at {cell}: {value}"
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 unique user total, got {response.results.allAggregations}"
+        )
+
+    def test_session_bucket_does_not_collapse_missing_session_ids(self) -> None:
+        # Two distinct visitors hit a page in the same hour, but neither event
+        # carries a `$session_id`. Without the IS NOT NULL filter inside
+        # `uniqueSessionEvents` they would group into one synthetic session and
+        # `any(person_id)` would pick a single visitor — undercounting the
+        # bucket. The fix drops null-session events entirely so the count
+        # reflects only attributable sessions.
+        _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
+        _create_person(team_id=self.team.pk, distinct_ids=["userB"], properties={"name": "userB"})
+        for distinct_id in ("userA", "userB"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp="2023-12-03 01:30:00",
+                uuid=str(uuid7()),
+                properties={},  # no $session_id
+            )
+
+        query = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+            calendarHeatmapFilter=CalendarHeatmapFilter(bucketBySessionStart=True),
+        )
+        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
+
+        assert response.results.allAggregations == 0
+        assert response.results.data == []
+
+    def test_session_bucket_ignores_pre_lookback_session_start(self) -> None:
+        # A session whose first event is older than the 24h lookback applied to
+        # `uniqueSessionEvents` would, before the bound, scan unbounded history
+        # and surface here. After the bound, the scan misses the pre-window
+        # event and the only remaining timestamps fall inside the requested
+        # range — so the session is attributed to those in-range events instead
+        # of being discarded. This documents the documented trade-off in the
+        # template comment (sessions continuously open > 24h get re-attributed).
+        shared_session_id = str(uuid7())
+        _create_person(team_id=self.team.pk, distinct_ids=["userA"], properties={"name": "userA"})
+        timestamps = [
+            "2023-11-29 12:00:00",  # > 24h before date_from
+            "2023-12-03 01:30:00",  # inside the requested window
+        ]
+        for ts in timestamps:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="userA",
+                timestamp=ts,
+                uuid=str(uuid7()),
+                properties={"$session_id": shared_session_id},
+            )
+
+        query = CalendarHeatmapQuery(
+            dateRange=DateRange(date_from="2023-12-01", date_to="2023-12-04"),
+            properties=[],
+            filterTestAccounts=False,
+            series=[EventsNode(kind="EventsNode", math="dau")],
+            calendarHeatmapFilter=CalendarHeatmapFilter(bucketBySessionStart=True),
+        )
+        response = CalendarHeatmapQueryRunner(team=self.team, query=query).calculate()
+
+        results_dict = {(r.row, r.column): r.value for r in response.results.data}
+        assert results_dict.get((7, 1)) == 1, f"Expected 1 visitor at (Sun, 01h), got {results_dict}"
+        assert response.results.allAggregations == 1

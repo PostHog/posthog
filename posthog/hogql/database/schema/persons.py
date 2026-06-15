@@ -2,14 +2,13 @@ from typing import Optional, Self, cast
 
 import posthoganalytics
 
-from posthog.schema import PersonsArgMaxVersion
-
 from posthog.hogql import ast
 from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.argmax import argmax_select
+from posthog.hogql.database.lazy_join_tags import PERSONS_PDI, PERSONS_REVENUE_ANALYTICS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
@@ -23,17 +22,15 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
-from posthog.hogql.database.schema.persons_revenue_analytics import (
-    PersonsRevenueAnalyticsTable,
-    join_with_persons_revenue_analytics_table,
-)
+from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
+from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.models.organization import Organization
+from posthog.schema_enums import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id", nullable=False),
@@ -41,17 +38,46 @@ PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "properties": StringJSONDatabaseField(name="properties", nullable=False),
     "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
+    "last_seen_at": DateTimeDatabaseField(name="last_seen_at", nullable=True),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),
-        join_function=persons_pdi_join,
+        resolver=PERSONS_PDI,
     ),
     "revenue_analytics": LazyJoin(
         from_field=["id"],
         join_table=PersonsRevenueAnalyticsTable(),
-        join_function=join_with_persons_revenue_analytics_table,
+        resolver=PERSONS_REVENUE_ANALYTICS,
     ),
 }
+
+
+def _is_virtual_field_requiring_join(expr: ast.Expr) -> bool:
+    """
+    Check if an expression references a virtual field that requires a joined table.
+    Virtual fields like $virt_mrr require the revenue_analytics joined table to be resolved,
+    and cannot be used directly in the raw_persons argMax optimization.
+    """
+    if isinstance(expr, ast.Field):
+        # Check if the field chain contains a virtual field that requires revenue analytics
+        for chain_item in expr.chain:
+            if isinstance(chain_item, str) and chain_item.startswith("$virt_"):
+                # Currently, all $virt_ fields that require joins are revenue analytics fields
+                if chain_item in ("$virt_mrr", "$virt_revenue"):
+                    return True
+    elif isinstance(expr, ast.Call):
+        # Check arguments of function calls recursively
+        for arg in expr.args:
+            if _is_virtual_field_requiring_join(arg):
+                return True
+    elif hasattr(expr, "left") and hasattr(expr, "right"):
+        # Check binary operations (comparisons, arithmetic, etc.)
+        return _is_virtual_field_requiring_join(expr.left) or _is_virtual_field_requiring_join(expr.right)
+    elif hasattr(expr, "expr"):
+        # Check wrapped expressions (aliases, etc.)
+        return _is_virtual_field_requiring_join(expr.expr)
+
+    return False
 
 
 def select_from_persons_table(
@@ -129,35 +155,42 @@ def select_from_persons_table(
         if filter is not None:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 
-        # START order_by/limit optimization.
-        # only apply this to queries that directly select from the persons table
-        if (
+        # Push ORDER BY + LIMIT into the inner deduplication subquery so ClickHouse can stop early.
+        # Skip when there's an outer WHERE -- a premature inner LIMIT would exclude valid rows
+        # before the filter runs (e.g. cohort members dropped because LIMIT grabbed other rows first).
+        can_push_to_inner = (
             node.select_from
             and node.select_from.type
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
             and not node.group_by  # TODO: support group_by
-        ):
+            and node.limit
+            and not node.where
+            and not node.prewhere
+        )
+        if can_push_to_inner:
             compare = cast(ast.CompareOperation, select.where)
             right_select = cast(ast.SelectQuery, compare.right)
             if node.order_by:
                 right_select.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
-                for order_by in right_select.order_by:
-                    order_by.expr = ast.Call(
-                        name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
-                    )
 
-            # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
-            if node.limit:
-                node_limit = cast(ast.Constant, node.limit)
-                node_offset = cast(ast.Constant, node.offset)
-                effective_limit = (
-                    (node_limit.value if node.limit else 100) + (node_offset.value if node.offset else 0) + 1
-                )
-                right_select.limit = ast.Constant(value=effective_limit)
-                right_select.offset = ast.Constant(value=0)
-                # Do NOT set node.limit/node.offset directly, outer paginator will slice results
+                order_by_without_virtual_fields = []
+                for order_by in right_select.order_by:
+                    # Skip virtual field order_by expressions - they'll be handled by the outer query as they require
+                    # a join with revenue analytics table
+                    if not _is_virtual_field_requiring_join(order_by.expr):
+                        order_by.expr = ast.Call(
+                            name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
+                        )
+                        order_by_without_virtual_fields.append(order_by)
+                right_select.order_by = order_by_without_virtual_fields
+
+            node_limit = cast(ast.Constant, node.limit)
+            node_offset = cast(ast.Constant, node.offset)
+            effective_limit = node_limit.value + (node_offset.value if node.offset else 0) + 1
+            right_select.limit = ast.Constant(value=effective_limit)
+            right_select.offset = ast.Constant(value=0)
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to

@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { captureException } from '../../utils/posthog'
-import { createContext, createNewPipeline } from './helpers'
-import { PipelineResultWithContext } from './pipeline.interface'
+import { createContext, createNewPipeline, createOkContext } from './helpers'
+import { pipelineRetryAttemptsHistogram } from './metrics'
+import { getRetryAttempts } from './metrics.test-utils'
 import { PipelineResultType, dlq, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 
@@ -17,6 +18,7 @@ const mockCaptureException = captureException as jest.MockedFunction<typeof capt
 describe('RetryingPipeline', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        pipelineRetryAttemptsHistogram.reset()
     })
 
     describe('basic functionality', () => {
@@ -39,7 +41,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -76,7 +78,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -107,7 +109,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -136,7 +138,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -176,7 +178,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -205,7 +207,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -246,7 +248,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -277,7 +279,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -306,7 +308,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -334,7 +336,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -365,7 +367,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -395,7 +397,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
             const result = await retryingPipeline.process(input)
 
             expect(result.context.warnings).toEqual([stepWarning])
@@ -428,7 +430,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
             const result = await retryingPipeline.process(input)
 
             expect(callCount).toBe(2)
@@ -454,10 +456,13 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext<{ message: Message }, { message: Message }>(
+                { message },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await retryingPipeline.process(input)
 
             // Context warnings should be preserved when DLQ result is returned
@@ -485,10 +490,13 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext<{ message: Message }, { message: Message }>(
+                { message },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await retryingPipeline.process(input)
 
             expect(result.context.warnings).toEqual([contextWarning])
@@ -516,14 +524,108 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext<{ message: Message }, { message: Message }>(
+                { message },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await retryingPipeline.process(input)
 
             // Should have both context and step warnings
             expect(result.context.warnings).toEqual([contextWarning, stepWarning])
+        })
+    })
+
+    describe('retry attempts metric', () => {
+        const message: Message = {
+            value: Buffer.from('test'),
+            topic: 'test',
+            partition: 0,
+            offset: 1,
+            key: Buffer.from('key'),
+            size: 4,
+            timestamp: Date.now(),
+            headers: [],
+        }
+        const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
+
+        it('records the attempt count and "completed" outcome when it succeeds after retries', async () => {
+            let callCount = 0
+            const step = jest.fn().mockImplementation(() => {
+                callCount++
+                if (callCount < 3) {
+                    const error = new Error('Retriable error')
+                    ;(error as any).isRetriable = true
+                    return Promise.reject(error)
+                }
+                return Promise.resolve(ok({ processed: true }))
+            })
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), {
+                name: 'test_retry',
+                tries: 3,
+                sleepMs: 1,
+            })
+            await pipeline.process(input)
+
+            // Succeeded on the 3rd attempt → one observation of value 3.
+            expect(await getRetryAttempts('test_retry', 'completed')).toEqual({ count: 1, sum: 3 })
+            expect(await getRetryAttempts('test_retry', 'exhausted')).toBeNull()
+        })
+
+        it('records "completed" with a single attempt when it succeeds first try', async () => {
+            const step = jest.fn().mockResolvedValue(ok({ processed: true }))
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), { name: 'test_retry' })
+            await pipeline.process(input)
+
+            expect(await getRetryAttempts('test_retry', 'completed')).toEqual({ count: 1, sum: 1 })
+        })
+
+        it('records "exhausted" with the full attempt count when retries run out', async () => {
+            const step = jest.fn().mockImplementation(() => {
+                const error = new Error('Always fails')
+                ;(error as any).isRetriable = true
+                return Promise.reject(error)
+            })
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), {
+                name: 'test_retry',
+                tries: 4,
+                sleepMs: 1,
+            })
+            await expect(pipeline.process(input)).rejects.toThrow('Always fails')
+
+            expect(await getRetryAttempts('test_retry', 'exhausted')).toEqual({ count: 1, sum: 4 })
+        })
+
+        it('records "non_retriable" with a single attempt and no retries', async () => {
+            const step = jest.fn().mockImplementation(() => {
+                const error = new Error('Non-retriable error')
+                ;(error as any).isRetriable = false
+                return Promise.reject(error)
+            })
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step), {
+                name: 'test_retry',
+                tries: 5,
+                sleepMs: 1,
+            })
+            await pipeline.process(input)
+
+            expect(await getRetryAttempts('test_retry', 'non_retriable')).toEqual({ count: 1, sum: 1 })
+            expect(step).toHaveBeenCalledTimes(1)
+        })
+
+        it('falls back to the "unknown" name label when none is provided', async () => {
+            const step = jest.fn().mockResolvedValue(ok({ processed: true }))
+
+            const pipeline = new RetryingPipeline(createNewPipeline().pipe(step))
+            await pipeline.process(input)
+
+            expect(await getRetryAttempts('unknown', 'completed')).toEqual({ count: 1, sum: 1 })
         })
     })
 })

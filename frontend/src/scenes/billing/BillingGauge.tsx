@@ -4,10 +4,10 @@ import clsx from 'clsx'
 import { useMemo } from 'react'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { compactNumber } from 'lib/utils'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { createProductValueFormatter, formatDisplayUsage, hasDisplayFormatting } from './billing-utils'
 import { BillingGaugeItemType } from './types'
 
 /*
@@ -18,10 +18,22 @@ type BillingGaugeItemProps = {
     maxValue: number
     isWithinUsageLimit: boolean
     isTop: boolean
+    product?: BillingProductV2Type | BillingProductV2AddonType
 }
 
-const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit, isTop }: BillingGaugeItemProps): JSX.Element => {
+const BillingGaugeItem = ({
+    item,
+    maxValue,
+    isWithinUsageLimit,
+    isTop,
+    product,
+}: BillingGaugeItemProps): JSX.Element => {
     const width = `${(item.value / maxValue) * 100}%`
+
+    const formatValue = product ? createProductValueFormatter(product) : (v: number | null) => v?.toLocaleString() ?? ''
+    const formattedValue = formatValue(item.value)
+    const tooltipValue =
+        product && hasDisplayFormatting(product) ? formatDisplayUsage(item.value, product) : item.value.toLocaleString()
 
     return (
         <div
@@ -36,17 +48,14 @@ const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit, isTop }: Billing
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
             <div className="absolute right-0 w-px h-full bg-surface-primary" />
-            <Tooltip
-                title={item.prefix ? `${item.prefix}${item.value.toLocaleString()}` : item.value.toLocaleString()}
-                placement="right"
-            >
+            <Tooltip title={item.prefix ? `${item.prefix}${tooltipValue}` : tooltipValue} placement="right">
                 <div
                     className={clsx('BillingGaugeItem__info', {
                         'BillingGaugeItem__info--bottom': !isTop,
                     })}
                 >
                     <b>{item.text}</b>
-                    <div>{item.prefix ? `${item.prefix}${compactNumber(item.value)}` : compactNumber(item.value)}</div>
+                    <div>{item.prefix ? `${item.prefix}${formattedValue}` : formattedValue}</div>
                 </div>
             </Tooltip>
         </div>
@@ -80,6 +89,7 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
                     maxValue={maxValue}
                     isWithinUsageLimit={isWithinUsageLimit}
                     isTop={i % 2 !== 0}
+                    product={product}
                 />
             ))}
         </div>

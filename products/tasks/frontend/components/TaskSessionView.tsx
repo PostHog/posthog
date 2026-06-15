@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
 import { TaskRun } from '../types'
-import { TaskRunStatusBadge } from './TaskRunStatusBadge'
+import { CollapsibleContent } from './CollapsibleContent'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
+import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 
 const HEDGEHOG_STATUSES = [
     'Spiking...',
@@ -42,18 +45,71 @@ function HedgehogStatus(): JSX.Element {
     return (
         <div className="flex items-center gap-2 py-2 text-muted">
             <Spinner className="text-xs" />
-            <span className="text-xs">{HEDGEHOG_STATUSES[statusIndex]}</span>
+            <TextMorph as="span" className="text-xs">
+                {HEDGEHOG_STATUSES[statusIndex]}
+            </TextMorph>
         </div>
     )
 }
 
 interface TaskSessionViewProps {
     logs: string
+    logsLoading: boolean
+    streamEntries: LogEntry[]
     isPolling: boolean
+    isStreaming: boolean
+    initialPrompt?: string | null
     run: TaskRun | null
 }
 
-function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
+export function filterDuplicateInitialPromptEntry(entries: LogEntry[], initialPrompt?: string | null): LogEntry[] {
+    const normalizedPrompt = initialPrompt?.trim()
+    if (!normalizedPrompt || entries.length === 0) {
+        return entries
+    }
+
+    const [firstEntry, ...restEntries] = entries
+    if (
+        firstEntry.type !== 'user' ||
+        firstEntry.message?.trim() !== normalizedPrompt ||
+        (firstEntry.attachments?.length ?? 0) > 0
+    ) {
+        return entries
+    }
+
+    return restEntries
+}
+
+export function mergeDuplicateUserPromptEntries(entries: LogEntry[]): LogEntry[] {
+    return entries.reduce<LogEntry[]>((mergedEntries, entry) => {
+        const previousEntry = mergedEntries[mergedEntries.length - 1]
+
+        if (
+            previousEntry?.type === 'user' &&
+            entry.type === 'user' &&
+            previousEntry.message?.trim() === entry.message?.trim()
+        ) {
+            const previousHasAttachments = Boolean(previousEntry.attachments?.length)
+            const currentHasAttachments = Boolean(entry.attachments?.length)
+
+            if (!previousHasAttachments && currentHasAttachments) {
+                mergedEntries[mergedEntries.length - 1] = entry
+            } else if (previousHasAttachments && currentHasAttachments) {
+                mergedEntries[mergedEntries.length - 1] = {
+                    ...previousEntry,
+                    attachments: [...(previousEntry.attachments ?? []), ...(entry.attachments ?? [])],
+                }
+            }
+
+            return mergedEntries
+        }
+
+        mergedEntries.push(entry)
+        return mergedEntries
+    }, [])
+}
+
+function LogEntryRenderer({ entry, renderMarkdown }: { entry: LogEntry; renderMarkdown: boolean }): JSX.Element | null {
     switch (entry.type) {
         case 'console':
             return (
@@ -83,7 +139,18 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         )}
                     </div>
                     <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        </CollapsibleContent>
+                        {entry.attachments && entry.attachments.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap justify-end gap-2">
+                                {entry.attachments.map((attachment) => (
+                                    <LemonTag key={attachment.id} type="completion" size="small">
+                                        {attachment.label}
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                 </div>
             )
@@ -97,7 +164,29 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                         <span className="text-xs font-medium">Agent</span>
                     </div>
                     <div className="border-l-2 border-primary pl-3 max-w-[90%]">
-                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        {renderMarkdown && entry.message ? (
+                            <LemonMarkdown className="text-sm font-sans" lowKeyHeadings disableImages>
+                                {entry.message}
+                            </LemonMarkdown>
+                        ) : (
+                            <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                        )}
+                    </div>
+                </div>
+            )
+        case 'thinking':
+            return (
+                <div className="py-2">
+                    <div className="flex items-center gap-2 mb-1">
+                        {entry.timestamp && (
+                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        )}
+                        <span className="text-xs font-medium text-muted">Thinking</span>
+                    </div>
+                    <div className="border-l-2 border-muted pl-3 max-w-[90%]">
+                        <CollapsibleContent gradientColor="--bg-3000">
+                            <div className="text-sm whitespace-pre-wrap text-muted">{entry.message}</div>
+                        </CollapsibleContent>
                     </div>
                 </div>
             )
@@ -117,8 +206,34 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
     }
 }
 
-export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps): JSX.Element {
-    const entries = useMemo(() => parseLogs(logs), [logs])
+export function TaskSessionView({
+    logs,
+    logsLoading,
+    streamEntries,
+    isPolling,
+    isStreaming,
+    initialPrompt,
+    run,
+}: TaskSessionViewProps): JSX.Element {
+    // Debug lines are noise by default; opt in to show them.
+    const [showDebug, setShowDebug] = useState(false)
+    const [renderMarkdown, setRenderMarkdown] = useState(true)
+    const parsedLogs = useMemo(() => parseLogs(logs), [logs])
+    // Use stream entries when available (real-time), otherwise fall back to parsed S3 logs
+    const entries = useMemo(() => {
+        const sourceEntries = streamEntries.length > 0 ? streamEntries : parsedLogs
+        return filterDuplicateInitialPromptEntry(mergeDuplicateUserPromptEntries(sourceEntries), initialPrompt)
+    }, [initialPrompt, parsedLogs, streamEntries])
+
+    const debugCount = useMemo(
+        () => entries.filter((entry) => entry.type === 'console' && entry.level === 'debug').length,
+        [entries]
+    )
+    const agentCount = useMemo(() => entries.filter((entry) => entry.type === 'agent').length, [entries])
+    const visibleEntries = useMemo(
+        () => (showDebug ? entries : entries.filter((entry) => !(entry.type === 'console' && entry.level === 'debug'))),
+        [entries, showDebug]
+    )
 
     const handleCopyLogs = (): void => {
         navigator.clipboard.writeText(logs).then(
@@ -128,6 +243,13 @@ export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps):
     }
 
     if (entries.length === 0) {
+        if (logsLoading) {
+            return (
+                <div className="flex items-center justify-center h-32">
+                    <Spinner />
+                </div>
+            )
+        }
         return (
             <div className="p-4 text-center text-muted">
                 <p>No logs available yet</p>
@@ -140,17 +262,37 @@ export function TaskSessionView({ logs, isPolling, run }: TaskSessionViewProps):
             <div className="flex justify-between items-center px-4 py-2 border-b">
                 <div className="flex items-center gap-2">
                     {run && <TaskRunStatusBadge run={run} />}
-                    <span className="text-sm font-semibold">Logs ({entries.length})</span>
+                    <span className="text-sm font-semibold">Logs ({visibleEntries.length})</span>
                 </div>
-                <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
-                    Copy
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    {agentCount > 0 && (
+                        <LemonSwitch
+                            label="Markdown"
+                            checked={renderMarkdown}
+                            onChange={setRenderMarkdown}
+                            size="xsmall"
+                            bordered
+                        />
+                    )}
+                    {debugCount > 0 && (
+                        <LemonSwitch
+                            label={`Show debug (${debugCount})`}
+                            checked={showDebug}
+                            onChange={setShowDebug}
+                            size="xsmall"
+                            bordered
+                        />
+                    )}
+                    <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
+                        Copy
+                    </LemonButton>
+                </div>
             </div>
             <div className="flex-1 overflow-auto p-4 font-mono text-sm bg-bg-3000">
-                {entries.map((entry) => (
-                    <LogEntryRenderer key={entry.id} entry={entry} />
+                {visibleEntries.map((entry) => (
+                    <LogEntryRenderer key={entry.id} entry={entry} renderMarkdown={renderMarkdown} />
                 ))}
-                {isPolling && <HedgehogStatus />}
+                {(isPolling || isStreaming) && <HedgehogStatus />}
             </div>
         </div>
     )

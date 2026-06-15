@@ -2,7 +2,10 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
+from posthog.models import OrganizationDomain
 
+
+@admin.register(OrganizationDomain)
 class OrganizationDomainAdmin(admin.ModelAdmin):
     list_display = (
         "domain",
@@ -20,6 +23,8 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
     search_fields = ("domain", "organization__name")
     readonly_fields = (
         "id",
+        "domain",
+        "verified_at",
         "verification_challenge",
         "last_verification_retry",
     )

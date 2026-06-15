@@ -35,11 +35,14 @@ if (not empty(inputs.eventSourceUrl)) {
 
 // Helper function to parse JSON arrays from string values
 fn parseValueIfArray(value) {
-    if (typeof(value) == 'string' and startsWith(trim(value), '[')) {
-        try {
-            return jsonParse(trim(value))
-        } catch {
-            return value
+    if (typeof(value) == 'string') {
+        let trimmed := trim(value)
+        if (startsWith(trimmed, '[')) {
+            try {
+                return jsonParse(trimmed)
+            } catch {
+                return value
+            }
         }
     }
     return value
@@ -57,7 +60,7 @@ for (let key, value in inputs.customData) {
     }
 }
 
-let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {
+let res := fetch(f'https://graph.facebook.com/v25.0/{inputs.pixelId}/events', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',

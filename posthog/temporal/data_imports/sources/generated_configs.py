@@ -5,8 +5,8 @@ from typing import Literal
 
 from posthog.temporal.data_imports.sources.common import config
 
-from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig
 
 
 @config.config
@@ -37,9 +37,44 @@ class BigQueryUseCustomRegionConfig(config.Config):
 
 
 @config.config
+class ElasticsearchAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
+class GithubAuthMethodConfig(config.Config):
+    github_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["oauth", "pat"] = "oauth"
+    personal_access_token: str | None = None
+
+
+@config.config
 class GoogleAdsIsMccAccountConfig(config.Config):
     mcc_client_id: str
     enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
+@config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+
+
+@config.config
+class ServiceNowAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
 
 
 @config.config
@@ -52,13 +87,184 @@ class SnowflakeAuthTypeConfig(config.Config):
 
 
 @config.config
+class StripeAuthMethodConfig(config.Config):
+    stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["api_key", "oauth"] = "api_key"
+    stripe_secret_key: str | None = None
+
+
+@config.config
+class TwilioAuthMethodConfig(config.Config):
+    selection: Literal["api_key", "auth_token"] = "api_key"
+    api_key_sid: str | None = None
+    api_key_secret: str | None = None
+    auth_token: str | None = None
+
+
+@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
 
 
 @config.config
+class ActiveCampaignSourceConfig(config.Config):
+    api_url: str
+    api_key: str
+
+
+@config.config
+class AdRollSourceConfig(config.Config):
+    client_id: str
+    personal_access_token: str
+
+
+@config.config
+class AdjustSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AdobeAnalyticsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AdobeCommerceSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AdpWorkforceNowSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AdyenSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AircallSourceConfig(config.Config):
+    api_id: str
+    api_token: str
+
+
+@config.config
+class AirtableSourceConfig(config.Config):
+    personal_access_token: str
+
+
+@config.config
+class AmazonAdsSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    refresh_token: str
+    region: Literal["na", "eu", "fe"] = config.value(default="na")
+
+
+@config.config
+class AmazonCloudWatchSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonEventBridgeSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonKinesisSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonS3SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSNSSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSQSSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmazonSellingPartnerSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AmplitudeSourceConfig(config.Config):
+    api_key: str
+    secret_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+
+
+@config.config
+class ApolloSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class AppleSearchAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AppsFlyerSourceConfig(config.Config):
+    app_id: str
+    api_token: str
+
+
+@config.config
+class AsanaSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
 class AshbySourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class AttentiveSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class AttioSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class Auth0SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AzureBlobSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class AzureDevOpsSourceConfig(config.Config):
+    organization: str
+    personal_access_token: str
+
+
+@config.config
+class BambooHRSourceConfig(config.Config):
+    subdomain: str
+    api_key: str
+
+
+@config.config
+class BigCommerceSourceConfig(config.Config):
     pass
 
 
@@ -80,8 +286,57 @@ class BingAdsSourceConfig(config.Config):
 
 
 @config.config
-class BrazeSourceConfig(config.Config):
+class BoxSourceConfig(config.Config):
     pass
+
+
+@config.config
+class BraintreeSourceConfig(config.Config):
+    public_key: str
+    private_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class BranchSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class BrazeSourceConfig(config.Config):
+    api_key: str
+    url: str
+
+
+@config.config
+class BrevoSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class BrexSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class BuildBetterSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class CalendlySourceConfig(config.Config):
+    personal_access_token: str
+
+
+@config.config
+class CampaignManager360SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class CampaignMonitorSourceConfig(config.Config):
+    api_key: str
+    client_id: str
 
 
 @config.config
@@ -91,8 +346,197 @@ class ChargebeeSourceConfig(config.Config):
 
 
 @config.config
-class CustomerIOSourceConfig(config.Config):
+class ChartMogulSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class CheckoutComSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class ChorusSourceConfig(config.Config):
     pass
+
+
+@config.config
+class CircleCISourceConfig(config.Config):
+    api_token: str
+    org_slug: str
+
+
+@config.config
+class ClariSourceConfig(config.Config):
+    api_key: str
+    forecast_id: str
+
+
+@config.config
+class ClerkSourceConfig(config.Config):
+    secret_key: str
+
+
+@config.config
+class ClickHouseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    password: str | None = None
+    secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class ClickUpSourceConfig(config.Config):
+    api_key: str
+    workspace_id: str
+
+
+@config.config
+class CloseSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class CloudflareSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class CockroachDBSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class CodaSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class CommercetoolsSourceConfig(config.Config):
+    project_key: str
+    client_id: str
+    client_secret: str
+    region: Literal[
+        "us-central1.gcp", "us-east-2.aws", "europe-west1.gcp", "eu-central-1.aws", "australia-southeast1.gcp"
+    ] = config.value(default="us-central1.gcp")
+
+
+@config.config
+class ConfluenceSourceConfig(config.Config):
+    subdomain: str
+    email: str
+    api_token: str
+
+
+@config.config
+class ConstantContactSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ConvertKitSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class ConvexSourceConfig(config.Config):
+    deploy_url: str
+    deploy_key: str
+
+
+@config.config
+class CopperSourceConfig(config.Config):
+    api_key: str
+    user_email: str
+
+
+@config.config
+class CosmosDBSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class CoupaSourceConfig(config.Config):
+    instance_url: str
+    client_id: str
+    client_secret: str
+
+
+@config.config
+class CriteoSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class CrunchbaseSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class CultureAmpSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    account_id: str
+
+
+@config.config
+class CustomSourceConfig(config.Config):
+    manifest_json: str
+    auth_token: str | None = None
+    auth_api_key: str | None = None
+    auth_password: str | None = None
+
+
+@config.config
+class CustomerIOSourceConfig(config.Config):
+    app_api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+
+
+@config.config
+class DatabricksSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DatadogSourceConfig(config.Config):
+    api_key: str
+    application_key: str
+    site: Literal[
+        "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"
+    ] = config.value(default="datadoghq.com")
+
+
+@config.config
+class Db2SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DeelSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class DelightedSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class DisplayVideo360SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DixaSourceConfig(config.Config):
+    api_token: str
 
 
 @config.config
@@ -101,7 +545,128 @@ class DoItSourceConfig(config.Config):
 
 
 @config.config
+class DocusignSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DripSourceConfig(config.Config):
+    api_token: str
+    account_id: str
+
+
+@config.config
+class DropboxSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class Dynamics365SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class DynamoDBSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class EbaySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ElasticsearchSourceConfig(config.Config):
+    host: str
+    auth_method: ElasticsearchAuthMethodConfig
+
+
+@config.config
+class EloquaSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class EventbriteSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class ExpensifySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class FacebookPagesSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class FirebaseSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class FreshBooksSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class FreshdeskSourceConfig(config.Config):
+    subdomain: str
+    api_key: str
+
+
+@config.config
+class FreshsalesSourceConfig(config.Config):
+    domain: str
+    api_key: str
+
+
+@config.config
+class FrontSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class FullStorySourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class GitLabSourceConfig(config.Config):
+    personal_access_token: str
+    project: str
+    gitlab_host: str | None = None
+
+
+@config.config
 class GithubSourceConfig(config.Config):
+    auth_method: GithubAuthMethodConfig
+    repository: str
+
+
+@config.config
+class GladlySourceConfig(config.Config):
+    organization: str
+    agent_email: str
+    api_token: str
+
+
+@config.config
+class GoCardlessSourceConfig(config.Config):
+    access_token: str
+    environment: Literal["live", "sandbox"] = config.value(default="live")
+
+
+@config.config
+class GongSourceConfig(config.Config):
+    access_key: str
+    access_key_secret: str
+
+
+@config.config
+class GoogleAdManagerSourceConfig(config.Config):
     pass
 
 
@@ -113,18 +678,150 @@ class GoogleAdsSourceConfig(config.Config):
 
 
 @config.config
+class GoogleAnalyticsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class GoogleCloudStorageSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class GoogleDriveSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class GoogleSearchConsoleSourceConfig(config.Config):
+    site_url: str
+    google_search_console_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class GoogleSheetsSourceConfig(config.Config):
     spreadsheet_url: str
 
 
 @config.config
+class GorgiasSourceConfig(config.Config):
+    gorgias_domain: str
+    email: str
+    api_key: str
+
+
+@config.config
+class GranolaSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class GreenhouseSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class GuruSourceConfig(config.Config):
+    username: str
+    api_token: str
+
+
+@config.config
+class GustoSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HeapSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HelpScoutSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class HiBobSourceConfig(config.Config):
+    service_user_id: str
+    service_user_token: str
+
+
+@config.config
 class HubspotSourceConfig(config.Config):
     hubspot_integration_id: int = config.value(converter=config.str_to_int)
+    custom_properties: HubspotCustomPropertiesConfig | None = None
+
+
+@config.config
+class IncidentIoSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class InstagramSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class IntercomSourceConfig(config.Config):
+    intercom_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class IterableSourceConfig(config.Config):
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
+
+
+@config.config
+class JiraSourceConfig(config.Config):
+    subdomain: str
+    email: str
+    api_token: str
+
+
+@config.config
+class KafkaSourceConfig(config.Config):
+    pass
 
 
 @config.config
 class KlaviyoSourceConfig(config.Config):
-    pass
+    api_key: str
+
+
+@config.config
+class KustomerSourceConfig(config.Config):
+    org_name: str
+    api_key: str
+
+
+@config.config
+class LatticeSourceConfig(config.Config):
+    api_key: str
+    region: Literal["us", "emea"] = config.value(default="us")
+
+
+@config.config
+class LaunchDarklySourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
+class LeverSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class LightspeedRetailSourceConfig(config.Config):
+    domain_prefix: str
+    api_token: str
+
+
+@config.config
+class LinearSourceConfig(config.Config):
+    linear_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -139,19 +836,44 @@ class MSSQLSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
+    connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
 class MailchimpSourceConfig(config.Config):
-    pass
+    api_key: str
+
+
+@config.config
+class MailerLiteSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class MailgunSourceConfig(config.Config):
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
 class MailjetSourceConfig(config.Config):
+    api_key: str
+    secret_key: str
+
+
+@config.config
+class MarketoSourceConfig(config.Config):
     pass
+
+
+@config.config
+class MatomoSourceConfig(config.Config):
+    host: str
+    site_id: str
+    api_token: str
 
 
 @config.config
@@ -162,8 +884,32 @@ class MetaAdsSourceConfig(config.Config):
 
 
 @config.config
+class MicrosoftTeamsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class MixpanelSourceConfig(config.Config):
+    project_id: str
+    service_account_username: str
+    service_account_secret: str
+    region: Literal["us", "eu", "in"] = config.value(default="us")
+
+
+@config.config
+class MollieSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class MondaySourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
 class MongoDBSourceConfig(config.Config):
     connection_string: str
+    database_name: str | None = None
 
 
 @config.config
@@ -179,8 +925,165 @@ class MySQLSourceConfig(config.Config):
 
 
 @config.config
-class PolarSourceConfig(config.Config):
+class NetSuiteSourceConfig(config.Config):
     pass
+
+
+@config.config
+class NotionSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class OktaSourceConfig(config.Config):
+    okta_domain: str
+    api_key: str
+
+
+@config.config
+class OmnisendSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class OneDriveSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OpsgenieSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OptimizelySourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class OracleEbsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OracleFusionSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OracleSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class OrttoSourceConfig(config.Config):
+    api_key: str
+    region: Literal["global", "au", "eu"] = config.value(default="global")
+
+
+@config.config
+class OutbrainSourceConfig(config.Config):
+    username: str
+    password: str
+
+
+@config.config
+class OutreachSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PaddleSourceConfig(config.Config):
+    paddle_api_key: str
+
+
+@config.config
+class PagerDutySourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class PandaDocSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class PardotSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PayPalSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PaylocitySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PendoSourceConfig(config.Config):
+    integration_key: str
+    region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
+
+
+@config.config
+class PersonioSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+
+
+@config.config
+class PgAnalyzeSourceConfig(config.Config):
+    api_key: str
+    organization_slug: str
+    api_url: str | None = None
+
+
+@config.config
+class PingdomSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class PinterestAdsSourceConfig(config.Config):
+    ad_account_id: str
+    pinterest_ads_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class PipedriveSourceConfig(config.Config):
+    company_domain: str
+    api_token: str
+
+
+@config.config
+class PlaidSourceConfig(config.Config):
+    client_id: str
+    secret: str
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class PlanetScaleSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class PolarSourceConfig(config.Config):
+    polar_api_key: str
 
 
 @config.config
@@ -189,10 +1092,48 @@ class PostgresSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class PostmarkSourceConfig(config.Config):
+    server_token: str
+
+
+@config.config
+class ProductboardSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
+class QualtricsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class QuickBooksSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class RampSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class RechargeSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class RecurlySourceConfig(config.Config):
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -203,17 +1144,126 @@ class RedditAdsSourceConfig(config.Config):
 
 @config.config
 class RedshiftSourceConfig(config.Config):
-    pass
+    host: str
+    database: str
+    user: str
+    password: str
+    port: int = config.value(converter=int)
+    connection_string: str | None = None
+    schema: str | None = None
+    ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class ResendSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
 class RevenueCatSourceConfig(config.Config):
+    secret_api_key: str
+    project_id: str
+
+
+@config.config
+class RingCentralSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class RipplingSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class RollbarSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
+class SFTPSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SageIntacctSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SailthruSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SalesLoftSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class SalesforceMarketingCloudSourceConfig(config.Config):
     pass
 
 
 @config.config
 class SalesforceSourceConfig(config.Config):
     salesforce_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class SapConcurSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SapErpSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SapHanaSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SapSuccessFactorsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SearchAds360SourceConfig(config.Config):
+    pass
+
+
+@config.config
+class SendGridSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class SentrySourceConfig(config.Config):
+    auth_token: str
+    organization_slug: str
+    api_base_url: Literal["https://sentry.io", "https://us.sentry.io", "https://de.sentry.io"] | None = config.value(
+        default="https://sentry.io"
+    )
+
+
+@config.config
+class ServiceNowSourceConfig(config.Config):
+    instance_url: str
+    auth_method: ServiceNowAuthMethodConfig
+
+
+@config.config
+class SharePointSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ShipStationSourceConfig(config.Config):
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -224,18 +1274,46 @@ class ShopifySourceConfig(config.Config):
 
 
 @config.config
+class ShortcutSourceConfig(config.Config):
+    api_token: str
+
+
+@config.config
+class SlackSourceConfig(config.Config):
+    slack_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class SmartsheetSourceConfig(config.Config):
+    access_token: str
+
+
+@config.config
+class SnapchatAdsSourceConfig(config.Config):
+    ad_account_id: str
+    snapchat_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
 class SnowflakeSourceConfig(config.Config):
     account_id: str
     database: str
     warehouse: str
     auth_type: SnowflakeAuthTypeConfig
-    schema: str
+    connection_string: str | None = None
     role: str | None = None
+    schema: str | None = None
+
+
+@config.config
+class SquareSourceConfig(config.Config):
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
 class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
+    auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
 
 
@@ -249,6 +1327,19 @@ class SupabaseSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class SurveyMonkeySourceConfig(config.Config):
+    access_token: str
+    data_center: Literal["us", "eu", "ca"] = config.value(default="us")
+
+
+@config.config
+class TaboolaSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    account_id: str
 
 
 @config.config
@@ -269,9 +1360,73 @@ class TikTokAdsSourceConfig(config.Config):
 
 
 @config.config
+class TrelloSourceConfig(config.Config):
+    api_key: str
+    api_token: str
+
+
+@config.config
+class TwilioSourceConfig(config.Config):
+    account_sid: str
+    auth_method: TwilioAuthMethodConfig
+
+
+@config.config
+class TwitterAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class TypeformSourceConfig(config.Config):
+    auth_token: str
+    api_base_url: (
+        Literal["https://api.typeform.com", "https://api.eu.typeform.com", "https://api.typeform.eu"] | None
+    ) = config.value(default="https://api.typeform.com")
+
+
+@config.config
 class VitallySourceConfig(config.Config):
     secret_token: str
     region: VitallyRegionConfig
+
+
+@config.config
+class WebflowSourceConfig(config.Config):
+    api_token: str
+    site_id: str
+
+
+@config.config
+class WooCommerceSourceConfig(config.Config):
+    store_url: str
+    consumer_key: str
+    consumer_secret: str
+
+
+@config.config
+class WorkOSSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
+class WorkdaySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class WrikeSourceConfig(config.Config):
+    access_token: str
+    host: str
+
+
+@config.config
+class XeroSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class YouTubeAnalyticsSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -281,39 +1436,271 @@ class ZendeskSourceConfig(config.Config):
     email_address: str
 
 
+@config.config
+class ZohoCRMSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ZoomInfoSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ZoomSourceConfig(config.Config):
+    account_id: str
+    client_id: str
+    client_secret: str
+
+
+@config.config
+class ZuoraSourceConfig(config.Config):
+    client_id: str
+    client_secret: str
+    environment: Literal[
+        "us_production",
+        "us_api_sandbox",
+        "us_cloud_production",
+        "us_cloud_sandbox",
+        "eu_production",
+        "eu_sandbox",
+        "central_sandbox",
+    ] = config.value(default="us_production")
+
+
 def get_config_for_source(source: ExternalDataSourceType):
     return {
+        ExternalDataSourceType.ACTIVECAMPAIGN: ActiveCampaignSourceConfig,
+        ExternalDataSourceType.ADROLL: AdRollSourceConfig,
+        ExternalDataSourceType.ADJUST: AdjustSourceConfig,
+        ExternalDataSourceType.ADOBEANALYTICS: AdobeAnalyticsSourceConfig,
+        ExternalDataSourceType.ADOBECOMMERCE: AdobeCommerceSourceConfig,
+        ExternalDataSourceType.ADPWORKFORCENOW: AdpWorkforceNowSourceConfig,
+        ExternalDataSourceType.ADYEN: AdyenSourceConfig,
+        ExternalDataSourceType.AIRCALL: AircallSourceConfig,
+        ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
+        ExternalDataSourceType.AMAZONADS: AmazonAdsSourceConfig,
+        ExternalDataSourceType.AMAZONCLOUDWATCH: AmazonCloudWatchSourceConfig,
+        ExternalDataSourceType.AMAZONEVENTBRIDGE: AmazonEventBridgeSourceConfig,
+        ExternalDataSourceType.AMAZONKINESIS: AmazonKinesisSourceConfig,
+        ExternalDataSourceType.AMAZONS3: AmazonS3SourceConfig,
+        ExternalDataSourceType.AMAZONSNS: AmazonSNSSourceConfig,
+        ExternalDataSourceType.AMAZONSQS: AmazonSQSSourceConfig,
+        ExternalDataSourceType.AMAZONSELLINGPARTNER: AmazonSellingPartnerSourceConfig,
+        ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
+        ExternalDataSourceType.APOLLO: ApolloSourceConfig,
+        ExternalDataSourceType.APPLESEARCHADS: AppleSearchAdsSourceConfig,
+        ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
+        ExternalDataSourceType.ASANA: AsanaSourceConfig,
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
+        ExternalDataSourceType.ATTENTIVE: AttentiveSourceConfig,
+        ExternalDataSourceType.ATTIO: AttioSourceConfig,
+        ExternalDataSourceType.AUTH0: Auth0SourceConfig,
+        ExternalDataSourceType.AZUREBLOB: AzureBlobSourceConfig,
+        ExternalDataSourceType.AZUREDEVOPS: AzureDevOpsSourceConfig,
+        ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
+        ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
         ExternalDataSourceType.BIGQUERY: BigQuerySourceConfig,
         ExternalDataSourceType.BINGADS: BingAdsSourceConfig,
+        ExternalDataSourceType.BOX: BoxSourceConfig,
+        ExternalDataSourceType.BRAINTREE: BraintreeSourceConfig,
+        ExternalDataSourceType.BRANCH: BranchSourceConfig,
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
+        ExternalDataSourceType.BREVO: BrevoSourceConfig,
+        ExternalDataSourceType.BREX: BrexSourceConfig,
+        ExternalDataSourceType.BUILDBETTER: BuildBetterSourceConfig,
+        ExternalDataSourceType.CALENDLY: CalendlySourceConfig,
+        ExternalDataSourceType.CAMPAIGNMANAGER360: CampaignManager360SourceConfig,
+        ExternalDataSourceType.CAMPAIGNMONITOR: CampaignMonitorSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
+        ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
+        ExternalDataSourceType.CHECKOUTCOM: CheckoutComSourceConfig,
+        ExternalDataSourceType.CHORUS: ChorusSourceConfig,
+        ExternalDataSourceType.CIRCLECI: CircleCISourceConfig,
+        ExternalDataSourceType.CLARI: ClariSourceConfig,
+        ExternalDataSourceType.CLERK: ClerkSourceConfig,
+        ExternalDataSourceType.CLICKHOUSE: ClickHouseSourceConfig,
+        ExternalDataSourceType.CLICKUP: ClickUpSourceConfig,
+        ExternalDataSourceType.CLOSE: CloseSourceConfig,
+        ExternalDataSourceType.CLOUDFLARE: CloudflareSourceConfig,
+        ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
+        ExternalDataSourceType.CODA: CodaSourceConfig,
+        ExternalDataSourceType.COMMERCETOOLS: CommercetoolsSourceConfig,
+        ExternalDataSourceType.CONFLUENCE: ConfluenceSourceConfig,
+        ExternalDataSourceType.CONSTANTCONTACT: ConstantContactSourceConfig,
+        ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
+        ExternalDataSourceType.CONVEX: ConvexSourceConfig,
+        ExternalDataSourceType.COPPER: CopperSourceConfig,
+        ExternalDataSourceType.COSMOSDB: CosmosDBSourceConfig,
+        ExternalDataSourceType.COUPA: CoupaSourceConfig,
+        ExternalDataSourceType.CRITEO: CriteoSourceConfig,
+        ExternalDataSourceType.CRUNCHBASE: CrunchbaseSourceConfig,
+        ExternalDataSourceType.CULTUREAMP: CultureAmpSourceConfig,
+        ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
+        ExternalDataSourceType.DATABRICKS: DatabricksSourceConfig,
+        ExternalDataSourceType.DATADOG: DatadogSourceConfig,
+        ExternalDataSourceType.DB2: Db2SourceConfig,
+        ExternalDataSourceType.DEEL: DeelSourceConfig,
+        ExternalDataSourceType.DELIGHTED: DelightedSourceConfig,
+        ExternalDataSourceType.DISPLAYVIDEO360: DisplayVideo360SourceConfig,
+        ExternalDataSourceType.DIXA: DixaSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
+        ExternalDataSourceType.DOCUSIGN: DocusignSourceConfig,
+        ExternalDataSourceType.DRIP: DripSourceConfig,
+        ExternalDataSourceType.DROPBOX: DropboxSourceConfig,
+        ExternalDataSourceType.DYNAMICS365: Dynamics365SourceConfig,
+        ExternalDataSourceType.DYNAMODB: DynamoDBSourceConfig,
+        ExternalDataSourceType.EBAY: EbaySourceConfig,
+        ExternalDataSourceType.ELASTICSEARCH: ElasticsearchSourceConfig,
+        ExternalDataSourceType.ELOQUA: EloquaSourceConfig,
+        ExternalDataSourceType.EVENTBRITE: EventbriteSourceConfig,
+        ExternalDataSourceType.EXPENSIFY: ExpensifySourceConfig,
+        ExternalDataSourceType.FACEBOOKPAGES: FacebookPagesSourceConfig,
+        ExternalDataSourceType.FIREBASE: FirebaseSourceConfig,
+        ExternalDataSourceType.FRESHBOOKS: FreshBooksSourceConfig,
+        ExternalDataSourceType.FRESHDESK: FreshdeskSourceConfig,
+        ExternalDataSourceType.FRESHSALES: FreshsalesSourceConfig,
+        ExternalDataSourceType.FRONT: FrontSourceConfig,
+        ExternalDataSourceType.FULLSTORY: FullStorySourceConfig,
+        ExternalDataSourceType.GITLAB: GitLabSourceConfig,
         ExternalDataSourceType.GITHUB: GithubSourceConfig,
+        ExternalDataSourceType.GLADLY: GladlySourceConfig,
+        ExternalDataSourceType.GOCARDLESS: GoCardlessSourceConfig,
+        ExternalDataSourceType.GONG: GongSourceConfig,
+        ExternalDataSourceType.GOOGLEADMANAGER: GoogleAdManagerSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
+        ExternalDataSourceType.GOOGLEANALYTICS: GoogleAnalyticsSourceConfig,
+        ExternalDataSourceType.GOOGLECLOUDSTORAGE: GoogleCloudStorageSourceConfig,
+        ExternalDataSourceType.GOOGLEDRIVE: GoogleDriveSourceConfig,
+        ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
+        ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
+        ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
+        ExternalDataSourceType.GREENHOUSE: GreenhouseSourceConfig,
+        ExternalDataSourceType.GURU: GuruSourceConfig,
+        ExternalDataSourceType.GUSTO: GustoSourceConfig,
+        ExternalDataSourceType.HEAP: HeapSourceConfig,
+        ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
+        ExternalDataSourceType.HIBOB: HiBobSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
+        ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
+        ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
+        ExternalDataSourceType.INTERCOM: IntercomSourceConfig,
+        ExternalDataSourceType.ITERABLE: IterableSourceConfig,
+        ExternalDataSourceType.JIRA: JiraSourceConfig,
+        ExternalDataSourceType.KAFKA: KafkaSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.KUSTOMER: KustomerSourceConfig,
+        ExternalDataSourceType.LATTICE: LatticeSourceConfig,
+        ExternalDataSourceType.LAUNCHDARKLY: LaunchDarklySourceConfig,
+        ExternalDataSourceType.LEVER: LeverSourceConfig,
+        ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
+        ExternalDataSourceType.LINEAR: LinearSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
         ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
         ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
+        ExternalDataSourceType.MAILERLITE: MailerLiteSourceConfig,
+        ExternalDataSourceType.MAILGUN: MailgunSourceConfig,
         ExternalDataSourceType.MAILJET: MailjetSourceConfig,
+        ExternalDataSourceType.MARKETO: MarketoSourceConfig,
+        ExternalDataSourceType.MATOMO: MatomoSourceConfig,
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
+        ExternalDataSourceType.MICROSOFTTEAMS: MicrosoftTeamsSourceConfig,
+        ExternalDataSourceType.MIXPANEL: MixpanelSourceConfig,
+        ExternalDataSourceType.MOLLIE: MollieSourceConfig,
+        ExternalDataSourceType.MONDAY: MondaySourceConfig,
         ExternalDataSourceType.MONGODB: MongoDBSourceConfig,
         ExternalDataSourceType.MYSQL: MySQLSourceConfig,
+        ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
+        ExternalDataSourceType.NOTION: NotionSourceConfig,
+        ExternalDataSourceType.OKTA: OktaSourceConfig,
+        ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
+        ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+        ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
+        ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
+        ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
+        ExternalDataSourceType.ORACLE: OracleSourceConfig,
+        ExternalDataSourceType.ORACLEEBS: OracleEbsSourceConfig,
+        ExternalDataSourceType.ORACLEFUSION: OracleFusionSourceConfig,
+        ExternalDataSourceType.ORTTO: OrttoSourceConfig,
+        ExternalDataSourceType.OUTBRAIN: OutbrainSourceConfig,
+        ExternalDataSourceType.OUTREACH: OutreachSourceConfig,
+        ExternalDataSourceType.PADDLE: PaddleSourceConfig,
+        ExternalDataSourceType.PAGERDUTY: PagerDutySourceConfig,
+        ExternalDataSourceType.PANDADOC: PandaDocSourceConfig,
+        ExternalDataSourceType.PARDOT: PardotSourceConfig,
+        ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
+        ExternalDataSourceType.PAYLOCITY: PaylocitySourceConfig,
+        ExternalDataSourceType.PENDO: PendoSourceConfig,
+        ExternalDataSourceType.PERSONIO: PersonioSourceConfig,
+        ExternalDataSourceType.PGANALYZE: PgAnalyzeSourceConfig,
+        ExternalDataSourceType.PINGDOM: PingdomSourceConfig,
+        ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
+        ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
+        ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
+        ExternalDataSourceType.PLANETSCALE: PlanetScaleSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
+        ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
+        ExternalDataSourceType.PRODUCTBOARD: ProductboardSourceConfig,
+        ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
+        ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
+        ExternalDataSourceType.RAMP: RampSourceConfig,
+        ExternalDataSourceType.RECHARGE: RechargeSourceConfig,
+        ExternalDataSourceType.RECURLY: RecurlySourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSourceType.RESEND: ResendSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
+        ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
+        ExternalDataSourceType.RIPPLING: RipplingSourceConfig,
+        ExternalDataSourceType.ROLLBAR: RollbarSourceConfig,
+        ExternalDataSourceType.SFTP: SFTPSourceConfig,
+        ExternalDataSourceType.SAGEINTACCT: SageIntacctSourceConfig,
+        ExternalDataSourceType.SAILTHRU: SailthruSourceConfig,
+        ExternalDataSourceType.SALESLOFT: SalesLoftSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
+        ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
+        ExternalDataSourceType.SAPERP: SapErpSourceConfig,
+        ExternalDataSourceType.SAPHANA: SapHanaSourceConfig,
+        ExternalDataSourceType.SAPSUCCESSFACTORS: SapSuccessFactorsSourceConfig,
+        ExternalDataSourceType.SEARCHADS360: SearchAds360SourceConfig,
+        ExternalDataSourceType.SENDGRID: SendGridSourceConfig,
+        ExternalDataSourceType.SENTRY: SentrySourceConfig,
+        ExternalDataSourceType.SERVICENOW: ServiceNowSourceConfig,
+        ExternalDataSourceType.SHAREPOINT: SharePointSourceConfig,
+        ExternalDataSourceType.SHIPSTATION: ShipStationSourceConfig,
         ExternalDataSourceType.SHOPIFY: ShopifySourceConfig,
+        ExternalDataSourceType.SHORTCUT: ShortcutSourceConfig,
+        ExternalDataSourceType.SLACK: SlackSourceConfig,
+        ExternalDataSourceType.SMARTSHEET: SmartsheetSourceConfig,
+        ExternalDataSourceType.SNAPCHATADS: SnapchatAdsSourceConfig,
         ExternalDataSourceType.SNOWFLAKE: SnowflakeSourceConfig,
+        ExternalDataSourceType.SQUARE: SquareSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
+        ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
+        ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
         ExternalDataSourceType.TEMPORALIO: TemporalIOSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.TRELLO: TrelloSourceConfig,
+        ExternalDataSourceType.TWILIO: TwilioSourceConfig,
+        ExternalDataSourceType.TWITTERADS: TwitterAdsSourceConfig,
+        ExternalDataSourceType.TYPEFORM: TypeformSourceConfig,
         ExternalDataSourceType.VITALLY: VitallySourceConfig,
+        ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
+        ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
+        ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
+        ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
+        ExternalDataSourceType.WRIKE: WrikeSourceConfig,
+        ExternalDataSourceType.XERO: XeroSourceConfig,
+        ExternalDataSourceType.YOUTUBEANALYTICS: YouTubeAnalyticsSourceConfig,
         ExternalDataSourceType.ZENDESK: ZendeskSourceConfig,
+        ExternalDataSourceType.ZOHOCRM: ZohoCRMSourceConfig,
+        ExternalDataSourceType.ZOOM: ZoomSourceConfig,
+        ExternalDataSourceType.ZOOMINFO: ZoomInfoSourceConfig,
+        ExternalDataSourceType.ZUORA: ZuoraSourceConfig,
     }[source]

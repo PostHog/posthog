@@ -1,0 +1,22 @@
+[package]
+name = "hogql_parser_rs"
+# Versioned independently from the cpp parser in `common/hogql_parser/setup.py`. Both started from the same HogQL grammar revision, but the Rust port is bumped on its own whenever the hand-rolled parser changes (cpp is currently 1.3.69, this is 1.3.84); each ships as its own PyPI wheel.
+version = "1.3.84"
+edition = "2021"
+publish = false
+
+[lib]
+name = "hogql_parser_rs"
+# `cdylib` for the Python wheel that maturin builds; `rlib` so other Rust
+# crates in the workspace can depend on the parser as a library if useful
+# later. `cdylib` alone would break that.
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true
+# `abi3-py312` lets one wheel work on every Python 3.12+ via the stable
+# CPython ABI — avoids shipping a separate wheel per minor Python.
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py312"] }

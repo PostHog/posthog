@@ -1,17 +1,43 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { getSessionIdFromLogAttributes } from 'products/logs/frontend/utils'
 
 import type { logDetailsModalLogicType } from './logDetailsModalLogicType'
 
+export type LogDetailsTab = 'details' | 'raw' | 'explore-ai' | 'comments' | 'related-errors'
+
+export interface LogDetailsModalProps {
+    id: string
+}
+
 export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
     path(['products', 'logs', 'frontend', 'components', 'LogsViewer', 'LogDetailsModal', 'logDetailsModalLogic']),
+    props({} as LogDetailsModalProps),
+    key((props) => props.id),
 
     actions({
         openLogDetails: (log: ParsedLogMessage) => ({ log }),
         closeLogDetails: true,
         setJsonParseAllFields: (enabled: boolean) => ({ enabled }),
+        setActiveTab: (tab: LogDetailsTab) => ({ tab }),
     }),
+
+    listeners(() => ({
+        setActiveTab: ({ tab }) => {
+            posthog.capture('logs details tab changed', { tab })
+        },
+    })),
+
+    subscriptions(() => ({
+        isLogDetailsOpen: (isLogDetailsOpen: boolean, wasOpen: boolean) => {
+            if (isLogDetailsOpen && !wasOpen) {
+                posthog.capture('logs details opened')
+            }
+        },
+    })),
 
     reducers({
         selectedLog: [
@@ -21,7 +47,7 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 closeLogDetails: () => null,
             },
         ],
-        isOpen: [
+        isLogDetailsOpen: [
             false,
             {
                 openLogDetails: () => true,
@@ -34,5 +60,24 @@ export const logDetailsModalLogic = kea<logDetailsModalLogicType>([
                 setJsonParseAllFields: (_, { enabled }) => enabled,
             },
         ],
+        activeTab: [
+            'details' as LogDetailsTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                openLogDetails: () => 'details',
+                closeLogDetails: () => 'details',
+            },
+        ],
+    }),
+
+    selectors({
+        sessionId: [
+            (s) => [s.selectedLog],
+            (selectedLog): string | null =>
+                selectedLog
+                    ? getSessionIdFromLogAttributes(selectedLog.attributes, selectedLog.resource_attributes)
+                    : null,
+        ],
+        hasSessionId: [(s) => [s.sessionId], (sessionId): boolean => sessionId !== null],
     }),
 ])

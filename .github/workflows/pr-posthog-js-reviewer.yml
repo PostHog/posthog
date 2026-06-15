@@ -1,0 +1,130 @@
+name: Sync client libraries review for posthog-js updates
+
+# This workflow uses pull_request_target to get write access for requesting reviewers.
+# SECURITY: We never checkout or execute code from the PR branch.
+# We only use the GitHub API to check the diff and update reviewer requests.
+
+# nosemgrep: semgrep.rules.github-actions-pull-request-target
+on:
+    pull_request_target:
+        # `edited` lets us request review after a stacked PR is retargeted to master.
+        # We intentionally don't use a paths filter: when a package.json change is
+        # rolled back, the PR diff no longer matches `**/package.json`, so a filtered
+        # workflow would never get a chance to remove the stale review request.
+        types: [opened, synchronize, edited]
+
+permissions:
+    contents: read
+    issues: read
+    pull-requests: read
+
+jobs:
+    check-posthog-js:
+        name: Sync client libraries review request
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        # Skip forks for security - they could manipulate package.json to trigger unwanted reviews.
+        # Only request reviewers for PRs targeting master. Stacked PR diffs can include package.json
+        # changes from the stack base and leave stale reviewer requests after the PR is retargeted.
+        if: >-
+            github.event.pull_request.head.repo.fork == false &&
+            github.event.pull_request.base.ref == 'master' &&
+            (github.event.action != 'edited' || github.event.changes.base.ref.from != '')
+
+        steps:
+            - name: Determine reviewer action
+              id: reviewer-action
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+                  TEAM_REVIEWER_SLUG: client-libraries-approvers
+              run: |
+                  set -euo pipefail
+
+                  echo "Checking PR #${PR_NUMBER} for posthog-js version changes..."
+
+                  MATCHING_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '
+                    [
+                      .[]
+                      | select(.filename | endswith("package.json"))
+                      | select((.patch // "" | split("\n") | any(test("^[+-].*\"posthog-js\"[[:space:]]*:[[:space:]]*\"[^\"]+\""))))
+                      | .filename
+                    ]
+                    | .[]
+                  ')
+
+                  {
+                      echo 'matching_files<<EOF'
+                      echo "$MATCHING_FILES"
+                      echo EOF
+                  } >> "$GITHUB_OUTPUT"
+
+                  if [ -n "$MATCHING_FILES" ]; then
+                      echo "action=add" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  echo "No posthog-js version changes detected"
+
+                  if gh api "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" --jq '.teams[].slug' | grep -Fxq "$TEAM_REVIEWER_SLUG"; then
+                      # Only remove stale requests that this automation added; don't fight manual review requests.
+                      LATEST_AUTOMATED_REQUEST=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/timeline" --paginate -H 'Accept: application/vnd.github+json' | jq -s -r '
+                        [
+                          .[][]
+                          | select((.event == "review_requested" or .event == "review_request_removed") and .requested_team.slug == "client-libraries-approvers")
+                          | {event, actor: .actor.login}
+                        ]
+                        | last
+                        | select(.event == "review_requested" and .actor == "assign-reviewers-posthog[bot]")
+                        | .event // empty
+                      ')
+
+                      if [ "$LATEST_AUTOMATED_REQUEST" = "review_requested" ]; then
+                          echo "action=remove" >> "$GITHUB_OUTPUT"
+                          exit 0
+                      fi
+
+                      echo "Existing review request was not most recently added by automation; leaving it in place"
+                  fi
+
+                  echo "action=none" >> "$GITHUB_OUTPUT"
+
+            - name: Get app token
+              id: app-token
+              if: steps.reviewer-action.outputs.action != 'none'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
+            - name: Update client libraries review request
+              if: steps.reviewer-action.outputs.action != 'none'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+                  REVIEWER_ACTION: ${{ steps.reviewer-action.outputs.action }}
+                  MATCHING_FILES: ${{ steps.reviewer-action.outputs.matching_files }}
+                  TEAM_REVIEWER: PostHog/client-libraries-approvers
+                  TEAM_REVIEWER_SLUG: client-libraries-approvers
+              run: |
+                  set -euo pipefail
+
+                  if [ "$REVIEWER_ACTION" = "add" ]; then
+                      echo "posthog-js version change detected in:"
+                      echo "$MATCHING_FILES" | sed 's/^/  - /'
+                      echo "Requesting review from ${TEAM_REVIEWER}"
+                      gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-reviewer "${TEAM_REVIEWER}"
+                      echo "Review requested successfully"
+                      exit 0
+                  fi
+
+                  echo "Removing stale review request from ${TEAM_REVIEWER}"
+                  gh api \
+                      --method DELETE \
+                      "repos/${REPO}/pulls/${PR_NUMBER}/requested_reviewers" \
+                      --field "team_reviewers[]=${TEAM_REVIEWER_SLUG}" \
+                      >/dev/null
+                  echo "Stale review request removed"

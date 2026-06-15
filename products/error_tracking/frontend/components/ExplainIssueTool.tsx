@@ -1,45 +1,34 @@
-import { IconList } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
 
-import { addProductIntent } from 'lib/utils/product-intents'
-import { useMaxTool } from 'scenes/max/useMaxTool'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
-import {
-    ErrorTrackingExplainIssueToolContext,
-    ErrorTrackingRelationalIssue,
-    ProductIntentContext,
-    ProductKey,
-} from '~/queries/schema/schema-general'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
 
-import { useStacktraceDisplay } from '../hooks/use-stacktrace-display'
+export interface UseErrorTrackingExplainIssueReturn {
+    isMaxOpen: boolean
+    openMax: () => void
+}
 
-export function useErrorTrackingExplainIssueMaxTool(
-    issueId: ErrorTrackingRelationalIssue['id'],
-    issueName: ErrorTrackingRelationalIssue['name']
-): ReturnType<typeof useMaxTool> {
-    const { ready, stacktraceText } = useStacktraceDisplay()
+/**
+ * Hook to open the Max AI side panel with a prompt to explain an error tracking issue.
+ * The issue is added to Max's context so the explanation is grounded in the current issue.
+ *
+ * @param issueId - The error tracking issue ID to explain
+ */
+export function useErrorTrackingExplainIssue(issueId: string): UseErrorTrackingExplainIssueReturn {
+    const { sidePanelOpen, selectedTab } = useValues(sidePanelStateLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { addOrUpdateContextErrorTrackingIssue } = useActions(maxContextLogic)
 
-    const context: ErrorTrackingExplainIssueToolContext = {
-        stacktrace: stacktraceText,
-        issue_name: issueName ?? issueId,
+    const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
+
+    return {
+        isMaxOpen,
+        openMax: () => {
+            addOrUpdateContextErrorTrackingIssue({ id: issueId })
+            // Leading "!" auto-runs the prompt once the side panel opens.
+            openSidePanel(SidePanelTab.Max, '!Explain this issue to me')
+        },
     }
-
-    const maxToolResult = useMaxTool({
-        identifier: 'error_tracking_explain_issue',
-        context,
-        contextDescription: {
-            text: 'Issue stacktrace',
-            icon: <IconList />,
-        },
-        active: ready,
-        initialMaxPrompt: `Explain this issue to me`,
-        callback() {
-            addProductIntent({
-                product_type: ProductKey.ERROR_TRACKING,
-                intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_EXPLAINED,
-                metadata: { issue_id: issueId },
-            })
-        },
-    })
-
-    return maxToolResult
 }

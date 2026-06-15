@@ -195,6 +195,7 @@ export const mockCohort: CohortType = {
 
 export const mockSubscription: SubscriptionType = {
     id: 1,
+    resource_type: 'insight',
     title: 'My example subscription',
     target_type: 'email',
     target_value: 'ben@posthog.com,geoff@other-company.com',
@@ -204,8 +205,8 @@ export const mockSubscription: SubscriptionType = {
     byweekday: ['wednesday'],
     bysetpos: 1,
     summary: 'sent every month on the first wednesday',
+    next_delivery_date: '2024-01-01T00:00:00Z',
     created_at: '2022-01-01T00:09:00',
-    updated_at: '2022-01-01T00:09:00',
 }
 
 export const createMockSubscription = (args: Partial<SubscriptionType> = {}): SubscriptionType => ({
@@ -266,3 +267,17 @@ export const mockSlackChannels: SlackChannelType[] = [
         is_member: false,
     },
 ]
+
+export const mockGetEventDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
+    const search = req.url.searchParams.get('search') ?? ''
+    const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
+    return [200, { results, count: results.length }]
+}
+
+export const mockGetPropertyDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
+    const search = req.url.searchParams.get('search') ?? ''
+    const results = search
+        ? mockEventPropertyDefinitions.filter((p) => p.name.includes(search))
+        : mockEventPropertyDefinitions
+    return [200, { results, count: results.length }]
+}

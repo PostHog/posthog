@@ -4,8 +4,9 @@ import structlog
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models.link import Link
 from posthog.models.team.team import Team
+
+from products.links.backend.models import Link
 
 logger = structlog.get_logger(__name__)
 
@@ -164,6 +165,6 @@ class TestLink(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         fs_entry = FileSystem.objects.filter(team=self.team, ref=str(link_id), type="link").first()
         assert fs_entry is not None, "A FileSystem entry was not created for this Link."
-        assert (
-            "Special Folder/Links" in fs_entry.path
-        ), f"Expected path to include 'Special Folder/Links', got '{fs_entry.path}'."
+        assert "Special Folder/Links" in fs_entry.path, (
+            f"Expected path to include 'Special Folder/Links', got '{fs_entry.path}'."
+        )

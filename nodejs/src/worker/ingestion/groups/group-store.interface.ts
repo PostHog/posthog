@@ -1,8 +1,32 @@
-import { GroupStoreForBatch } from './group-store-for-batch.interface'
+import { DateTime } from 'luxon'
 
-export interface GroupStore {
+import { Properties } from '~/plugin-scaffold'
+
+import { GroupTypeIndex, ProjectId, TeamId } from '../../../types'
+import { BatchWritingStore } from '../stores/batch-writing-store'
+
+export interface CacheMetrics {
+    cacheHits: number
+    cacheMisses: number
+}
+
+export interface GroupStore extends BatchWritingStore {
     /**
-     * Returns an instance of GroupStoreForBatch for handling group operations in batch
+     * Stop any background work (e.g., periodic metric emission) and flush
+     * remaining accumulated metrics. Called on graceful shutdown. Does NOT
+     * clear data caches.
      */
-    forBatch(): GroupStoreForBatch
+    shutdown(): Promise<void>
+
+    upsertGroup(
+        teamId: TeamId,
+        projectId: ProjectId,
+        groupTypeIndex: GroupTypeIndex,
+        groupKey: string,
+        properties: Properties,
+        timestamp: DateTime,
+        batchId: number
+    ): Promise<void>
+
+    getCacheMetrics(): CacheMetrics
 }

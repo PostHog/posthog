@@ -45,8 +45,9 @@ export function FolderSelect({
     const props: ProjectTreeLogicProps = { key, defaultOnlyFolders: true, root, includeRoot }
     const inputRef = useRef<HTMLInputElement>(null)
 
-    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, treeTableKeys, editingItemId } =
-        useValues(projectTreeLogic(props))
+    const { searchTerm, expandedSearchFolders, expandedFolders, fullFileSystemFiltered, editingItemId } = useValues(
+        projectTreeLogic(props)
+    )
     const {
         setSearchTerm,
         setExpandedSearchFolders,
@@ -165,8 +166,6 @@ export function FolderSelect({
                     selectMode="folder-only"
                     className="px-0 py-1"
                     data={fullFileSystemFiltered}
-                    mode="tree"
-                    tableViewKeys={treeTableKeys}
                     defaultSelectedFolderOrNodeId={
                         value?.includes('://') ? value : value ? 'project://' + value : undefined
                     }

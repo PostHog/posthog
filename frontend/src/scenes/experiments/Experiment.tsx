@@ -1,4 +1,4 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -6,49 +6,58 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentForm } from './ExperimentForm'
-import { ExperimentView } from './ExperimentView/ExperimentView'
-import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
-import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 
-export const scene: SceneExport<ExperimentSceneLogicProps> = {
+import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
+import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
+import { experimentSceneLogic } from './experimentSceneLogic'
+import { ExperimentView } from './ExperimentView/ExperimentView'
+import { ExperimentWizard } from './ExperimentWizard/ExperimentWizard'
+import { experimentWizardLogic } from './ExperimentWizard/experimentWizardLogic'
+
+export const scene: SceneExport = {
     component: Experiment,
     logic: experimentSceneLogic,
+    productKey: ProductKey.EXPERIMENTS,
     paramsToProps: ({ params: { id, formMode } }) => ({
         experimentId: id === 'new' ? 'new' : parseInt(id, 10),
         formMode: formMode || (id === 'new' ? FORM_MODES.create : FORM_MODES.update),
-        // tabId is automatically added by sceneLogic
     }),
 }
 
-export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
-    if (!tabId) {
-        throw new Error('<Experiment /> must receive a tabId prop')
-    }
-    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic({ tabId }))
+export function Experiment(): JSX.Element {
+    const { formMode, experimentMissing, experimentId } = useValues(experimentSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     useFileSystemLogView({
         type: 'experiment',
         ref: experimentId,
         enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
-        deps: [currentTeamId, experimentId, experimentMissing],
     })
 
-    const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
-    useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic({ tabId }))
+    const logicProps: ExperimentLogicProps = { experimentId, formMode }
+    useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic)
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
     }
 
+    const isCreateMode = formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode)
+
     return (
         <BindLogic logic={experimentLogic} props={logicProps}>
-            {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
-                <ExperimentForm tabId={tabId} />
-            ) : (
-                <ExperimentView tabId={tabId} />
-            )}
+            {isCreateMode ? <ExperimentCreateMode /> : <ExperimentView />}
+        </BindLogic>
+    )
+}
+
+function ExperimentCreateMode(): JSX.Element {
+    const logic = createExperimentLogic()
+    useMountedLogic(logic)
+
+    return (
+        <BindLogic logic={experimentWizardLogic} props={{}}>
+            <ExperimentWizard />
         </BindLogic>
     )
 }

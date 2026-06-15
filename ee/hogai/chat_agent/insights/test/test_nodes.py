@@ -20,13 +20,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight, InsightViewed
+from products.posthog_ai.backend.models.assistant import Conversation
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation
 
 
 def create_mock_query_executor():
@@ -640,7 +640,7 @@ class TestInsightSearchNode(BaseTest):
         assert insight_dict is not None
         summary = await self.node._create_enhanced_insight_summary(insight_dict)
 
-        self.assertIn(f"ID: {self.insight1.id}", summary)
+        self.assertIn(f"ID: {self.insight1.short_id}", summary)
         self.assertIn("Daily Pageviews", summary)
         self.assertIn("Type: TrendsQuery", summary)  # Should detect TrendsQuery type from query
         # Check that query result is not an error (would contain "Query type not supported")
@@ -794,13 +794,13 @@ class TestInsightSearchNode(BaseTest):
         # Test insight1 visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight1))
         assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight1"
-        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        viz_message = await self.artifact_manager.aenrich_message(viz_message)
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         query = viz_message.content.query
         self.assertIsInstance(query, AssistantTrendsQuery)
 
@@ -817,13 +817,13 @@ class TestInsightSearchNode(BaseTest):
         # Test insight2 visualization message creation
         viz_message2 = await self.node._create_artifact_ref_message_for_insight(self._insight_to_dict(self.insight2))
         assert isinstance(viz_message2, ArtifactRefMessage), "Should create artifact ref message for insight2"
-        viz_message2 = await self.artifact_manager.aget_enriched_message(viz_message2)
+        viz_message2 = await self.artifact_manager.aenrich_message(viz_message2)
         assert viz_message2 is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message2.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message2.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         query2 = viz_message2.content.query
         self.assertIsInstance(query2, AssistantFunnelsQuery)
 
@@ -833,8 +833,8 @@ class TestInsightSearchNode(BaseTest):
             "source": {
                 "kind": "RetentionQuery",
                 "retentionFilter": {
-                    "targetEntity": {"name": "$pageview"},
-                    "returningEntity": {"name": "$pageview"},
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
                 },
                 "dateRange": {"date_from": "-7d"},
                 "filterTestAccounts": False,
@@ -867,13 +867,13 @@ class TestInsightSearchNode(BaseTest):
         # Test insight visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
         assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight"
-        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        viz_message = await self.artifact_manager.aenrich_message(viz_message)
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         self.assertIsInstance(viz_message.content.query, AssistantRetentionQuery)
 
     async def test_returns_artifact_with_hogql_query(self):
@@ -905,11 +905,11 @@ class TestInsightSearchNode(BaseTest):
         # Test insight visualization message creation
         viz_message = await self.node._create_artifact_ref_message_for_insight(insight_dict)
         assert isinstance(viz_message, ArtifactRefMessage), "Should create artifact ref message for insight"
-        viz_message = await self.artifact_manager.aget_enriched_message(viz_message)
+        viz_message = await self.artifact_manager.aenrich_message(viz_message)
         assert viz_message is not None
 
         # Verify the answer contains the correct query type
-        assert isinstance(
-            viz_message.content, VisualizationArtifactContent
-        ), "Should create visualization artifact content"
+        assert isinstance(viz_message.content, VisualizationArtifactContent), (
+            "Should create visualization artifact content"
+        )
         self.assertIsInstance(viz_message.content.query, AssistantHogQLQuery)

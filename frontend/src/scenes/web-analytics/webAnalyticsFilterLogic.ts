@@ -5,13 +5,24 @@ import { isNotNil } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { CompareFilter, WebAnalyticsPropertyFilter, WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
-import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterBaseValue, PropertyFilterType, PropertyOperator, WebAnalyticsFiltersConfig } from '~/types'
 
 import { DeviceType, INITIAL_WEB_ANALYTICS_FILTER } from './common'
 import type { webAnalyticsFilterLogicType } from './webAnalyticsFilterLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
+
+const eventFilter = (key: string, value: string | string[]): WebAnalyticsPropertyFilter => ({
+    type: PropertyFilterType.Event,
+    key,
+    value,
+    operator: PropertyOperator.Exact,
+})
+
+// Event+Exact filters are the subset shared with the live stream view.
+export const isLiveStreamFilter = (filter: WebAnalyticsPropertyFilter): boolean =>
+    filter.type === PropertyFilterType.Event && filter.operator === PropertyOperator.Exact
 
 export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsFilterLogic']),
@@ -43,7 +54,11 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
         ) => ({ type, key, value, tabChange }),
         setDomainFilter: (domain: string | null) => ({ domain }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
+        setCountryFilter: (countryCode: string | null) => ({ countryCode }),
+        setReferrerFilter: (referrer: string | null) => ({ referrer }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        loadPreset: (filters: WebAnalyticsFiltersConfig) => ({ filters }),
+        clearFilters: true,
     }),
     reducers({
         rawWebAnalyticsFilters: [
@@ -51,6 +66,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             persistConfig,
             {
                 setWebAnalyticsFilters: (_, { webAnalyticsFilters }) => webAnalyticsFilters,
+                clearFilters: () => INITIAL_WEB_ANALYTICS_FILTER,
                 togglePropertyFilter: (oldPropertyFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
                     if (value === null) {
                         // if there's already an isNotSet filter, remove it
@@ -123,6 +139,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     // the domain and host filters don't interact well, so remove the host filter when the domain filter is set
                     return state.filter((filter) => filter.key !== '$host')
                 },
+                loadPreset: (_, { filters }) => filters.properties ?? INITIAL_WEB_ANALYTICS_FILTER,
             },
         ],
         domainFilter: [
@@ -133,6 +150,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     const { domain } = payload
                     return domain
                 },
+                clearFilters: () => null,
                 togglePropertyFilter: (state, { key }) => {
                     // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
                     return key === '$host' ? null : state
@@ -144,6 +162,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                     }
                     return state
                 },
+                loadPreset: (_, { filters }) => filters.domainFilter ?? null,
             },
         ],
         deviceTypeFilter: [
@@ -152,6 +171,26 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             {
                 setDeviceTypeFilter: (_: DeviceType | null, { deviceType }: { deviceType: DeviceType | null }) =>
                     deviceType,
+                clearFilters: () => null,
+                loadPreset: (_, { filters }) => (filters.deviceTypeFilter as DeviceType) ?? null,
+            },
+        ],
+        countryFilter: [
+            null as string | null,
+            persistConfig,
+            {
+                setCountryFilter: (_: string | null, { countryCode }: { countryCode: string | null }) => countryCode,
+                clearFilters: () => null,
+                loadPreset: (_, { filters }) => filters.countryFilter ?? null,
+            },
+        ],
+        referrerFilter: [
+            null as string | null,
+            persistConfig,
+            {
+                setReferrerFilter: (_: string | null, { referrer }: { referrer: string | null }) => referrer,
+                clearFilters: () => null,
+                loadPreset: (_, { filters }) => filters.referrerFilter ?? null,
             },
         ],
         compareFilter: [
@@ -159,6 +198,8 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             persistConfig,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
+                clearFilters: () => ({ compare: true }),
+                loadPreset: (_, { filters }) => (filters.compareFilter as CompareFilter) ?? { compare: true },
             },
         ],
     }),
@@ -205,6 +246,43 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                 return null
             },
         ],
+        selectedHost: [
+            (s) => [s.validatedDomainFilter],
+            (domainFilter: string | null): string | null =>
+                domainFilter && domainFilter !== 'all' ? domainFilter.replace(/^https?:\/\//, '') : null,
+        ],
+        // Returns the domain to use for URL construction: selected domain, or single authorized domain if only one exists
+        effectiveDomain: [
+            (s) => [s.domainFilter, s.authorizedDomains],
+            (domainFilter: string | null, authorizedDomains: string[]): string | null => {
+                if (domainFilter && domainFilter !== 'all') {
+                    return domainFilter
+                }
+                if (authorizedDomains.length === 1) {
+                    return authorizedDomains[0]
+                }
+                return null
+            },
+        ],
+        liveFilters: [
+            (s) => [s.rawWebAnalyticsFilters, s.selectedHost, s.deviceTypeFilter],
+            (
+                rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+                host: string | null,
+                deviceType: DeviceType | null
+            ): WebAnalyticsPropertyFilter[] => {
+                const filters: WebAnalyticsPropertyFilter[] = rawWebAnalyticsFilters.filter(isLiveStreamFilter)
+                if (host) {
+                    filters.push(eventFilter('$host', host))
+                }
+                if (deviceType === 'Desktop') {
+                    filters.push(eventFilter('$device_type', 'Desktop'))
+                } else if (deviceType === 'Mobile') {
+                    filters.push(eventFilter('$device_type', ['Mobile', 'Tablet']))
+                }
+                return filters
+            },
+        ],
     }),
     listeners(({ values }) => ({
         setWebAnalyticsFilters: ({ webAnalyticsFilters }) => {
@@ -228,6 +306,20 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
             const action = deviceType ? 'reportWebAnalyticsFilterApplied' : 'reportWebAnalyticsFilterRemoved'
             eventUsageLogic.actions[action]({
                 filter_type: 'device_type',
+                total_filter_count: values.rawWebAnalyticsFilters.length,
+            })
+        },
+        setCountryFilter: ({ countryCode }) => {
+            const action = countryCode ? 'reportWebAnalyticsFilterApplied' : 'reportWebAnalyticsFilterRemoved'
+            eventUsageLogic.actions[action]({
+                filter_type: 'country',
+                total_filter_count: values.rawWebAnalyticsFilters.length,
+            })
+        },
+        setReferrerFilter: ({ referrer }) => {
+            const action = referrer ? 'reportWebAnalyticsFilterApplied' : 'reportWebAnalyticsFilterRemoved'
+            eventUsageLogic.actions[action]({
+                filter_type: 'referrer',
                 total_filter_count: values.rawWebAnalyticsFilters.length,
             })
         },

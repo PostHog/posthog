@@ -1,27 +1,23 @@
-from enum import Enum, auto
-from typing import TypeGuard
+from typing import TypeIs
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
-    DataWarehouseNode,
     EventsNode,
     FunnelConversionWindowTimeUnit,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsDataWarehouseNode,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import apply_path_cleaning
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.types import EntityNode, ExclusionEntityNode
-
-
-class SourceTableKind(Enum):
-    EVENTS = auto()
-    DATA_WAREHOUSE = auto()
+from posthog.models.team.team import Team
+from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 
 
 def funnel_window_interval_unit_to_sql(
@@ -46,13 +42,28 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int,
+    properties_column: str | None,
+    normalize_url: bool | None = False,
+    path_cleaning: bool | None = False,
+    team: Team | None = None,
 ) -> ast.Expr:
+    def make_field(breakdown: str | int) -> ast.Expr:
+        if properties_column is None:
+            # breakdown already refers to a top-level field
+            return ast.Field(chain=[breakdown])
+        else:
+            return ast.Field(chain=[*properties_column.split("."), breakdown])
+
+    # Fail loudly rather than silently skipping cleaning if a caller forgets the team
+    if path_cleaning and team is None:
+        raise ValueError("get_breakdown_expr: path_cleaning=True requires a team")
+
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
             name="ifNull",
             args=[
-                ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdowns])]),
+                ast.Call(name="toString", args=[make_field(breakdowns)]),
                 ast.Constant(value=""),
             ],
         )
@@ -62,10 +73,12 @@ def get_breakdown_expr(
             expr: ast.Expr = ast.Call(
                 name="ifNull",
                 args=[
-                    ast.Call(name="toString", args=[ast.Field(chain=[*properties_column.split("."), breakdown])]),
+                    ast.Call(name="toString", args=[make_field(breakdown)]),
                     ast.Constant(value=""),
                 ],
             )
+            if path_cleaning and team is not None:
+                expr = apply_path_cleaning(expr, team)
             if normalize_url:
                 regex = "[\\\\/?#]*$"
                 expr = parse_expr(
@@ -78,15 +91,9 @@ def get_breakdown_expr(
     return expression
 
 
-def is_events_source(source_kind: SourceTableKind) -> bool:
-    return source_kind is SourceTableKind.EVENTS
-
-
-def is_data_warehouse_source(source_kind: SourceTableKind) -> bool:
-    return source_kind is SourceTableKind.DATA_WAREHOUSE
-
-
-def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
+def is_events_entity(
+    entity: FunnelEntityNode | FunnelExclusionEntityNode | None,
+) -> TypeIs[EventsNode | FunnelExclusionEventsNode]:
     return (
         isinstance(entity, EventsNode)
         or isinstance(entity, FunnelExclusionEventsNode)
@@ -95,33 +102,24 @@ def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[Even
     )
 
 
-def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
-    return isinstance(entity, DataWarehouseNode)
+def data_warehouse_config_key(node: FunnelsDataWarehouseNode) -> tuple[str, str, str, str]:
+    return (
+        node.table_name,
+        node.id_field,
+        node.aggregation_target_field,
+        node.timestamp_field,
+    )
 
 
-def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> bool:
-    if source_kind is SourceTableKind.EVENTS:
-        return not is_events_entity(entity)
-    if source_kind is SourceTableKind.DATA_WAREHOUSE:
-        return not is_data_warehouse_entity(entity)
-    raise ValueError(f"Unknown SourceTableKind: {source_kind}")
-
-
-def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTableKind, table_name: str) -> bool:
-    if entity_source_mismatch(entity, source_kind):
+def entity_config_mismatch(step_entity: FunnelEntityNode, table_entity: FunnelEntityNode | None) -> bool:
+    if isinstance(step_entity, FunnelsDataWarehouseNode) != isinstance(table_entity, FunnelsDataWarehouseNode):
         return True
-    if is_events_entity(entity) and table_name != "events":
-        return True
-    if is_data_warehouse_entity(entity) and table_name != entity.table_name:
-        return True
-    return False
 
+    if not isinstance(step_entity, FunnelsDataWarehouseNode):
+        return False
 
-def get_table_name(entity: EntityNode):
-    if is_data_warehouse_entity(entity):
-        return entity.table_name
-    else:
-        return "events"
+    assert table_entity is not None and isinstance(table_entity, FunnelsDataWarehouseNode)
+    return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
 
 
 def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:

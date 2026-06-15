@@ -279,7 +279,6 @@
         "$feature/experiments-new-query-runner": true,
         "projected_usage.feature_flags": null,
         "$feature/settings-sessions-v2-join": true,
-        "$feature/web-analytics-hide-modal-actors": true,
         "usage_limit.product_analytics": null,
         "$feature/hog": true,
         "$feature/insight-colors": true,
@@ -591,7 +590,6 @@
         "$session_entry_referrer": "http://localhost:8010/project/1/settings/project",
         "$viewport_width": 1920,
         "$feature/query_running_time": true,
-        "$feature/web-analytics-trend-viz-toggle": true,
         "usage_limit.surveys": 250,
         "$groups": {
             "customer": "cus_S1FJGJmSDsqyJ1",

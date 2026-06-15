@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { ActionStep } from '~/toolbar/actions/ActionStep'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { ActionStep } from '~/toolbar/actions/ActionStep'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 

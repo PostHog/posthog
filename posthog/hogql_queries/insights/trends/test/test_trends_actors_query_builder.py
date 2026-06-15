@@ -4,17 +4,22 @@ from typing import Optional, cast
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
-from hogql_parser import parse_select
+from parameterized import parameterized
 
 from posthog.schema import (
     BaseMathType,
+    Breakdown,
+    BreakdownFilter,
     ChartDisplayType,
     Compare,
     CompareFilter,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
+    GroupNode,
     IntervalType,
     MathGroupTypeIndex,
+    PropertyOperator,
     TrendsFilter,
     TrendsQuery,
 )
@@ -23,8 +28,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.transforms.lazy_tables import find_field_chains
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.constants import UNIQUE_GROUPS
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
@@ -44,6 +52,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         series_index: int = 0,
         trends_query: TrendsQuery = default_query,
         compare_value: Optional[Compare] = None,
+        breakdown_value: Optional[str | int | list[str]] = None,
     ) -> TrendsActorsQueryBuilder:
         timings = HogQLTimings()
         modifiers = create_default_modifiers_for_team(self.team)
@@ -56,6 +65,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             series_index=series_index,
             time_frame=time_frame,
             compare_value=compare_value,
+            breakdown_value=breakdown_value,
         )
 
     def _print_hogql_expr(self, conditions: list[ast.Expr]):
@@ -439,3 +449,114 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                         )
                     ],
                 )
+
+    def test_group_node_preserves_event_property_filters(self):
+        trends_query = TrendsQuery(
+            series=[
+                GroupNode(
+                    operator="OR",
+                    nodes=[
+                        EventsNode(
+                            event="event_a",
+                            properties=[
+                                EventPropertyFilter(key="state", value=["completed"], operator=PropertyOperator.EXACT)
+                            ],
+                        ),
+                        EventsNode(event="event_b"),
+                    ],
+                )
+            ],
+            dateRange=DateRange(date_from="-7d"),
+        )
+
+        builder = self._get_builder(trends_query=trends_query)
+        result = builder._event_or_action_where_expr()
+
+        assert isinstance(result, ast.Or)
+        assert len(result.exprs) == 2
+
+        # First expression should be AND(event = 'event_a', state = 'completed')
+        first = result.exprs[0]
+        assert isinstance(first, ast.And)
+        assert len(first.exprs) == 2
+        assert isinstance(first.exprs[0], ast.CompareOperation)
+        assert first.exprs[0].right == ast.Constant(value="event_a")
+        assert isinstance(first.exprs[1], ast.CompareOperation)
+        assert first.exprs[1].left.chain == ["properties", "state"]  # type: ignore
+
+        # Second expression should be just event = 'event_b'
+        assert isinstance(result.exprs[1], ast.CompareOperation)
+        assert result.exprs[1].right == ast.Constant(value="event_b")
+
+    def test_group_node_without_property_filters(self):
+        trends_query = TrendsQuery(
+            series=[
+                GroupNode(
+                    operator="OR",
+                    nodes=[
+                        EventsNode(event="event_a"),
+                        EventsNode(event="event_b"),
+                    ],
+                )
+            ],
+            dateRange=DateRange(date_from="-7d"),
+        )
+
+        builder = self._get_builder(trends_query=trends_query)
+        result = builder._event_or_action_where_expr()
+
+        assert isinstance(result, ast.Or)
+        assert len(result.exprs) == 2
+        # Both should be simple event comparisons with no property filter wrapping
+        assert isinstance(result.exprs[0], ast.CompareOperation)
+        assert result.exprs[0].right == ast.Constant(value="event_a")
+        assert isinstance(result.exprs[1], ast.CompareOperation)
+        assert result.exprs[1].right == ast.Constant(value="event_b")
+
+    def test_event_metadata_breakdown_uses_event_field_for_actors_query_filter(self):
+        trends_query = default_query.model_copy(
+            update={
+                "breakdownFilter": BreakdownFilter(breakdowns=[Breakdown(type="event_metadata", property="event")])
+            },
+            deep=True,
+        )
+
+        builder = self._get_builder(trends_query=trends_query, breakdown_value=["$pageview"])
+        breakdown_filter = ast.And(exprs=builder._breakdown_where_expr())
+        field_chains = find_field_chains(breakdown_filter)
+
+        assert ["event"] in field_chains
+        assert ["properties", "event"] not in field_chains
+
+    @parameterized.expand(
+        [
+            ("non_null", "Paris", 'properties.location AS "Location"'),
+            ("null", "$$_posthog_breakdown_null_$$", 'properties.location AS "Location"'),
+            ("nested", "Paris", 'properties.location AS Inner AS "Outer"'),
+            ("inside_call", "Paris", "concat(properties.location AS Inner, '') AS Outer"),
+        ]
+    )
+    def test_hogql_breakdown_with_alias_strips_user_alias_in_actors_where(
+        self, _name: str, lookup_value: str, breakdown_expr: str
+    ):
+        class _AssertNoAlias(TraversingVisitor):
+            def __init__(self) -> None:
+                self.found: list[ast.Alias] = []
+
+            def visit_alias(self, node: ast.Alias) -> None:
+                self.found.append(node)
+                super().visit_alias(node)
+
+        trends_query = default_query.model_copy(
+            update={"breakdownFilter": BreakdownFilter(breakdowns=[Breakdown(type="hogql", property=breakdown_expr)])},
+            deep=True,
+        )
+        builder = self._get_builder(trends_query=trends_query, breakdown_value=[lookup_value])
+        where_expr = ast.And(exprs=builder._breakdown_where_expr())
+
+        checker = _AssertNoAlias()
+        checker.visit(where_expr)
+        assert checker.found == [], (
+            f"Actors-WHERE unexpectedly contains Alias node(s): "
+            f"{[(a.alias, type(a.expr).__name__) for a in checker.found]}"
+        )

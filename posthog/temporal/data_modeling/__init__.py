@@ -1,7 +1,11 @@
 from posthog.temporal.data_modeling.activities import (
+    check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
     fail_materialization_activity,
+    get_dag_structure_activity,
     materialize_view_activity,
+    materialize_view_duckgres_activity,
+    preempt_dag_run_activity,
     prepare_queryable_table_activity,
     succeed_materialization_activity,
 )
@@ -16,13 +20,16 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
-from posthog.temporal.data_modeling.workflows import MaterializeViewWorkflow
+from posthog.temporal.data_modeling.workflows import ExecuteDAGWorkflow, MaterializeViewWorkflow
 
-WORKFLOWS = [RunWorkflow, MaterializeViewWorkflow]
+WORKFLOWS = [RunWorkflow, MaterializeViewWorkflow, ExecuteDAGWorkflow]
 ACTIVITIES = [
+    check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
+    get_dag_structure_activity,
     fail_materialization_activity,
     materialize_view_activity,
+    materialize_view_duckgres_activity,
     prepare_queryable_table_activity,
     succeed_materialization_activity,
     finish_run_activity,
@@ -33,4 +40,5 @@ ACTIVITIES = [
     fail_jobs_activity,
     create_job_model_activity,
     cleanup_running_jobs_activity,
+    preempt_dag_run_activity,
 ]

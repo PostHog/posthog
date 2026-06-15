@@ -94,6 +94,7 @@ export function DataWarehouseManagedViewsetCard({
                                           : 'Disabled'
                                 }
                                 bordered
+                                data-attr="managed-viewset-toggle"
                             />
                         </div>
                     )}

@@ -1,6 +1,6 @@
 import datetime
 from datetime import timedelta
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional, TypeVar, cast
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -75,7 +75,7 @@ def process_math(
 
         aggregate_operation = f'count(DISTINCT "$group_{entity.math_group_type_index}")'
     elif entity.math == "unique_session":
-        aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}\"$session_id\")"
+        aggregate_operation = f'count(DISTINCT {event_table_alias + "." if event_table_alias else ""}"$session_id")'
     elif entity.math in PROPERTY_MATH_FUNCTIONS:
         if entity.math_property is None:
             raise ValidationError(
@@ -92,7 +92,7 @@ def process_math(
     elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
         aggregate_operation = f"{COUNT_PER_ACTOR_MATH_FUNCTIONS[entity.math]}(intermediate_count)"
     elif entity.math == "hogql":
-        aggregate_operation = translate_hogql(entity.math_hogql, filter.hogql_context)
+        aggregate_operation = translate_hogql(cast(str, entity.math_hogql), filter.hogql_context)
 
     return aggregate_operation, join_condition, params
 

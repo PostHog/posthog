@@ -1,25 +1,41 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use base64::Engine;
-use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
+use bytes::Bytes;
+use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
 use reqwest::Url;
+use sqlx::PgPool;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    error::{JsResolveErr, ResolveError},
+    error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
-        SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
-        SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
+        CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
+        SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND,
+        SOURCEMAP_PARSE, SYMBOL_SET_DECOMPRESSED_BYTES,
     },
 };
 
-use super::{Fetcher, Parser};
+use super::{
+    caching::Countable,
+    chunk_id::{load_symbol_set_data, SymbolSetLoadResult},
+    dart_minified_names::parse_dart_minified_names,
+    BlobClient, Fetcher, Parser,
+};
 
 pub struct SourcemapProvider {
     pub client: reqwest::Client,
+    pub chunk_id_rescue: Option<ChunkIdRescue>,
+}
+
+#[derive(Clone)]
+pub struct ChunkIdRescue {
+    pub pool: PgPool,
+    pub blob_client: Arc<dyn BlobClient>,
+    pub bucket: String,
 }
 
 // Sigh. Later we can be smarter here to only do the parse once, but it involves
@@ -28,6 +44,11 @@ pub struct SourcemapProvider {
 #[derive(Debug)]
 pub struct OwnedSourceMapCache {
     data: Vec<u8>,
+    /// dart2js minified names mapping (minified -> original) for Flutter Web support.
+    /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
+    dart_minified_names: Option<HashMap<String, String>>,
+    /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
+    decompressed_bytes: usize,
 }
 
 impl OwnedSourceMapCache {
@@ -35,21 +56,46 @@ impl OwnedSourceMapCache {
         // Pass-through parse once to assert we're given valid data, so the unwrap below
         // is safe.
         SourceMapCache::parse(&data)?;
-        Ok(Self { data })
+        let decompressed_bytes = data.len();
+        Ok(Self {
+            data,
+            dart_minified_names: None,
+            decompressed_bytes,
+        })
     }
 
     pub fn from_source_and_map(
         sam: SourceAndMap,
+        decompressed_bytes: usize,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
+        // Parse dart2js minified names before we lose access to the raw JSON
+        let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
+
         let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
         let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
         smcw.serialize(&mut data).unwrap();
-        Ok(Self { data })
+        Ok(Self {
+            data,
+            dart_minified_names,
+            decompressed_bytes,
+        })
     }
 
     pub fn get_smc(&self) -> SourceMapCache<'_> {
         // UNWRAP - we've already parsed this data once, so we know it's valid
         SourceMapCache::parse(&self.data).unwrap()
+    }
+
+    /// Returns the dart2js minified names map if this sourcemap has the extension.
+    /// Used for remapping Flutter Web minified exception types like "minified:BA".
+    pub fn get_dart_minified_names(&self) -> Option<&HashMap<String, String>> {
+        self.dart_minified_names.as_ref()
+    }
+}
+
+impl Countable for OwnedSourceMapCache {
+    fn byte_count(&self) -> usize {
+        self.decompressed_bytes
     }
 }
 
@@ -61,7 +107,27 @@ impl SourcemapProvider {
             .timeout(timeout)
             .connect_timeout(connect_timeout);
 
-        if !config.allow_internal_ips {
+        fn valid_proxy_url(var: &str) -> bool {
+            std::env::var(var)
+                .ok()
+                .filter(|v| !v.is_empty())
+                .and_then(|v| reqwest::Url::parse(&v).ok())
+                .is_some()
+        }
+
+        let has_proxy = valid_proxy_url("HTTP_PROXY")
+            || valid_proxy_url("HTTPS_PROXY")
+            || valid_proxy_url("http_proxy")
+            || valid_proxy_url("https_proxy");
+
+        if has_proxy {
+            // When an egress proxy (e.g. smokescreen) is configured, it handles SSRF
+            // protection. The PublicIPv4Resolver would block the connection to the proxy
+            // itself since it resolves to a cluster-internal IP.
+            info!(
+                "HTTP(S)_PROXY is set, skipping PublicIPv4Resolver (proxy handles SSRF protection)"
+            );
+        } else if !config.allow_internal_ips {
             client = client.dns_resolver(Arc::new(common_dns::PublicIPv4Resolver {}));
         } else {
             warn!("Internal IPs are allowed, this is a security risk");
@@ -69,7 +135,24 @@ impl SourcemapProvider {
 
         let client = client.build().unwrap();
 
-        Self { client }
+        Self {
+            client,
+            chunk_id_rescue: None,
+        }
+    }
+
+    pub fn with_chunk_id_rescue(
+        mut self,
+        pool: PgPool,
+        blob_client: Arc<dyn BlobClient>,
+        bucket: String,
+    ) -> Self {
+        self.chunk_id_rescue = Some(ChunkIdRescue {
+            pool,
+            blob_client,
+            bucket,
+        });
+        self
     }
 }
 
@@ -88,15 +171,27 @@ impl From<Url> for SourceMappingUrl {
 #[async_trait]
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
-    type Fetched = Vec<u8>;
+    type Fetched = Bytes;
     type Err = ResolveError;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Self::Err> {
+    async fn fetch(&self, team_id: i32, r: Url) -> Result<Bytes, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
-        let (smu, minified_source) = find_sourcemap_url(&self.client, r).await?;
+        let peek = find_sourcemap_url(&self.client, r).await?;
 
         let start = start.label("found_url", "true");
 
-        let sourcemap = match smu {
+        if let Some(rescue) = &self.chunk_id_rescue {
+            if let Some(chunk_id) = peek.chunk_id_from_body.as_deref() {
+                if let Some(data) = try_chunk_id_rescue(rescue, team_id, chunk_id).await? {
+                    start
+                        .label("found_data", "true")
+                        .label("rescued", "true")
+                        .fin();
+                    return Ok(data);
+                }
+            }
+        }
+
+        let sourcemap = match peek.sourcemap_url {
             SourceMappingUrl::Url(sourcemap_url) => {
                 fetch_source_map(&self.client, sourcemap_url.clone()).await?
             }
@@ -107,37 +202,111 @@ impl Fetcher for SourcemapProvider {
         assert_is_sourcemap(&sourcemap)?;
 
         let sam = SourceAndMap {
-            minified_source,
+            minified_source: peek.body,
             sourcemap,
         };
         let data = write_symbol_data(sam).map_err(JsResolveErr::JSDataError)?;
 
         start.label("found_data", "true").fin();
 
-        Ok(data)
+        Ok(Bytes::from(data))
+    }
+}
+
+async fn try_chunk_id_rescue(
+    rescue: &ChunkIdRescue,
+    team_id: i32,
+    chunk_id: &str,
+) -> Result<Option<Bytes>, ResolveError> {
+    match load_symbol_set_data(
+        &rescue.pool,
+        rescue.blob_client.as_ref(),
+        &rescue.bucket,
+        team_id,
+        chunk_id,
+    )
+    .await
+    .map_err(ResolveError::UnhandledError)?
+    {
+        SymbolSetLoadResult::Data(data) => {
+            metrics::counter!(CHUNK_ID_RESCUED_FROM_BODY).increment(1);
+            info!(
+                "Rescued URL-fetched JS frame via uploaded symbol set for chunk id {}",
+                chunk_id
+            );
+            Ok(Some(data))
+        }
+        SymbolSetLoadResult::MissingBlob(mut record) => {
+            warn!(
+                "Symbol set record for chunk id {} points to a missing S3 object",
+                record.set_ref
+            );
+            record
+                .delete(&rescue.pool)
+                .await
+                .map_err(ResolveError::UnhandledError)?;
+            Ok(None)
+        }
+        SymbolSetLoadResult::Missing
+        | SymbolSetLoadResult::Failed(_)
+        | SymbolSetLoadResult::MissingStoragePtr(_) => Ok(None),
     }
 }
 
 #[async_trait]
 impl Parser for SourcemapProvider {
-    type Source = Vec<u8>;
+    type Source = Bytes;
     type Set = OwnedSourceMapCache;
     type Err = ResolveError;
-    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
+    async fn parse(&self, data: Bytes) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
-        let smc = OwnedSourceMapCache::from_source_and_map(sam)
-            .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
+        // `read_symbol_data_with_byte_count` zstd-decompresses a potentially large blob, and
+        // `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
+        // worker blocks the runtime; offload to a blocking thread instead.
+        let smc =
+            tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
+                let (sam, decompressed_bytes): (SourceAndMap, usize) =
+                    read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
+                metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")
+                    .record(decompressed_bytes as f64);
+                OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
+                    .map_err(|_| JsResolveErr::InvalidSourceAndMap.into())
+            })
+            .await
+            .map_err(|e| UnhandledError::Other(format!("sourcemap parse task failed: {e}")))??;
 
         start.label("success", "true").fin();
         Ok(smc)
     }
 }
 
+struct JsSourcePeek {
+    body: String,
+    sourcemap_url: SourceMappingUrl,
+    chunk_id_from_body: Option<String>,
+}
+
+const CHUNK_ID_COMMENT_PREFIXES: &[&str] = &["//# chunkId=", "//@ chunkId="];
+
+fn extract_chunk_id_from_body(body: &str) -> Option<String> {
+    for line in body.lines().rev().take(32) {
+        let trimmed = line.trim();
+        for prefix in CHUNK_ID_COMMENT_PREFIXES {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                let id = rest.trim();
+                if !id.is_empty() {
+                    return Some(id.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 async fn find_sourcemap_url(
     client: &reqwest::Client,
     start: Url,
-) -> Result<(SourceMappingUrl, String), ResolveError> {
+) -> Result<JsSourcePeek, ResolveError> {
     info!("Fetching script source from {}", start);
 
     // If this request fails, we cannot resolve the frame, and hand this error to the frames
@@ -162,6 +331,9 @@ async fn find_sourcemap_url(
 
     // We always need the body
     let body = res.text().await.map_err(JsResolveErr::from)?;
+    metrics::histogram!(SOURCEMAP_EXTERNAL_BYTES, "kind" => "source").record(body.len() as f64);
+
+    let chunk_id_from_body = extract_chunk_id_from_body(&body);
 
     if let Some(header_url) = header_url {
         info!("Found sourcemap header: {:?}", header_url);
@@ -182,7 +354,11 @@ async fn find_sourcemap_url(
             final_url.set_path(url);
             final_url
         };
-        return Ok((url.into(), body));
+        return Ok(JsSourcePeek {
+            body,
+            sourcemap_url: url.into(),
+            chunk_id_from_body,
+        });
     }
 
     // If we didn't find a header, we have to check the body
@@ -196,7 +372,11 @@ async fn find_sourcemap_url(
             // If we can parse this as a data URL, we can just use that
             if let Some(data) = maybe_as_data_url(final_url.as_ref(), found, data_url_to_json_str)?
             {
-                return Ok((SourceMappingUrl::Data(data), body));
+                return Ok(JsSourcePeek {
+                    body,
+                    sourcemap_url: SourceMappingUrl::Data(data),
+                    chunk_id_from_body,
+                });
             }
 
             // If the found url has a scheme, we can just parse it
@@ -222,7 +402,11 @@ async fn find_sourcemap_url(
                 final_url.set_path(found);
                 final_url
             };
-            return Ok((url.into(), body));
+            return Ok(JsSourcePeek {
+                body,
+                sourcemap_url: url.into(),
+                chunk_id_from_body,
+            });
         }
     }
 
@@ -234,7 +418,11 @@ async fn find_sourcemap_url(
     test_url.set_path(&(test_url.path().to_owned() + ".map"));
     if let Ok(res) = client.head(test_url.clone()).send().await {
         if res.status().is_success() {
-            return Ok((res.url().clone().into(), body));
+            return Ok(JsSourcePeek {
+                body,
+                sourcemap_url: res.url().clone().into(),
+                chunk_id_from_body,
+            });
         }
     }
 
@@ -249,6 +437,8 @@ async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, 
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
     let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
+    metrics::histogram!(SOURCEMAP_EXTERNAL_BYTES, "kind" => "sourcemap")
+        .record(sourcemap.len() as f64);
     Ok(sourcemap)
 }
 
@@ -391,10 +581,10 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
-        let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
+        let peek = find_sourcemap_url(&client, url).await.unwrap();
 
-        let SourceMappingUrl::Url(res) = res else {
-            panic!("Expected URL, got {res:?}");
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
         };
 
         // We're doing relative-URL resolution here, so we have to account for that
@@ -482,10 +672,10 @@ mod test {
             .url("/static/inline_sourcemap_example.js")
             .parse()
             .unwrap();
-        let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
+        let peek = find_sourcemap_url(&client, url).await.unwrap();
 
-        let SourceMappingUrl::Data(res) = res else {
-            panic!("Expected Data, got {res:?}");
+        let SourceMappingUrl::Data(res) = peek.sourcemap_url else {
+            panic!("Expected Data, got something else");
         };
 
         let expected = include_str!("../../tests/static/inline_sourcemap_example.js.map");
@@ -493,5 +683,197 @@ mod test {
         assert_eq!(res.trim(), expected.trim());
 
         mock.assert_hits(1);
+    }
+
+    #[test]
+    fn extract_chunk_id_from_body_handles_known_prefixes() {
+        let canonical =
+            "/* code */\n//# sourceMappingURL=foo.map\n//# chunkId=019dfdfb-2ec9-7d71-84a2-6c269108158f\n";
+        assert_eq!(
+            extract_chunk_id_from_body(canonical),
+            Some("019dfdfb-2ec9-7d71-84a2-6c269108158f".to_string())
+        );
+
+        assert_eq!(
+            extract_chunk_id_from_body("//@ chunkId=abc-123\n"),
+            Some("abc-123".to_string())
+        );
+
+        assert_eq!(extract_chunk_id_from_body("just some code"), None);
+        assert_eq!(extract_chunk_id_from_body("//# chunkId=\n"), None);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn chunk_id_rescue_short_circuits_when_map_url_is_404(db: PgPool) {
+        use crate::symbol_store::{saving::SymbolSetRecord, MockS3Client};
+        use chrono::Utc;
+        use mockall::predicate;
+        use uuid::Uuid;
+
+        const RESCUE_BUCKET: &str = "test-bucket";
+
+        let chunk_id = "019dfdfb-2ec9-7d71-84a2-6c269108158f".to_string();
+        let map_path = "/static/chunk.js.map";
+        let js_path = "/static/chunk.js";
+
+        let server = MockServer::start();
+        let body = format!(
+            "console.log('hello');\n//# sourceMappingURL={map_path}\n//# chunkId={chunk_id}\n"
+        );
+        let js_mock = server.mock(|when, then| {
+            when.method("GET").path(js_path);
+            then.status(200).body(body);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET").path(map_path);
+            then.status(404);
+        });
+
+        let storage_key = format!("symbolsets/{}", Uuid::now_v7());
+        SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(storage_key.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        }
+        .save(&db)
+        .await
+        .unwrap();
+
+        let saved_payload = Bytes::from(
+            write_symbol_data(SourceAndMap {
+                minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
+                sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
+            })
+            .unwrap(),
+        );
+        let saved_payload_for_mock = saved_payload.clone();
+
+        let mut s3 = MockS3Client::default();
+        s3.expect_get()
+            .with(
+                predicate::eq(RESCUE_BUCKET),
+                predicate::eq(storage_key.clone()),
+            )
+            .returning(move |_, _| Ok(Some(saved_payload_for_mock.clone())));
+        let s3: Arc<dyn BlobClient> = Arc::new(s3);
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
+            db.clone(),
+            s3,
+            RESCUE_BUCKET.to_string(),
+        );
+
+        let url = server.url(js_path).parse().unwrap();
+        let got = provider.fetch(1, url).await.unwrap();
+
+        assert_eq!(got, saved_payload, "rescue should return saved S3 bytes");
+        js_mock.assert_hits(1);
+        map_mock.assert_hits(0);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn chunk_id_rescue_falls_through_when_no_db_record(db: PgPool) {
+        use crate::symbol_store::MockS3Client;
+
+        const RESCUE_BUCKET: &str = "test-bucket";
+
+        let server = MockServer::start();
+        let js_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(MINIFIED);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let s3: Arc<dyn BlobClient> = Arc::new(MockS3Client::default());
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
+            db.clone(),
+            s3,
+            RESCUE_BUCKET.to_string(),
+        );
+
+        let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
+        provider.fetch(1, url).await.unwrap();
+
+        js_mock.assert_hits(1);
+        map_mock.assert_hits(1);
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn chunk_id_rescue_deletes_stale_record_when_blob_is_missing(db: PgPool) {
+        use crate::symbol_store::{saving::SymbolSetRecord, MockS3Client};
+        use chrono::Utc;
+        use mockall::predicate;
+        use uuid::Uuid;
+
+        const RESCUE_BUCKET: &str = "test-bucket";
+
+        let chunk_id = "019dfdfb-2ec9-7d71-84a2-6c269108158f".to_string();
+        let storage_key = format!("symbolsets/{}", Uuid::now_v7());
+
+        SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id: 1,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(storage_key.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        }
+        .save(&db)
+        .await
+        .unwrap();
+
+        let server = MockServer::start();
+        let body =
+            format!("console.log('hello');\n//# sourceMappingURL=/static/chunk.js.map\n//# chunkId={chunk_id}\n");
+        let js_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js.map");
+            then.status(200).body(MAP);
+        });
+
+        let mut s3 = MockS3Client::default();
+        s3.expect_get()
+            .with(
+                predicate::eq(RESCUE_BUCKET),
+                predicate::eq(storage_key.clone()),
+            )
+            .returning(|_, _| Ok(None));
+        let s3: Arc<dyn BlobClient> = Arc::new(s3);
+
+        let mut config = Config::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config).with_chunk_id_rescue(
+            db.clone(),
+            s3,
+            RESCUE_BUCKET.to_string(),
+        );
+
+        let url = server.url("/static/chunk.js").parse().unwrap();
+        provider.fetch(1, url).await.unwrap();
+
+        assert!(SymbolSetRecord::load(&db, 1, &chunk_id)
+            .await
+            .unwrap()
+            .is_none());
+        js_mock.assert_hits(1);
+        map_mock.assert_hits(1);
     }
 }

@@ -6,7 +6,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { ActionsNode, DataWarehouseNode, EventsNode } from '~/queries/schema/schema-general'
+import { ActionsNode, DataWarehouseNode, EventsNode, GroupNode } from '~/queries/schema/schema-general'
 import { FilterType, InsightType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'
@@ -265,7 +265,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
     })),
     listeners(({ actions, values }) => ({
         saveEvents: () => {
-            const events: Record<string, ActionsNode | EventsNode | DataWarehouseNode> = {}
+            const events: Record<string, ActionsNode | EventsNode | DataWarehouseNode | GroupNode> = {}
             if (values.activityEventSelection) {
                 const activityEvents = actionsAndEventsToSeries(
                     values.activityEventSelection as any,

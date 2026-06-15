@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -20,6 +21,10 @@ export const projectLogic = kea<projectLogicType>([
         deleteProject: (project: ProjectType) => ({ project }),
         deleteProjectSuccess: true,
         deleteProjectFailure: true,
+        guardPendingDeletion: (pathname: string, isPendingDeletion: boolean | null | undefined) => ({
+            pathname,
+            isPendingDeletion,
+        }),
         moveProject: (project: ProjectType, organizationId: string) => ({ project, organizationId }),
     }),
     connect(() => ({
@@ -122,27 +127,45 @@ export const projectLogic = kea<projectLogicType>([
                     : null,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
+            }
+            // Lock the project out once deletion has been initiated (covers full page loads / reloads)
+            actions.guardPendingDeletion(router.values.location.pathname, currentProject?.is_pending_deletion)
+        },
+        locationChanged: ({ pathname }) => {
+            actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
+        },
+        guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
+            // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
+            const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())
+            if (isPendingDeletion && !onLockoutScreen) {
+                router.actions.replace(urls.projectPendingDeletion())
+            } else if (!isPendingDeletion && onLockoutScreen) {
+                // Reached the lockout screen for a project that isn't being deleted (e.g. switched projects) — send home
+                router.actions.replace(urls.projectHomepage())
             }
         },
         deleteProject: async ({ project }) => {
             try {
                 await api.delete(`api/projects/${project.id}`)
-                location.reload()
                 actions.deleteProjectSuccess()
-            } catch {
+            } catch (e) {
+                const apiError = e as Record<string, any>
+                lemonToast.error(apiError.detail || 'Failed to delete project. Please try again.')
                 actions.deleteProjectFailure()
             }
         },
         deleteProjectSuccess: () => {
-            lemonToast.success('Project has been deleted')
+            lemonToast.success('Project deletion has been initiated')
+            // Full reload so the bootstrap context carries is_pending_deletion and lands on the lockout screen
+            window.location.href = urls.projectPendingDeletion()
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.useCaseSelection())
+                actions.switchTeam(currentProject.id, urls.projectHomepage())
             }
         },
 

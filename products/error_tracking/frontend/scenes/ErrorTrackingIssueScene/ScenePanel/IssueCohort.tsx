@@ -24,9 +24,9 @@ export function IssueCohort({ issue }: { issue: ErrorTrackingRelationalIssue }):
 function IssueCohortCreate({ issue }: { issue: ErrorTrackingRelationalIssue }): JSX.Element {
     const { createIssueCohort } = useAsyncActions(issueActionsLogic)
 
-    const onCreate = useCallback(
+    const onCreate: IssueCohortFormHandler = useCallback(
         async (name, description) => {
-            await createIssueCohort(issue.id, name, description)
+            await createIssueCohort(issue.id, name, description ?? '')
             lemonToast.success(`Cohort created`)
         },
         [issue, createIssueCohort]

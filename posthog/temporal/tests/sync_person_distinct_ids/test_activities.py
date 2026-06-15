@@ -33,7 +33,7 @@ from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
 )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestFindOrphanedPersons:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -121,7 +121,7 @@ class TestFindOrphanedPersons:
         assert len(result.orphaned_persons) == 2
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestLookupPgDistinctIds:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -245,7 +245,7 @@ class TestLookupPgDistinctIds:
         assert len(result.persons_not_found) == 0
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestSyncDistinctIdsToCh:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -304,9 +304,7 @@ class TestSyncDistinctIdsToCh:
         self.created_distinct_ids.extend(distinct_ids)
         insert_person_to_ch(self.team.id, person_uuid, version=0)
 
-        mapping = PersonDistinctIdMapping(
-            person_uuid=person_uuid, distinct_id_versions={did: 0 for did in distinct_ids}
-        )
+        mapping = PersonDistinctIdMapping(person_uuid=person_uuid, distinct_id_versions=dict.fromkeys(distinct_ids, 0))
 
         result: SyncDistinctIdsToChResult = await self.activity_environment.run(
             sync_distinct_ids_to_ch,
@@ -359,7 +357,7 @@ class TestSyncDistinctIdsToCh:
         assert str(ch_did2["person_id"]) == person_uuid
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestMarkChOnlyOrphansDeleted:
     @pytest.fixture(autouse=True)
     def setup(self, team, test_prefix, activity_environment):
@@ -408,7 +406,7 @@ class TestMarkChOnlyOrphansDeleted:
             self.created_person_uuids.append(person_uuid)
             insert_person_to_ch(self.team.id, person_uuid, version=0)
 
-        person_versions = {uuid: 0 for uuid in person_uuids}
+        person_versions = dict.fromkeys(person_uuids, 0)
         result: MarkChOnlyOrphansDeletedResult = await self.activity_environment.run(
             mark_ch_only_orphans_deleted,
             MarkChOnlyOrphansDeletedInputs(team_id=self.team.id, person_versions=person_versions, dry_run=False),
@@ -451,7 +449,7 @@ class TestMarkChOnlyOrphansDeleted:
         )
 
 
-@pytest.mark.django_db(transaction=True)
+@pytest.mark.django_db
 class TestEndToEndOrphanCategories:
     """Test the complete flow of finding and categorizing all orphan types."""
 

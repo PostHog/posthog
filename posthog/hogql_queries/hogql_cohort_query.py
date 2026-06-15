@@ -2,7 +2,7 @@ from collections import defaultdict, namedtuple
 from copy import deepcopy
 from datetime import datetime
 from numbers import Number
-from typing import Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
@@ -47,25 +47,153 @@ from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Cohort, Filter, Property, Team
-from posthog.models.property import PropertyGroup
-from posthog.queries.cohort_query import CohortQuery
-from posthog.queries.foss_cohort_query import (
-    INTERVAL_TO_SECONDS,
-    FOSSCohortQuery,
-    parse_and_validate_positive_integer,
-    validate_interval,
-)
+from posthog.models import Filter, Property, Team
+from posthog.models.property import OperatorInterval, PropertyGroup
 from posthog.types import AnyPropertyFilter
 
+from products.cohorts.backend.models.cohort import Cohort
 
-class TestWrapperCohortQuery(CohortQuery):
+INTERVAL_TO_SECONDS = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2592000,
+    "year": 31536000,
+}
+
+
+def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
+    if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
+        raise ValueError(f"Invalid interval: {interval}")
+    else:
+        return interval
+
+
+def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_name: str) -> int:
+    if value is None:
+        raise ValueError(f"{value_name} cannot be None")
+    try:
+        parsed_value = int(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"{value_name} must be an integer, got {value}")
+    if parsed_value <= 0:
+        raise ValueError(f"{value_name} must be greater than 0, got {value}")
+    return parsed_value
+
+
+def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None) -> Filter:
+    """Flatten cohort-typed properties into nested static/dynamic-cohort PropertyGroups.
+
+    Each ``cohort``/``precalculated-cohort`` property is replaced by an AND group holding a
+    single ``static-cohort``/``dynamic-cohort`` property, while sibling properties are wrapped
+    into AND groups too, propagating negation per De Morgan's law.
+    """
+
+    def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
+        nonlocal team
+        if len(property_group.values):
+            if isinstance(property_group.values[0], PropertyGroup):
+                # dealing with a list of property groups, so unwrap each one
+                # Propogate the negation to the children and handle as necessary with respect to deMorgan's law
+                if not negate_group:
+                    return PropertyGroup(
+                        type=property_group.type,
+                        values=[_unwrap(v) for v in cast(list[PropertyGroup], property_group.values)],
+                    )
+                else:
+                    return PropertyGroup(
+                        type=(
+                            PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR
+                        ),
+                        values=[_unwrap(v, True) for v in cast(list[PropertyGroup], property_group.values)],
+                    )
+
+            elif isinstance(property_group.values[0], Property):
+                # dealing with a list of properties
+                # if any single one is a cohort property, unwrap it into a property group
+                # which implies converting everything else in the list into a property group too
+
+                new_property_group_list: list[PropertyGroup] = []
+                for prop in property_group.values:
+                    prop = cast(Property, prop)
+                    current_negation = prop.negation or False
+                    negation_value = not current_negation if negate_group else current_negation
+                    if prop.type in ["cohort", "precalculated-cohort"]:
+                        try:
+                            # Use passed cohort object if it matches the requested cohort ID
+                            if cohort is not None and str(cohort.pk) == str(prop.value):
+                                prop_cohort = cohort
+                            else:
+                                # Use passed team object if available, otherwise fetch from database
+                                if team is None:
+                                    team = Team.objects.get(pk=team_id)
+                                prop_cohort = Cohort.objects.get(
+                                    pk=cast(str | int, prop.value), team__project_id=team.project_id
+                                )
+                            new_property_group_list.append(
+                                PropertyGroup(
+                                    type=PropertyOperatorType.AND,
+                                    values=[
+                                        Property(
+                                            type="static-cohort" if prop_cohort.is_static else "dynamic-cohort",
+                                            key="id",
+                                            value=prop_cohort.pk,
+                                            negation=negation_value,
+                                        )
+                                    ],
+                                )
+                            )
+                        except Cohort.DoesNotExist:
+                            new_property_group_list.append(
+                                PropertyGroup(
+                                    type=PropertyOperatorType.AND,
+                                    values=[
+                                        Property(
+                                            key="fake_key_01r2ho",
+                                            value="0",
+                                            type="person",
+                                        )
+                                    ],
+                                )
+                            )
+                    else:
+                        prop.negation = negation_value
+                        new_property_group_list.append(PropertyGroup(type=PropertyOperatorType.AND, values=[prop]))
+                if not negate_group:
+                    return PropertyGroup(type=property_group.type, values=new_property_group_list)
+                else:
+                    return PropertyGroup(
+                        type=(
+                            PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR
+                        ),
+                        values=new_property_group_list,
+                    )
+
+        return property_group
+
+    new_props = _unwrap(filter.property_groups)
+    return filter.shallow_clone({"properties": new_props.to_dict()})
+
+
+class TestWrapperCohortQuery:
+    """Runs a filter through HogQLCohortQuery for the cohort-query test suite.
+
+    ``hogql_result`` holds the executed result the tests assert membership against;
+    ``clickhouse_query`` / ``get_query`` expose the generated SQL.
+    """
+
     def __init__(self, filter: Filter, team: Team):
-        cohort_query = CohortQuery(filter=filter, team=team)
-        executor = HogQLCohortQuery(cohort_query=cohort_query).get_query_executor()
+        executor = HogQLCohortQuery(filter=filter, team=team).get_query_executor()
         self.hogql_result = executor.execute()
         self.clickhouse_query = executor.clickhouse_sql
-        super().__init__(filter=filter, team=team)
+
+    def get_query(self) -> tuple[str, dict[str, Any]]:
+        return self.clickhouse_query or "", {}
 
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
@@ -97,28 +225,32 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 class HogQLCohortQuery:
     def __init__(
         self,
-        cohort_query: Optional[CohortQuery] = None,
+        filter: Optional[Filter] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.team = team or cohort.team
-            filter = FOSSCohortQuery.unwrap_cohort(
+            unwrapped = unwrap_cohort(
                 Filter(
                     data={"properties": cohort.properties},
                     team=cohort.team,
                     hogql_context=self.hogql_context,
                 ),
                 self.team.pk,
+                self.team,
+                cohort,
             )
-            self.property_groups = filter.property_groups
-        elif cohort_query is not None:
-            self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
-            self.property_groups = cohort_query._filter.property_groups
-            self.team = team or cohort_query._team
+            self.property_groups = unwrapped.property_groups
+        elif filter is not None:
+            if team is None:
+                raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
+            self.hogql_context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+            self.team = team
+            self.property_groups = unwrap_cohort(filter, team.pk, team).property_groups
         else:
-            raise
+            raise ValueError("HogQLCohortQuery requires either a cohort or a filter")
 
     def get_query_executor(self) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
@@ -127,7 +259,7 @@ class HogQLCohortQuery:
             modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
             team=self.team,
             limit_context=LimitContext.COHORT_CALCULATION,
-            settings=HogQLGlobalSettings(allow_experimental_analyzer=None),
+            settings=HogQLGlobalSettings(),
         )
 
     def get_query(self) -> SelectQuery | SelectSetQuery:
@@ -168,13 +300,15 @@ class HogQLCohortQuery:
             # Explicit datetime filter, can be a relative or absolute date, follows same convention
             # as all analytics datetime filters
             date_from = prop.explicit_datetime
+            date_to = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from = f"-{date_value}{date_interval[:1]}"
+            date_to = None
 
         trends_query = TrendsQuery(
-            dateRange=DateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             trendsFilter=TrendsFilter(display="ActionsBarValue"),
             series=series,
         )
@@ -186,12 +320,14 @@ class HogQLCohortQuery:
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
+            date_to = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from = f"-{date_value}{date_interval[:1]}"
+            date_to = None
 
-        events_query = EventsQuery(after=date_from, select=["person_id", "count()"])
+        events_query = EventsQuery(after=date_from, before=date_to, select=["person_id", "count()"])
         if prop.event_type == "events":
             events_query.event = prop.key
         elif prop.event_type == "actions":
@@ -248,10 +384,12 @@ class HogQLCohortQuery:
 
         if prop.explicit_datetime:
             date_from = prop.explicit_datetime
+            date_to = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from = f"-{date_value}{date_interval[:1]}"
+            date_to = None
 
         date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
         date_interval = validate_interval(prop.seq_time_interval)
@@ -259,7 +397,7 @@ class HogQLCohortQuery:
 
         funnel_query = FunnelsQuery(
             series=series,
-            dateRange=DateRange(date_from=date_from),
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
             funnelsFilter=FunnelsFilter(
                 funnelWindowInterval=funnelWindowInterval,
                 funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.SECOND,
@@ -393,25 +531,33 @@ class HogQLCohortQuery:
         return query_runner.to_query()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        # Convert the cohort id to an int (not the no-op typing.cast) and bind it as a parameter.
+        # prop.value is normally a cohort pk, but an internal cohort property smuggled through the
+        # unvalidated legacy `groups` field could carry an arbitrary string; binding it (rather than
+        # interpolating into parse_select) keeps it out of the query structure.
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort = Cohort.objects.get(
+            pk=parse_and_validate_positive_integer(prop.value, "cohort id"), team__project_id=self.team.project_id
+        )
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort.pk} AND team_id = {self.team.pk}",
+                "SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                {"cohort_id": ast.Constant(value=cohort.pk), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
-        cohort_id = cast(int, prop.value)
-
+        # See get_static_cohort_condition: convert + bind so a non-int value can't alter the query.
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort_id = parse_and_validate_positive_integer(prop.value, "cohort id")
         return cast(
             ast.SelectQuery,
             parse_select(
-                f"""
-                SELECT person_id as id FROM cohort_people
-                WHERE cohort_id = {cohort_id}
-                AND team_id = {self.team.pk}
-                """,
+                "SELECT person_id as id FROM cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                {"cohort_id": ast.Constant(value=cohort_id), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )
 
@@ -442,7 +588,7 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
-    def _should_combine_person_properties(self) -> bool:
+    def _should_combine_person_properties_and(self) -> bool:
         return posthoganalytics.feature_enabled(
             "hogql-cohort-combine-person-properties",
             str(self.team.uuid),
@@ -462,9 +608,30 @@ class HogQLCohortQuery:
             send_feature_flag_events=False,
         )
 
+    def _should_combine_person_properties_or(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "hogql-cohort-combine-person-properties-or",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         Condition = namedtuple("Condition", ["query", "negation"])
-        should_combine_person_properties = self._should_combine_person_properties()
+        should_combine_person_properties_and = self._should_combine_person_properties_and()
+        should_combine_person_properties_or = self._should_combine_person_properties_or()
 
         def unwrap_property(prop: Union[PropertyGroup, Property]) -> Optional[Property]:
             """Unwrap a PropertyGroup to get the underlying Property if it contains exactly one."""
@@ -481,28 +648,33 @@ class HogQLCohortQuery:
             unwrapped = [unwrap_property(prop) for prop in properties]
             return all(p is not None and p.type == "person" and not p.negation for p in unwrapped)
 
-        def combine_person_properties(properties: Union[list[Property], list[PropertyGroup]]) -> ast.SelectQuery:
+        def combine_person_properties(
+            properties: Union[list[Property], list[PropertyGroup]], combine_type: PropertyOperatorType
+        ) -> ast.SelectQuery:
             """
             Combine multiple person property filters into a single ActorsQuery.
 
-            This optimization replaces N separate queries with N-1 INTERSECT operations
-            with a single query that includes all conditions. For cohorts with many person
-            properties, this reduces query time by ~19x and memory usage by ~15x.
-
-            Example:
-                Before: Query1 INTERSECT DISTINCT Query2 INTERSECT DISTINCT Query3
-                After:  Single query with AND(condition1, condition2, condition3)
+            For AND: Replaces N queries with N-1 INTERSECT operations with a single query.
+            For OR: Replaces N queries with N-1 UNION DISTINCT operations with a single query.
             """
             person_filters = []
             for prop_or_group in properties:
-                # Unwrap PropertyGroup to get the underlying Property
                 prop = unwrap_property(prop_or_group)
                 if prop is None:
                     continue
                 person_filters.append(convert_property(prop))
 
+            # AND: pass list directly (default behavior)
+            # OR: wrap in PropertyGroupFilterValue
+            query_properties: Union[list[PersonPropertyFilter], PropertyGroupFilterValue] = person_filters
+            if combine_type == PropertyOperatorType.OR:
+                query_properties = PropertyGroupFilterValue(
+                    type=PropertyOperatorType.OR,
+                    values=person_filters,
+                )
+
             actors_query = ActorsQuery(
-                properties=person_filters,
+                properties=query_properties,
                 select=["id"],
             )
             query_runner = ActorsQueryRunner(team=self.team, query=actors_query)
@@ -517,9 +689,11 @@ class HogQLCohortQuery:
             if isinstance(prop, Property):
                 return Condition(self._get_condition_for_property(prop), prop.negation or False)
 
-            if should_combine_person_properties:
-                if prop.type == PropertyOperatorType.AND and can_combine_person_properties(prop.values):
-                    return Condition(combine_person_properties(prop.values), False)
+            if can_combine_person_properties(prop.values):
+                if should_combine_person_properties_and and prop.type == PropertyOperatorType.AND:
+                    return Condition(combine_person_properties(prop.values, PropertyOperatorType.AND), False)
+                if should_combine_person_properties_or and prop.type == PropertyOperatorType.OR:
+                    return Condition(combine_person_properties(prop.values, PropertyOperatorType.OR), False)
 
             children = [build_conditions(property) for property in prop.values]
 
@@ -592,14 +766,22 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
     def __init__(
         self,
-        cohort_query: Optional[CohortQuery] = None,
+        filter: Optional[Filter] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
-        super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
+        super().__init__(filter=filter, cohort=cohort, team=team)
         self.cohort = cohort
         # Preprocess to merge properties with same key and operator
         self.property_groups = self._preprocess_property_groups(self.property_groups)  # type: ignore[assignment]
+
+    def _should_combine_person_properties_and(self) -> bool:
+        """Realtime cohorts should not use AND combining optimization."""
+        return False
+
+    def _should_combine_person_properties_or(self) -> bool:
+        """Realtime cohorts should not use OR combining optimization."""
+        return False
 
     def _is_mergeable_property(self, prop: Property) -> bool:
         """Check if a property can be merged with others."""
@@ -650,7 +832,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """
         Unwrap PropertyGroups that contain only a single child.
 
-        FOSSCohortQuery.unwrap_cohort creates nested PropertyGroups like:
+        unwrap_cohort creates nested PropertyGroups like:
         PropertyGroup(AND) -> PropertyGroup(AND) -> Property
 
         This unwraps them to just: Property
@@ -662,7 +844,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         unwrapped_values: list[Union[Property, PropertyGroup]] = [
             self._unwrap_single_property_groups(v) for v in prop_or_group.values
         ]
-        prop_or_group.values = unwrapped_values  # type: ignore[assignment]
+        prop_or_group.values = cast(Union[list[Property], list[PropertyGroup]], unwrapped_values)
 
         # If this group has only one child, return the child instead
         if len(prop_or_group.values) == 1:
@@ -702,7 +884,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 else v
                 for v in prop_group.values
             ]
-            prop_group.values = processed_values  # type: ignore[assignment]
+            prop_group.values = cast(Union[list[Property], list[PropertyGroup]], processed_values)
             return prop_group
 
         # Group person properties by (key, operator)
@@ -740,7 +922,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 merged_values.extend(props)
 
         merged_values.extend(non_mergeable)
-        prop_group.values = merged_values  # type: ignore[assignment]
+        prop_group.values = cast(Union[list[Property], list[PropertyGroup]], merged_values)
 
         # After merging within groups, also merge sibling single-property groups
         prop_group = self._merge_sibling_single_property_groups(prop_group)
@@ -819,7 +1001,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 merged_values.append(PropertyGroup(type=PropertyOperatorType.OR, values=[single_prop]))
 
         merged_values.extend(other_values)
-        prop_group.values = merged_values  # type: ignore[assignment]
+        prop_group.values = cast(Union[list[Property], list[PropertyGroup]], merged_values)
         return prop_group
 
     def _should_combine_person_properties(self) -> bool:
@@ -857,13 +1039,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date
             date_from_str = prop.explicit_datetime
+            date_to_str = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from_str = f"-{date_value}{date_interval[:1]}"
+            date_to_str = None
 
         # Parse the date string using QueryDateRange to get actual datetime
-        date_range = DateRange(date_from=date_from_str)
+        date_range = DateRange(date_from=date_from_str, date_to=date_to_str)
         query_date_range = QueryDateRange(
             date_range=date_range,
             team=self.team,
@@ -871,29 +1055,33 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             now=datetime.now(),
         )
         date_from_datetime = query_date_range.date_from()
+        date_to_datetime = query_date_range.date_to() if date_to_str else None
+
+        # Build date filter - include date_to if provided for range filtering
+        date_filter = "date >= toDate({date_from})"
+        if date_to_datetime:
+            date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
 
         # Build query using precalculated_events
-        query_str = """
+        query_str = f"""
             SELECT DISTINCT
                 person_id as id
             FROM precalculated_events
             WHERE
-                team_id = {team_id}
-                AND condition = {condition_hash}
-                AND date >= toDate({date_from})
+                team_id = {{team_id}}
+                AND condition = {{condition_hash}}
+                AND {date_filter}
         """
 
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hash": ast.Constant(value=condition_hash),
-                    "date_from": ast.Constant(value=date_from_datetime),
-                },
-            ),
-        )
+        query_params: dict[str, ast.Expr] = {
+            "team_id": ast.Constant(value=self.team.pk),
+            "condition_hash": ast.Constant(value=condition_hash),
+            "date_from": ast.Constant(value=date_from_datetime),
+        }
+        if date_to_datetime:
+            query_params["date_to"] = ast.Constant(value=date_to_datetime)
+
+        return cast(ast.SelectQuery, parse_select(query_str, query_params))
 
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         """
@@ -914,13 +1102,15 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         if prop.explicit_datetime:
             # Explicit datetime filter, can be a relative or absolute date
             date_from_str = prop.explicit_datetime
+            date_to_str = prop.explicit_datetime_to
         else:
             date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
             date_interval = validate_interval(prop.time_interval)
             date_from_str = f"-{date_value}{date_interval[:1]}"
+            date_to_str = None
 
         # Parse the date string using QueryDateRange to get actual datetime
-        date_range = DateRange(date_from=date_from_str)
+        date_range = DateRange(date_from=date_from_str, date_to=date_to_str)
         query_date_range = QueryDateRange(
             date_range=date_range,
             team=self.team,
@@ -928,6 +1118,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             now=datetime.now(),
         )
         date_from_datetime = query_date_range.date_from()
+        date_to_datetime = query_date_range.date_to() if date_to_str else None
 
         # Map operator to SQL comparison - validated to prevent SQL injection
         VALID_OPERATORS: dict[str, str] = {
@@ -946,6 +1137,11 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             )
         sql_operator = VALID_OPERATORS[operator_str]
 
+        # Build date filter - include date_to if provided for range filtering
+        date_filter = "date >= toDate({date_from})"
+        if date_to_datetime:
+            date_filter = "date >= toDate({date_from}) AND date <= toDate({date_to})"
+
         query_str = f"""
             SELECT
                 person_id as id
@@ -953,22 +1149,23 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             WHERE
                 team_id = {{team_id}}
                 AND condition = {{condition_hash}}
-                AND date >= toDate({{date_from}})
+                AND {date_filter}
             GROUP BY person_id
             HAVING count() {sql_operator} {{min_matches}}
         """
 
+        query_params: dict[str, ast.Expr] = {
+            "team_id": ast.Constant(value=self.team.pk),
+            "condition_hash": ast.Constant(value=condition_hash),
+            "date_from": ast.Constant(value=date_from_datetime),
+            "min_matches": ast.Constant(value=min_matches),
+        }
+        if date_to_datetime:
+            query_params["date_to"] = ast.Constant(value=date_to_datetime)
+
         return cast(
             ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hash": ast.Constant(value=condition_hash),
-                    "date_from": ast.Constant(value=date_from_datetime),
-                    "min_matches": ast.Constant(value=min_matches),
-                },
-            ),
+            parse_select(query_str, query_params),
         )
 
     def get_dynamic_cohort_condition(self, prop: Property) -> ast.SelectQuery:
@@ -976,7 +1173,9 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         Query cohort_membership table for realtime cohort membership.
         Filters most recent status='entered' to find current members.
         """
-        cohort_id = cast(int, prop.value)
+        if isinstance(prop.value, list):
+            raise ValueError(f"cohort id must be an integer, got {prop.value}")
+        cohort_id = parse_and_validate_positive_integer(prop.value, "cohort id")
 
         return cast(
             ast.SelectQuery,
@@ -1019,7 +1218,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 SELECT
                     person_id,
                     condition,
-                    argMax(matches, _timestamp) as latest_matches
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
@@ -1062,7 +1261,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 SELECT
                     person_id,
                     condition,
-                    argMax(matches, _timestamp) as latest_matches
+                    argMax(matches, (_timestamp, _offset)) as latest_matches
                 FROM precalculated_person_properties
                 WHERE
                     team_id = {team_id}
@@ -1129,7 +1328,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                     team_id = {team_id}
                     AND condition = {condition_hash}
                 GROUP BY person_id
-                HAVING argMax(matches, _timestamp) = 1
+                HAVING argMax(matches, (_timestamp, _offset)) = 1
             """
 
             return cast(

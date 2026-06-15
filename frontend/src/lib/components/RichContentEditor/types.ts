@@ -35,11 +35,14 @@ export interface RichContentEditorType {
     chain: () => EditorCommands
     destroy: () => void
     getMarks: (type: string) => { id: string; pos: number }[]
+    getAttributes: (typeOrName: string) => Record<string, any>
     setMark: (id: string) => void
     getMentions: () => number[]
     isActive: (name: string, attributes?: {}) => boolean
+    isSelectionFullyWithinSingleMark: (markName: string) => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
+    insertContentAt: (position: number, content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
     pasteContent: (position: number, text: string) => void
     findNode: (position: number) => RichContentNode | null

@@ -1,8 +1,8 @@
-# LLM Analytics Capture Overview
+# AI observability capture overview
 
 ## Objective
 
-Implement a dedicated capture pathway for LLM Analytics events that enables efficient processing of large-scale language model interactions. This specialized pipeline will:
+Implement a dedicated capture pathway for AI observability events that enables efficient processing of large-scale language model interactions. This specialized pipeline will:
 
 - Store LLM inputs and outputs directly in S3 for scalable, cost-effective storage
 - Route events through the main ingestion pipeline while bypassing the processing of large LLM context payloads
@@ -13,7 +13,7 @@ This approach allows us to capture comprehensive LLM usage data without impactin
 
 ## Supported Events
 
-The LLM Analytics capture endpoint supports four primary AI event types. Events are sent to the `/i/v0/ai` endpoint with multipart payloads to handle large context data efficiently.
+The AI observability capture endpoint supports four primary AI event types. Events are sent to the `/i/v0/ai` endpoint with multipart payloads to handle large context data efficiently.
 
 ### `$ai_generation`
 
@@ -36,6 +36,7 @@ A generation represents a single call to an LLM (e.g., a chat completion request
 - `$ai_span_name` (optional) - Name given to this generation
 - `$ai_parent_id` (optional) - Parent span ID for tree view grouping
 - `$ai_latency` (optional) - LLM call latency in seconds
+- `$ai_time_to_first_token` (optional) - Time to first token in seconds (streaming only)
 - `$ai_http_status` (optional) - HTTP status code of the response
 - `$ai_base_url` (optional) - Base URL of the LLM provider
 - `$ai_request_url` (optional) - Full URL of the request
@@ -107,11 +108,11 @@ These events are lightweight and processed through the regular pipeline:
 
 Properties that can contain large payloads (marked as "can be stored as blob" above) should be sent as separate multipart parts with names like `event.properties.$ai_input` or `event.properties.$ai_output_choices`. This keeps the event JSON small while allowing arbitrarily large context data to be stored efficiently in S3.
 
-**Reference:** [PostHog LLM Analytics Manual Capture Documentation](https://posthog.com/docs/llm-analytics/manual-capture)
+**Reference:** [PostHog AI observability manual capture documentation](https://posthog.com/docs/ai-observability/installation/manual-capture)
 
 ## General Architecture
 
-The LLM Analytics capture system implements a specialized data flow that efficiently handles large language model payloads:
+The AI observability capture system implements a specialized data flow that efficiently handles large language model payloads:
 
 ### Data Flow
 
@@ -437,7 +438,7 @@ For data received from SDKs (after request decompression, if any):
 
 ### Payload Authentication Implementation
 
-The authentication process for LLM analytics events follows these steps:
+The authentication process for AI observability events follows these steps:
 
 1. **API Key Extraction**
    - Extract the API key from the request headers (e.g., `Authorization: Bearer <api_key>`)

@@ -51,6 +51,172 @@ def escape_hogql_identifier(identifier: str | int) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+# Copied from dlt/common/data_writers/escape.py
+POSTGRES_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
+
+# https://www.postgresql.org/docs/current/sql-keywords-appendix.html
+POSTGRES_RESERVED_KEYWORDS = {
+    "ALL",
+    "ANALYSE",
+    "ANALYZE",
+    "AND",
+    "ANY",
+    "ARRAY",
+    "AS",
+    "ASC",
+    "ASYMMETRIC",
+    "AUTHORIZATION",
+    "BINARY",
+    "BOTH",
+    "CASE",
+    "CAST",
+    "CHECK",
+    "COLLATE",
+    "COLLATION",
+    "COLUMN",
+    "CONCURRENTLY",
+    "CONSTRAINT",
+    "CREATE",
+    "CROSS",
+    "CURRENT_CATALOG",
+    "CURRENT_DATE",
+    "CURRENT_ROLE",
+    "CURRENT_SCHEMA",
+    "CURRENT_TIME",
+    "CURRENT_TIMESTAMP",
+    "CURRENT_USER",
+    "DEFAULT",
+    "DEFERRABLE",
+    "DESC",
+    "DISTINCT",
+    "DO",
+    "ELSE",
+    "END",
+    "EXCEPT",
+    "FALSE",
+    "FETCH",
+    "FOR",
+    "FOREIGN",
+    "FREEZE",
+    "FROM",
+    "FULL",
+    "GRANT",
+    "GROUP",
+    "HAVING",
+    "ILIKE",
+    "IN",
+    "INITIALLY",
+    "INNER",
+    "INTERSECT",
+    "INTO",
+    "IS",
+    "ISNULL",
+    "JOIN",
+    "LATERAL",
+    "LEADING",
+    "LEFT",
+    "LIKE",
+    "LIMIT",
+    "LOCALTIME",
+    "LOCALTIMESTAMP",
+    "NATURAL",
+    "NOT",
+    "NOTNULL",
+    "NULL",
+    "OFFSET",
+    "ON",
+    "ONLY",
+    "OR",
+    "ORDER",
+    "OUTER",
+    "OVER",
+    "OVERLAPS",
+    "PLACING",
+    "PRIMARY",
+    "REFERENCES",
+    "RETURNING",
+    "RIGHT",
+    "SELECT",
+    "SESSION_USER",
+    "SIMILAR",
+    "SOME",
+    "SYMMETRIC",
+    "TABLE",
+    "TABLESAMPLE",
+    "THEN",
+    "TO",
+    "TRAILING",
+    "TRUE",
+    "UNION",
+    "UNIQUE",
+    "USER",
+    "USING",
+    "VARIADIC",
+    "VERBOSE",
+    "WHEN",
+    "WHERE",
+    "WINDOW",
+    "WITH",
+}
+
+
+# DuckDB reserves a handful of additional keywords that Postgres doesn't, so identifiers
+# colliding with these must be quoted when emitting DuckDB SQL even though they'd be
+# unambiguous in Postgres. Derived from DuckDB's ``duckdb_keywords()`` catalog with
+# ``keyword_category = 'reserved'`` — re-verify and update before major DuckDB version bumps.
+DUCKDB_EXTRA_RESERVED_KEYWORDS = {
+    "ANTI",
+    "ASOF",
+    "ATTACH",
+    "DETACH",
+    "EXCLUDE",
+    "INSTALL",
+    "LOAD",
+    "MACRO",
+    "PIVOT",
+    "POSITIONAL",
+    "PRAGMA",
+    "QUALIFY",
+    "REPLACE",
+    "SAMPLE",
+    "SEMI",
+    "SUMMARIZE",
+    "UNPIVOT",
+}
+
+
+def escape_postgres_identifier(v: str) -> str:
+    if len(v) > 63:
+        raise QueryError(f'The Postgres identifier "{v}" is too long. Maximum length is 63 characters.')
+
+    return _quote_postgres_wire_identifier(v, extra_reserved_keywords=None)
+
+
+def escape_duckdb_identifier(v: str) -> str:
+    """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit,
+    and with DuckDB's additional reserved keywords treated as requiring quotes."""
+    return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
+
+
+def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:
+    # Reject ``%`` for parity with the HogQL and ClickHouse escape paths. psycopg
+    # interprets ``%`` as the start of a parameter placeholder when scanning SQL
+    # passed to ``cursor.execute(sql, params)``, so a literal ``%`` slipping through
+    # as an identifier name would either confuse parameter binding or get consumed
+    # as a format specifier.
+    if "%" in v:
+        raise QueryError(f'The Postgres identifier "{v}" is not permitted as it contains the "%" character')
+
+    if POSTGRES_SIMPLE_IDENTIFIER_REGEX.match(v):
+        upper = v.upper()
+        if upper not in POSTGRES_RESERVED_KEYWORDS and (
+            extra_reserved_keywords is None or upper not in extra_reserved_keywords
+        ):
+            return v
+
+    return '"' + v.replace('"', '""') + '"'
+
+
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
     if "%" in identifier:
@@ -61,7 +227,7 @@ def escape_clickhouse_identifier(identifier: str) -> str:
 
 
 def escape_hogql_string(
-    name: float | int | str | list | tuple | date | datetime | UUID | UUIDT,
+    name: bool | float | int | str | list | tuple | date | datetime | UUID | UUIDT | None,
     timezone: Optional[str] = None,
 ) -> str:
     return SQLValueEscaper(timezone=timezone, dialect="hogql").visit(name)

@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
 from django.db.models import Case, DurationField, ExpressionWrapper, F, Q, QuerySet, When
@@ -15,49 +15,67 @@ from prometheus_client import Counter, Gauge, Histogram
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
+from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorS3Error, CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Cohort
-from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.util import (
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.scoping_audit import skip_team_scope_audit
+from posthog.tasks.utils import CeleryQueue
+
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
     sort_cohorts_topologically,
 )
-from posthog.models.team.team import Team
-from posthog.models.user import User
-from posthog.tasks.utils import CeleryQueue
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
     "Number of cohorts that are waiting to be calculated",
+    multiprocess_mode="max",
 )
 
 COHORT_STALENESS_HOURS_GAUGE = Gauge(
     "cohort_staleness_hours",
     "Cohort's count of hours since last calculation",
+    multiprocess_mode="max",
 )
 
 COHORTS_STALE_COUNT_GAUGE = Gauge(
-    "cohorts_stale", "Number of cohorts that haven't been calculated in more than X hours", ["hours"]
+    "cohorts_stale",
+    "Number of cohorts that haven't been calculated in more than X hours",
+    ["hours"],
+    multiprocess_mode="max",
+)
+
+COHORTS_TOTAL_GAUGE = Gauge(
+    "cohorts_total",
+    "Total number of eligible cohorts for recalculation (non-static, non-deleted)",
+    multiprocess_mode="max",
 )
 
 COHORT_STUCK_COUNT_GAUGE = Gauge(
     # TODO: rename to cohorts_stuck because this is a gauge not a counter
     "cohort_stuck_count",
     "Number of cohorts that are stuck calculating for more than 1 hour",
+    multiprocess_mode="max",
 )
 
 COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
-    "cohort_dependency_calculation_failures_total", "Number of times dependent cohort calculations have failed"
+    "cohort_dependency_calculation_failures_total",
+    "Number of times dependent cohort calculations have failed",
 )
 
 COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of stuck cohorts that have been reset")
 
 COHORT_MAXED_ERRORS_GAUGE = Gauge(
-    "cohort_maxed_errors", "Number of cohorts that have reached the maximum number of errors"
+    "cohort_maxed_errors",
+    "Number of cohorts that have reached the maximum number of errors",
+    multiprocess_mode="max",
 )
 
 COHORT_CALCULATION_STARTED_COUNTER = Counter(
@@ -89,6 +107,13 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_MINUTES = 15
 MAX_ERRORS_CALCULATING = 20
 MAX_STUCK_COHORTS_TO_RESET = 3
+MAX_STUCK_STATIC_COHORTS_TO_SCAN = MAX_STUCK_COHORTS_TO_RESET * 10
+
+
+def static_cohort_has_supported_population_source(cohort: Cohort) -> bool:
+    from products.cohorts.backend.models.util import cohort_filters_have_values
+
+    return bool(cohort.query or cohort_filters_have_values(cohort.filters))
 
 
 def get_cohort_calculation_candidates_queryset() -> QuerySet:
@@ -108,6 +133,41 @@ def get_stuck_cohort_calculation_candidates_queryset() -> QuerySet:
         last_calculation__isnull=False,
         deleted=False,
     ).exclude(is_static=True)
+
+
+def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
+    """
+    Static cohorts that are stuck in is_calculating state.
+    These are never picked up by the normal reset_stuck_cohorts because they are excluded.
+    A static cohort is stuck if:
+    - is_calculating=True AND (last_calculation is null AND created > 1 hour ago)
+      (initial population never completed)
+    - OR is_calculating=True AND last_calculation > 1 hour ago
+      (re-population never completed)
+    """
+    one_hour_ago = timezone.now() - relativedelta(hours=1)
+    return (
+        Cohort.objects.filter(
+            is_static=True,
+            is_calculating=True,
+            deleted=False,
+            errors_calculating__lt=MAX_ERRORS_CALCULATING,
+        )
+        .filter(
+            Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
+            | Q(last_calculation__lte=one_hour_ago, last_calculation__isnull=False)
+        )
+        .filter(
+            # Only fetch cohorts that have a retriggerable population source
+            # (HogQL query or filter criteria). Excludes CSV-upload cohorts
+            # that would always be discarded by the retry logic.
+            # This may match old static cohorts with stale filter data that
+            # predate criteria-based creation; those are caught and skipped
+            # by static_cohort_has_supported_population_source in the loop body.
+            Q(query__isnull=False)
+            | (Q(filters__has_key="properties") & ~Q(filters__properties={}) & ~Q(filters__properties__values=[]))
+        )
+    )
 
 
 def reset_stuck_cohorts() -> None:
@@ -133,6 +193,56 @@ def reset_stuck_cohorts() -> None:
     COHORT_STUCK_RESETS_COUNTER.inc(len(reset_cohort_ids))
     logger.warning("reset_stuck_cohorts", cohort_ids=reset_cohort_ids, count=len(reset_cohort_ids))
 
+    # Also reset stuck static cohorts and re-trigger their population task.
+    # Static cohorts are excluded from the normal reset because they don't get periodic
+    # recalculation — they need the one-time insert_cohort_from_query task re-dispatched.
+    reset_static_cohort_ids = []
+    retriggered_static_cohort_ids = []
+    for cohort in get_stuck_static_cohort_candidates_queryset().order_by(F("created_at").asc())[
+        0:MAX_STUCK_STATIC_COHORTS_TO_SCAN
+    ]:
+        cohort.is_calculating = False
+        cohort.errors_calculating = F("errors_calculating") + 1
+        cohort.last_error_at = timezone.now()
+        cohort.save(update_fields=["is_calculating", "errors_calculating", "last_error_at"])
+        reset_static_cohort_ids.append(cohort.pk)
+
+        if not static_cohort_has_supported_population_source(cohort):
+            logger.warning(
+                "reset_unsupported_stuck_static_cohort",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+            )
+            continue
+
+        # Re-trigger the population task for static cohorts whose membership
+        # can be reconstructed from persisted data.
+        # Refresh from DB to get the actual errors_calculating integer value after the F() expression save.
+        cohort.refresh_from_db(fields=["errors_calculating"])
+        if cohort.errors_calculating <= MAX_ERRORS_CALCULATING:
+            logger.warning(
+                "retrigger_stuck_static_cohort",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+                errors_calculating=cohort.errors_calculating,
+            )
+            if cohort.query:
+                insert_cohort_from_query.delay(cohort.pk, cohort.team_id)
+            else:
+                insert_cohort_from_filters.delay(cohort.pk, cohort.team_id)
+            retriggered_static_cohort_ids.append(cohort.pk)
+
+        if len(retriggered_static_cohort_ids) >= MAX_STUCK_COHORTS_TO_RESET:
+            break
+
+    if reset_static_cohort_ids:
+        COHORT_STUCK_RESETS_COUNTER.inc(len(reset_static_cohort_ids))
+        logger.warning(
+            "reset_stuck_static_cohorts",
+            cohort_ids=reset_static_cohort_ids,
+            count=len(reset_static_cohort_ids),
+        )
+
 
 def update_cohort_metrics() -> None:
     now = timezone.now()
@@ -142,6 +252,8 @@ def update_cohort_metrics() -> None:
         is_calculating=False,
         errors_calculating__lte=MAX_ERRORS_CALCULATING,
     ).exclude(is_static=True)
+
+    COHORTS_TOTAL_GAUGE.set(base_queryset.count())
 
     for hours in [24, 36, 48]:
         stale_count = base_queryset.filter(last_calculation__lte=now - relativedelta(hours=hours)).count()
@@ -196,19 +308,32 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
             cohort_ids.append(cohort.pk)
         except Exception as e:
             logger.exception(
-                "enqueued_cohort_calculation_error", cohort_id=cohort.pk, team_id=cohort.team_id, error=str(e)
+                "enqueued_cohort_calculation_error",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+                error=str(e),
             )
             cohort.errors_calculating = F("errors_calculating") + 1
             cohort.last_error_at = timezone.now()
             cohort.save(update_fields=["errors_calculating", "last_error_at"])
-            capture_exception(error=e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
+            capture_exception(
+                error=e,
+                additional_properties={
+                    "cohort_id": cohort.pk,
+                    "team_id": cohort.team_id,
+                },
+            )
             # Skip this cohort and continue with others
             continue
 
     backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
 
-    logger.warning("enqueued_cohort_calculation", cohort_ids=cohort_ids, COHORT_RECALCULATIONS_BACKLOG_GAUGE=backlog)
+    logger.warning(
+        "enqueued_cohort_calculation",
+        cohort_ids=cohort_ids,
+        COHORT_RECALCULATIONS_BACKLOG_GAUGE=backlog,
+    )
 
     try:
         update_cohort_metrics()
@@ -221,7 +346,11 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
     dependency_cohorts = get_all_cohort_dependencies(cohort)
     related_cohorts = dependent_cohorts + dependency_cohorts
     if related_cohorts:
-        logger.info("cohort_has_dependencies", cohort_id=cohort.id, related_cohort_count=len(related_cohorts))
+        logger.info(
+            "cohort_has_dependencies",
+            cohort_id=cohort.id,
+            related_cohort_count=len(related_cohorts),
+        )
 
         all_cohort_ids = {dep.id for dep in related_cohorts}
         all_cohort_ids.add(cohort.id)
@@ -241,19 +370,22 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return
 
-        # Create a chain of tasks to ensure sequential execution
-        task_chain = []
+        # Create a chain of tasks to ensure sequential execution.
+        # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
+        # the preceding cohort's new rows may not have replicated yet. See #47618.
+        task_chain: list = []
         for cohort_id in sorted_cohort_ids:
             current_cohort = seen_cohorts_cache.get(cohort_id)
             if current_cohort and not current_cohort.is_static:
                 _prepare_cohort_for_calculation(current_cohort)
-                task_chain.append(
-                    calculate_cohort_ch.si(
-                        current_cohort.id,
-                        current_cohort.pending_version,
-                        initiating_user.id if initiating_user else None,
-                    )
+                task = calculate_cohort_ch.si(
+                    current_cohort.id,
+                    current_cohort.pending_version,
+                    initiating_user.id if initiating_user else None,
                 )
+                if len(task_chain) > 0:
+                    task = task.set(countdown=2)
+                task_chain.append(task)
 
         if task_chain:
             chain(*task_chain).apply_async()
@@ -263,12 +395,15 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
+    """
+    Prepare cohort for calculation by incrementing version and setting calculating state.
+    When a new calculation is requested, we increment the pending_version which effectively
+    supersedes any older calculations - they will complete but won't update the final version.
+    """
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
     update_fields = ["pending_version"]
 
     if not cohort.is_static:
-        # avoid starting another cohort calculation if one is already expected to be in progress
-        # XXX: it is possible for a job to fail without resetting this field and need to be manually recovered
         cohort.is_calculating = True
         update_fields.append("is_calculating")
 
@@ -279,16 +414,44 @@ def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
 def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional[User]) -> None:
     """Helper function to enqueue a single cohort for calculation"""
     _prepare_cohort_for_calculation(cohort)
-    calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
+    calculate_cohort_ch.delay(
+        cohort.id,
+        cohort.pending_version,
+        initiating_user.id if initiating_user else None,
+    )
 
 
-@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    # Auto-retry for transient ClickHouse errors with exponential backoff
+    autoretry_for=(
+        CHQueryErrorTooManySimultaneousQueries,
+        CHQueryErrorCannotScheduleTask,
+        ClickHouseAtCapacity,
+        CHQueryErrorS3Error,
+    ),
+    retry_backoff=60,
+    retry_backoff_max=1800,
+    max_retries=6,
+)
+@skip_team_scope_audit
 def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id: Optional[int] = None) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("feature", Feature.COHORT.value)
         posthoganalytics.tag("cohort_id", cohort_id)
 
         cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+
+        # Skip calculation if this version is now obsolete (superseded by newer save)
+        if cohort.pending_version and pending_version < cohort.pending_version:
+            logger.info(
+                "cohort_calculation_skipped_obsolete",
+                cohort_id=cohort_id,
+                task_version=pending_version,
+                current_pending_version=cohort.pending_version,
+            )
+            return
 
         posthoganalytics.tag("team_id", cohort.team.id)
 
@@ -308,8 +471,13 @@ def calculate_cohort_ch(cohort_id: int, pending_version: int, initiating_user_id
 
 
 @shared_task(ignore_result=True, max_retries=1)
+@skip_team_scope_audit
 def calculate_cohort_from_list(
-    cohort_id: int, items: list[str], team_id: Optional[int] = None, id_type: str = "distinct_id"
+    cohort_id: int,
+    items: list[str],
+    team_id: Optional[int] = None,
+    id_type: str = "distinct_id",
+    email_property_key: Optional[str] = None,
 ) -> None:
     """
     team_id is only optional for backwards compatibility with the old celery task signature.
@@ -325,7 +493,7 @@ def calculate_cohort_from_list(
     elif id_type == "person_id":
         batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
     elif id_type == "email":
-        batch_count = cohort.insert_users_by_email(items, team_id=team_id)
+        batch_count = cohort.insert_users_by_email(items, team_id=team_id, email_property_key=email_property_key)
     else:
         raise ValueError(f"Unsupported id_type: {id_type}")
     logger.warn(
@@ -335,51 +503,148 @@ def calculate_cohort_from_list(
     )
 
 
-@shared_task(ignore_result=True, max_retries=1)
-def insert_cohort_from_insight_filter(
-    cohort_id: int, filter_data: dict[str, Any], team_id: Optional[int] = None
-) -> None:
-    """
-    team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly.
-    """
-    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
-
-    cohort = Cohort.objects.get(pk=cohort_id)
-    if team_id is None:
-        team_id = cohort.team_id
-
-    insert_cohort_actors_into_ch(cohort, filter_data, team_id=team_id)
-    insert_cohort_people_into_pg(cohort, team_id=team_id)
-
-
-@shared_task(ignore_result=True, max_retries=1)
+@shared_task(
+    ignore_result=True,
+    max_retries=1,
+    queue=CeleryQueue.LONG_RUNNING.value,
+)
+@skip_team_scope_audit
 def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> None:
     """
+    One-time population task for static cohorts created from a HogQL query
+    (e.g. duplicating a dynamic cohort as static).
+
+    Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
+
     team_id is only optional for backwards compatibility with the old celery task signature.
     All new tasks should pass team_id explicitly.
     """
-    from posthog.api.cohort import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
+    from products.cohorts.backend.models.util import insert_cohort_people_into_pg, insert_cohort_query_actors_into_ch
 
     cohort = Cohort.objects.get(pk=cohort_id)
     if team_id is None:
         team_id = cohort.team_id
     team = Team.objects.get(pk=team_id)
+
+    logger.info(
+        "insert_cohort_from_query_started",
+        cohort_id=cohort_id,
+        team_id=team_id,
+        query=cohort.query,
+    )
+
     processing_error = None
     try:
         cohort.is_calculating = True
         cohort.save(update_fields=["is_calculating"])
         cohort.refresh_from_db()
 
+        # The CH insert is idempotent: it excludes person_ids already in the cohort.
+        # This handles both the retry-after-OOM case (no duplicates) and the
+        # add-more-people-via-query case (only new people inserted).
         insert_cohort_query_actors_into_ch(cohort, team=team)
+        logger.info(
+            "insert_cohort_from_query_ch_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+
+        # PG sync is already resumable: _insert_users_list_with_batching checks
+        # existing_person_ids each batch and skips people already in the cohort.
         insert_cohort_people_into_pg(cohort, team_id=team_id)
+        logger.info(
+            "insert_cohort_from_query_pg_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
     except Exception as err:
         processing_error = err
+        logger.exception(
+            "insert_cohort_from_query_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            error=str(err),
+        )
         capture_exception()
         if settings.DEBUG:
             raise
     finally:
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+        cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+        logger.info(
+            "insert_cohort_from_query_finished",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            is_calculating=cohort.is_calculating,
+            errors_calculating=cohort.errors_calculating,
+        )
+
+
+@shared_task(
+    ignore_result=True,
+    max_retries=1,
+    queue=CeleryQueue.LONG_RUNNING.value,
+)
+@skip_team_scope_audit
+def insert_cohort_from_filters(cohort_id: int, team_id: Optional[int] = None) -> None:
+    """
+    One-time population task for static cohorts created from saved cohort criteria.
+    """
+    from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch, insert_cohort_people_into_pg
+
+    if team_id is not None:
+        cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+    else:
+        cohort = Cohort.objects.get(pk=cohort_id)
+        team_id = cohort.team_id
+    team = Team.objects.get(pk=team_id)
+
+    logger.info(
+        "insert_cohort_from_filters_started",
+        cohort_id=cohort_id,
+        team_id=team_id,
+        filters=cohort.filters,
+    )
+
+    processing_error = None
+    try:
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
+        insert_cohort_filter_actors_into_ch(cohort, team=team)
+        logger.info(
+            "insert_cohort_from_filters_ch_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+
+        insert_cohort_people_into_pg(cohort, team_id=team_id)
+        logger.info(
+            "insert_cohort_from_filters_pg_complete",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+    except Exception as err:
+        processing_error = err
+        logger.exception(
+            "insert_cohort_from_filters_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            error=str(err),
+        )
+        capture_exception()
+        if settings.DEBUG:
+            raise
+    finally:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+        cohort.refresh_from_db(fields=["is_calculating", "errors_calculating"])
+        logger.info(
+            "insert_cohort_from_filters_finished",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            is_calculating=cohort.is_calculating,
+            errors_calculating=cohort.errors_calculating,
+        )
 
 
 @shared_task(ignore_result=True, max_retries=1)
@@ -458,6 +723,7 @@ def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start
 
 
 @shared_task(ignore_result=True, max_retries=3)
+@skip_team_scope_audit
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
@@ -531,6 +797,51 @@ def collect_cohort_query_stats(
             tag_matcher=tag_matcher,
             cohort_id=cohort_id,
             history_id=history_id,
+            error=str(e),
+        )
+        raise
+
+
+@shared_task(ignore_result=True, max_retries=3)
+def trigger_cohort_backfill_task(team_id: int, cohort_id: int) -> None:
+    """
+    Trigger backfill for a realtime cohort with person properties.
+    Uses the existing temporal workflow for consistency.
+
+    TODO: Extract the core logic from backfill_precalculated_person_properties
+    into a standalone function (e.g. posthog.cohorts.backfill.run_backfill)
+    so this task, the management command, and the admin view can all call it
+    directly instead of going through call_command/argparse.
+    """
+    from django.core.management import call_command
+
+    logger = structlog.get_logger(__name__)
+
+    try:
+        logger.info(
+            "triggering_cohort_backfill_task",
+            cohort_id=cohort_id,
+            team_id=team_id,
+        )
+
+        # Use the existing management command to trigger backfill
+        call_command(
+            "backfill_precalculated_person_properties",
+            "--team-id",
+            str(team_id),
+            "--cohort-id",
+            str(cohort_id),
+            "--batch-size",
+            10_000,
+            "--concurrent-workflows",
+            100,
+        )
+
+    except Exception as e:
+        logger.exception(
+            "failed_to_trigger_cohort_backfill_task",
+            cohort_id=cohort_id,
+            team_id=team_id,
             error=str(e),
         )
         raise

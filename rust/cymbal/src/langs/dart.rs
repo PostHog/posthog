@@ -48,6 +48,7 @@ impl From<&RawDartFrame> for Frame {
             lang: "dart".to_string(),
             resolved: true,
             resolve_failure: None,
+
             junk_drawer: None,
             release: None,
             synthetic: raw.meta.synthetic,

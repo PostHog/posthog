@@ -21,8 +21,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { managedMigrationLogic } from './managedMigrationLogic'
-import { type ManagedMigration } from './types'
+import { type ManagedMigrationForm, managedMigrationLogic } from './managedMigrationLogic'
+import { type ManagedMigration as ManagedMigrationData } from './types'
 
 const STATUS_COLORS = {
     running: 'primary',
@@ -38,6 +38,42 @@ const STATUS_LABELS: Record<string, string> = {
 function StatusTag({ status }: { status: string }): JSX.Element {
     const label = STATUS_LABELS[status] ?? status.charAt(0).toUpperCase() + status.slice(1)
     return <LemonTag type={STATUS_COLORS[status as keyof typeof STATUS_COLORS] || 'default'}>{label}</LemonTag>
+}
+
+function AmplitudeImportOptions({
+    managedMigration,
+    setManagedMigrationValue,
+}: {
+    managedMigration: ManagedMigrationForm
+    setManagedMigrationValue: (key: string, value: any) => void
+}): JSX.Element {
+    return (
+        <FlaggedFeature flag={FEATURE_FLAGS.AMPLITUDE_BATCH_IMPORT_OPTIONS}>
+            <LemonField name="import_events">
+                <LemonCheckbox
+                    checked={managedMigration.import_events !== false}
+                    onChange={(checked) => setManagedMigrationValue('import_events', checked)}
+                    label="Import events from Amplitude"
+                />
+            </LemonField>
+
+            <LemonField name="generate_identify_events">
+                <LemonCheckbox
+                    checked={managedMigration.generate_identify_events !== false}
+                    onChange={(checked) => setManagedMigrationValue('generate_identify_events', checked)}
+                    label="Generate identify events to link user IDs with device IDs"
+                />
+            </LemonField>
+
+            <LemonField name="generate_group_identify_events">
+                <LemonCheckbox
+                    checked={managedMigration.generate_group_identify_events === true}
+                    onChange={(checked) => setManagedMigrationValue('generate_group_identify_events', checked)}
+                    label="Generate group identify events from group property changes"
+                />
+            </LemonField>
+        </FlaggedFeature>
+    )
 }
 
 export function ManagedMigration(): JSX.Element {
@@ -82,6 +118,16 @@ export function ManagedMigration(): JSX.Element {
                                 ),
                             },
                             {
+                                value: 's3_gzip',
+                                label: 'S3 (gzipped JSONL)',
+                                icon: (
+                                    <img
+                                        src="https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico"
+                                        className="w-4 h-4"
+                                    />
+                                ),
+                            },
+                            {
                                 value: 'mixpanel',
                                 label: 'Mixpanel',
                                 icon: <img src="https://mixpanel.com/favicon.ico" className="w-4 h-4" />,
@@ -95,7 +141,7 @@ export function ManagedMigration(): JSX.Element {
                     />
                 </LemonField>
 
-                {managedMigration.source_type === 's3' && (
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') && (
                     <>
                         <LemonField name="content_type" label="Content Type">
                             <LemonSelect
@@ -111,7 +157,7 @@ export function ManagedMigration(): JSX.Element {
                     </>
                 )}
 
-                {managedMigration.source_type === 's3' && (
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') && (
                     <>
                         <div className="flex gap-4">
                             <LemonField name="s3_region" label="S3 Region" className="flex-1">
@@ -126,6 +172,20 @@ export function ManagedMigration(): JSX.Element {
                         <LemonField name="s3_prefix" label="S3 Prefix (optional)">
                             <LemonInput placeholder="path/to/files/" />
                         </LemonField>
+
+                        <LemonField
+                            name="endpoint_url"
+                            label="Endpoint URL"
+                            showOptional
+                            info={
+                                <>
+                                    Only required for S3-compatible storage like Cloudflare R2 or MinIO. For R2, use
+                                    https://ACCOUNT_ID.r2.cloudflarestorage.com and set region to "auto".
+                                </>
+                            }
+                        >
+                            <LemonInput placeholder="https://ACCOUNT_ID.r2.cloudflarestorage.com" />
+                        </LemonField>
                     </>
                 )}
                 {(managedMigration.source_type === 'mixpanel' || managedMigration.source_type === 'amplitude') && (
@@ -133,7 +193,7 @@ export function ManagedMigration(): JSX.Element {
                         <div className="flex gap-4">
                             <LemonField name="start_date" label="Start Date" className="flex-1">
                                 <LemonCalendarSelectInput
-                                    granularity="minute"
+                                    granularity={managedMigration.source_type === 'mixpanel' ? 'day' : 'hour'}
                                     value={managedMigration.start_date ? dayjs(managedMigration.start_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('start_date', date?.format('YYYY-MM-DD HH:mm:ss'))
@@ -143,7 +203,7 @@ export function ManagedMigration(): JSX.Element {
 
                             <LemonField name="end_date" label="End Date" className="flex-1">
                                 <LemonCalendarSelectInput
-                                    granularity="minute"
+                                    granularity={managedMigration.source_type === 'mixpanel' ? 'day' : 'hour'}
                                     value={managedMigration.end_date ? dayjs(managedMigration.end_date) : null}
                                     onChange={(date) =>
                                         setManagedMigrationValue('end_date', date?.format('YYYY-MM-DD HH:mm:ss'))
@@ -161,38 +221,21 @@ export function ManagedMigration(): JSX.Element {
                         </LemonField>
 
                         {managedMigration.source_type === 'amplitude' && (
-                            <FlaggedFeature flag={FEATURE_FLAGS.AMPLITUDE_BATCH_IMPORT_OPTIONS}>
-                                <LemonField name="import_events">
-                                    <LemonCheckbox
-                                        checked={managedMigration.import_events !== false}
-                                        onChange={(checked) => setManagedMigrationValue('import_events', checked)}
-                                        label="Import events from Amplitude"
-                                    />
-                                </LemonField>
-
-                                <LemonField name="generate_identify_events">
-                                    <LemonCheckbox
-                                        checked={managedMigration.generate_identify_events !== false}
-                                        onChange={(checked) =>
-                                            setManagedMigrationValue('generate_identify_events', checked)
-                                        }
-                                        label="Generate identify events to link user IDs with device IDs"
-                                    />
-                                </LemonField>
-
-                                <LemonField name="generate_group_identify_events">
-                                    <LemonCheckbox
-                                        checked={managedMigration.generate_group_identify_events === true}
-                                        onChange={(checked) =>
-                                            setManagedMigrationValue('generate_group_identify_events', checked)
-                                        }
-                                        label="Generate group identify events from group property changes"
-                                    />
-                                </LemonField>
-                            </FlaggedFeature>
+                            <AmplitudeImportOptions
+                                managedMigration={managedMigration}
+                                setManagedMigrationValue={setManagedMigrationValue}
+                            />
                         )}
                     </>
                 )}
+
+                {(managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip') &&
+                    managedMigration.content_type === 'amplitude' && (
+                        <AmplitudeImportOptions
+                            managedMigration={managedMigration}
+                            setManagedMigrationValue={setManagedMigrationValue}
+                        />
+                    )}
 
                 <div className="flex gap-4">
                     <LemonField name="access_key" label="Access Key ID" className="flex-1">
@@ -218,7 +261,9 @@ export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
     const { pauseMigration, resumeMigration } = useActions(managedMigrationLogic)
 
-    const calculateProgress = (migration: ManagedMigration): { progress: number; completed: number; total: number } => {
+    const calculateProgress = (
+        migration: ManagedMigrationData
+    ): { progress: number; completed: number; total: number } => {
         if (migration.state?.parts && Array.isArray(migration.state.parts)) {
             const parts = migration.state.parts
             const totalParts = parts.length
@@ -268,7 +313,7 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Source',
                                 dataIndex: 'source_type',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     let sourceType: string = migration.source_type
                                     if (migration.source_type === 'date_range_export') {
                                         sourceType = migration.content_type
@@ -278,6 +323,11 @@ export function ManagedMigrations(): JSX.Element {
                                             icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
                                             label: 'AWS S3',
                                             alt: 'S3',
+                                        },
+                                        s3_gzip: {
+                                            icon: 'https://a0.awsstatic.com/libra-css/images/site/fav/favicon.ico',
+                                            label: 'S3 (gzipped JSONL)',
+                                            alt: 'S3 Gzip',
                                         },
                                         mixpanel: {
                                             icon: 'https://mixpanel.com/favicon.ico',
@@ -308,7 +358,7 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Content Type',
                                 dataIndex: 'content_type',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     const contentTypeConfig = {
                                         captured: {
                                             icon: '/static/icons/favicon.ico?v=2023-07-07',
@@ -341,14 +391,14 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Status',
                                 dataIndex: 'display_status',
-                                render: (_: any, migration: ManagedMigration) => (
+                                render: (_: any, migration: ManagedMigrationData) => (
                                     <StatusTag status={migration.display_status} />
                                 ),
                             },
                             {
                                 title: 'Progress',
                                 key: 'progress',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     const { progress, completed, total } = calculateProgress(migration)
                                     return (
                                         <div className="flex flex-col gap-1">
@@ -374,7 +424,7 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Created by',
                                 dataIndex: 'created_by',
-                                render: function Render(_: any, migration: ManagedMigration) {
+                                render: function Render(_: any, migration: ManagedMigrationData) {
                                     return (
                                         <div className="flex flex-row items-center flex-nowrap">
                                             {migration.created_by && (
@@ -402,12 +452,12 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Status Message',
                                 dataIndex: 'status_message',
-                                render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
+                                render: (_: any, migration: ManagedMigrationData) => migration.status_message || '-',
                             },
                             {
                                 title: 'Actions',
                                 key: 'actions',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     if (migration.display_status === 'running') {
                                         return (
                                             <LemonButton

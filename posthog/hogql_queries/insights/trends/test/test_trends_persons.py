@@ -36,12 +36,14 @@ from posthog.schema import (
 
 from posthog.api.test.test_team import create_team
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
-from posthog.models import Cohort, Team
-from posthog.models.action.action import Action
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
+from posthog.models import Team
 from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 def get_actors(
@@ -220,14 +222,14 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             _create_event(
                 event="$pageview",
                 distinct_id="person4",
-                timestamp=f"2023-04-{30-i} 16:00",
+                timestamp=f"2023-04-{30 - i} 16:00",
                 properties={"some_property": 20},
                 team=other_team,
             )
             _create_event(
                 event="$pageview",
                 distinct_id="person4",
-                timestamp=f"2023-05-0{i+1} 16:00",
+                timestamp=f"2023-05-0{i + 1} 16:00",
                 properties={"some_property": 20},
                 team=other_team,
             )
@@ -1003,7 +1005,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         )
 
         for i in range(4):
-            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i+25}")
+            result = self._get_actors(trends_query=source_query, day=f"2023-04-{i + 25}")
             self.assertEqual(len(result), 0)
 
         result = self._get_actors(trends_query=source_query, day="2023-04-29")
@@ -1023,7 +1025,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_event_count(result[0]), 1)
 
         for i in range(20):
-            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2+i}")
+            result = self._get_actors(trends_query=source_query, day=f"2023-05-{2 + i}")
             self.assertEqual(len(result), 0)
 
     def test_trends_math_first_time_for_user_breakdowns_basic(self):

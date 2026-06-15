@@ -1,3 +1,6 @@
+// False positive: struct fields used by miette's Diagnostic derive macro appear as "unused assignments"
+#![allow(unused_assignments)]
+
 use anyhow::Error;
 use clap::Subcommand;
 use miette::{Diagnostic, SourceSpan};
@@ -88,8 +91,8 @@ pub fn query_command(query: &QueryCommand) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Query checked")]
+// These structs use miette's Diagnostic derive macro which reads the fields.
+#[derive(Debug, Diagnostic)]
 #[diagnostic()]
 struct CheckDiagnostic {
     #[source_code]
@@ -103,8 +106,22 @@ struct CheckDiagnostic {
     notices: Vec<CheckNotice>,
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Error")]
+impl std::fmt::Display for CheckDiagnostic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Query checked ({} bytes): {} errors, {} warnings, {} notices",
+            self.source_code.len(),
+            self.errors.len(),
+            self.warnings.len(),
+            self.notices.len()
+        )
+    }
+}
+
+impl std::error::Error for CheckDiagnostic {}
+
+#[derive(Debug, Diagnostic)]
 #[diagnostic(severity(Error))]
 struct CheckError {
     #[help]
@@ -113,8 +130,15 @@ struct CheckError {
     err_span: SourceSpan,
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Warning")]
+impl std::fmt::Display for CheckError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at {:?})", self.message, self.err_span)
+    }
+}
+
+impl std::error::Error for CheckError {}
+
+#[derive(Debug, Diagnostic)]
 #[diagnostic(severity(Warning))]
 struct CheckWarning {
     #[help]
@@ -123,8 +147,15 @@ struct CheckWarning {
     err_span: SourceSpan,
 }
 
-#[derive(thiserror::Error, Debug, Diagnostic)]
-#[error("Notice")]
+impl std::fmt::Display for CheckWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at {:?})", self.message, self.err_span)
+    }
+}
+
+impl std::error::Error for CheckWarning {}
+
+#[derive(Debug, Diagnostic)]
 #[diagnostic(severity(Info))]
 struct CheckNotice {
     #[help]
@@ -132,6 +163,14 @@ struct CheckNotice {
     #[label]
     err_span: SourceSpan,
 }
+
+impl std::fmt::Display for CheckNotice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} (at {:?})", self.message, self.err_span)
+    }
+}
+
+impl std::error::Error for CheckNotice {}
 
 // We use miette to pretty print notices, warnings and errors across the original query.
 fn pretty_print_check_response(query: &str, res: MetadataResponse) -> Result<(), Error> {

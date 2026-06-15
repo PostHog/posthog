@@ -7,14 +7,15 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { OnboardingStepKey } from '~/types'
 
 import { EditKeyModal } from '../../settings/user/PersonalAPIKeys'
+import { OnboardingStepComponentType } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
 import { SourceMapsInstructionsModal } from './OnboardingErrorTrackingSourceMapsModal'
 import { SourceMapOptionCard } from './source-maps/SourceMapOptionCard'
-import { SourceMapStatus } from './source-maps/SourceMapStatus'
 import { automatedSourceMapsTechnologies } from './source-maps/SourceMapsSDKInstructionsMap'
 import { sourceMapsStepLogic } from './source-maps/sourceMapsStepLogic'
+import { SourceMapStatus } from './source-maps/SourceMapStatus'
 
-export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
+export const OnboardingErrorTrackingSourceMapsStep: OnboardingStepComponentType = () => {
     const { selectedOption, instructionsModalOpen, shouldShowContinue, shouldShowSourceMapStatus } =
         useValues(sourceMapsStepLogic)
     const { setSelectedOption, setInstructionsModalOpen } = useActions(sourceMapsStepLogic)
@@ -26,7 +27,7 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
     return (
         <OnboardingStep
             title="Link source maps"
-            stepKey={stepKey}
+            stepKey={OnboardingStepKey.SOURCE_MAPS}
             showContinue={shouldShowContinue}
             showSkip={!shouldShowContinue}
         >
@@ -67,7 +68,7 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
                             </p>
                             <CodeSnippet language={Language.Bash}>
                                 {[
-                                    "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/download/posthog-cli-v0.0.2/posthog-cli-installer.sh | sh",
+                                    "curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh",
                                     'posthog-cli-update',
                                 ].join('\n')}
                             </CodeSnippet>
@@ -132,3 +133,5 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
         </OnboardingStep>
     )
 }
+
+OnboardingErrorTrackingSourceMapsStep.stepKey = OnboardingStepKey.SOURCE_MAPS

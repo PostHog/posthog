@@ -1,6 +1,12 @@
 pub mod auth;
 pub mod avro_schema;
 pub mod config;
+pub mod endpoints;
 pub mod kafka;
 pub mod log_record;
+pub mod metric_record;
+pub mod metrics_avro_schema;
+pub mod middleware;
 pub mod service;
+pub mod trace_record;
+pub mod traces_avro_schema;

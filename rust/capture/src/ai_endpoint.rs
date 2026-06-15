@@ -5,17 +5,15 @@ use axum::response::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use common_types::{CapturedEvent, HasEventName};
-use flate2::read::GzDecoder;
 use futures::stream;
 use metrics::{counter, histogram};
 use multer::{parse_boundary, Multipart};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
-use std::io::Read;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 // Blob metrics
@@ -25,8 +23,13 @@ const AI_BLOB_TOTAL_BYTES_PER_EVENT: &str = "capture_ai_blob_total_bytes_per_eve
 const AI_BLOB_EVENTS_TOTAL: &str = "capture_ai_blob_events_total";
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::event_restrictions::{
+    AppliedRestrictions, EventContext as RestrictionEventContext, Pipeline,
+};
+use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
-use crate::prometheus::report_dropped_events;
+use crate::payload::decompression::decompress_gzip_to_bytes;
+use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::timestamp;
 use crate::token::validate_token;
@@ -79,6 +82,16 @@ struct EventMetadata {
     event_part_info: PartInfo,
 }
 
+impl EventMetadata {
+    fn event_uuid(&self) -> Option<String> {
+        self.event_json
+            .as_object()
+            .and_then(|obj| obj.get("uuid"))
+            .and_then(|v| v.as_str())
+            .map(String::from)
+    }
+}
+
 impl HasEventName for EventMetadata {
     fn event_name(&self) -> &str {
         &self.event_name
@@ -114,6 +127,18 @@ pub async fn ai_handler(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Json<AIEndpointResponse>, CaptureError> {
+    ai_handler_inner(state, ip, path, headers, body)
+        .await
+        .inspect_err(|err| report_internal_error_metrics(err.to_metric_tag(), "ai"))
+}
+
+async fn ai_handler_inner(
+    state: AppState,
+    ip: Option<InsecureClientIp>,
+    path: MatchedPath,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Json<AIEndpointResponse>, CaptureError> {
     debug!("Received request to /i/v0/ai endpoint");
 
     // Extract body with timed streaming (same pattern as analytics/recordings handlers)
@@ -130,9 +155,21 @@ pub async fn ai_handler(
 
     // Check for empty body
     if body.is_empty() {
-        warn!("AI endpoint received empty body");
         return Err(CaptureError::EmptyPayload);
     }
+
+    // Authenticate before any CPU/memory-intensive decompression work
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !auth_header.starts_with("Bearer ") {
+        return Err(CaptureError::NoTokenError);
+    }
+
+    let token = &auth_header[7..]; // Remove "Bearer " prefix
+    validate_token(token)?;
 
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers
@@ -142,7 +179,7 @@ pub async fn ai_handler(
 
     let decompressed_body = if content_encoding.eq_ignore_ascii_case("gzip") {
         debug!("Decompressing gzip-encoded request body");
-        decompress_gzip(&body)?
+        Bytes::from(decompress_gzip_to_bytes(&body, body_limit)?)
     } else {
         body
     };
@@ -154,10 +191,6 @@ pub async fn ai_handler(
         .unwrap_or("");
 
     if !content_type.starts_with("multipart/form-data") {
-        warn!(
-            "AI endpoint received non-multipart content type: {}",
-            content_type
-        );
         return Err(CaptureError::RequestDecodingError(
             "Content-Type must be multipart/form-data".to_string(),
         ));
@@ -165,24 +198,8 @@ pub async fn ai_handler(
 
     // Extract boundary from Content-Type header using multer's built-in parser
     let boundary = parse_boundary(content_type).map_err(|e| {
-        warn!("Failed to parse boundary from Content-Type: {}", e);
         CaptureError::RequestDecodingError(format!("Invalid boundary in Content-Type: {e}"))
     })?;
-
-    // Check for authentication
-    let auth_header = headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if !auth_header.starts_with("Bearer ") {
-        warn!("AI endpoint missing or invalid Authorization header");
-        return Err(CaptureError::NoTokenError);
-    }
-
-    // Extract and validate token
-    let token = &auth_header[7..]; // Remove "Bearer " prefix
-    validate_token(token)?;
 
     // Capture body size for logging (before we move the Bytes)
     let body_size = decompressed_body.len();
@@ -196,7 +213,34 @@ pub async fn ai_handler(
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
     let event_metadata = retrieve_event_metadata(&mut multipart).await?;
 
-    // Step 2: Check token dropper early - before parsing remaining parts
+    // Step 2: Check event restrictions early - before parsing remaining parts
+    let applied_restrictions = if let Some(ref service) = state.event_restriction_service {
+        let uuid_str = event_metadata.event_uuid();
+        let event_ctx = RestrictionEventContext {
+            distinct_id: Some(&event_metadata.distinct_id),
+            session_id: None,
+            event_name: Some(&event_metadata.event_name),
+            event_uuid: uuid_str.as_deref(),
+            now_ts: state.timesource.current_time().timestamp(),
+        };
+
+        let applied = service
+            .get_restrictions(token, &event_ctx, Pipeline::Ai)
+            .await;
+
+        if applied.should_drop() {
+            report_dropped_events("event_restriction_drop", 1);
+            return Ok(Json(AIEndpointResponse {
+                accepted_parts: vec![],
+            }));
+        }
+
+        applied
+    } else {
+        AppliedRestrictions::default()
+    };
+
+    // Step 3: Check token dropper - before parsing remaining parts
     // Token dropper silently drops events (returns 200) to avoid alerting clients
     if state
         .token_dropper
@@ -209,7 +253,7 @@ pub async fn ai_handler(
         }));
     }
 
-    // Step 3: Check quota limiter - drop if over quota
+    // Step 4: Check quota limiter - drop if over quota
     // We pass a single-element vec and check if it's filtered out
     let filtered = state
         .quota_limiter
@@ -222,7 +266,7 @@ pub async fn ai_handler(
         .next()
         .ok_or(CaptureError::BillingLimit)?;
 
-    // Step 4: Retrieve and validate remaining multipart parts (continues parsing from multipart)
+    // Step 5: Retrieve and validate remaining multipart parts (continues parsing from multipart)
     let parts = retrieve_multipart_parts(
         &mut multipart,
         state.ai_max_sum_of_parts_bytes,
@@ -230,10 +274,10 @@ pub async fn ai_handler(
     )
     .await?;
 
-    // Step 5: Parse the parts
+    // Step 6: Parse the parts
     let mut parsed = parse_multipart_data(parts)?;
 
-    // Step 6: Record blob metrics and upload to S3
+    // Step 7: Record blob metrics and upload to S3
     let blob_count = parsed.blob_parts.len();
     if blob_count > 0 {
         // Record blob metrics
@@ -265,7 +309,7 @@ pub async fn ai_handler(
     // Upload blobs to S3 and insert URLs into event properties
     if !parsed.blob_parts.is_empty() {
         let blob_storage = state.ai_blob_storage.as_ref().ok_or_else(|| {
-            warn!("AI endpoint received blobs but S3 is not configured");
+            error!("AI endpoint received blobs but S3 is not configured");
             CaptureError::ServiceUnavailable("blob storage not configured".to_string())
         })?;
 
@@ -307,14 +351,27 @@ pub async fn ai_handler(
         }
     }
 
-    // Step 7: Build Kafka event
+    // Step 8: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
-    let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
+    let (accepted_parts, mut processed_event) =
+        build_kafka_event(parsed, token, &client_ip, &state, &applied_restrictions)?;
 
-    // Step 7: Send event to Kafka
+    // Step 8b: Apply the in-process OverflowLimiter governor. The analytics
+    // pipeline stamps overflow reasons inside `process_events`, but AI
+    // bypasses that path, so we invoke the shared helper here to preserve
+    // OverflowLimiter parity on `capture-ai-*` deploys (where
+    // `OVERFLOW_ENABLED=true`). `force_overflow` already stamped on
+    // `processed_event.metadata` by `build_kafka_event` is honored by the
+    // helper's short-circuit.
+    stamp_overflow_reason(
+        std::slice::from_mut(&mut processed_event),
+        state.overflow_limiter.as_ref(),
+    );
+
+    // Step 9: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
         warn!("Failed to send AI event to Kafka: {:?}", e);
         e
@@ -340,24 +397,6 @@ pub async fn options() -> Result<CaptureResponse, CaptureError> {
     })
 }
 
-/// Decompress gzip-encoded body using streaming decompression
-fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
-    let mut decoder = GzDecoder::new(&compressed[..]);
-    let mut decompressed = Vec::new();
-
-    decoder.read_to_end(&mut decompressed).map_err(|e| {
-        warn!("Failed to decompress gzip body: {}", e);
-        CaptureError::RequestDecodingError(format!("Failed to decompress gzip body: {e}"))
-    })?;
-
-    debug!(
-        "Decompressed {} bytes to {} bytes",
-        compressed.len(),
-        decompressed.len()
-    );
-    Ok(Bytes::from(decompressed))
-}
-
 /// Retrieve event metadata from the first multipart part for early checks.
 /// This parses only the 'event' part to extract event_name and distinct_id
 /// before processing the rest of the multipart body.
@@ -369,10 +408,7 @@ async fn retrieve_event_metadata(
     let field = multipart
         .next_field()
         .await
-        .map_err(|e| {
-            warn!("Multipart parsing error: {}", e);
-            CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
-        })?
+        .map_err(|e| CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}")))?
         .ok_or_else(|| {
             CaptureError::RequestParsingError(
                 "Missing required 'event' part in multipart data".to_string(),
@@ -396,7 +432,6 @@ async fn retrieve_event_metadata(
 
     // Read the field data
     let field_data = field.bytes().await.map_err(|e| {
-        warn!("Failed to read event field data: {}", e);
         CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
     })?;
 
@@ -448,6 +483,7 @@ fn build_kafka_event(
     token: &str,
     client_ip: &str,
     state: &AppState,
+    restrictions: &AppliedRestrictions,
 ) -> Result<(Vec<PartInfo>, ProcessedEvent), CaptureError> {
     // Get current time
     let now = state.timesource.current_time();
@@ -475,11 +511,12 @@ fn build_kafka_event(
         sent_at_utc,
         ignore_sent_at,
         now,
-    );
+    )
+    .timestamp;
 
     // Serialize the event to JSON (this is what goes in the "data" field)
     let data = serde_json::to_string(&parsed.event).map_err(|e| {
-        warn!("Failed to serialize AI event: {}", e);
+        error!("Failed to serialize AI event: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
@@ -519,6 +556,12 @@ fn build_kafka_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
+        force_overflow: restrictions.force_overflow(),
+        skip_person_processing: restrictions.skip_person_processing(),
+        redirect_to_dlq: restrictions.redirect_to_dlq(),
+        redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
+        skip_heatmap_processing: false,
+        overflow_reason: None,
     };
 
     // Create ProcessedEvent
@@ -548,13 +591,11 @@ fn process_event_part(
     }
 
     // Parse the event JSON
-    let event_json_str = std::str::from_utf8(&field_data).map_err(|e| {
-        warn!("Event part is not valid UTF-8: {}", e);
+    let event_json_str = std::str::from_utf8(&field_data).map_err(|_| {
         CaptureError::RequestParsingError("Event part must be valid UTF-8".to_string())
     })?;
 
-    let event_json = serde_json::from_str(event_json_str).map_err(|e| {
-        warn!("Event part is not valid JSON: {}", e);
+    let event_json = serde_json::from_str(event_json_str).map_err(|_| {
         CaptureError::RequestParsingError("Event part must be valid JSON".to_string())
     })?;
 
@@ -576,13 +617,11 @@ fn process_properties_part(
     content_encoding: Option<String>,
 ) -> Result<(Value, PartInfo), CaptureError> {
     // Parse the properties JSON
-    let properties_json_str = std::str::from_utf8(&field_data).map_err(|e| {
-        warn!("Properties part is not valid UTF-8: {}", e);
+    let properties_json_str = std::str::from_utf8(&field_data).map_err(|_| {
         CaptureError::RequestParsingError("Properties part must be valid UTF-8".to_string())
     })?;
 
-    let properties_json = serde_json::from_str(properties_json_str).map_err(|e| {
-        warn!("Properties part is not valid JSON: {}", e);
+    let properties_json = serde_json::from_str(properties_json_str).map_err(|_| {
         CaptureError::RequestParsingError("Properties part must be valid JSON".to_string())
     })?;
 
@@ -672,10 +711,11 @@ async fn retrieve_multipart_parts(
     accepted_parts.push(event_metadata.event_part_info);
 
     // Parse each part
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        warn!("Multipart parsing error: {}", e);
-        CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}")))?
+    {
         part_count += 1;
 
         // Extract all field information before consuming the field
@@ -701,7 +741,6 @@ async fn retrieve_multipart_parts(
 
         // Read the field data to get the length (this consumes the field)
         let field_data = field.bytes().await.map_err(|e| {
-            warn!("Failed to read field data for '{}': {}", field_name, e);
             CaptureError::RequestDecodingError(format!("Failed to read field data: {e}"))
         })?;
 
@@ -742,8 +781,6 @@ async fn retrieve_multipart_parts(
             blob_parts.push(blob_part);
             accepted_parts.push(part_info);
         } else {
-            warn!("Unknown multipart field: {}", field_name);
-
             // Reject unknown fields that don't match expected patterns
             return Err(CaptureError::RequestParsingError(format!(
                 "Unknown multipart field: '{field_name}'. Expected 'event', 'event.properties', or 'event.properties.<property_name>'"
@@ -850,10 +887,8 @@ fn parse_multipart_data(
         .and_then(|v| v.as_str())
         .ok_or_else(|| CaptureError::RequestParsingError("Event UUID is required".to_string()))
         .and_then(|uuid_str| {
-            Uuid::parse_str(uuid_str).map_err(|e| {
-                warn!("Invalid UUID format: {}", e);
-                CaptureError::RequestParsingError(format!("Invalid UUID format: {e}"))
-            })
+            Uuid::parse_str(uuid_str)
+                .map_err(|e| CaptureError::RequestParsingError(format!("Invalid UUID format: {e}")))
         })?;
 
     let timestamp = event
@@ -890,7 +925,6 @@ fn parse_multipart_data(
 fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
     // Check if event is an object
     let event_obj = event.as_object().ok_or_else(|| {
-        warn!("Event must be a JSON object");
         CaptureError::RequestParsingError("Event must be a JSON object".to_string())
     })?;
 
@@ -899,7 +933,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("event")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            warn!("Event missing 'event' field");
             CaptureError::RequestParsingError("Event missing 'event' field".to_string())
         })?;
 
@@ -932,7 +965,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("distinct_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            warn!("Event missing 'distinct_id' field");
             CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
         })?;
 
@@ -947,7 +979,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("properties")
         .and_then(|v| v.as_object())
         .ok_or_else(|| {
-            warn!("Event missing 'properties' field");
             CaptureError::RequestParsingError("Event missing 'properties' field".to_string())
         })?;
 
@@ -962,7 +993,6 @@ fn validate_event_structure(event: &Value) -> Result<(), CaptureError> {
         .get("$ai_model")
         .and_then(|v| v.as_str())
         .ok_or_else(|| {
-            warn!("$ai_model must be a string");
             CaptureError::RequestParsingError("$ai_model must be a string".to_string())
         })?;
 

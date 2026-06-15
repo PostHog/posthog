@@ -2,7 +2,6 @@ from collections import Counter as TCounter
 from typing import cast
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
-from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -11,6 +10,8 @@ from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, count_hogql_properties, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 from posthog.queries.trends.util import is_series_group_based
+
+from products.actions.backend.models.util import get_action_tables_and_properties
 
 
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
@@ -22,7 +23,9 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
     @cached_property
     def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
+        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(
+            self.filter.property_groups.flat, team_id=self.team_id
+        )
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
@@ -73,7 +76,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.entities_used_in_filter():
-            counter += extract_tables_and_properties(entity.property_groups.flat)
+            counter += extract_tables_and_properties(entity.property_groups.flat, team_id=self.team_id)
 
             # Math properties are also implicitly used.
             #
@@ -98,7 +101,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             #
             # See ee/clickhouse/models/action.py#format_action_filter for an example
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
-                counter += get_action_tables_and_properties(entity.get_action())
+                counter += get_action_tables_and_properties(entity.get_action(self.team_id))
 
         if (
             not isinstance(self.filter, StickinessFilter | PropertiesTimelineFilter)

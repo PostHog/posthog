@@ -1,20 +1,18 @@
 from typing import Any
 
 from django.db import transaction
-from django.db.models.signals import pre_delete
-from django.dispatch import receiver
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import ExperimentHoldout
-from posthog.models.signals import model_activity_signal, mutable_receiver
+
+from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
@@ -51,6 +49,9 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
         return updated_filters
 
     def validate_filters(self, filters):
+        if not filters:
+            raise serializers.ValidationError("Filters must not be empty.")
+
         for filter in filters:
             rollout_percentage = filter.get("rollout_percentage")
             if rollout_percentage is None:
@@ -85,17 +86,22 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
                     existing_flag_serializer = FeatureFlagSerializer(
                         flag,
                         data={
-                            "filters": {**flag.filters, "holdout_groups": validated_data["filters"]},
+                            "filters": {
+                                **flag.filters,
+                                **holdout_filters_for_flag(instance.id, validated_data["filters"]),
+                            },
                         },
                         partial=True,
                         context=self.context,
                     )
                     existing_flag_serializer.is_valid(raise_exception=True)
                     existing_flag_serializer.save()
+                return super().update(instance, validated_data)
 
         return super().update(instance, validated_data)
 
 
+@extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
 class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()
@@ -113,7 +119,7 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={
                         "filters": {
                             **flag.filters,
-                            "holdout_groups": None,
+                            **holdout_filters_for_flag(None, None),
                         }
                     },
                     partial=True,
@@ -122,42 +128,4 @@ class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
 
-        return super().destroy(request, *args, **kwargs)
-
-
-@mutable_receiver(model_activity_signal, sender=ExperimentHoldout)
-def handle_experiment_holdout_change(
-    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
-):
-    # Log activity for the holdout itself
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user or after_update.created_by,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            type="holdout",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentHoldout)
-def handle_experiment_holdout_delete(sender, instance, **kwargs):
-    from posthog.models.activity_logging.utils import activity_storage
-
-    # Log activity for the holdout itself
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=activity_storage.get_was_impersonated(),
-        item_id=instance.id,
-        scope="Experiment",
-        activity="deleted",
-        detail=Detail(name=instance.name, type="holdout"),
-    )
+            return super().destroy(request, *args, **kwargs)

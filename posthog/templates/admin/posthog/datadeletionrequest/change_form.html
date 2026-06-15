@@ -1,0 +1,154 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script>
+        (function () {
+            // Toggle event/property fields and the "Person targets" fieldset based on request_type.
+            // Event fields are scoped via the form-row CSS classes Django renders (.field-<name>);
+            // the person fieldset has the explicit class "data-deletion-person-fields".
+            var EVENT_FIELDS = ["events", "delete_all_events", "properties", "hogql_predicate"];
+
+            function applyToggle() {
+                var select = document.getElementById("id_request_type");
+                if (!select) return;
+                var isPerson = select.value === "person_removal";
+
+                EVENT_FIELDS.forEach(function (name) {
+                    var row = document.querySelector(".form-row.field-" + name);
+                    if (row) row.style.display = isPerson ? "none" : "";
+                });
+
+                document.querySelectorAll("fieldset.data-deletion-person-fields").forEach(function (fs) {
+                    fs.style.display = isPerson ? "" : "none";
+                });
+            }
+
+            document.addEventListener("DOMContentLoaded", function () {
+                var select = document.getElementById("id_request_type");
+                if (!select) return;
+                applyToggle();
+                select.addEventListener("change", applyToggle);
+            });
+        })();
+    </script>
+{% endblock %}
+
+{% block after_field_sets %}
+    {{ block.super }}
+
+    {% if original.events %}
+    <fieldset>
+        <h2>Events list</h2>
+        <ul style="margin: 8px 0 8px 20px;">
+            {% for event in original.events %}
+                <li><code>{{ event }}</code></li>
+            {% endfor %}
+        </ul>
+    </fieldset>
+    {% endif %}
+
+    {% if original.properties %}
+    <fieldset>
+        <h2>Properties list</h2>
+        <ul style="margin: 8px 0 8px 20px;">
+            {% for prop in original.properties %}
+                <li><code>{{ prop }}</code></li>
+            {% endfor %}
+        </ul>
+    </fieldset>
+    {% endif %}
+
+    {% comment %}
+       Stats are calculated from this page (works for any status). These buttons use
+       formaction= to post the surrounding admin <form> to the stats views.
+       Guarded on `original` — the stats URLs only exist for a saved object, and on the
+       add view an empty formaction would post back and create a record.
+    {% endcomment %}
+    {% if original %}
+    <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
+        <h2>ClickHouse stats</h2>
+        {% if original.stats_calculated_at %}
+            <table style="border-collapse: collapse; width: 100%;">
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Matching events</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ original.count|default:"0" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Min timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ original.min_timestamp|default:"—" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Max timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ original.max_timestamp|default:"—" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Part count</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ original.part_count|default:"0" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Parts size</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ original.parts_size|default:"0" }} bytes</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee;">Total rows in affected parts</th><td style="padding: 6px 8px; border-bottom: 1px solid #eee;">{{ original.parts_row_count|default:"0" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px;">Calculated at</th><td style="padding: 6px 8px;">{{ original.stats_calculated_at }}</td></tr>
+            </table>
+        {% else %}
+            <p style="color: #666; margin: 4px 0;">No stats have been fetched yet.</p>
+        {% endif %}
+        <div style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+            <button type="submit" formaction="{{ fetch_stats_url }}" formmethod="post" formnovalidate class="button" style="padding: 8px 14px;">{% if original.stats_calculated_at %}Refresh stats{% else %}Fetch stats{% endif %}</button>
+            {% if is_clickhouse_team %}
+                <button type="submit" formaction="{{ preview_stats_url }}" formmethod="post" formnovalidate class="button" style="padding: 8px 14px;">Show stats now (don't save)</button>
+            {% endif %}
+        </div>
+    </fieldset>
+    {% endif %}
+
+    {% if preview_stats %}
+    <fieldset style="margin: 20px 0; padding: 16px; border: 1px dashed #0c5460; border-radius: 4px; background: #d1ecf1; color: #0c5460;">
+        <h2 style="color: #0c5460;">Preview (not saved)</h2>
+        <table style="border-collapse: collapse; width: 100%;">
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Matching events</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.count|default:"0" }}</td></tr>
+            {% if preview_stats.min_timestamp is not None %}
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Min timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.min_timestamp|default:"—" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Max timestamp</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.max_timestamp|default:"—" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Part count</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.part_count|default:"0" }}</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Parts size</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.parts_size|default:"0" }} bytes</td></tr>
+                <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Total rows in affected parts</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{{ preview_stats.parts_row_count|default:"0" }}</td></tr>
+            {% endif %}
+            <tr><th style="text-align: left; padding: 6px 8px;">Previewed at</th><td style="padding: 6px 8px;">{{ preview_stats.calculated_at }}</td></tr>
+        </table>
+    </fieldset>
+    {% endif %}
+
+    {% if is_draft %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #417690; display: flex; align-items: center; gap: 10px;">
+        <div class="info">This request is a <strong>draft</strong>. When ready, submit it for review.</div>
+        <a class="button" style="padding: 10px 15px;" href="{{ submit_url }}">
+            Review &amp; Submit
+        </a>
+    </div>
+    {% endif %}
+
+    {# NOTE: These submit buttons use formaction= to bypass the surrounding admin <form>, since browsers collapse nested <form> elements. #}
+    {% if can_approve %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #5cb85c; display: flex; align-items: center; gap: 10px;">
+        <div class="info">This request is <strong>pending</strong> and awaiting approval.</div>
+        <a class="button" style="padding: 10px 15px; background: #5cb85c; color: white;" href="{{ approve_url }}">Review &amp; Approve</a>
+    </div>
+    {% endif %}
+
+    {% if can_revert_to_draft %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f0ad4e; display: flex; align-items: center; gap: 10px;">
+        <div class="info">This request is <strong>{{ original.get_status_display|lower }}</strong>. Moving it back to draft will clear the approval.</div>
+        <button type="submit" formaction="{{ revert_to_draft_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px;">Move to draft</button>
+    </div>
+    {% endif %}
+
+    {% if can_retry %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #d9534f; display: flex; align-items: center; gap: 10px;">
+        <div class="info">
+            This request <strong>failed</strong> after {{ original.attempt_count }} attempt{{ original.attempt_count|pluralize }}.
+            Retry to re-queue it for execution — the original approval is preserved.
+        </div>
+        <button type="submit" formaction="{{ retry_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #d9534f; color: white;" onclick="return confirm('Retry this failed request? It will be re-queued for execution.');">Retry execution</button>
+    </div>
+    {% endif %}
+
+    {% if can_verify %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #417690; display: flex; align-items: center; gap: 10px;">
+        <div class="info">
+            This request is <strong>{{ original.get_status_display|lower }}</strong>. Verify to re-check ClickHouse now —
+            if no matching events remain, it will be marked completed{% if original.status == "failed" %} (use this when the job errored after the events were already deleted){% endif %}.
+        </div>
+        <button type="submit" formaction="{{ verify_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #417690; color: white;" onclick="return confirm('Verify this request against ClickHouse now?');">Verify deletion</button>
+    </div>
+    {% endif %}
+{% endblock %}

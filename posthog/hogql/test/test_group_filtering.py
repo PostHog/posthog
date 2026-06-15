@@ -12,6 +12,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.models import GroupTypeMapping
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 
 
 class TestGroupKeyFiltering(APIBaseTest):
@@ -22,17 +23,25 @@ class TestGroupKeyFiltering(APIBaseTest):
         self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
 
+    def _create_mapping_and_rebuild(self, **kwargs):
+        """Create a GroupTypeMapping, invalidate cache, and rebuild database."""
+        GroupTypeMapping.objects.create(**kwargs)
+
+    def _rebuild_database(self):
+        invalidate_group_types_cache(self.team.project_id)
+        self.database = Database.create_for(team=self.team)
+        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+
     def test_group_field_with_mapping_and_created_at(self):
         """Test that $group_0 gets filtering when GroupTypeMapping exists with created_at"""
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
@@ -46,8 +55,7 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_field_without_mapping(self):
         """Test that $group_0 falls back when no GroupTypeMapping exists"""
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
@@ -60,22 +68,21 @@ class TestGroupKeyFiltering(APIBaseTest):
     def test_multiple_group_fields(self):
         """Test filtering with multiple group type mappings"""
         # Create mappings for groups 0 and 1
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="team",
             group_type_index=1,
             created_at=datetime(2023, 2, 1, 10, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         # Parse a query that references multiple group fields
         query = "SELECT $group_0, $group_1, $group_2 FROM events"
@@ -91,15 +98,14 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_field_in_where_clause(self):
         """Test that group filtering works in WHERE clauses"""
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT event FROM events WHERE $group_0 = 'acme'"
         parsed = parse_select(query)
@@ -112,15 +118,14 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_join_with_filtering(self):
         """Test that group_1.properties access includes filtering for $group_1"""
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="team",
             group_type_index=1,
             created_at=datetime(2023, 2, 1, 10, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT group_1.properties FROM events"
         parsed = parse_select(query)
@@ -133,7 +138,7 @@ class TestGroupKeyFiltering(APIBaseTest):
     def test_multiple_group_joins_with_mixed_mappings(self):
         """Test joins to multiple groups with some having filtering and others not"""
         # Create mapping only for group_0
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
@@ -141,8 +146,7 @@ class TestGroupKeyFiltering(APIBaseTest):
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
         # No mapping for group_1
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT group_0.properties, group_1.properties FROM events"
         parsed = parse_select(query)
@@ -155,15 +159,14 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_non_clickhouse_dialect_no_filtering(self):
         """Test that non-ClickHouse dialects don't get filtering"""
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT $group_0 FROM events"
         parsed = parse_select(query)
@@ -174,15 +177,14 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_alias_with_filtering(self):
         """Test that group aliases (e.g., 'company' for $group_0) work with filtering"""
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT company.properties.name FROM events"
         parsed = parse_select(query)
@@ -196,15 +198,14 @@ class TestGroupKeyFiltering(APIBaseTest):
 
     def test_group_alias_in_where_clause(self):
         """Test that group aliases work with filtering in WHERE clauses"""
-        GroupTypeMapping.objects.create(
+        self._create_mapping_and_rebuild(
             team=self.team,
             project=self.team.project,
             group_type="company",
             group_type_index=0,
             created_at=datetime(2023, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
-        self.database = Database.create_for(team=self.team)
-        self.context = HogQLContext(team=self.team, database=self.database, enable_select_queries=True)
+        self._rebuild_database()
 
         query = "SELECT event FROM events WHERE company.properties.name = 'acme'"
         parsed = parse_select(query)

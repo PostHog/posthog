@@ -1,28 +1,14 @@
 """Tests for the MySQL source.
 
-NOTE: These tests require a MySQL server to be running locally (or somewhere else).
-Therefore these tests will only run if the required environment variables are set.
-
-You can run a local MySQL server using Docker:
-
-```
-docker run -d --name mysql-test -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=test -p 3306:3306 mysql:9.2
-```
-
-Then you can run these tests using:
-
-```
-OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
-    MYSQL_HOST=localhost \
-    MYSQL_USER=root \
-    MYSQL_PASSWORD=root \
-    MYSQL_DATABASE=test \
-    pytest posthog/temporal/tests/data_imports/test_mysql_source.py
-```
-
+These tests reuse the session-scoped `mysql_container` fixture from
+`conftest.py`, which spins up a single MySQL container shared across
+every test file in this package. Requires a reachable Docker daemon —
+CI's existing runner already has one (it's what brings up the
+`docker-compose.dev.yml` stack), and local `flox` envs have Docker too.
+If Docker is unreachable the fixture errors loudly instead of silently
+skipping.
 """
 
-import os
 import math
 import uuid
 import random
@@ -31,32 +17,21 @@ import operator
 
 import pytest
 
-import pymysql
 import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.temporal.data_imports.sources.mysql.mysql import (
-    _build_query,
-    _get_partition_settings,
-    _get_rows_to_sync,
-    _get_table_average_row_size,
-    _get_table_chunk_size,
-)
+from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation, _build_query
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 from products.data_warehouse.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+_IMPL = MySQLImplementation()
 
 pytestmark = pytest.mark.usefixtures("minio_client")
-
-REQUIRED_ENV_VARS = (
-    "MYSQL_HOST",
-    "MYSQL_USER",
-    "MYSQL_PASSWORD",
-    "MYSQL_DATABASE",
-)
 
 MYSQL_TABLE_NAME = "test_table"
 
@@ -65,45 +40,6 @@ TEST_DATA = [
     (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC), 2000000),
     (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC), 3409892966),
 ]
-
-
-def mysql_env_vars_are_set():
-    if not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS):
-        return False
-    return True
-
-
-SKIP_IF_MISSING_MYSQL_CREDENTIALS = pytest.mark.skipif(
-    not mysql_env_vars_are_set(),
-    reason="MySQL required env vars are not set",
-)
-
-
-@pytest.fixture
-def mysql_config():
-    return {
-        "host": os.environ["MYSQL_HOST"],
-        "port": os.environ.get("MYSQL_PORT", 3306),
-        "user": os.environ["MYSQL_USER"],
-        "password": os.environ["MYSQL_PASSWORD"],
-        "database": os.environ["MYSQL_DATABASE"],
-        # TODO: I don't think this is needed
-        "schema": os.environ["MYSQL_DATABASE"],
-        "using_ssl": False,
-    }
-
-
-@pytest.fixture
-def mysql_connection(mysql_config):
-    with pymysql.connect(
-        host=mysql_config["host"],
-        port=mysql_config["port"],
-        database=mysql_config["database"],
-        user=mysql_config["user"],
-        password=mysql_config["password"],
-        connect_timeout=5,
-    ) as connection:
-        yield connection
 
 
 @pytest.fixture
@@ -164,7 +100,6 @@ def external_data_schema_full_refresh(external_data_source, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 async def test_mysql_source_full_refresh(
     team, mysql_source_table, external_data_source, external_data_schema_full_refresh
 ):
@@ -233,20 +168,26 @@ def mysql_partition_table(mysql_connection, partition_table_name, partition_tabl
     conn.commit()
 
 
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 @pytest.mark.parametrize("partition_table_rows", [0], indirect=True)
-def test_get_partition_settings_with_empty_table(mysql_partition_table, mysql_connection):
+def test_get_partition_settings_with_empty_table(mysql_partition_table, mysql_connection, mysql_config):
+    logger = structlog.get_logger()
+
     with mysql_connection.cursor() as cursor:
-        partition_settings = _get_partition_settings(cursor, os.environ["MYSQL_DATABASE"], mysql_partition_table)
+        partition_settings = _IMPL.get_partition_settings(
+            cursor, mysql_config["database"], mysql_partition_table, logger
+        )
 
     assert partition_settings is None
 
 
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
-def test_get_partition_settings_with_one_size_partition(mysql_partition_table, mysql_connection, partition_table_rows):
+def test_get_partition_settings_with_one_size_partition(
+    mysql_partition_table, mysql_connection, mysql_config, partition_table_rows
+):
+    logger = structlog.get_logger()
+
     with mysql_connection.cursor() as cursor:
-        partition_settings = _get_partition_settings(
-            cursor, os.environ["MYSQL_DATABASE"], mysql_partition_table, partition_size_bytes=1
+        partition_settings = _IMPL.get_partition_settings(
+            cursor, mysql_config["database"], mysql_partition_table, logger, partition_size_bytes=1
         )
 
     assert partition_settings is not None
@@ -272,7 +213,6 @@ def external_data_schema_incremental(external_data_source, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 async def test_mysql_source_incremental(
     team, mysql_source_table, external_data_source, external_data_schema_incremental, mysql_connection
 ):
@@ -310,8 +250,8 @@ async def test_mysql_source_incremental(
         external_data_source=external_data_source,
         external_data_schema=external_data_schema_incremental,
         table_name=table_name,
-        # We use a GTE, so the last id will be re-synced.
-        expected_rows_synced=expected_num_rows + 1,
+        # Integer cursors use `>` (only Date uses `>=`), so only the newly inserted rows are synced.
+        expected_rows_synced=len(NEW_TEST_DATA),
         expected_total_rows=expected_total_num_rows,
         expected_columns=["id", "name", "email", "created_at", "unsigned_int"],
     )
@@ -621,7 +561,6 @@ def mysql_very_big_table(mysql_connection):
         conn.commit()
 
 
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 def test_mysql_narrow_table_chunking(mysql_narrow_table, mysql_config):
     """Test that narrow tables use the full chunk size (20,000 rows)."""
 
@@ -629,21 +568,23 @@ def test_mysql_narrow_table_chunking(mysql_narrow_table, mysql_config):
     logger = structlog.get_logger()
 
     # Test average row size calculation
-    avg_row_size = _get_table_average_row_size(
-        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    inner_query, inner_query_args = _build_query(mysql_config["database"], table_name, False, None, None, None)
+    avg_row_size = _IMPL.fetch_average_row_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
     )
 
     assert avg_row_size is not None
     assert avg_row_size < 200
 
     # Test chunk size calculation
-    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+    chunk_size = _IMPL.get_chunk_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
+    )
 
     # For narrow tables, should use full DEFAULT_CHUNK_SIZE
     assert chunk_size == DEFAULT_CHUNK_SIZE
 
 
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 def test_mysql_wide_table_chunking(mysql_wide_table, mysql_config):
     """Test that wide tables use reduced chunk size via dynamic chunking."""
 
@@ -651,15 +592,18 @@ def test_mysql_wide_table_chunking(mysql_wide_table, mysql_config):
     logger = structlog.get_logger()
 
     # Test average row size calculation
-    avg_row_size = _get_table_average_row_size(
-        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    inner_query, inner_query_args = _build_query(mysql_config["database"], table_name, False, None, None, None)
+    avg_row_size = _IMPL.fetch_average_row_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
     )
 
     assert avg_row_size is not None
     assert avg_row_size > 20000
 
     # Test chunk size calculation
-    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+    chunk_size = _IMPL.get_chunk_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
+    )
 
     # For wide tables, should use reduced chunk size, which is less than DEFAULT_CHUNK_SIZE
     expected_chunk_size = min(int(DEFAULT_TABLE_SIZE_BYTES / avg_row_size), DEFAULT_CHUNK_SIZE)
@@ -667,7 +611,6 @@ def test_mysql_wide_table_chunking(mysql_wide_table, mysql_config):
     assert chunk_size < DEFAULT_CHUNK_SIZE
 
 
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
     """Test that medium tables use moderately reduced chunk size."""
 
@@ -675,8 +618,9 @@ def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
     logger = structlog.get_logger()
 
     # Test average row size calculation
-    avg_row_size = _get_table_average_row_size(
-        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    inner_query, inner_query_args = _build_query(mysql_config["database"], table_name, False, None, None, None)
+    avg_row_size = _IMPL.fetch_average_row_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
     )
 
     assert avg_row_size is not None
@@ -685,7 +629,9 @@ def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
     )  # little bit more complicated here, but make sure the avg row size is between 10000 and 20000 because the data is generated randomly
 
     # Test chunk size calculation
-    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+    chunk_size = _IMPL.get_chunk_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
+    )
 
     # For medium tables, should use moderately reduced chunk size
     expected_chunk_size = min(int(DEFAULT_TABLE_SIZE_BYTES / avg_row_size), DEFAULT_CHUNK_SIZE)
@@ -694,7 +640,6 @@ def test_mysql_medium_table_chunking(mysql_medium_table, mysql_config):
     assert chunk_size > 5000  # make sure its not _too_ small
 
 
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 def test_mysql_very_big_table_chunking(mysql_very_big_table, mysql_config):
     """Test that very big tables with many rows use dynamic chunking and process multiple chunks."""
 
@@ -702,15 +647,18 @@ def test_mysql_very_big_table_chunking(mysql_very_big_table, mysql_config):
     logger = structlog.get_logger()
 
     # Test average row size calculation
-    avg_row_size = _get_table_average_row_size(
-        cursor, mysql_config["database"], table_name, False, None, None, None, logger
+    inner_query, inner_query_args = _build_query(mysql_config["database"], table_name, False, None, None, None)
+    avg_row_size = _IMPL.fetch_average_row_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
     )
 
     assert avg_row_size is not None
     assert avg_row_size > 25000  # want them big
 
     # Test chunk size calculation
-    chunk_size = _get_table_chunk_size(cursor, mysql_config["database"], table_name, False, None, None, None, logger)
+    chunk_size = _IMPL.get_chunk_size(
+        cursor, mysql_config["database"], table_name, inner_query, inner_query_args, logger
+    )
 
     # Should use significantly reduced chunk size, which is less than DEFAULT_CHUNK_SIZE
     expected_chunk_size = min(int(DEFAULT_TABLE_SIZE_BYTES / avg_row_size), DEFAULT_CHUNK_SIZE)
@@ -718,8 +666,7 @@ def test_mysql_very_big_table_chunking(mysql_very_big_table, mysql_config):
     assert chunk_size < 6000  # make sure its smaller
 
     # Test that we'd process multiple chunks
-    inner_query, inner_query_args = _build_query(mysql_config["database"], table_name, False, None, None, None)
-    rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
+    rows_to_sync = _IMPL.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
 
     assert rows_to_sync == 12000  # make sure we inserted 12,000 rows
     expected_chunks = math.ceil(rows_to_sync / chunk_size)
@@ -734,7 +681,6 @@ def test_mysql_very_big_table_chunking(mysql_very_big_table, mysql_config):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@SKIP_IF_MISSING_MYSQL_CREDENTIALS
 async def test_mysql_chunking_end_to_end_wide_table(team, mysql_wide_table, mysql_config):
     """End-to-end test that wide tables are processed with correct chunking."""
     cursor, table_name = mysql_wide_table

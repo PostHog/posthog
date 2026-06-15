@@ -6,14 +6,16 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import {
@@ -41,6 +43,16 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     },
 }))
 
+const mockUsedInResponse = {
+    feature_flags: {
+        results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
+        total: 1,
+        has_more: false,
+    },
+    insights: { results: [], total: 0, has_more: false },
+    cohorts: { results: [], total: 0, has_more: false },
+}
+
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
     async function initCohortLogic(props: CohortLogicProps = { id: 'new' }): Promise<void> {
@@ -49,7 +61,9 @@ describe('cohortEditLogic', () => {
         await expectLogic(cohortsModel).toFinishAllListeners()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'update')
+        jest.spyOn(api, 'create')
         api.get.mockClear()
+        api.create.mockClear()
         logic = cohortEditLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -58,15 +72,16 @@ describe('cohortEditLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/cohorts': [mockCohort],
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/used_in/': mockUsedInResponse,
             },
             post: {
-                '/api/projects/:team/cohorts': mockCohort,
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             patch: {
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
         })
         initKeaTests()
@@ -77,7 +92,15 @@ describe('cohortEditLogic', () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['fetchCohort'])
 
-            expect(api.get).toHaveBeenCalledTimes(1)
+            // One call for the cohort itself, one for its used-in references
+            expect(api.get).toHaveBeenCalledTimes(2)
+        })
+
+        it('loads used-in references on mount before the cohort has resolved', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
         it('loads new cohort on mount', async () => {
@@ -85,6 +108,7 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCohort'])
 
             expect(api.get).toHaveBeenCalledTimes(0)
+            expect(logic.values.staticCohortMode).toEqual('people')
         })
 
         it('loads new cohort on mount with undefined id', async () => {
@@ -153,7 +177,13 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            }).toDispatchActions([
+                'setCohort',
+                'submitCohort',
+                'submitCohortSuccess',
+                'saveCohortSuccess',
+                'loadUsedIn',
+            ])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 
@@ -592,8 +622,10 @@ describe('cohortEditLogic', () => {
                                                             row.fields
                                                                 .filter(
                                                                     ({ fieldKey }) =>
-                                                                        !!fieldKey && fieldKey !== 'event_filters'
-                                                                ) // event_filters are optional
+                                                                        !!fieldKey &&
+                                                                        fieldKey !== 'event_filters' &&
+                                                                        fieldKey !== 'explicit_datetime_to'
+                                                                ) // event_filters and explicit_datetime_to are optional
                                                                 .map(({ fieldKey, type }) => [
                                                                     fieldKey,
                                                                     CRITERIA_VALIDATIONS[type](undefined),
@@ -619,11 +651,65 @@ describe('cohortEditLogic', () => {
                     ...mockCohort,
                     is_static: true,
                     groups: [],
+                    filters: { properties: {} as any },
                     csv: undefined,
                 })
+                logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortSuccess'])
             expect(api.update).toHaveBeenCalledTimes(1)
+        })
+
+        it('can create static cohort from criteria without csv', async () => {
+            await initCohortLogic({ id: 'new' })
+            const createdCohort = {
+                ...mockCohort,
+                id: 2,
+                name: 'Static from criteria',
+                is_static: true,
+            }
+            const createSpy = jest.spyOn(api.cohorts, 'create').mockResolvedValue(createdCohort)
+            const setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation(() => 0 as never)
+
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    id: 'new',
+                    name: 'Static from criteria',
+                    is_static: true,
+                    filters: {
+                        properties: {
+                            ...mockCohort.filters.properties,
+                            values: [
+                                {
+                                    id: '70427',
+                                    type: FilterLogicalOperator.Or,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformEvent,
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            time_value: 30,
+                                            time_interval: TimeUnitType.Day,
+                                            key: 'dashboard date range changed',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.actions.setStaticCohortMode('criteria')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortSuccess'])
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            const createPayload = createSpy.mock.calls[0][0] as FormData
+            expect(createPayload.get('is_static')).toEqual('true')
+            expect(createPayload.get('filters')).toContain('"values"')
+            expect(createPayload.get('filters')).not.toContain('"properties":{}')
+
+            setTimeoutSpy.mockRestore()
         })
 
         it('do not save static cohort with empty csv', async () => {
@@ -636,8 +722,9 @@ describe('cohortEditLogic', () => {
                     csv: undefined,
                     id: 'new',
                 })
+                logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort'])
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 
@@ -853,6 +940,108 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('query state and column configuration', () => {
+        it('preserves custom column configuration when setCohort is called', async () => {
+            await initCohortLogic({ id: 1 })
+
+            // Set custom columns via setQuery
+            const customColumns = ['person_display_name -- Person', 'id', 'created_at', 'properties.$browser']
+            const testQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
+                    select: customColumns,
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(testQuery)
+            })
+                .toDispatchActions(['setQuery'])
+                .toMatchValues({
+                    query: testQuery,
+                })
+
+            // Now call setCohort (simulating what happens after saving)
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(mockCohort)
+            })
+                .toDispatchActions(['setCohort'])
+                .toMatchValues({
+                    query: partial({
+                        source: partial({
+                            select: customColumns, // Custom columns should be preserved
+                        }),
+                    }),
+                })
+        })
+
+        it('uses default columns when no custom columns have been set', async () => {
+            await initCohortLogic({ id: 1 })
+
+            // Call setCohort without setting custom columns first
+            await expectLogic(logic, () => {
+                logic.actions.setCohort(mockCohort)
+            })
+                .toDispatchActions(['setCohort'])
+                .toMatchValues({
+                    query: partial({
+                        source: partial({
+                            // For non-static cohorts, default is without the delete column
+                            select: ['person_display_name -- Person', 'id', 'created_at'],
+                        }),
+                    }),
+                })
+        })
+
+        it('preserves custom columns after saving cohort (simulating saveCohort flow)', async () => {
+            await initCohortLogic({ id: 1 })
+
+            // First, set the cohort (this happens on initial load via fetchCohort)
+            await expectLogic(logic).toFinishAllListeners()
+
+            // User configures custom columns via the "Configure columns" UI
+            const customColumns = ['person_display_name -- Person', 'id', 'properties.$browser', 'properties.$os']
+            const testQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.ActorsQuery,
+                    fixedProperties: [
+                        { type: PropertyFilterType.Cohort, key: 'id', value: 1, operator: PropertyOperator.In },
+                    ],
+                    select: customColumns,
+                },
+                full: true,
+                showPropertyFilter: false,
+                showEventFilter: false,
+            }
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(testQuery)
+            }).toDispatchActions(['setQuery'])
+
+            // Verify custom columns are set
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+
+            // User saves the cohort - this triggers setCohort with the updated cohort from API
+            // (simulating what happens in saveCohort loader after API call)
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    is_calculating: false,
+                    last_calculation: '2024-01-01T00:00:00Z',
+                })
+            }).toDispatchActions(['setCohort'])
+
+            // Custom columns should still be preserved after save
+            expect((logic.values.query.source as ActorsQuery).select).toEqual(customColumns)
+        })
+    })
+
     describe('cohort duplication', () => {
         it('duplicate static cohort as static', async () => {
             await initCohortLogic({ id: 1 })
@@ -870,14 +1059,21 @@ describe('cohortEditLogic', () => {
                 name: 'Static Cohort (static copy)',
             }
 
-            jest.spyOn(api.cohorts, 'duplicate').mockResolvedValue(duplicatedCohort)
+            jest.spyOn(api, 'create').mockResolvedValue(duplicatedCohort)
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(staticCohort)
                 logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
-            expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
+            expect(api.create).toHaveBeenCalledWith('api/cohort', {
+                is_static: true,
+                name: 'Static Cohort (static copy)',
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT person_id FROM static_cohort_people WHERE cohort_id = 1',
+                },
+            })
         })
 
         it('duplicate dynamic cohort as static', async () => {
@@ -897,14 +1093,21 @@ describe('cohortEditLogic', () => {
                 is_static: true,
             }
 
-            jest.spyOn(api.cohorts, 'duplicate').mockResolvedValue(duplicatedCohort)
+            jest.spyOn(api, 'create').mockResolvedValue(duplicatedCohort)
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort(dynamicCohort)
                 logic.actions.duplicateCohort(true)
             }).toFinishAllListeners()
 
-            expect(api.cohorts.duplicate).toHaveBeenCalledWith(1)
+            expect(api.create).toHaveBeenCalledWith('api/cohort', {
+                is_static: true,
+                name: 'Dynamic Cohort (static copy)',
+                query: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT person_id FROM cohort_people WHERE cohort_id = 1',
+                },
+            })
         })
 
         it('duplicate dynamic cohort as dynamic', async () => {
@@ -920,12 +1123,20 @@ describe('cohortEditLogic', () => {
                         type: FilterLogicalOperator.Or,
                         values: [
                             {
-                                type: BehavioralFilterKey.Behavioral,
-                                value: BehavioralEventType.PerformEvent,
-                                event_type: TaxonomicFilterGroupType.Events,
-                                time_value: 30,
-                                time_interval: TimeUnitType.Day,
-                                key: '$pageview',
+                                sort_key: 'mocked-uuid',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        sort_key: 'mocked-uuid',
+                                        explicit_datetime: '-30d',
+                                        type: BehavioralFilterKey.Behavioral,
+                                        value: BehavioralEventType.PerformEvent,
+                                        event_type: TaxonomicFilterGroupType.Events,
+                                        time_value: 30,
+                                        time_interval: TimeUnitType.Day,
+                                        key: '$pageview',
+                                    },
+                                ],
                             },
                         ],
                     },
@@ -941,6 +1152,56 @@ describe('cohortEditLogic', () => {
                     // The duplication should complete without errors
                     cohort: partial(dynamicCohort),
                 })
+        }, 15000)
+    })
+
+    describe('active tab URL routing', () => {
+        beforeEach(async () => {
+            await initCohortLogic({ id: 1 })
+            router.actions.replace(urls.cohort(1))
+        })
+
+        it('defaults to overview when no hash is set', async () => {
+            await expectLogic(logic).toMatchValues({ activeTab: 'overview' })
+        })
+
+        it('writes #tab=history when switching to history', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('history')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+        })
+
+        it('strips the tab key from the hash when switching back to overview', async () => {
+            logic.actions.setActiveTab('history')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBe('history')
+
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('overview')
+            }).toFinishAllListeners()
+            expect(router.values.hashParams.tab).toBeUndefined()
+        })
+
+        it('reads the tab from the URL on navigation', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'history' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'history' })
+        })
+
+        it('falls back to overview when the hash tab value is unrecognized', async () => {
+            router.actions.replace(urls.cohort(1), {}, { tab: 'garbage' })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: 'overview' })
+        })
+    })
+
+    describe('new cohort hash hygiene', () => {
+        it('clears a stale #tab=history hash on mount and resets activeTab to overview', async () => {
+            router.actions.replace(urls.cohort('new'), {}, { tab: 'history' })
+            await initCohortLogic({ id: 'new' })
+            expect(router.values.hashParams.tab).toBeUndefined()
+            // Without resetting activeTab, the user would land on a blank screen for new cohorts:
+            // overview is hidden via `display:none` while history requires a saved cohort to render.
+            expect(logic.values.activeTab).toBe('overview')
         })
     })
 })
