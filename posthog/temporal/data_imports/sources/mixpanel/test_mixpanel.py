@@ -12,13 +12,16 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.mixpanel import mixpanel as mp
 from posthog.temporal.data_imports.sources.mixpanel.mixpanel import (
+    MAX_RETRY_AFTER_SECONDS,
     MixpanelResumeConfig,
     MixpanelRetryableError,
     _check_response,
     _export_base,
     _flatten_event,
     _flatten_profile,
+    _parse_retry_after,
     _query_base,
+    _retry_wait,
     _to_date,
     mixpanel_source,
     validate_credentials,
@@ -36,11 +39,13 @@ class FakeResponse:
         json_data: Any = None,
         lines: Optional[list[bytes]] = None,
         text: str = "",
+        headers: Optional[dict[str, str]] = None,
     ) -> None:
         self.status_code = status_code
         self._json = json_data
         self._lines = lines or []
         self.text = text
+        self.headers = headers or {}
 
     @property
     def ok(self) -> bool:
@@ -148,6 +153,76 @@ class TestCheckResponse:
     def test_ok_returns_response(self) -> None:
         response = FakeResponse(status_code=200)
         assert _check_response(response, "http://x", LOGGER) is response  # type: ignore[arg-type, comparison-overlap]
+
+    def test_retryable_error_carries_retry_after_header(self) -> None:
+        response = FakeResponse(status_code=429, headers={"Retry-After": "30"})
+        with pytest.raises(MixpanelRetryableError) as exc_info:
+            _check_response(response, "http://x", LOGGER)  # type: ignore[arg-type]
+        assert exc_info.value.retry_after == 30.0
+
+    def test_retryable_error_without_retry_after_header(self) -> None:
+        response = FakeResponse(status_code=503)
+        with pytest.raises(MixpanelRetryableError) as exc_info:
+            _check_response(response, "http://x", LOGGER)  # type: ignore[arg-type]
+        assert exc_info.value.retry_after is None
+
+
+class TestParseRetryAfter:
+    @parameterized.expand(
+        [
+            ("none", None, None),
+            ("empty", "  ", None),
+            ("integer_seconds", "30", 30.0),
+            ("zero_seconds", "0", 0.0),
+            ("float_seconds", "2.5", 2.5),
+            ("negative_seconds", "-5", None),
+            ("garbage", "soon", None),
+        ]
+    )
+    def test_delta_seconds(self, _name: str, value: Optional[str], expected: Optional[float]) -> None:
+        assert _parse_retry_after(value) == expected
+
+    @freeze_time("2024-06-04T00:00:00Z")
+    def test_http_date_in_the_future(self) -> None:
+        assert _parse_retry_after("Tue, 04 Jun 2024 00:00:30 GMT") == 30.0
+
+    @freeze_time("2024-06-04T00:00:00Z")
+    def test_http_date_in_the_past_is_ignored(self) -> None:
+        assert _parse_retry_after("Tue, 04 Jun 2024 00:00:00 GMT") is None
+
+
+class _FakeOutcome:
+    def __init__(self, exc: Optional[BaseException]) -> None:
+        self._exc = exc
+
+    def exception(self) -> Optional[BaseException]:
+        return self._exc
+
+
+class _FakeRetryState:
+    def __init__(self, exc: Optional[BaseException], attempt_number: int = 1) -> None:
+        self.outcome = _FakeOutcome(exc)
+        self.attempt_number = attempt_number
+
+
+class TestRetryWait:
+    def test_prefers_retry_after(self) -> None:
+        state = _FakeRetryState(MixpanelRetryableError("boom", retry_after=5))
+        assert _retry_wait(state) == 5.0  # type: ignore[arg-type]
+
+    def test_caps_large_retry_after(self) -> None:
+        state = _FakeRetryState(MixpanelRetryableError("boom", retry_after=9999))
+        assert _retry_wait(state) == MAX_RETRY_AFTER_SECONDS  # type: ignore[arg-type]
+
+    def test_falls_back_to_exponential_jitter_without_retry_after(self) -> None:
+        state = _FakeRetryState(MixpanelRetryableError("boom"))
+        wait = _retry_wait(state)  # type: ignore[arg-type]
+        assert 0 < wait <= 61
+
+    def test_falls_back_for_non_retryable_exception_type(self) -> None:
+        state = _FakeRetryState(requests.ReadTimeout("slow"))
+        wait = _retry_wait(state)  # type: ignore[arg-type]
+        assert 0 < wait <= 61
 
 
 class TestValidateCredentials:

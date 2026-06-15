@@ -12,7 +12,7 @@ import type {
     LLMSkillResolveResponseApi,
     LLMSkillVersionSummaryApi,
     UserBasicApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api.schemas'
 
 const MOCK_AUTHOR: UserBasicApi = {
     id: 178,
