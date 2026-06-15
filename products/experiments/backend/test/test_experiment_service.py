@@ -5114,7 +5114,15 @@ class TestExperimentListOrdering(APIBaseTest):
         )
         return [experiment.name for experiment in queryset]
 
-    def test_order_by_conclusion_does_not_raise_and_ranks_by_result(self):
+    @parameterized.expand(
+        [
+            # Ascending matches the frontend column ranking, with no-conclusion last.
+            ("conclusion", ["won-exp", "lost-exp", "inconclusive-exp", "stopped-exp", "invalid-exp", "none-exp"]),
+            # Descending reverses it.
+            ("-conclusion", ["none-exp", "invalid-exp", "stopped-exp", "inconclusive-exp", "lost-exp", "won-exp"]),
+        ]
+    )
+    def test_order_by_conclusion_ranks_by_result(self, order: str, expected_names: list[str]):
         self._create_experiment("won-exp", conclusion="won")
         self._create_experiment("lost-exp", conclusion="lost")
         self._create_experiment("inconclusive-exp", conclusion="inconclusive")
@@ -5122,35 +5130,22 @@ class TestExperimentListOrdering(APIBaseTest):
         self._create_experiment("invalid-exp", conclusion="invalid")
         self._create_experiment("none-exp", conclusion=None)
 
-        # Ascending matches the frontend column ranking, with no-conclusion last.
-        assert self._ordered_names("conclusion") == [
-            "won-exp",
-            "lost-exp",
-            "inconclusive-exp",
-            "stopped-exp",
-            "invalid-exp",
-            "none-exp",
-        ]
+        assert self._ordered_names(order) == expected_names
 
-        # Descending reverses it.
-        assert self._ordered_names("-conclusion") == [
-            "none-exp",
-            "invalid-exp",
-            "stopped-exp",
-            "inconclusive-exp",
-            "lost-exp",
-            "won-exp",
+    @parameterized.expand(
+        [
+            ("created_by", ["alice-exp", "bob-exp"]),
+            ("-created_by", ["bob-exp", "alice-exp"]),
         ]
-
-    def test_order_by_created_by_does_not_raise(self):
+    )
+    def test_order_by_created_by_does_not_raise(self, order: str, expected_names: list[str]):
         alice = self._create_user("alice@posthog.com", first_name="Alice")
         bob = self._create_user("bob@posthog.com", first_name="Bob")
         self._create_experiment("bob-exp", created_by=bob)
         self._create_experiment("alice-exp", created_by=alice)
 
         # Evaluates the queryset (forces SQL) so a bad annotation would surface here.
-        assert self._ordered_names("created_by") == ["alice-exp", "bob-exp"]
-        assert self._ordered_names("-created_by") == ["bob-exp", "alice-exp"]
+        assert self._ordered_names(order) == expected_names
 
     def test_invalid_order_field_raises_validation_error(self):
         with pytest.raises(ValidationError, match="Invalid order field: 'bogus'"):
