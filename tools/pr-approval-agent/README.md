@@ -119,6 +119,8 @@ If the check hasn't completed yet when stamphog runs, stamphog refuses with a me
 Uses `.github/CODEOWNERS-soft` as context for the LLM (not a hard gate).
 Cross-team typo/test/comment fixes are fine; behavioral changes to business logic get escalated.
 
+Authors on broad-remit teams (`team-security`, `team-devex` — see `LENIENT_AUTHOR_TEAMS` in `gates.py`) get lighter cross-team scrutiny: their work routinely spans other teams' code, so being off the owning team isn't treated as a reason to escalate on its own. This only relaxes the soft ownership signal — the deny-list and every other hard gate still apply unchanged.
+
 ## Evidence bundle
 
 Every run produces a JSON evidence bundle (`--output-json` locally, uploaded as artifact in CI) containing:

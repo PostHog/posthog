@@ -50,6 +50,37 @@ def test_to_dict_includes_head_sha() -> None:
     assert output["head_sha"] == "07dfeff14d95be1247e4c8c1065fd958a367389e"
 
 
+@pytest.mark.parametrize(
+    "memberships, owning_teams, expected_on_team, expected_lenient",
+    [
+        ({"team-data"}, ["@PostHog/team-data"], True, []),
+        ({"team-devex"}, ["@PostHog/team-data"], False, ["team-devex"]),
+        ({"team-security"}, ["@PostHog/team-data"], False, ["team-security"]),
+        (set(), ["@PostHog/team-data"], False, []),
+    ],
+)
+def test_summarize_ownership_flags_broad_remit_authors(
+    monkeypatch: pytest.MonkeyPatch,
+    memberships: set[str],
+    owning_teams: list[str],
+    expected_on_team: bool,
+    expected_lenient: list[str],
+) -> None:
+    monkeypatch.setattr(review_pr, "check_team_membership", lambda _author, slug: slug in memberships)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.pr.author = "carol"
+    pipeline.classification = {
+        "ownership": {"team_count": len(owning_teams), "teams": owning_teams, "cross_team": False}
+    }
+
+    pipeline._summarize_ownership()
+
+    assert pipeline.classification["author_on_owning_team"] == expected_on_team
+    assert pipeline.classification["author_lenient_teams"] == expected_lenient
+
+
 class _RaisingReviewer:
     """Stand-in for Reviewer whose LLM call always fails (backend down)."""
 

@@ -446,6 +446,13 @@ def is_allow_listed_only(files: list[str]) -> bool:
 
 # ── CODEOWNERS-soft ──────────────────────────────────────────────
 
+# Teams whose members get lighter cross-team scrutiny. Security review and
+# shared tooling/CI work routinely touches code owned by other teams, so an
+# author being "off the owning team" is the norm rather than a red flag for
+# these teams. This is a soft hint to the LLM only — it never bypasses the
+# deny-list or any other hard gate.
+LENIENT_AUTHOR_TEAMS: frozenset[str] = frozenset({"team-security", "team-devex"})
+
 
 class CodeownersRule:
     def __init__(self, pattern: str, teams: list[str]):

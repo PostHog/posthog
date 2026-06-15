@@ -139,6 +139,10 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Author NOT on owning team:
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
       - ESCALATE: behavioral changes to business logic, API contracts, data models
+    - Broad-remit teams (security, devex): when the prompt notes the author is
+      on one of these, treat off-team changes as expected. Do NOT escalate
+      solely because they are off the owning team — judge the change on its own
+      risk and still ESCALATE if the change itself is genuinely risky.
 
     Review comments (inline feedback only, approval states are hidden):
     - Top-level reviews are annotated as either "current head" or "older commit".
@@ -269,6 +273,7 @@ class Reviewer:
                     "stamphog_commit_type": classification.get("commit_type") or "",
                     "stamphog_deny_categories": classification.get("deny_categories", []),
                     "stamphog_author_on_owning_team": classification.get("author_on_owning_team"),
+                    "stamphog_author_lenient_teams": classification.get("author_lenient_teams", []),
                     "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
                     "stamphog_llm_verdict": "",
                 },
@@ -433,6 +438,12 @@ class Reviewer:
             lines.append(f"  Files per team: {json.dumps(per_team)}")
         if not on_team:
             lines.append("  NOTE: Author is NOT on the owning team")
+            lenient = cl.get("author_lenient_teams", [])
+            if lenient:
+                lines.append(
+                    f"  NOTE: Author is on broad-remit team(s) {', '.join(lenient)} — "
+                    "off-team changes are expected; do not escalate solely on ownership"
+                )
         if ownership.get("cross_team"):
             lines.append("  NOTE: Cross-team change")
         return "\n".join(lines)

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from gates import (
+    LENIENT_AUTHOR_TEAMS,
     MAX_FILES,
     MAX_LINES,
     assign_tier,
@@ -325,11 +326,22 @@ class Pipeline:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
         else:
             parts.append(f"author {author} is not on any owning team")
+
+        # Cross-team leniency: only relevant when the author isn't on an owning
+        # team — that's the situation the LLM would otherwise escalate. Members
+        # of broad-remit teams expectedly touch other teams' code.
+        lenient_teams: list[str] = []
+        if not author_teams:
+            lenient_teams = [slug for slug in sorted(LENIENT_AUTHOR_TEAMS) if check_team_membership(author, slug)]
+            if lenient_teams:
+                parts.append(f"author is on broad-remit team {', '.join(lenient_teams)}")
+
         if ownership["cross_team"]:
             parts.append("cross-team change")
 
         self.classification["ownership_summary"] = "; ".join(parts)
         self.classification["author_on_owning_team"] = len(author_teams) > 0
+        self.classification["author_lenient_teams"] = lenient_teams
         return self.classification["ownership_summary"]
 
     def _check_size(self) -> tuple[bool, str]:
