@@ -2,8 +2,9 @@ import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
+import { IconExternal } from '@posthog/icons'
+
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { urls } from 'scenes/urls'
 
@@ -57,7 +58,7 @@ export function SessionReplayWidgetTileFilters({
             {
                 value: CREATE_SAVED_FILTER_VALUE,
                 label: 'Create a saved filter',
-                sideIcon: <IconOpenInNew />,
+                sideIcon: <IconExternal className="size-3.5" />,
             },
         ],
         [savedFilterOptions]
