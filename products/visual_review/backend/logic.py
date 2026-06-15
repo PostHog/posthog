@@ -1434,7 +1434,7 @@ def _fetch_baseline_file(
 
     import yaml
 
-    from .github import github_request
+    is_partial
 
     access_token = github.get_access_token()
 
@@ -1533,7 +1533,7 @@ def _post_commit_status(
         return
 
     from .github import github_request
-    
+
     if run.is_partial:
         description = f"{description} (partial run)"
 
