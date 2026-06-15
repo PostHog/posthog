@@ -52,16 +52,19 @@ def shrink(initial: str, is_interesting: Callable[[str], bool], *, parallelism: 
     """
 
     async def predicate(test_case: bytes) -> bool:
+        # shrinkray cancels between predicate calls at its own checkpoint, so a
+        # blocking body is fine here.
+        await trio.lowlevel.checkpoint()
         try:
             text = test_case.decode("utf-8")
         except UnicodeDecodeError:
             return False
         if not text.strip():
             return False
-        # is_interesting parses with both backends — CPU-bound and blocking.
-        # Run it on a worker thread so the trio event loop stays free if a
-        # caller ever raises parallelism above 1.
-        return await trio.to_thread.run_sync(is_interesting, text)
+        # is_interesting is GIL-bound CPU work (parses with both backends): a
+        # worker thread buys no parallelism, and parallelism is pinned to 1, so
+        # call it directly rather than paying a `to_thread` hop per candidate.
+        return is_interesting(text)
 
     async def drive() -> bytes:
         # Random(0) + parallelism=1 → deterministic repros; the predicate is CPU-bound and synchronous, so concurrency wouldn't help anyway.
