@@ -41,7 +41,11 @@ from posthog.utils import absolute_uri
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, classify_failure_type
+from products.exports.backend.tasks.failure_handler import (
+    BrowserlessUnavailable,
+    InvalidExportContext,
+    classify_failure_type,
+)
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -296,8 +300,8 @@ def _export_to_png(
                 token_preview=access_token[:10],
             )
         else:
-            raise Exception(
-                f"Export is missing required dashboard, insight ID, or session_recording_id in export_context"
+            raise InvalidExportContext(
+                "Export is missing required dashboard, insight ID, or session_recording_id in export_context"
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)

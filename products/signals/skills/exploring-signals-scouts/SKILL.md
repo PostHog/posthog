@@ -25,7 +25,9 @@ logs, AI observability, experiments, feature flags, session replay, web analytic
 more). A project may also have **custom scouts** beyond the canonical fleet — any
 `signals-scout-*` skill a team authored (e.g. `-brand-mentions`, `-mcp-feedback`) shows up here
 too, so don't assume a fixed roster: `signals-scout-config-list` is the authoritative roster for
-a project.
+a project. (One caveat: a just-authored scout has no config row until the coordinator's next
+tick auto-registers one — or until someone registers it via the write-side
+`signals-scout-config-create` — so a brand-new scout may briefly be missing from the list.)
 
 This skill helps you **understand and explore what a project's scouts are doing and how they're
 performing** — entirely through read-only MCP tools. It is the observability counterpart to
@@ -36,7 +38,7 @@ There are five things you can observe about the fleet, each with its own tool:
 
 | What you want to know                        | Tool                                     | What it tells you                                                               |
 | -------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------- |
-| Which scouts run, how often, in what posture | `signals-scout-config-list`              | One row per scout: schedule, `enabled`, `emit`, `last_run_at`                   |
+| Which scouts run, how often, in what posture | `signals-scout-config-list`              | One row per scout: schedule, `enabled`, `emit`, `last_run_at`, `description`    |
 | What the scouts actually did, run by run     | `signals-scout-runs-list` / `-retrieve`  | Per-run status, timing, end-of-run summary, `emitted_count`, deep-link          |
 | What the fleet has learned across runs       | `signals-scout-scratchpad-search`        | Durable per-team memory (baselines, noise, allowlists)                          |
 | What the scouts actually **emitted**         | `execute-sql` over `document_embeddings` | The authoritative per-finding record (weight, severity, confidence) — see below |
@@ -127,7 +129,7 @@ call out anything anomalous (never run, last run errored, stuck in dry-run for a
 
 1. **Read its config** — find the row in `config-list` for `signals-scout-error-tracking`:
    schedule, posture, last run.
-2. **Read its body** — `posthog:llma-skill-get {"skill_name": "signals-scout-error-tracking"}`
+2. **Read its body** — `posthog:skill-get {"skill_name": "signals-scout-error-tracking"}`
    returns the team's actual instruction set (which may be a canonical default or a diverged,
    hand-edited row). This is what the agent is told to do every run — its signal-vs-noise
    discriminator, explore patterns, and disqualifiers. To understand _why_ a scout behaves the

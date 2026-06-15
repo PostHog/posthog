@@ -68,8 +68,8 @@ function buildEventExport(event: LLMTraceEvent, children?: EnrichedTraceTreeNode
     // Handle input/output based on event type
     if (isGeneration) {
         // For generations, normalize messages without tools
-        const inputMessages: CompatMessage[] = normalizeMessages(event.properties.$ai_input, 'user')
-        const outputMessages: CompatMessage[] = normalizeMessages(readAiOutput(event.properties), 'assistant')
+        const inputMessages: CompatMessage[] = normalizeMessages(event.properties.$ai_input, 'user').messages
+        const outputMessages: CompatMessage[] = normalizeMessages(readAiOutput(event.properties), 'assistant').messages
 
         const messages: CompatMessage[] = []
         if (inputMessages.length > 0) {

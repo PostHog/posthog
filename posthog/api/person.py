@@ -60,7 +60,12 @@ from posthog.models.person.bulk_delete import (
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids, get_persons_by_uuids
+from posthog.models.person.util import (
+    get_distinct_ids_for_persons,
+    get_person_by_pk_or_uuid,
+    get_persons_by_uuids,
+    get_persons_mapped_by_distinct_id,
+)
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -1350,17 +1355,29 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         MAX_BATCH_SIZE = 200
         distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
+        persons_by_distinct_id = get_persons_mapped_by_distinct_id(self.team_id, distinct_ids)
 
-        requested = set(distinct_ids)
-        results: dict[str, Any] = {}
-        for person in persons:
-            person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+        # The mapped lookup carries only the matched distinct_id; fetch up to 10
+        # per person with a bounded follow-up for display, rather than the
+        # unbounded fetch get_persons_by_distinct_ids would do. A person may appear
+        # under several requested ids, so update every copy.
+        persons_by_id: dict[int, list[Person]] = {}
+        for person in persons_by_distinct_id.values():
+            persons_by_id.setdefault(person.id, []).append(person)
+        if persons_by_id:
+            distinct_ids_by_person = get_distinct_ids_for_persons(
+                self.team_id, list(persons_by_id.keys()), limit_per_person=10
+            )
+            for person_id, persons in persons_by_id.items():
+                ids = distinct_ids_by_person.get(person_id)
+                if ids is not None:
+                    for person in persons:
+                        person._distinct_ids = ids
 
-            for distinct_id in person.distinct_ids:
-                if distinct_id in requested:
-                    results[distinct_id] = person_data
-
+        results: dict[str, Any] = {
+            distinct_id: MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            for distinct_id, person in persons_by_distinct_id.items()
+        }
         return response.Response({"results": results})
 
     @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
@@ -1378,7 +1395,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team_id, uuids)
+        # MinimalPersonSerializer only renders 10 distinct_ids, so bound the fetch to match.
+        persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
         results: dict[str, Any] = {}
         for person in persons:

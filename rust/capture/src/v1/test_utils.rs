@@ -32,7 +32,7 @@ pub fn test_context() -> Context {
         user_agent: "test-agent/1.0".to_string(),
         content_type: "application/json".to_string(),
         content_encoding: None,
-        sdk_info: "posthog-rust/1.0.0".to_string(),
+        sdk_info: "posthog-rs/1.0.0".to_string(),
         attempt: 1,
         request_id: Uuid::new_v4(),
         client_timestamp: Utc::now(),

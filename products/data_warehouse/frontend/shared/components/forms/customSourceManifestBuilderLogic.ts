@@ -21,7 +21,9 @@ import {
     type ManifestState,
     type Paginator,
     parseManifestIntoState,
+    removeStreamFromList,
     type StreamForm,
+    updateStreamInList,
 } from './customSourceManifest'
 import type { customSourceManifestBuilderLogicType } from './customSourceManifestBuilderLogicType'
 
@@ -80,9 +82,11 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             {
                 setManifestState: (_, { state }) => state,
                 updateState: (state, { patch }) => ({ ...state, ...patch }),
+                // Rename/remove cascade to dependent child streams lives in the
+                // pure helpers so it stays unit-testable.
                 updateStream: (state, { index, patch }) => ({
                     ...state,
-                    streams: state.streams.map((stream, i) => (i === index ? { ...stream, ...patch } : stream)),
+                    streams: updateStreamInList(state.streams, index, patch),
                 }),
                 updatePaginator: (state, { index, paginator }) => ({
                     ...state,
@@ -91,7 +95,7 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 addStream: (state) => ({ ...state, streams: [...state.streams, emptyStream()] }),
                 removeStream: (state, { index }) => ({
                     ...state,
-                    streams: state.streams.filter((_, i) => i !== index),
+                    streams: removeStreamFromList(state.streams, index),
                 }),
                 addHeader: (state) => ({ ...state, headers: [...state.headers, emptyHeader()] }),
                 removeHeader: (state, { index }) => ({

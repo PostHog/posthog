@@ -39,6 +39,10 @@ from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import hash_key_value
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 
+from products.cdp.backend.models import HogFunction
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.workflows.backend.models import HogFlow
+
 
 class TestSlackIntegration:
     @pytest.fixture(autouse=True)
@@ -3396,3 +3400,275 @@ class TestGitHubIntegrationUninstall:
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not Integration.objects.filter(id=integration.id).exists()
+
+
+class TestIntegrationDeletionWorkflowGuard:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "noreply@posthog.com", "name": "Test", "domain": "posthog.com", "verified": True},
+            created_by=self.user,
+        )
+
+    def _email_actions(self, integration_id: int) -> list[dict]:
+        return [
+            {"id": "trigger_node", "name": "Trigger", "type": "trigger", "config": {"type": "event", "filters": {}}},
+            {
+                "id": "action_email_1",
+                "name": "Welcome Email",
+                "type": "function_email",
+                "config": {
+                    "inputs": {
+                        "email": {
+                            "value": {
+                                "to": {"email": "{{ person.properties.email }}", "name": ""},
+                                "from": {"integrationId": integration_id},
+                                "subject": "Welcome!",
+                                "html": "",
+                                "text": "",
+                            }
+                        }
+                    }
+                },
+            },
+        ]
+
+    def _create_flow(self, status: str = "active", actions: list | None = None) -> HogFlow:
+        return HogFlow.objects.create(
+            team=self.team,
+            name="Welcome Email Sequence",
+            status=status,
+            actions=actions if actions is not None else self._email_actions(self.integration.id),
+            edges=[],
+        )
+
+    def _delete(self, client: HttpClient):
+        client.force_login(self.user)
+        return client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+    def test_destroy_blocked_when_active_workflow_references_integration(self, client: HttpClient):
+        self._create_flow()
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Welcome Email Sequence" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize("flow_status", ["draft", "archived"])
+    def test_destroy_allowed_when_workflow_not_active(self, flow_status: str, client: HttpClient):
+        self._create_flow(status=flow_status)
+
+        with patch("posthog.api.integration.EmailIntegration"):
+            response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_allowed_when_workflow_references_other_integration(self, client: HttpClient):
+        self._create_flow(actions=self._email_actions(self.integration.id + 1))
+
+        with patch("posthog.api.integration.EmailIntegration"):
+            response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize(
+        "reference_kind,template_id",
+        [
+            # Bare-ID inputs are only identifiable as integrations via the template's inputs_schema
+            ("bare_id_via_schema", "template-test-slack"),
+            # Dict-form inputs are caught by the recursive config walk, no template needed
+            ("dict_value", "template-unknown"),
+        ],
+    )
+    def test_destroy_blocked_when_function_action_references_integration(
+        self, reference_kind: str, template_id: str, client: HttpClient
+    ):
+        input_value: int | dict
+        if reference_kind == "bare_id_via_schema":
+            HogFunctionTemplate.objects.create(
+                template_id=template_id,
+                sha="abc123",
+                name="Slack",
+                code="return event",
+                inputs_schema=[{"key": "slack_workspace", "type": "integration", "label": "Slack workspace"}],
+                type="destination",
+            )
+            input_value = self.integration.id
+        else:
+            input_value = {"integrationId": self.integration.id}
+        self._create_flow(
+            actions=[
+                {
+                    "id": "action_function_1",
+                    "name": "Notify Slack",
+                    "type": "function",
+                    "config": {
+                        "template_id": template_id,
+                        "inputs": {"slack_workspace": {"value": input_value}},
+                    },
+                },
+            ]
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_survives_deeply_nested_action_config(self, client: HttpClient):
+        nested: dict = {"integrationId": self.integration.id}
+        for _ in range(1500):
+            nested = {"_x": nested}
+        self._create_flow(
+            actions=[{"id": "action_function_1", "name": "Evil", "type": "function", "config": {"inputs": nested}}]
+        )
+
+        with patch("posthog.api.integration.EmailIntegration"):
+            response = self._delete(client)
+
+        # The reference sits beyond the traversal depth cap: deletion proceeds rather than 500ing
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize(
+        "action_type,config",
+        [
+            # Non-function actions don't consume integrations
+            ("delay", {"duration": "5m"}),
+            # Function actions only consume integrations via config.inputs
+            ("function", {"template_id": "template-unknown", "inputs": {}}),
+        ],
+    )
+    def test_destroy_allowed_when_integration_id_in_non_consuming_config(
+        self, action_type: str, config: dict, client: HttpClient
+    ):
+        config = {**config, "integrationId": self.integration.id}
+        self._create_flow(actions=[{"id": "action_1", "name": "Planted", "type": action_type, "config": config}])
+
+        with patch("posthog.api.integration.EmailIntegration"):
+            response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+
+class TestIntegrationDeletionHogFunctionGuard:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={"team": {"id": "T123", "name": "Test workspace"}},
+            created_by=self.user,
+        )
+
+    def _create_function(
+        self,
+        *,
+        enabled: bool = True,
+        deleted: bool = False,
+        input_value: int | dict | None = None,
+        input_type: str = "integration",
+        name: str = "Slack notifier",
+    ) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name=name,
+            type="destination",
+            hog="return event",
+            enabled=enabled,
+            deleted=deleted,
+            inputs_schema=[{"key": "slack_workspace", "type": input_type, "label": "Slack workspace"}],
+            inputs={
+                "slack_workspace": {"value": input_value if input_value is not None else self.integration.id},
+            },
+        )
+
+    def _delete(self, client: HttpClient):
+        client.force_login(self.user)
+        return client.delete(f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/")
+
+    @pytest.mark.parametrize("value_form", ["bare_id", "dict_value"])
+    def test_destroy_blocked_when_enabled_function_references_integration(self, value_form: str, client: HttpClient):
+        input_value: int | dict = (
+            self.integration.id if value_form == "bare_id" else {"integrationId": self.integration.id}
+        )
+        self._create_function(input_value=input_value)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Slack notifier" in response.content.decode()
+        assert Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize("enabled,deleted", [(False, False), (True, True)])
+    def test_destroy_allowed_when_function_disabled_or_deleted(self, enabled: bool, deleted: bool, client: HttpClient):
+        self._create_function(enabled=enabled, deleted=deleted)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_allowed_when_function_references_other_integration(self, client: HttpClient):
+        self._create_function(input_value=self.integration.id + 1)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    @pytest.mark.parametrize("input_type,value_form", [("string", "bare_id"), ("json", "dict_value")])
+    def test_destroy_allowed_when_integration_id_in_non_integration_input(
+        self, input_type: str, value_form: str, client: HttpClient
+    ):
+        # A matching ID in an input the runtime never resolves as an integration must not block deletion
+        input_value: int | dict = (
+            self.integration.id if value_form == "bare_id" else {"integrationId": self.integration.id}
+        )
+        self._create_function(input_type=input_type, input_value=input_value)
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Integration.objects.filter(id=self.integration.id).exists()
+
+    def test_destroy_blocked_message_includes_workflows_and_functions(self, client: HttpClient):
+        self._create_function(name="Slack notifier")
+        HogFlow.objects.create(
+            team=self.team,
+            name="Slack flow",
+            status="active",
+            actions=[
+                {
+                    "id": "action_function_1",
+                    "name": "Notify",
+                    "type": "function",
+                    "config": {"inputs": {"slack_workspace": {"value": {"integrationId": self.integration.id}}}},
+                }
+            ],
+            edges=[],
+        )
+
+        response = self._delete(client)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        content = response.content.decode()
+        assert "Slack flow" in content
+        assert "Slack notifier" in content
+        assert Integration.objects.filter(id=self.integration.id).exists()

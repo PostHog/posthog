@@ -36,10 +36,24 @@ export type {
     BoxPlotProps,
     BoxPlotTooltipContext,
 } from './charts/BoxPlot/BoxPlot'
-export { computeBoxBand, computeBoxRect, computeSeriesBoxes } from './charts/BoxPlot/computeBoxLayout'
-export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
+export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
+
+// Slope chart
+export { SlopeChart } from './charts/SlopeChart/SlopeChart'
+export type {
+    SlopeChartConfig,
+    SlopeChartLegendConfig,
+    SlopeChartProps,
+    SlopeSeriesMeta,
+} from './charts/SlopeChart/SlopeChart'
+export { SlopeValueLabels } from './charts/SlopeChart/SlopeValueLabels'
+export type { SlopeValueLabelsProps } from './charts/SlopeChart/SlopeValueLabels'
+export { SlopeSeriesLabels } from './charts/SlopeChart/SlopeSeriesLabels'
+export type { SlopeSeriesLabelsProps } from './charts/SlopeChart/SlopeSeriesLabels'
+export { slopeLegendItems } from './charts/SlopeChart/slope-legend'
 
 // Pie / donut
 export { PieChart } from './charts/PieChart/PieChart'

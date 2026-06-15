@@ -600,6 +600,8 @@ class BaseAgentRunner(ABC):
 
         if isinstance(update, ConversationTitleAction):
             self._conversation.title = update.title
+            if update.topic is not None:
+                self._conversation.topic = update.topic
             self._pending_conversation_update = True
             return None
 

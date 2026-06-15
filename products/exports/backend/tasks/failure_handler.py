@@ -79,6 +79,12 @@ class ExcelColumnLimitExceeded(Exception):
         )
 
 
+class InvalidExportContext(Exception):
+    """Raised when an export's export_context lacks a renderable target."""
+
+    pass
+
+
 EXCEPTIONS_TO_RETRY = (
     *CH_TRANSIENT_ERRORS,
     OperationalError,
@@ -113,6 +119,7 @@ USER_QUERY_ERRORS = (
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
+    InvalidExportContext,
 )
 
 TIMEOUT_ERRORS = (
