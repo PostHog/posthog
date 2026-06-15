@@ -86,18 +86,26 @@ export class EmailService {
         let success: boolean = false
 
         try {
-            if (!integration || integration.kind !== 'email' || integration.team_id !== invocation.teamId) {
-                throw new Error('Email integration not found')
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new Error(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
             }
 
-            this.validateEmailDomain(integration, params)
+            const from = this.resolveFromSender(integration)
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params)
+                    await this.sendEmailWithMaildev(result, params, from)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params)
+                    await this.sendEmailWithSES(result, params, from)
                     break
 
                 case 'unsupported':
@@ -112,8 +120,8 @@ export class EmailService {
             result.finished = true
         }
 
-        // Finally we create the response object as the VM expects
-        result.invocation.state.vmState!.stack.push({
+        // Push the response to the VM stack if running inline (not from the email queue)
+        result.invocation.state.vmState?.stack.push({
             success,
         })
 
@@ -129,12 +137,7 @@ export class EmailService {
         return result
     }
 
-    private validateEmailDomain(
-        integration: IntegrationType,
-        params: CyclotronInvocationQueueParametersEmailType
-    ): void {
-        // Currently we enforce using the name and email set on the integration
-
+    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -143,18 +146,18 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        params.from.email = integration.config.email
-        params.from.name = integration.config.name
+        return { email: integration.config.email, name: integration.config.name }
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string }
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
@@ -182,7 +185,8 @@ export class EmailService {
 
     private async sendEmailWithSES(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string }
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -202,7 +206,7 @@ export class EmailService {
             : {}
 
         const sendEmailParams: SendEmailCommandInput = {
-            FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
+            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
             },
@@ -223,10 +227,10 @@ export class EmailService {
             },
             ConfigurationSetName: 'posthog-messaging',
             EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
-            FeedbackForwardingEmailAddress: params.from.email,
+            FeedbackForwardingEmailAddress: from.email,
         }
 
-        const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         // Automatically add unsubscribe headers for non-transactional emails
         if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
             sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({

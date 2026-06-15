@@ -1,0 +1,9 @@
+self-hosted-runner:
+    labels:
+        - depot-ubuntu-22.04
+        - depot-ubuntu-22.04-4
+        - depot-ubuntu-24.04-4
+        - depot-ubuntu-latest
+        - depot-ubuntu-latest-4
+        - depot-ubuntu-latest-8
+        - depot-macos-latest

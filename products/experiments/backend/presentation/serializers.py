@@ -8,7 +8,6 @@ ViewSet remains in experiments.py.
 
 from typing import Any
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
@@ -18,15 +17,19 @@ from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, E
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -97,7 +100,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         source="get_feature_flag_key",
         help_text=(
             "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
-            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            "Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
         ),
     )
     created_by = UserBasicSerializer(read_only=True)
@@ -145,11 +148,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         required=False,
         allow_null=True,
         help_text=(
-            "Variant definitions and rollout configuration. "
-            "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
-            "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
-            "Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. "
-            "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            "Experiment parameters JSON. Supported keys include "
+            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, "
+            "`custom_exposure_filter`, and `excluded_variants` "
+            "(list of variant keys to drop from statistical analysis; "
+            "the baseline variant and holdout pseudo-variants cannot be excluded)."
         ),
     )
     metrics = ExperimentMetricsField(
@@ -161,7 +165,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
             "'retention' (set start_event and completion_event). "
-            "Use the event-definitions-list tool to find available events in the project."
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
         ),
     )
     metrics_secondary = ExperimentMetricsField(
@@ -285,10 +289,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
-    @extend_schema_field(OpenApiTypes.OBJECT)
+    @extend_schema_field(MinimalFeatureFlagSerializer)
     def get_feature_flag(self, obj):
-        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     def to_representation(self, instance):
@@ -302,7 +304,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary)
-        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+        # The columns are nullable, so the keys can be present with a None value
+        for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
@@ -332,6 +335,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     get_experiment_stats_method(instance),
                     instance.exposure_criteria,
                     only_count_matured_users=instance.only_count_matured_users,
+                    excluded_variants=(instance.parameters or {}).get("excluded_variants"),
                 )
 
         return data
@@ -480,7 +484,16 @@ class EndExperimentSerializer(serializers.Serializer):
 
 
 class ShipVariantSerializer(EndExperimentSerializer):
-    variant_key = serializers.CharField(help_text="The key of the variant to ship to 100% of users.")
+    variant_key = serializers.CharField(help_text="The key of the variant to ship.")
+    release_to_everyone = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, "
+            "overriding any existing release conditions on the flag. If false (default), only update the variant "
+            "distribution — existing release conditions are preserved and the variant is served only to users who "
+            "already match them."
+        ),
+    )
 
 
 class CopyExperimentToProjectSerializer(serializers.Serializer):
@@ -494,4 +507,122 @@ class CopyExperimentToProjectSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Optional name for the copied experiment.",
+    )
+
+
+CREATE_FROM_PROMPT_MIN_VERSIONS = 2
+CREATE_FROM_PROMPT_MAX_VERSIONS = 10
+
+
+class CreateFromPromptInputSerializer(serializers.Serializer):
+    prompt_name = serializers.CharField(
+        help_text="The name of the LLM prompt to experiment on. Must already exist for this team.",
+    )
+    versions = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        min_length=CREATE_FROM_PROMPT_MIN_VERSIONS,
+        max_length=CREATE_FROM_PROMPT_MAX_VERSIONS,
+        help_text=(
+            "Ordered list of prompt version numbers to assign to experiment variants. "
+            "The first entry is the control variant. Must contain between "
+            f"{CREATE_FROM_PROMPT_MIN_VERSIONS} and {CREATE_FROM_PROMPT_MAX_VERSIONS} distinct versions."
+        ),
+    )
+    templates = serializers.ListField(
+        child=serializers.ChoiceField(choices=TEMPLATE_NAMES),
+        min_length=1,
+        max_length=len(TEMPLATE_NAMES),
+        help_text=(
+            "One or more metric templates to attach as primary metrics. "
+            "Each template becomes one metric on the experiment. "
+            f"Allowed values: {', '.join(TEMPLATE_NAMES)}."
+        ),
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional experiment name. If omitted, a name is generated from the prompt and versions.",
+    )
+    feature_flag_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional feature flag key. If omitted, a slug is derived from the experiment name.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional experiment description.",
+    )
+
+    def validate_versions(self, value: list[int]) -> list[int]:
+        if len(set(value)) != len(value):
+            raise ValidationError("versions must not contain duplicates.")
+        return value
+
+    def validate_templates(self, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValidationError("templates must not contain duplicates.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        team = self.context.get("team")
+        if team is None:
+            raise ValidationError("Team is required in serializer context.")
+
+        prompt_name = attrs["prompt_name"]
+        versions = attrs["versions"]
+
+        found = set(
+            LLMPrompt.objects.filter(
+                team_id=team.id,
+                name=prompt_name,
+                version__in=versions,
+                deleted=False,
+            ).values_list("version", flat=True)
+        )
+        missing = [v for v in versions if v not in found]
+        if missing:
+            raise ValidationError({"versions": f"Versions not found for prompt {prompt_name!r}: {missing}"})
+
+        # Reusing an existing flag would link the experiment to a flag whose payloads do not
+        # encode {prompt_name, prompt_version}, leaving the experiment created but unusable
+        # by the SDK (flags.get_flag_payload returns None). Reject explicit collisions so the
+        # caller can pick a different key; an omitted key falls through to slug auto-resolution.
+        feature_flag_key = attrs.get("feature_flag_key")
+        if feature_flag_key and FeatureFlag.objects.filter(team_id=team.id, key=feature_flag_key).exists():
+            raise ValidationError(
+                {
+                    "feature_flag_key": (
+                        f"Feature flag {feature_flag_key!r} already exists for this team. "
+                        "Pick a different key, or omit this field to auto-generate one."
+                    )
+                }
+            )
+
+        return attrs
+
+
+class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
+    """Serializer for metrics recalculation status responses."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
+    experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Current status of the recalculation job",
+    )
+    total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
+    metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    trigger = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
+        read_only=True,
+        help_text="What triggered this recalculation",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
+    completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    is_existing = serializers.BooleanField(
+        read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )

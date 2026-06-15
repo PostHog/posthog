@@ -16,7 +16,7 @@ from posthog.models.team.team import Team
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
-from .utils import RuleReorderingMixin, generate_byte_code, generate_match_all_bytecode
+from .utils import RuleReorderingMixin, generate_byte_code, generate_match_all_bytecode, has_filter_values
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +36,7 @@ class ErrorTrackingSuppressionRuleFiltersField(serializers.JSONField):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Expected an object.")
 
-        if _has_filter_values(value):
+        if has_filter_values(value):
             try:
                 PropertyGroupFilterValue(**value)
             except (PydanticValidationError, TypeError) as err:
@@ -61,7 +61,30 @@ class ErrorTrackingSuppressionRuleCreateRequestSerializer(serializers.Serializer
         default=1.0,
         min_value=0.0,
         max_value=1.0,
-        help_text="Fraction of matching events to suppress. Use `1.0` to suppress all matching events.",
+        help_text=(
+            "Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; "
+            "`0.5` drops half. Higher values suppress more."
+        ),
+    )
+
+
+class ErrorTrackingSuppressionRuleUpdateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingSuppressionRuleFiltersField(
+        required=False,
+        help_text=(
+            "Property-group filters that define which incoming error events should be suppressed. "
+            "Provide an empty `values` array to convert the rule into a match-all suppression. "
+            "Omit to preserve the existing filters."
+        ),
+    )
+    sampling_rate = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1.0,
+        help_text=(
+            "Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; "
+            "`0.5` drops half. Higher values suppress more. Omit to preserve the existing rate."
+        ),
     )
 
 
@@ -74,30 +97,20 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    @override
-    def update(self, request, *args, **kwargs) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         suppression_rule = self.get_object()
-        json_filters = request.data.get("filters")
+        json_filters = request.validated_data.get("filters")
 
         if json_filters is not None:
-            if _has_filter_values(json_filters):
-                try:
-                    parsed_filters = PropertyGroupFilterValue(**json_filters)
-                except (PydanticValidationError, TypeError):
-                    return Response({"error": "Invalid filters"}, status=status.HTTP_400_BAD_REQUEST)
+            if has_filter_values(json_filters):
+                parsed_filters = PropertyGroupFilterValue(**json_filters)
                 suppression_rule.filters = json_filters
                 suppression_rule.bytecode = generate_byte_code(self.team, parsed_filters)
             else:
                 suppression_rule.filters = json_filters
                 suppression_rule.bytecode = generate_match_all_bytecode()
-        if "sampling_rate" in request.data:
-            sampling_rate = request.data["sampling_rate"]
-            if not isinstance(sampling_rate, (int, float)) or not (0.0 <= sampling_rate <= 1.0):
-                return Response(
-                    {"error": "sampling_rate must be a number between 0 and 1"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            suppression_rule.sampling_rate = sampling_rate
+        if "sampling_rate" in request.validated_data:
+            suppression_rule.sampling_rate = request.validated_data["sampling_rate"]
         suppression_rule.disabled_data = None
         suppression_rule.save()
 
@@ -109,8 +122,20 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     @override
-    def partial_update(self, request, *args, **kwargs) -> Response:
-        return self.update(request, *args, **kwargs)
+    @validated_request(
+        request_serializer=ErrorTrackingSuppressionRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
+
+    @override
+    @validated_request(
+        request_serializer=ErrorTrackingSuppressionRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
 
     @override
     def destroy(self, request, *args, **kwargs) -> Response:
@@ -133,7 +158,7 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
         if json_filters is None:
             json_filters = {"type": "AND", "values": []}
 
-        if _has_filter_values(json_filters):
+        if has_filter_values(json_filters):
             bytecode = generate_byte_code(self.team, PropertyGroupFilterValue(**json_filters))
         else:
             bytecode = generate_match_all_bytecode()
@@ -155,15 +180,6 @@ class ErrorTrackingSuppressionRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Model
 
         serializer = ErrorTrackingSuppressionRuleSerializer(suppression_rule)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-
-def _has_filter_values(json_filters: dict) -> bool:
-    """Check whether a filter dict contains any actual filter values."""
-    values = json_filters.get("values", [])
-    if not values:
-        return False
-    # Check nested groups (the outer group wraps inner groups with actual filters)
-    return any(v.get("values") or "key" in v for v in values)
 
 
 # Properties that require server-side symbol resolution to have meaningful

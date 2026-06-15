@@ -17,7 +17,12 @@ interface State {
  * rather than spinning forever. Non-chunk errors are re-thrown so the regular
  * error UI still renders.
  */
-export class ChunkLoadErrorBoundary extends Component<{ children: ReactNode }, State> {
+interface ChunkLoadErrorBoundaryProps {
+    children: ReactNode
+    reload?: () => void
+}
+
+export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
     override state: State = { error: null, surface: false }
 
     static getDerivedStateFromError(error: unknown): Partial<State> {
@@ -47,7 +52,11 @@ export class ChunkLoadErrorBoundary extends Component<{ children: ReactNode }, S
             // Skip the guard and reload anyway - without the timestamp the worst case is
             // a reload loop, which only happens if the chunk itself keeps failing.
         }
-        window.location.reload()
+        if (this.props.reload) {
+            this.props.reload()
+        } else {
+            window.location.reload()
+        }
     }
 
     override render(): ReactNode {

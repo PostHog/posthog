@@ -5,6 +5,7 @@ import { useEffect, useRef } from 'react'
 import { IconChevronDown, IconCopy, IconMagicWand, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -102,10 +103,10 @@ export function PlayerSummaryDock(): JSX.Element | null {
     const summaryId = summaryIdBySessionId[sessionRecordingId] ?? null
     const hasRenderedSummary = hasSummary && !sessionSummaryError
     const setIsOpen = (open: boolean): void => setSummaryOpen(sessionRecordingId, open)
-    const expandedHeight = Math.max(
-        MIN_EXPANDED_HEIGHT,
-        Math.min(MAX_EXPANDED_HEIGHT, desiredSize ?? DEFAULT_EXPANDED_HEIGHT)
-    )
+    // Cap the default height to the viewport so the dock can't crush the player.
+    const expandedMaxHeight = desiredSize
+        ? `${Math.max(MIN_EXPANDED_HEIGHT, Math.min(MAX_EXPANDED_HEIGHT, desiredSize))}px`
+        : `min(${DEFAULT_EXPANDED_HEIGHT}px, 45vh)`
 
     // `isOpen` flips multiple times per summary, so dedupe to one capture per render.
     const capturedKeyRef = useRef<string | null>(null)
@@ -135,7 +136,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                 'relative border-t bg-surface-primary overflow-hidden flex flex-col',
                 !isResizeInProgress && 'transition-[max-height] duration-300 ease-out'
             )}
-            style={{ maxHeight: isOpen ? expandedHeight : COLLAPSED_HEIGHT }}
+            style={{ maxHeight: isOpen ? expandedMaxHeight : COLLAPSED_HEIGHT }}
             data-attr="player-summary-dock"
         >
             {isOpen && <Resizer {...resizerProps} />}
@@ -215,6 +216,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
             </div>
             {isOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3">
+                    <AllowTrainingCallout featureName="session summaries" />
                     {sessionSummaryLoading ? (
                         <>
                             {sessionSummaryHasRetried && (

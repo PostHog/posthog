@@ -6,7 +6,7 @@ from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -17,16 +17,21 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    PostgresImplementation,
     SSLRequiredError,
+    _rls_active_from_conn,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
     get_foreign_keys as get_postgres_foreign_keys,
@@ -39,25 +44,44 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     source_requires_ssl,
 )
 
+from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 log = logging.getLogger(__name__)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
+    # libpq reports a bad password via SCRAM with a different wording than the line above.
+    "error received from server in SCRAM exchange: Wrong password": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
+    "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
+    "SSL connection has been closed unexpectedly": "The SSL/TLS connection to your database was closed unexpectedly. Check your database's SSL configuration and that the port is correct.",
 }
 
 
+_POSTGRES_IMPLEMENTATION = PostgresImplementation()
+
+RLS_WARNING_MESSAGE = (
+    "Row-level security is active on this table for the sync role, so PostHog can only read "
+    "rows the policy permits, and cannot detect how many rows are hidden. "
+    "Granting the sync role BYPASSRLS will silence the check."
+)
+
+
 @SourceRegistry.register
-class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name
+
+    @property
+    def get_implementation(self) -> PostgresImplementation:
+        return _POSTGRES_IMPLEMENTATION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -127,10 +151,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="public",
-                        caption=(
-                            "Required for warehouse imports. Leave blank only for direct Postgres queries "
-                            "to browse tables across all non-system schemas."
-                        ),
                         secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
@@ -167,6 +187,23 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "connection timeout expired": None,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
+            "Could not establish session to SSH gateway": None,
+            # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
+            # due to conflict with recovery") 30 times in-process with backoff + chunk-size
+            # reduction before raising this. The conflict comes from the customer's read replica
+            # applying WAL that removes row versions our long-running read still needs
+            # (max_standby_streaming_delay exceeded). Once those in-process retries are exhausted the
+            # condition is sustained, not a transient blip — retrying the whole activity just
+            # re-reads from offset 0 into the same wall, so stop and surface an actionable message.
+            # Matched substring excludes the volatile retry count and is distinct from the
+            # connection-dropped abort ("successive connection-dropped errors"), which stays retryable.
+            "successive SerializationFailure errors. Aborting.": (
+                "PostHog repeatedly hit Postgres recovery conflicts while reading from your read replica "
+                '("canceling statement due to conflict with recovery"). This happens when the replica must '
+                "apply changes from the primary that remove rows the sync is still reading. Increase "
+                "max_standby_streaming_delay on the replica, enable hot_standby_feedback, or point the "
+                "connection at the primary database, then re-enable the sync."
+            ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
@@ -175,7 +212,21 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
             # help because the value shape is fixed in the source.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised when an integer column's source type was widened (e.g. `integer` → `bigint`)
+            # after the destination table was created with the narrower type. Delta Lake can't widen
+            # an existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Drop the Temporal schedule + PostHog-managed slot/publication.
@@ -211,7 +262,12 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             )
 
     def get_schemas(
-        self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: PostgresSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
 
@@ -225,15 +281,24 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                 schema=config.schema,
                 names=names,
             )
-            db_foreign_keys = get_postgres_foreign_keys(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                names=names,
-            )
+            # Foreign keys are advisory metadata (they pre-populate relationship hints in the
+            # table picker). The discovery query joins three `information_schema` views, which
+            # can be expensive enough to OOM the source database on schemas with many
+            # constraints. Degrade gracefully on any failure — like PK and index discovery
+            # below — so optional metadata never breaks schema listing or the import.
+            try:
+                db_foreign_keys = get_postgres_foreign_keys(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    names=names,
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect foreign keys for Postgres schemas", exc_info=e)
+                db_foreign_keys = {}
 
             if with_counts:
                 row_counts = get_postgres_row_count(
@@ -266,6 +331,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             # indexes — that's how we tell "no indexes" apart from "couldn't check".
             indexed_columns_by_table: dict[str, set[str]] | None = {}
             tables_with_pks: set[str] = set()
+            rls_active_by_table: dict[str, bool] = {}
 
             try:
                 with pg_connection(
@@ -325,12 +391,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                             "Failed to detect leading index columns for Postgres schemas", exc_info=e
                         )
                         indexed_columns_by_table = None
+
+                    # Row-level security check powers the advisory warning in the table picker.
+                    rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
             except Exception as e:
                 # Connection-level failure: neither lookup is usable.
                 capture_exception(e)
                 pk_columns_by_table = {}
                 indexed_columns_by_table = None
                 tables_with_pks = set()
+                rls_active_by_table = {}
 
         for table_name, discovered_schema in db_schemas.items():
             incremental_field_tuples = filter_postgres_incremental_fields(discovered_schema.columns)
@@ -362,8 +432,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     source_catalog=discovered_schema.source_catalog,
                     source_schema=discovered_schema.source_schema,
                     source_table_name=discovered_schema.source_table_name,
-                    detected_primary_keys=pk_columns_by_table.get(table_name)
-                    or (["id"] if any(col[0] == "id" for col in discovered_schema.columns) else None),
+                    detected_primary_keys=resolve_detected_primary_keys(
+                        pk_columns_by_table.get(table_name),
+                        discovered_schema.columns,
+                    ),
+                    rls_warning=RLS_WARNING_MESSAGE if rls_active_by_table.get(table_name) else None,
                 )
             )
 
@@ -413,11 +486,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         access_method: str,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        if access_method != "direct":
-            schema = config.schema.strip() if isinstance(config.schema, str) else ""
-            if not schema and not schema_name:
-                return False, "Schema is required for warehouse imports."
-
         return self.validate_credentials(config, team_id, schema_name=schema_name)
 
     def get_connection_metadata(
@@ -475,7 +543,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
@@ -490,6 +558,13 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else None
         )
 
+        # Self-heal qualified rows that don't have schema_metadata yet by splitting the dotted name,
+        # so we don't fall through to `config.schema or "public"` + the literal dotted table name.
+        if (not source_schema or not source_table_name) and "." in inputs.schema_name:
+            inferred_schema, inferred_table = inputs.schema_name.split(".", 1)
+            source_schema = source_schema or inferred_schema
+            source_table_name = source_table_name or inferred_table
+
         # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
         if schema.is_cdc and schema.cdc_mode == "streaming":
             raise CDCHandledExternally(
@@ -499,15 +574,16 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
         # CDC snapshot schemas fall through to run initial full_refresh via postgres_source()
         require_ssl = source_requires_ssl(schema.source, config)
 
-        return postgres_source(
+        # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
+        # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
+        # legacy single-schema warehouse sources whose rows haven't been reconciled yet.
+        response = postgres_source(
             tunnel=ssh_tunnel,
             user=config.user,
             password=config.password,
             database=config.database,
             sslmode="prefer",
-            # config.schema wins so warehouse-mode renames flow through without rewriting
-            # schema_metadata. Falls back to source_schema for direct mode (browse-all).
-            schema=config.schema or source_schema or "public",
+            schema=source_schema or config.schema or "public",
             table_names=[source_table_name or inputs.schema_name],
             should_use_incremental_field=inputs.should_use_incremental_field,
             logger=inputs.logger,
@@ -518,4 +594,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
+            enabled_columns=inputs.enabled_columns,
         )
+        # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
+        # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
+        storage_key = (schema.sync_type_config or {}).get("dwh_storage_key")
+        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else inputs.schema_name
+        response.name = NamingConvention.normalize_identifier(storage_schema_name)
+        return response

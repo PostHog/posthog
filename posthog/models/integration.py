@@ -4,6 +4,7 @@ import time
 import base64
 import socket
 import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
@@ -13,6 +14,9 @@ from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
 if TYPE_CHECKING:
     import aiohttp
+    from anthropic import Anthropic
+    from slack_sdk.web.async_client import AsyncWebClient
+    from stripe import StripeClient
 
 from django.conf import settings
 from django.db import models, transaction
@@ -21,7 +25,6 @@ from django.utils import timezone
 
 import requests
 import structlog
-from anthropic import Anthropic, APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
@@ -33,8 +36,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from slack_sdk.web.async_client import AsyncWebClient
-from stripe import StripeClient
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -42,10 +43,12 @@ from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -162,6 +165,7 @@ class Integration(models.Model):
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
         HUBSPOT = "hubspot"
         INTERCOM = "intercom"
@@ -174,6 +178,8 @@ class Integration(models.Model):
         REDDIT_ADS = "reddit-ads"
         SALESFORCE = "salesforce"
         SLACK = "slack"
+        # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
+        # or reads this kind; see `products/slack_app/backend/api.py` for the live integration.
         SLACK_POSTHOG_CODE = "slack-posthog-code"
         SNAPCHAT = "snapchat"
         STRIPE = "stripe"
@@ -266,33 +272,32 @@ class OauthConfig:
     additional_authorize_params: dict[str, str] | None = None
 
 
-POSTHOG_SLACK_SCOPE = ",".join(
-    [
-        "channels:read",
-        "groups:read",
-        "chat:write",
-        "chat:write.customize",
-        "app_mentions:read",
-        "channels:history",
-        "groups:history",
-        "links:read",
-        "links:write",
-        "reactions:read",
-        "reactions:write",
-        "team:read",
-        "users:read",
-        "users:read.email",
-    ]
-)
+# Slack accepts comma-separated scopes on the OAuth authorize URL. The canonical list is the
+# StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
+# frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
+#
+# On the internal DEV instance (CLOUD_DEPLOYMENT="DEV") and local development (settings.DEBUG)
+# we also request the in-review scopes — the Slack app manifest in those setups can list them.
+# US/EU/self-hosted would fail with `invalid_scope` until Slack approves the public Cloud app.
+# Evaluated at module import; tests that need a different value should
+# `@override_settings(...)` *before* importing this module (or `importlib.reload` it after).
+def _build_posthog_slack_scope() -> str:
+    scopes = [scope.value for scope in SlackIntegrationScope]
+    if settings.DEBUG or get_instance_region() == "DEV":
+        scopes.extend(scope.value for scope in SlackIntegrationScopeInReview)
+    return ",".join(scopes)
+
+
+POSTHOG_SLACK_SCOPE = _build_posthog_slack_scope()
 
 
 class OauthIntegration:
     supported_kinds = [
         "slack",
-        "slack-posthog-code",
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-search-console",
         "google-sheets",
         "snapchat",
         "linkedin-ads",
@@ -336,19 +341,6 @@ class OauthIntegration:
                 client_id=from_settings["SLACK_APP_CLIENT_ID"],
                 client_secret=from_settings["SLACK_APP_CLIENT_SECRET"],
                 scope=POSTHOG_SLACK_SCOPE,
-                id_path="team.id",
-                name_path="team.name",
-            )
-        elif kind == "slack-posthog-code":
-            if not settings.SLACK_POSTHOG_CODE_CLIENT_ID or not settings.SLACK_POSTHOG_CODE_CLIENT_SECRET:
-                raise NotImplementedError("PostHog Code Slack app not configured")
-
-            return OauthConfig(
-                authorize_url="https://slack.com/oauth/v2/authorize",
-                token_url="https://slack.com/api/oauth.v2.access",
-                client_id=settings.SLACK_POSTHOG_CODE_CLIENT_ID,
-                client_secret=settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
-                scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
             )
@@ -411,6 +403,22 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-search-console":
+            if not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID or not settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Search Console app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -633,21 +641,15 @@ class OauthIntegration:
     @classmethod
     def redirect_uri(cls, kind: str) -> str:
         # The redirect uri is fixed but should always be https and include the "next" parameter for the frontend to redirect
-        # slack-posthog-code piggybacks on the approved /integrations/slack/callback redirect URI
-        # because the approved production Slack app is still under review for the new path.
-        # The real kind is carried in OAuth state so the callback still creates a slack-posthog-code integration.
-        path_kind = "slack" if kind == "slack-posthog-code" else kind
         if settings.DEBUG and settings.NGROK_URL:
-            return f"{settings.NGROK_URL}/integrations/{path_kind}/callback"
-        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
+            return f"{settings.NGROK_URL}/integrations/{kind}/callback"
+        return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
     def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
         oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
-        if kind == "slack-posthog-code":
-            state_payload["kind"] = kind
 
         if kind == "tiktok-ads":
             # TikTok uses different parameter names
@@ -918,6 +920,8 @@ class OauthIntegration:
         # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
         if kind == "stripe" and integration_id:
             try:
+                from stripe import StripeClient  # noqa: PLC0415
+
                 stripe_client = StripeClient(oauth_config.client_secret)
                 account = stripe_client.accounts.retrieve(str(integration_id))
                 business_profile = getattr(account, "business_profile", None)
@@ -1123,7 +1127,7 @@ class SlackIntegrationError(Exception):
     pass
 
 
-SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack",)
 
 SLACK_CHANNELS_PAGE_SIZE = 1000
 SLACK_CHANNELS_MAX_PAGES = 10
@@ -1142,8 +1146,20 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
+    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> "AsyncWebClient":
+        # slack_sdk's async client imports aiohttp at module scope; this is a models module,
+        # so a top-level import would put aiohttp on the django.setup() path
+        from slack_sdk.web.async_client import AsyncWebClient  # noqa: PLC0415
+
         return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
+
+    def granted_scopes(self) -> frozenset[str]:
+        """OAuth scopes Slack granted this install, stored on Integration.config["scope"]."""
+        raw = self.integration.config.get("scope") or ""
+        return frozenset(scope.strip() for scope in raw.split(",") if scope.strip())
+
+    def missing_scopes(self, required: Iterable[str]) -> frozenset[str]:
+        return frozenset(required) - self.granted_scopes()
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
@@ -1240,13 +1256,17 @@ class SlackIntegration:
 
         return config
 
-    @classmethod
-    def posthog_code_slack_config(cls) -> dict[str, str]:
-        return {
-            "SLACK_POSTHOG_CODE_CLIENT_ID": settings.SLACK_POSTHOG_CODE_CLIENT_ID,
-            "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
-            "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
-        }
+
+def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
+    """Sign a body with the Slack HMAC-SHA256 scheme; returns (signature, timestamp).
+
+    Used by both prod (PostHog→PostHog cross-region calls that reuse the Slack signing scheme)
+    and tests. The matching verifier is `validate_slack_request` below.
+    """
+    ts = str(int(time.time()))
+    sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
+    signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
+    return signature, ts
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
@@ -1976,7 +1996,7 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> Integration:
-        email_address: str = config["email"]
+        email_address: str = config["email"].lower()
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
         mail_from_subdomain: str = config.get("mail_from_subdomain", "feedback")
@@ -1997,7 +2017,13 @@ class EmailIntegration:
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
-            ses.create_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
+            org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+            ses.create_email_domain(
+                domain,
+                mail_from_subdomain=mail_from_subdomain,
+                team_id=team_id,
+                org_team_ids=org_team_ids,
+            )
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
@@ -2840,7 +2866,7 @@ class GitLabIntegration:
 
 class MetaAdsIntegration:
     integration: Integration
-    api_version: str = "v23.0"
+    api_version: str = "v25.0"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "meta-ads":
@@ -2949,15 +2975,17 @@ class AnthropicIntegrationError(Exception):
     """Raised when the AnthropicIntegration is constructed with an invalid Integration row."""
 
 
-def _build_anthropic_client(api_key: str) -> Anthropic:
+def _build_anthropic_client(api_key: str) -> "Anthropic":
     # Tight timeouts and no SDK-side retries: we don't want a slow upstream to
     # multiply request time by 3 (default `max_retries=2`) inside a Django worker.
+    from anthropic import Anthropic  # noqa: PLC0415
+
     return Anthropic(api_key=api_key, timeout=ANTHROPIC_CLIENT_TIMEOUT_SECONDS, max_retries=0)
 
 
 class AnthropicIntegration:
     integration: Integration
-    _client: Anthropic
+    _client: "Anthropic"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != Integration.IntegrationKind.ANTHROPIC.value:
@@ -2975,6 +3003,13 @@ class AnthropicIntegration:
     def validate_key(api_key: str) -> None:
         # Validate by hitting the actual managed-agents surface so a key without
         # beta access fails at create time instead of silently failing later.
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         try:
             client = _build_anthropic_client(api_key)
             client.get(
@@ -3285,7 +3320,7 @@ class StripeIntegration:
 
     # These are the scopes we'll give Stripe when creating a local OAuth App
     # and sending them access
-    SCOPES = " ".join(
+    SCOPES: str = " ".join(
         [
             "customer_journey:read",
             "query:read",
@@ -3314,11 +3349,13 @@ class StripeIntegration:
     def is_sandbox(self) -> bool:
         return _stripe_integration_is_sandbox(self.integration)
 
-    def _stripe_client(self) -> StripeClient | None:
+    def _stripe_client(self) -> "StripeClient | None":
         # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
         # Apps Secret Store and account-scoped API calls must authenticate with the matching
         # developer secret. Returns None when the required env vars are missing so callers
         # can skip Stripe API calls without raising past their per-secret error handling.
+        from stripe import StripeClient  # noqa: PLC0415
+
         try:
             oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
         except NotImplementedError as e:

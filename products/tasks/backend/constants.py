@@ -1,5 +1,9 @@
 from typing import Literal, get_args
 
+SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
+MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
+MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
 InitialPermissionMode = ClaudePermissionMode | CodexPermissionMode
@@ -9,8 +13,6 @@ CODEX_INITIAL_PERMISSION_MODE_CHOICES: list[str] = list(get_args(CodexPermission
 ALL_INITIAL_PERMISSION_MODE_CHOICES: list[str] = [
     arg for member in get_args(InitialPermissionMode) for arg in get_args(member)
 ]
-
-SENDBLUE_TASK_REPOSITORY = "posthog/posthog"
 
 DEFAULT_TRUSTED_DOMAINS = [
     # PostHog Services

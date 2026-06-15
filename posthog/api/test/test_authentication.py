@@ -16,7 +16,7 @@ from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.http import HttpResponse
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -33,28 +33,35 @@ from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 
-from posthog.api.authentication import password_reset_token_generator, post_login, social_login_notification
-from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.auth import (
     InternalAPIUser,
     OAuthAccessTokenAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ProjectSecretAPIKeyUser,
+    TeamSecretTokenAuthentication,
+    TeamSecretTokenUser,
+    _extract_phs_token,
 )
+from posthog.clickhouse.query_tagging import AccessMethod
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
-from posthog.models import FeatureFlag, User
+from posthog.models import User
+from posthog.models.activity_logging.signal_handlers import post_login
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
 
@@ -394,6 +401,35 @@ class TestLoginAPI(APIBaseTest):
             )
             # Second IP is not locked, so can attempt login
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestDevLoginAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_and_create_when_allowed(self):
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = {user["email"] for user in response.json()["users"]}
+        self.assertIn(self.user.email, emails)
+
+        self.client.logout()
+        response = self.client.post("/api/login/dev", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_hidden_when_allow_dev_login_disabled(self):
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post("/api/login/dev", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=False, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_hidden_when_not_debug(self):
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestLogoutRedirect(APIBaseTest):
@@ -1555,6 +1591,44 @@ class TestPasswordResetAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("none_becomes_true", None),
+            ("true_stays_true", True),
+            ("false_becomes_true", False),
+        ]
+    )
+    def test_password_reset_flips_is_email_verified_to_true(self, _name, initial_state):
+        self.user.is_email_verified = initial_state
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.is_email_verified, True)
+
+    def test_password_reset_does_not_clear_pending_email(self):
+        self.user.is_email_verified = False
+        self.user.pending_email = "new-address@example.com"
+        self.user.requested_password_reset_at = datetime.now()
+        self.user.save()
+
+        token = password_reset_token_generator.make_token(self.user)
+        response = self.client.post(
+            f"/api/reset/{self.user.uuid}/",
+            {"token": token, "password": VALID_TEST_PASSWORD},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.pending_email, "new-address@example.com")
+
     @patch("posthog.tasks.email.send_password_changed_email.delay")
     def test_password_change_invalidates_reset_token(self, mock_send_email):
         token = password_reset_token_generator.make_token(self.user)
@@ -1843,7 +1917,7 @@ class TestTimeSensitivePermissions(APIBaseTest):
             assert res.status_code == 200
 
 
-class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+class TestTeamSecretTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()  # Call the setup from APIBaseTest
         self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
@@ -1851,7 +1925,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
     def test_authenticate_with_valid_secret_api_key_in_header(self):
-        # Simulate a request with a valid secret API key
+        # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
             "/",
             data=None,
@@ -1860,17 +1934,29 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         )
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
         assert result is not None
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
+    def test_authenticate_tags_queries_with_team_secret_token_access_method(self):
+        wsgi_request = self.factory.get("/", headers={"AUTHORIZATION": f"Bearer {self.team.secret_api_token}"})
+        request = Request(wsgi_request)
+        authenticator = TeamSecretTokenAuthentication()
+        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
+            authenticator.authenticate(request)
+        mock_tag_authentication.assert_called_once_with(
+            user_id=None,
+            team_id=self.team.id,
+            access_method=AccessMethod.TEAM_SECRET_TOKEN,
+        )
+
     def test_authenticate_with_valid_secret_api_key_in_body(self):
-        # Simulate a request with a valid secret API key
+        # Simulate a request with a valid team secret token
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
@@ -1879,13 +1965,13 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
         request.parsers = [JSONParser()]  # Explicitly set JSONParser
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
         assert result is not None
         user, _ = result
 
         self.assertIsNotNone(user)
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
@@ -1893,27 +1979,27 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         wsgi_request = self.factory.get(f"/?secret_api_key={self.team.secret_api_token}")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
     def test_authenticate_with_invalid_secret_api_key(self):
-        # Simulate a request with an invalid secret API key
+        # Simulate a request with an invalid team secret token
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION="Bearer phs_NOT_A_VALID_KEY")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
     def test_authenticate_without_secret_api_key(self):
-        # Simulate a request without a secret API key
+        # Simulate a request without a team secret token
         wsgi_request = self.factory.get("/")
         request = Request(wsgi_request)  # Wrap the WSGIRequest in a DRF Request
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
@@ -1929,12 +2015,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     def test_authenticate_with_no_project_api_key_in_body_passes(self):
@@ -1948,12 +2034,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         assert result is not None
         user, _ = result
-        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
     @parameterized.expand(
@@ -1970,18 +2056,233 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
 
-        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
 
         self.assertIsNone(result)
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
+class TestSyntheticUser(SimpleTestCase):
+    def _team(self, team_id=42):
+        return type("FakeTeam", (), {"id": team_id})()
+
+    def test_base_class_requires_distinct_id(self):
+        from posthog.synthetic_user import SyntheticUser
+
+        with self.assertRaises(TypeError):
+            SyntheticUser(self._team())  # type: ignore[call-arg]
+
+    def test_team_secret_token_user_distinct_id_includes_team_id(self):
+        user = TeamSecretTokenUser(self._team(team_id=42))
+        self.assertEqual(user.distinct_id, "team-secret-token-42")
+        self.assertEqual(user.current_team_id, 42)
+        self.assertTrue(user.is_authenticated)
+        self.assertIsNone(user.id)
+
+    def test_project_secret_api_key_user_carries_psak_and_distinct_id(self):
+        team = self._team(team_id=7)
+        fake_psak = type(
+            "FakePSAK",
+            (),
+            {"team": team, "team_id": team.id, "id": 99, "scopes": ["endpoint:read"]},
+        )()
+        user = ProjectSecretAPIKeyUser(fake_psak)
+        self.assertEqual(user.distinct_id, "psak-7-99")
+        self.assertIs(user.project_secret_api_key, fake_psak)
+        self.assertIsNone(user.id)
+
+    def test_isinstance_check_recognises_both_subclasses(self):
+        from posthog.synthetic_user import SyntheticUser
+
+        team = self._team()
+        fake_psak = type("FakePSAK", (), {"team": team, "team_id": team.id, "id": 1, "scopes": []})()
+        self.assertIsInstance(TeamSecretTokenUser(team), SyntheticUser)
+        self.assertIsInstance(ProjectSecretAPIKeyUser(fake_psak), SyntheticUser)
+
+    def test_mutable_attrs_are_isolated_per_instance(self):
+        a = TeamSecretTokenUser(self._team(team_id=1))
+        b = TeamSecretTokenUser(self._team(team_id=2))
+
+        a.groups.append("x")
+        a.user_permissions.append("y")
+
+        self.assertEqual(b.groups, [])
+        self.assertEqual(b.user_permissions, [])
+
+
+class TestExtractPhsToken(SimpleTestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+
+    @parameterized.expand(
+        [
+            ("list_body", "[1, 2, 3]"),
+            ("string_body", '"hello"'),
+            ("number_body", "42"),
+            ("null_body", "null"),
+        ]
+    )
+    def test_non_dict_body_returns_none(self, _name, raw_body):
+        wsgi_request = self.factory.post("/", data=raw_body, content_type="application/json")
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        self.assertIsNone(_extract_phs_token(request, allow_body_token=True))
+
+    def test_valid_token_in_header_returned(self):
+        token = "phs_" + "x" * 35
+        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        self.assertEqual(_extract_phs_token(Request(wsgi_request)), token)
+
+    def test_valid_token_in_dict_body_returned_when_body_allowed(self):
+        token = "phs_" + "y" * 35
+        wsgi_request = self.factory.post(
+            "/",
+            data=json.dumps({"secret_api_key": token}),
+            content_type="application/json",
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+        self.assertEqual(_extract_phs_token(request, allow_body_token=True), token)
+
+    def test_body_token_ignored_when_body_not_allowed(self):
+        token = "phs_" + "y" * 35
+        wsgi_request = self.factory.post(
+            "/",
+            data=json.dumps({"secret_api_key": token}),
+            content_type="application/json",
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+        self.assertIsNone(_extract_phs_token(request, allow_body_token=False))
+
+    def test_no_token_anywhere_returns_none(self):
+        wsgi_request = self.factory.get("/")
+        self.assertIsNone(_extract_phs_token(Request(wsgi_request)))
+
+
+class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.factory = APIRequestFactory()
+        self.token = "phs_" + "a" * 35
+        self.psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="psak-test",
+            mask_value="phs_...aaaa",
+            secure_value=hash_key_value(self.token),
+            scopes=["endpoint:read"],
+        )
+
+    def _request_with_header(self, token):
+        wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+        return Request(wsgi_request)
+
+    def test_authenticate_with_valid_psak_in_header(self):
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(self.token))
+
+        assert result is not None
+        user, _ = result
+        self.assertIsInstance(user, ProjectSecretAPIKeyUser)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.project_secret_api_key.pk, self.psak.pk)
+        self.assertEqual(authenticator.project_secret_api_key.pk, self.psak.pk)
+
+    def test_authenticate_tags_queries_with_psak_access_method(self):
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
+            authenticator.authenticate(self._request_with_header(self.token))
+        mock_tag_authentication.assert_called_once_with(
+            user_id=None,
+            team_id=self.team.id,
+            access_method=AccessMethod.PROJECT_SECRET_API_KEY,
+            api_key_mask=self.psak.mask_value,
+            api_key_label=self.psak.label,
+        )
+
+    def test_authenticate_with_psak_in_body_returns_none(self):
+        # PSAK auth is header-only (allow_body_token=False): a token in the request body must not authenticate.
+        wsgi_request = self.factory.post(
+            "/",
+            data=json.dumps({"secret_api_key": self.token}),
+            content_type="application/json",
+        )
+        request = Request(wsgi_request)
+        request.parsers = [JSONParser()]
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(request)
+
+        self.assertIsNone(result)
+
+    def test_authenticate_with_unknown_token_returns_none(self):
+        unknown_token = "phs_" + "z" * 35
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(unknown_token))
+        self.assertIsNone(result)
+
+    def test_does_not_fall_back_to_team_secret_api_token(self):
+        # Set Team.secret_api_token to a legacy token; PSAK auth should ignore it.
+        legacy_token = "phs_" + "b" * 35
+        self.team.secret_api_token = legacy_token
+        self.team.save()
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(legacy_token))
+        self.assertIsNone(result)
+
+    def test_authenticate_without_token_returns_none(self):
+        wsgi_request = self.factory.get("/")
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(Request(wsgi_request))
+        self.assertIsNone(result)
+
+    @parameterized.expand(
+        [
+            ("public_token", "phc_test_public_token"),
+            ("unprefixed", "some_random_token"),
+            ("empty", ""),
+        ]
+    )
+    def test_authenticate_with_wrong_prefix_returns_none(self, _name, token):
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        result = authenticator.authenticate(self._request_with_header(token))
+        self.assertIsNone(result)
+
+    def test_last_used_at_updates_on_first_use(self):
+        assert self.psak.last_used_at is None
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator.authenticate(self._request_with_header(self.token))
+
+        self.psak.refresh_from_db()
+        self.assertIsNotNone(self.psak.last_used_at)
+
+    def test_last_used_at_hourly_throttle_skips_recent(self):
+        recent = timezone.now() - timedelta(minutes=30)
+        ProjectSecretAPIKey.objects.filter(pk=self.psak.pk).update(last_used_at=recent)
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator.authenticate(self._request_with_header(self.token))
+
+        self.psak.refresh_from_db()
+        # Should not update if less than 1 hour has passed
+        assert self.psak.last_used_at is not None
+        assert abs((self.psak.last_used_at - recent).total_seconds()) < 1
+
+    def test_last_used_at_updates_after_one_hour(self):
+        old = timezone.now() - timedelta(hours=2)
+        ProjectSecretAPIKey.objects.filter(pk=self.psak.pk).update(last_used_at=old)
+
+        authenticator = ProjectSecretAPIKeyAuthentication()
+        authenticator.authenticate(self._request_with_header(self.token))
+
+        self.psak.refresh_from_db()
+        assert self.psak.last_used_at is not None
+        # Should have updated to a recent timestamp
+        self.assertGreater(self.psak.last_used_at, old + timedelta(hours=1))
+
+
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2084,8 +2385,8 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         self.assertIsNone(result)
 
-    @patch("posthog.auth.tag_queries")
-    def test_authenticate_tags_queries_correctly(self, mock_tag_queries):
+    @patch("posthog.auth.tag_authentication")
+    def test_authenticate_tags_queries_correctly(self, mock_tag_authentication):
         wsgi_request = self.factory.get(
             "/",
             headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
@@ -2097,7 +2398,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
         self.assertIsNotNone(result)
 
-        mock_tag_queries.assert_called_once_with(
+        mock_tag_authentication.assert_called_once_with(
             user_id=self.user.pk,
             team_id=self.team.pk,
             access_method="oauth",
@@ -2191,7 +2492,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
 
     def test_oauth_access_token_calls_tag_queries_with_correct_parameters(self):
         """Test that tag_queries is called with the correct user_id and team_id."""
-        with patch("posthog.auth.tag_queries") as mock_tag_queries:
+        with patch("posthog.auth.tag_authentication") as mock_tag_authentication:
             wsgi_request = self.factory.get(
                 "/",
                 headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
@@ -2206,7 +2507,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             self.assertIsInstance(self.user.current_team_id, int)
 
             # Verify tag_queries was called with correct parameters
-            mock_tag_queries.assert_called_once_with(
+            mock_tag_authentication.assert_called_once_with(
                 user_id=self.user.pk,
                 team_id=self.user.current_team_id,
                 access_method="oauth",

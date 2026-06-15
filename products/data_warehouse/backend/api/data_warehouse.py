@@ -24,20 +24,22 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import BatchExportRun
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 from ee.billing.billing_manager import BillingManager
 
@@ -662,13 +664,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for run in failed_runs:
                 results.append(
                     {
-                        "id": str(run.batch_export.id),
-                        "name": run.batch_export.name,
+                        "id": str(run.parent.id),
+                        "name": getattr(run.parent, "name", "Batch export on demand"),
                         "type": "destination",
                         "status": "failed",
                         "error": run.latest_error,
                         "failed_at": run.finished_at.isoformat() if run.finished_at else None,
-                        "url": f"/pipeline/batch-exports/{run.batch_export.id}",
+                        "url": f"/pipeline/batch-exports/{run.parent.id}",
                     }
                 )
 

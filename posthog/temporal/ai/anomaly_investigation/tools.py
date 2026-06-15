@@ -22,7 +22,8 @@ from pydantic import BaseModel, Field
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
-from posthog.models.alert import AlertConfiguration
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 MAX_HOGQL_ROWS = 50
 MAX_SERIES_POINTS = 120
@@ -104,7 +105,7 @@ def _run_detector_simulation(
     """
     # Imported lazily because the workflow module can't pull in heavy query machinery
     # at Temporal workflow-definition time — only activities can.
-    from posthog.tasks.alerts.detector import simulate_detector_on_insight
+    from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 
     try:
         return simulate_detector_on_insight(

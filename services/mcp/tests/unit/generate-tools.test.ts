@@ -546,6 +546,219 @@ describe('inject_body', () => {
     })
 })
 
+describe('anyOf / oneOf body schemas (discriminated unions)', () => {
+    // Polymorphic Python serializers (e.g. file-download-batch-exports) emit
+    // request bodies as `anyOf` of per-variant object schemas. Without union
+    // handling, `bodyFieldNames` stays empty and the generated handler POSTs
+    // with no body — the server rejects the request as "field required".
+    const unionResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            kind: { type: 'string', enum: ['a'] },
+                                            shared_field: { type: 'string' },
+                                            only_in_a: { type: 'string' },
+                                        },
+                                        required: ['kind', 'shared_field'],
+                                    },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            kind: { type: 'string', enum: ['b'] },
+                                            shared_field: { type: 'string' },
+                                            only_in_b: { type: 'number' },
+                                        },
+                                        required: ['kind', 'shared_field', 'only_in_b'],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it('emits body assembly for every field, guarding variant-specific access with `in`', () => {
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            unionResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // Body is initialized and forwarded.
+        expect(result.code).toContain('const body: Record<string, unknown> = {}')
+        expect(result.code).toContain('body,')
+
+        // Every field across all variants is assembled into the body.
+        expect(result.code).toContain(`body["kind"] = params.kind`)
+        expect(result.code).toContain(`body["shared_field"] = params.shared_field`)
+        expect(result.code).toContain(`body["only_in_a"] = params.only_in_a`)
+        expect(result.code).toContain(`body["only_in_b"] = params.only_in_b`)
+
+        // Fields present in every variant don't need the `in` guard.
+        expect(result.code).toContain('if (params.kind !== undefined)')
+        expect(result.code).toContain('if (params.shared_field !== undefined)')
+        // Fields only in some variants must be guarded with `'X' in params` so
+        // accessing them on the inferred union type still type-checks.
+        expect(result.code).toContain(`if ('only_in_a' in params && params.only_in_a !== undefined)`)
+        expect(result.code).toContain(`if ('only_in_b' in params && params.only_in_b !== undefined)`)
+    })
+
+    it('flattens allOf composition inside a union variant', () => {
+        // Mirrors the common OpenAPI pattern of a variant that extends a base
+        // schema via allOf (e.g. `$ref` + extra properties). Without allOf
+        // handling the base-schema fields would be dropped from the body.
+        const spec = makeSpec({
+            components: {
+                schemas: {
+                    BaseFields: {
+                        type: 'object',
+                        properties: {
+                            base_field: { type: 'string' },
+                        },
+                        required: ['base_field'],
+                    },
+                },
+            },
+        })
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    {
+                                        allOf: [
+                                            { $ref: '#/components/schemas/BaseFields' },
+                                            {
+                                                type: 'object',
+                                                properties: {
+                                                    kind: { type: 'string', enum: ['a'] },
+                                                    only_in_a: { type: 'string' },
+                                                },
+                                                required: ['kind'],
+                                            },
+                                        ],
+                                    },
+                                    {
+                                        type: 'object',
+                                        properties: {
+                                            base_field: { type: 'string' },
+                                            kind: { type: 'string', enum: ['b'] },
+                                        },
+                                        required: ['base_field', 'kind'],
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            spec,
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        // allOf-composed fields reach the body builder, treated as shared
+        // (present in every variant) rather than variant-specific.
+        expect(result.code).toContain(`body["base_field"] = params.base_field`)
+        expect(result.code).toContain('if (params.base_field !== undefined)')
+        expect(result.code).toContain('if (params.kind !== undefined)')
+        // The variant-only field still gets `in`-guarded.
+        expect(result.code).toContain(`if ('only_in_a' in params && params.only_in_a !== undefined)`)
+    })
+
+    it('resolves $ref-based union variants from components.schemas', () => {
+        const spec = makeSpec({
+            components: {
+                schemas: {
+                    VariantA: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, payload_a: { type: 'string' } },
+                        required: ['kind'],
+                    },
+                    VariantB: {
+                        type: 'object',
+                        properties: { kind: { type: 'string' }, payload_b: { type: 'string' } },
+                        required: ['kind'],
+                    },
+                },
+            },
+        })
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                oneOf: [
+                                    { $ref: '#/components/schemas/VariantA' },
+                                    { $ref: '#/components/schemas/VariantB' },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        const config: ToolConfig = {
+            operation: 'things_create',
+            enabled: true,
+        }
+
+        const result = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            spec,
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(`body["payload_a"] = params.payload_a`)
+        expect(result.code).toContain(`body["payload_b"] = params.payload_b`)
+    })
+})
+
 describe('rename_params', () => {
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
@@ -1307,5 +1520,188 @@ describe('path parameter encoding', () => {
         // Fallback params use local variable (no params. prefix) but still get encoded
         expect(result.code).toContain('${encodeURIComponent(String(id))}')
         expect(result.code).not.toMatch(/\$\{id\}[^)]/)
+    })
+})
+
+// ------------------------------------------------------------------
+// confirmed_action — schema validation
+// ------------------------------------------------------------------
+
+describe('ToolConfigSchema confirmed_action', () => {
+    const base = {
+        operation: 'organizations_partial_update',
+        enabled: true,
+    } as const
+
+    it('accepts a minimal confirmed_action block', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'Confirm action on {orgId}?' },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('accepts an action_label override', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'Confirm', action_label: 'enforce 2FA' },
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects missing message', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { action_label: 'foo' },
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('rejects confirmed_action combined with ui_app (silent UI-app drop)', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            ui_app: 'org-2fa',
+            confirmed_action: { message: 'x' },
+        })
+        expect(result.success).toBe(false)
+        if (!result.success) {
+            expect(result.error.issues[0]!.message).toContain('ui_app')
+        }
+    })
+
+    it('rejects unknown keys inside the confirmed_action object', () => {
+        const result = ToolConfigSchema.safeParse({
+            ...base,
+            confirmed_action: { message: 'x', bogus: true },
+        })
+        expect(result.success).toBe(false)
+    })
+})
+
+// ------------------------------------------------------------------
+// generateToolCode — confirmed_action codegen
+// ------------------------------------------------------------------
+
+describe('generateToolCode with confirmed_action', () => {
+    function makeConfirmedConfig(): ToolConfig {
+        return {
+            operation: 'organizations_partial_update',
+            enabled: true,
+            title: 'Enforce 2FA',
+            confirmed_action: {
+                message: 'About to enable enforce 2FA on organization {id}.',
+                action_label: 'enforce 2FA',
+            },
+        }
+    }
+
+    function makePatchResolved(): ResolvedOperation {
+        return {
+            method: 'PATCH',
+            path: '/api/organizations/{id}/',
+            operation: { operationId: 'organizations_partial_update', parameters: [] },
+        }
+    }
+
+    it('emits TWO factories (prepare and execute), not the base factory', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('organizationEnforce2faUpdatePrepare')
+        expect(result.code).toContain('organizationEnforce2faUpdateExecute')
+        // No base factory of the original name should be emitted.
+        expect(result.code).not.toMatch(/const organizationEnforce2faUpdate\s*=/)
+    })
+
+    it('extends the base schema for the execute variant with confirmation fields', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('OrganizationEnforce2faUpdateSchemaExecute')
+        expect(result.code).toContain('.extend({')
+        expect(result.code).toContain('confirmation_hash')
+        expect(result.code).toContain('confirmation:')
+    })
+
+    it('wires prepare into prepareConfirmedAction with the messageTemplate', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await prepareConfirmedAction')
+        expect(result.code).toContain('purpose: "organization-enforce-2fa-update"')
+        expect(result.code).toContain('actionLabel: "enforce 2FA"')
+        expect(result.code).toContain('messageTemplate: "About to enable enforce 2FA on organization {id}."')
+    })
+
+    it('wires execute into executeConfirmedAction and falls through to the original API call', () => {
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('await executeConfirmedAction')
+        expect(result.code).toContain('if (!__guard.ok)')
+        // After the guard, the handler runs the original API request.
+        expect(result.code).toContain('await context.api.request')
+        expect(result.code).toContain("method: 'PATCH'")
+    })
+
+    it('REPLACES params with verifiedArgs (never merges) so unsigned extras cannot survive', () => {
+        // The generated handler must not preserve incoming params alongside
+        // verifiedArgs — only the signed payload is authorized. A merge
+        // would let the model slip an unsigned base-schema field (e.g. an
+        // extra 'name') into the downstream API body without it ever being
+        // shown to the user at prepare time.
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            makeConfirmedConfig(),
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('params = { ...__guard.verifiedArgs }')
+        expect(result.code).not.toMatch(/params\s*=\s*\{\s*\.\.\.params\s*,\s*\.\.\.__guard\.verifiedArgs/)
+    })
+
+    it('uses the tool title as the fallback action_label when none is set', () => {
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            title: 'Enforce 2FA',
+            confirmed_action: { message: 'msg' },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('actionLabel: "Enforce 2FA"')
     })
 })

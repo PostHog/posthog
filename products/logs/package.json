@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-logs",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ skills/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
@@ -21,7 +21,7 @@
         "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
         "@posthog/products-error-tracking": "workspace:*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",
@@ -38,7 +38,7 @@
         "react-dom": "*",
         "react-window": "*",
         "stylelint": "*",
-        "typescript": "*",
+        "typescript": "catalog:*",
         "use-debounce": "*"
     }
 }

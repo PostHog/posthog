@@ -1,17 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDropdown, LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { MailHog } from 'lib/components/hedgehogs'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
+import { ConfirmDeleteButton } from 'scenes/surveys/components/ConfirmDeleteButton'
 import {
     getSurveyIdsFromNotificationFilters,
     surveyNotificationsListLogic,
 } from 'scenes/surveys/surveyNotificationsListLogic'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, Survey } from '~/types'
+import { HogFunctionType } from '~/types'
 
 function getNotificationDescription(fn: HogFunctionType): string | null {
     const inputs = fn.inputs
@@ -39,54 +41,111 @@ function surveyNotificationsUrl(surveyId: string, params: Record<string, string>
     return `${urls.survey(surveyId)}?${search}`
 }
 
-function NewNotificationPicker(): JSX.Element {
+function NewNotificationButton({
+    type = 'secondary',
+    size = 'small',
+}: {
+    type?: 'primary' | 'secondary'
+    size?: 'small' | 'medium'
+}): JSX.Element {
     const { push } = useActions(router)
-    const { selectableSurveys, knownSurveysLoading } = useValues(surveyNotificationsListLogic)
+    const {
+        selectableSurveys,
+        filteredSelectableSurveys,
+        knownSurveysLoading,
+        knownSurveysFailed,
+        surveyPickerSearch,
+        surveyPickerVisible,
+    } = useValues(surveyNotificationsListLogic)
+    const { setSurveyPickerSearch, setSurveyPickerVisible } = useActions(surveyNotificationsListLogic)
 
-    const options = selectableSurveys.map((survey: Pick<Survey, 'id' | 'name'>) => ({
-        key: survey.id,
-        label: survey.name,
-    }))
+    const hasSurveys = selectableSurveys.length > 0
+    const disabledReason = knownSurveysLoading
+        ? undefined
+        : knownSurveysFailed
+          ? "We couldn't load your surveys — retry from the warning above."
+          : !hasSurveys
+            ? 'Create a survey first before adding notifications.'
+            : undefined
 
-    const handleChange = (newValue: string[]): void => {
-        const surveyId = newValue[0]
-        if (surveyId) {
-            push(surveyNotificationsUrl(surveyId, { notification: 'add' }))
-        }
+    const handlePick = (surveyId: string): void => {
+        push(surveyNotificationsUrl(surveyId, { notification: 'add' }))
+        setSurveyPickerVisible(false)
     }
 
     return (
-        <div className="w-80 max-w-full">
-            <LemonInputSelect
-                mode="single"
-                placeholder="Add notification to a survey…"
-                title="Add notification to…"
-                options={options}
-                value={null}
-                onChange={handleChange}
+        <LemonDropdown
+            visible={surveyPickerVisible}
+            onVisibilityChange={setSurveyPickerVisible}
+            closeOnClickInside={false}
+            matchWidth={false}
+            placement="bottom-end"
+            overlay={
+                <div className="flex flex-col gap-2 w-80 max-w-full">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search surveys…"
+                        value={surveyPickerSearch}
+                        onChange={setSurveyPickerSearch}
+                        autoFocus
+                        fullWidth
+                    />
+                    <div className="flex flex-col gap-px max-h-80 overflow-y-auto">
+                        {filteredSelectableSurveys.length === 0 ? (
+                            <p className="m-0 p-2 text-xs text-muted text-center">
+                                {surveyPickerSearch ? 'No surveys match your search.' : 'No surveys available.'}
+                            </p>
+                        ) : (
+                            filteredSelectableSurveys.map((survey) => (
+                                <LemonButton
+                                    key={survey.id}
+                                    fullWidth
+                                    size="small"
+                                    role="menuitem"
+                                    onClick={() => handlePick(survey.id)}
+                                >
+                                    <span className="truncate">{survey.name}</span>
+                                </LemonButton>
+                            ))
+                        )}
+                    </div>
+                </div>
+            }
+        >
+            <LemonButton
+                type={type}
+                size={size}
+                icon={<IconPlus />}
                 loading={knownSurveysLoading}
-                size="small"
-                emptyStateComponent={
-                    <div className="p-2 text-xs text-muted">No surveys to notify on. Create a survey first.</div>
-                }
-                data-attr="survey-list-new-notification-picker"
-            />
-        </div>
+                disabledReason={disabledReason}
+                data-attr="survey-list-new-notification-button"
+            >
+                Add notification
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
 export function SurveyNotificationsList(): JSX.Element {
     const { notifications, notificationsLoading, notificationsFailed, knownSurveysFailed } =
         useValues(surveyNotificationsListLogic)
-    const { toggleNotificationEnabled, loadNotifications, loadKnownSurveys } = useActions(surveyNotificationsListLogic)
+    const { toggleNotificationEnabled, deleteNotification, loadNotifications, loadKnownSurveys } =
+        useActions(surveyNotificationsListLogic)
     const { push } = useActions(router)
 
     if (notificationsLoading) {
         return (
-            <div className="flex flex-col gap-2">
-                <LemonSkeleton className="h-12" />
-                <LemonSkeleton className="h-12" />
-                <LemonSkeleton className="h-12" />
+            <div className="flex flex-col gap-1.5">
+                {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded border p-2 h-12">
+                        <LemonSkeleton className="h-[30px] w-[30px] rounded shrink-0" />
+                        <div className="flex-1 min-w-0 flex flex-col gap-1">
+                            <LemonSkeleton className="h-3 w-40 max-w-full" />
+                            <LemonSkeleton className="h-2 w-28 max-w-full" />
+                        </div>
+                        <LemonSkeleton className="h-5 w-9 rounded-full shrink-0" />
+                    </div>
+                ))}
             </div>
         )
     }
@@ -105,14 +164,26 @@ export function SurveyNotificationsList(): JSX.Element {
 
     if (notifications.length === 0) {
         return (
-            <div className="flex flex-col items-center gap-3 rounded border border-dashed p-6 text-center">
-                <div className="space-y-1">
-                    <p className="m-0 text-sm font-medium">No survey notifications yet</p>
-                    <p className="m-0 text-xs text-muted">
-                        Send every new survey response to Slack, Discord, Microsoft Teams, or a webhook.
-                    </p>
-                </div>
-                <NewNotificationPicker />
+            <div className="flex flex-col gap-3">
+                {knownSurveysFailed ? (
+                    <LemonBanner
+                        type="warning"
+                        action={{ children: 'Retry', onClick: () => loadKnownSurveys() }}
+                        data-attr="survey-notifications-known-surveys-error"
+                    >
+                        We couldn't load your surveys, so picking one to notify on isn't available right now.
+                    </LemonBanner>
+                ) : null}
+                <section className="flex flex-col items-center gap-5 px-6 py-12 text-center">
+                    <MailHog className="h-32 w-auto" />
+                    <div className="flex flex-col gap-1.5 max-w-md">
+                        <h3 className="m-0 text-base font-semibold">Get notified when responses land</h3>
+                        <p className="m-0 text-sm text-muted">
+                            Pipe survey responses straight into Slack, Discord, Microsoft Teams, or any webhook.
+                        </p>
+                    </div>
+                    <NewNotificationButton type="primary" size="medium" />
+                </section>
             </div>
         )
     }
@@ -128,6 +199,12 @@ export function SurveyNotificationsList(): JSX.Element {
                     We couldn't verify which surveys still exist, so notifications for deleted surveys may appear here.
                 </LemonBanner>
             ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="m-0 text-sm text-muted flex-1 min-w-0">
+                    Send survey responses to Slack, Discord, Microsoft Teams, or webhooks.
+                </p>
+                <NewNotificationButton />
+            </div>
             <div className="flex flex-col gap-1.5">
                 {notifications.map((fn) => {
                     const description = getNotificationDescription(fn)
@@ -160,13 +237,15 @@ export function SurveyNotificationsList(): JSX.Element {
                             <LemonSwitch
                                 checked={fn.enabled}
                                 onChange={() => toggleNotificationEnabled(fn.id, !fn.enabled)}
-                                size="small"
+                            />
+                            <ConfirmDeleteButton
+                                onDelete={() => deleteNotification(fn)}
+                                data-attr="survey-notification-list-delete"
                             />
                         </div>
                     )
                 })}
             </div>
-            <NewNotificationPicker />
         </div>
     )
 }

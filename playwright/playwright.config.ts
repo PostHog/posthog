@@ -10,7 +10,13 @@ import { defineConfig, devices } from '@playwright/test'
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
-    testDir: '.',
+    // testDir is the repo root so we can discover tests in two locations:
+    //   - playwright/e2e/**           — cross-cutting and platform-level tests
+    //   - products/*/frontend/e2e/**  — product-owned tests, co-located with the product
+    // testMatch keeps discovery scoped to those two roots so we don't accidentally
+    // pick up unrelated *.spec.ts files (e.g. Jest unit tests under products/).
+    testDir: '..',
+    testMatch: ['playwright/e2e/**/*.spec.ts', 'products/*/frontend/e2e/**/*.spec.ts'],
     /*
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
@@ -30,8 +36,13 @@ export default defineConfig({
     fullyParallel: true,
     /* Fail the build on CI if you accidentally left test.only in the source code. */
     forbidOnly: !!process.env.CI,
-    /* Retry on CI only */
-    retries: process.env.CI ? 3 : 2,
+    /*
+        Retries are 3 on CI by default. The nightly flake-audit workflow sets
+        PLAYWRIGHT_RETRIES=0 to surface the true per-test failure rate, which the
+        default retry budget otherwise hides (50%-flaky tests pass 93.75% of the time
+        with 4 attempts).
+     */
+    retries: process.env.PLAYWRIGHT_RETRIES ? Number(process.env.PLAYWRIGHT_RETRIES) : process.env.CI ? 3 : 2,
     /*
         GitHub Actions has 4 cores so run 3 workers 
         and leave one core for all the rest

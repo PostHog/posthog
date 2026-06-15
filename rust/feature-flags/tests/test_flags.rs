@@ -421,10 +421,14 @@ async fn it_rejects_missing_token() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "not_authenticated");
     assert_eq!(
-        res.text().await?,
+        json_data["detail"],
         "No API token provided. Please include a valid API token in your request."
     );
+    assert_eq!(json_data["attr"], Value::Null);
     Ok(())
 }
 
@@ -442,10 +446,14 @@ async fn it_rejects_invalid_token() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "authentication_failed");
     assert_eq!(
-        res.text().await?,
+        json_data["detail"],
         "The provided API key is invalid or has expired. Please check your API key and try again."
     );
+    assert_eq!(json_data["attr"], Value::Null);
     Ok(())
 }
 
@@ -1518,7 +1526,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_with_complex_request() -> Result<()> {
+async fn test_feature_enrollment_with_complex_request() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "test_user".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -1560,15 +1568,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
                     "rollout_percentage": 100
                 }
             ],
-            "super_groups": [{
-                "properties": [{
-                    "key": "$feature_enrollment/my-flag",
-                    "type": "person",
-                    "value": ["true"],
-                    "operator": "exact"
-                }],
-                "rollout_percentage": 100
-            }]
+            "feature_enrollment": true
         }
     }]);
 
@@ -2924,14 +2924,14 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
-    // This test specifically addresses the bug where super condition property overrides
+async fn test_feature_enrollment_property_overrides_bug_fix() -> Result<()> {
+    // This test specifically addresses the bug where feature enrollment property overrides
     // were ignored when evaluating flags. The bug was that if you sent:
-    // "$feature_enrollment/discussions": false
-    // as an override, it would be ignored if the flag's super_groups checked for that property.
+    // "$feature_enrollment/discussions-flag": false
+    // as an override, it would be ignored if the flag's feature_enrollment gate checked for that property.
 
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "super_condition_user".to_string();
+    let distinct_id = "feature_enrollment_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -2946,7 +2946,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
             team.id,
             distinct_id.clone(),
             Some(json!({
-                "$feature_enrollment/discussions": true,  // DB has it as true
+                "$feature_enrollment/discussions-flag": true,  // DB has it as true
                 "email": "user@example.com"
             })),
         )
@@ -2968,15 +2968,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
                     "rollout_percentage": 100
                 }
             ],
-            "super_groups": [{
-                "properties": [{
-                    "key": "$feature_enrollment/discussions",
-                    "type": "person",
-                    "value": ["true"],
-                    "operator": "exact"
-                }],
-                "rollout_percentage": 100
-            }]
+            "feature_enrollment": true
         }
     }]);
 
@@ -3002,7 +2994,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
 
     let json_data = res.json::<Value>().await?;
 
-    // Should be enabled because DB has $feature_enrollment/discussions = true
+    // Should be enabled because DB has $feature_enrollment/discussions-flag = true
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -3025,7 +3017,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
         "token": token,
         "distinct_id": distinct_id,
         "person_properties": {
-            "$feature_enrollment/discussions": false  // Override to false
+            "$feature_enrollment/discussions-flag": false  // Override to false
         }
     });
 
@@ -3064,7 +3056,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
             team.id,
             "another_user".to_string(),
             Some(json!({
-                "$feature_enrollment/discussions": false,  // DB has it as false
+                "$feature_enrollment/discussions-flag": false,  // DB has it as false
                 "email": "another@example.com"
             })),
         )
@@ -3075,7 +3067,7 @@ async fn test_super_condition_property_overrides_bug_fix() -> Result<()> {
         "token": token,
         "distinct_id": "another_user",
         "person_properties": {
-            "$feature_enrollment/discussions": true  // Override to true
+            "$feature_enrollment/discussions-flag": true  // Override to true
         }
     });
 
@@ -3246,9 +3238,9 @@ async fn test_property_override_bug_real_scenario() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_super_condition_with_cohort_filters() -> Result<()> {
+async fn test_feature_enrollment_with_cohort_filters() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
-    let distinct_id = "super_condition_cohort_user".to_string();
+    let distinct_id = "feature_enrollment_cohort_user".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
@@ -3263,7 +3255,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
             team.id,
             distinct_id.clone(),
             Some(json!({
-                "$feature_enrollment/discussions": false,  // Super condition property in DB
+                "$feature_enrollment/discussions-with-cohort": false,  // Super condition property in DB
                 "email": "user@example.com"
             })),
         )
@@ -3271,7 +3263,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         .unwrap();
 
     // Create a flag that matches your production example:
-    // - Has a super condition that checks "$feature_enrollment/discussions"
+    // - Has a super condition that checks "$feature_enrollment/discussions-with-cohort"
     // - Has a regular condition with a cohort filter
     let flag_json = json!([{
         "id": 1,
@@ -3292,15 +3284,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
             }],
             "payloads": {},
             "multivariate": null,
-            "super_groups": [{
-                "properties": [{
-                    "key": "$feature_enrollment/discussions",
-                    "type": "person",
-                    "value": ["true"],
-                    "operator": "exact"
-                }],
-                "rollout_percentage": 100
-            }]
+            "feature_enrollment": true
         }
     }]);
 
@@ -3326,7 +3310,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
 
     let json_data = res.json::<Value>().await?;
 
-    // Should be disabled because DB has $feature_enrollment/discussions = false
+    // Should be disabled because DB has $feature_enrollment/discussions-with-cohort = false
     assert_json_include!(
         actual: json_data,
         expected: json!({
@@ -3348,7 +3332,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         "token": token,
         "distinct_id": distinct_id,
         "person_properties": {
-            "$feature_enrollment/discussions": true  // Override super condition property to true
+            "$feature_enrollment/discussions-with-cohort": true  // Override super condition property to true
         }
     });
 
@@ -3365,8 +3349,8 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
     let json_override = res_override.json::<Value>().await?;
 
     // This is the key test: the flag should now be enabled because:
-    // 1. Super condition can be evaluated from override (discussions = true)
-    // 2. Super condition matches, so we return early with super_condition_value
+    // 1. Feature enrollment can be evaluated from override (discussions = true)
+    // 2. Enrollment matches, so we return early with super_condition_value
     // 3. We don't even need to evaluate the cohort filter in the regular condition
     assert_json_include!(
         actual: json_override,
@@ -3389,7 +3373,7 @@ async fn test_super_condition_with_cohort_filters() -> Result<()> {
         "token": token,
         "distinct_id": distinct_id,
         "person_properties": {
-            "$feature_enrollment/discussions": false  // Override to false
+            "$feature_enrollment/discussions-with-cohort": false  // Override to false
         }
     });
 
@@ -5679,19 +5663,19 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Synchronous path writes inline before the response returns, so we can
-    // read back without polling.
-    let counter = client.hget(billing_key, bucket_field).await;
-
     if skip_writes {
+        // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
+        // an erroneous `record()` behind a delayed first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let counter = client.hget(billing_key, bucket_field).await;
         assert!(
             counter.is_err(),
-            "billing counter should NOT be incremented when skip_writes=true"
+            "billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
         );
     } else {
+        let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
         assert_eq!(
-            counter.unwrap(),
-            "1",
+            counter, "1",
             "billing counter should be incremented when skip_writes=false"
         );
     }
@@ -5699,28 +5683,21 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
     Ok(())
 }
 
-/// Verifies that an SDK request lands counts in BOTH the team-level and the
-/// library-level Redis hashes via the synchronous billing path, AND — when
-/// the aggregator is enabled — that the same counts also reach the shadow
-/// keyspace via the aggregator's flush path. This is the cross-path
-/// reconciliation invariant that the dual-write design depends on.
+/// Verifies that an SDK request lands counts at the team-level and the
+/// library-level Redis hashes in the production keyspace — the load-bearing
+/// invariant readers (`calculate_decide_usage`) consume. The aggregator's
+/// periodic flush is the only writer.
 #[tokio::test]
-async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<()> {
+async fn test_billing_increments_land_in_production_keyspace() -> Result<()> {
     use feature_flags::config::FlexBool;
     use feature_flags::flags::flag_analytics::{
         current_bucket, get_team_request_key, get_team_request_library_key,
-        get_team_request_library_shadow_key, get_team_request_shadow_key,
     };
     use feature_flags::flags::flag_request::FlagRequestType;
     use feature_flags::handler::types::Library;
 
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.skip_writes = FlexBool(false);
-    // Enable the shadow path so we can assert both keyspaces in one go.
-    config.billing_aggregator_enabled = FlexBool(true);
-    // Tight flush interval so the aggregator lands its shadow write before
-    // the assertion polling window expires.
-    config.billing_flush_interval_ms = 100;
 
     let distinct_id = format!("billing_lib_test_{}", rand::thread_rng().gen::<u32>());
 
@@ -5754,13 +5731,8 @@ async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<
     let team_key = get_team_request_key(team.id, FlagRequestType::Decide);
     let library_key =
         get_team_request_library_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
-    let team_shadow_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
-    let library_shadow_key =
-        get_team_request_library_shadow_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
     client.del(team_key.clone()).await.unwrap();
     client.del(library_key.clone()).await.unwrap();
-    client.del(team_shadow_key.clone()).await.unwrap();
-    client.del(library_shadow_key.clone()).await.unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5784,58 +5756,33 @@ async fn test_dual_write_lands_counts_in_production_and_shadow_keys() -> Result<
         .await?;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Production keyspace — written synchronously by `record_usage`.
-    let team_counter = client.hget(team_key, bucket_field.clone()).await.unwrap();
+    let team_counter = poll_for_billing_counter(&client, &team_key, &bucket_field).await;
     assert_eq!(team_counter, "1", "team key should reflect one request");
 
-    let library_counter = client
-        .hget(library_key, bucket_field.clone())
-        .await
-        .unwrap();
+    let library_counter = poll_for_billing_counter(&client, &library_key, &bucket_field).await;
     assert_eq!(
         library_counter, "1",
         "library key should reflect one request"
     );
 
-    // Shadow keyspace — written by the aggregator's background flush. Poll
-    // because we don't know exactly when the flusher tick lands.
-    let team_shadow_counter =
-        poll_for_billing_counter(&client, &team_shadow_key, &bucket_field).await;
-    assert_eq!(
-        team_shadow_counter, "1",
-        "shadow team key should reflect one request from the aggregator"
-    );
-
-    let library_shadow_counter =
-        poll_for_billing_counter(&client, &library_shadow_key, &bucket_field).await;
-    assert_eq!(
-        library_shadow_counter, "1",
-        "shadow library key should reflect one request from the aggregator"
-    );
-
     Ok(())
 }
 
-/// End-to-end shutdown-flush path *for the shadow aggregator*. Sets a flush
-/// interval much longer than the test's runtime so the periodic flusher
-/// cannot fire — the only way the **shadow** counter can land in Redis is via
+/// End-to-end shutdown-flush path. Sets a flush interval much longer than
+/// the test's runtime so the periodic flusher cannot fire — the only way
+/// the production billing counter can land in Redis is via
 /// `BillingAggregator::shutdown()` after axum's graceful drain. Catches a
 /// regression that drops the `billing_aggregator.shutdown().await` call in
-/// `serve()`, swaps in `for_tests()`, or wires up the lifecycle ordering
-/// wrong (flushing before axum drains). The synchronous production-keyspace
-/// write is unaffected by the aggregator's lifecycle and is verified by
-/// `test_skip_writes_suppresses_billing_redis_counter`.
+/// `serve()` or wires up the lifecycle ordering wrong (flushing before
+/// axum drains).
 #[tokio::test]
-async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
+async fn test_shutdown_flush_writes_production_billing_counter() -> Result<()> {
     use feature_flags::config::FlexBool;
-    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_shadow_key};
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
 
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.skip_writes = FlexBool(false);
-    // The aggregator must be on for this test to mean anything — the gate is
-    // off by default, so explicitly enable it.
-    config.billing_aggregator_enabled = FlexBool(true);
     // Long enough that no periodic flush can fire during the test. If the
     // counter shows up in Redis, the shutdown path is what put it there.
     config.billing_flush_interval_ms = 60_000;
@@ -5866,7 +5813,7 @@ async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
     }]);
     insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
-    let billing_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
+    let billing_key = get_team_request_key(team.id, FlagRequestType::Decide);
     let bucket_field = current_bucket().to_string();
     client.del(billing_key.clone()).await.unwrap();
 
@@ -5878,23 +5825,23 @@ async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Confirm the periodic flusher has NOT yet landed the SHADOW write —
-    // sanity check that we're really exercising the shutdown path. With a
-    // 60s flush interval and immediate-after-request lookup, the shadow
-    // counter should still be missing. (The synchronous production-keyspace
-    // write *has* already happened by now, but that's a different key.)
+    // Confirm the periodic flusher has NOT yet landed the aggregator's
+    // write — sanity check that we're really exercising the shutdown
+    // path. With a 60s flush interval and immediate-after-request
+    // lookup, the target counter should still be missing.
     let pre_shutdown = client.hget(billing_key.clone(), bucket_field.clone()).await;
     assert!(
         pre_shutdown.is_err(),
-        "shadow billing counter should NOT be in Redis before shutdown — \
-         the aggregator's periodic flusher is set to 60s and the test is \
-         faster than that. Got {pre_shutdown:?}, which means the flush \
-         window collapsed and this test no longer proves what it claims."
+        "billing counter at {billing_key} should NOT be in Redis before \
+         shutdown — the aggregator's periodic flusher is set to 60s and \
+         the test is faster than that. Got {pre_shutdown:?}, which means \
+         the flush window collapsed and this test no longer proves what \
+         it claims."
     );
 
     // Trigger graceful shutdown. axum drains in-flight requests, then
     // `serve()` calls `billing_aggregator.shutdown().await` which performs
-    // the final flush to the shadow keyspace.
+    // the final flush to the production billing keyspace.
     server.shutdown_now();
 
     // Poll for the counter to land. The helper polls for ~1s
@@ -5903,7 +5850,7 @@ async fn test_shutdown_flush_lands_shadow_counter_in_redis() -> Result<()> {
     let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
     assert_eq!(
         counter, "1",
-        "shadow billing counter must reach Redis via the shutdown flush path"
+        "billing counter must reach Redis via the shutdown flush path"
     );
 
     Ok(())
@@ -5968,8 +5915,7 @@ async fn test_api_cohort_flag_integration() -> Result<()> {
             ],
             "multivariate": null,
             "aggregation_group_type_index": null,
-            "payloads": {},
-            "super_groups": []
+            "payloads": {}
         }
     }]);
 
@@ -6047,8 +5993,7 @@ async fn test_api_cohort_flag_integration_no_match() -> Result<()> {
             ],
             "multivariate": null,
             "aggregation_group_type_index": null,
-            "payloads": {},
-            "super_groups": []
+            "payloads": {}
         }
     }]);
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 import shlex
 import shutil
@@ -26,13 +27,25 @@ import requests
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    SandboxProvisionError,
+    SandboxTimeoutError,
+    SnapshotCreationError,
+)
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
+    AGENTSH_DAEMON_PORT,
+    BASH_ENV_SCRIPT,
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
     build_exec_prefix,
     build_setup_script,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
@@ -49,19 +62,11 @@ from products.tasks.backend.services.modal_provision_diagnostics import (
     summarize_modal_output,
 )
 from products.tasks.backend.services.sandbox import (
-    PREWARMED_SANDBOX_ENV_FILE,
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
+    redact_sandbox_command,
     wait_for_health_check,
-)
-from products.tasks.backend.temporal.exceptions import (
-    SandboxCleanupError,
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxProvisionError,
-    SandboxTimeoutError,
-    SnapshotCreationError,
 )
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
@@ -70,10 +75,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
 NOTEBOOK_MODAL_APP_NAME = "posthog-sandbox-notebook"
+STREAMLIT_MODAL_APP_NAME = "posthog-sandbox-streamlit"
+
 SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
+SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
+SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
+AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -90,52 +100,102 @@ def _get_modal_region() -> str:
 LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.DEFAULT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"),
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
+    SandboxTemplate.VM_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm"),
+    SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
+LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
 
 
-_image_ref_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _image_ref_lock = threading.Lock()
+
+
+# Modal caches images by reference indefinitely. Falling back to the mutable
+# `:master` tag therefore lets Modal keep serving a stale or broken image
+# (e.g. one missing /scripts/node_modules/.bin/agent-server) forever, so we
+# retry transient GHCR failures and otherwise fail closed.
+_GHCR_RESOLVE_MAX_ATTEMPTS = 4
+_GHCR_RESOLVE_BACKOFF_BASE_SECONDS = 1.0
+
+
+class _ImageDigestResolutionError(Exception):
+    """A single attempt to resolve the GHCR digest failed."""
+
+
+def _resolve_image_digest_once(image: str) -> str:
+    """Resolve ``image:master`` to an immutable ``image@sha256:...`` reference.
+
+    Raises ``_ImageDigestResolutionError`` for non-200 responses or missing
+    fields; network-level exceptions (``ConnectionError``, ``Timeout``, etc.)
+    propagate as-is. The caller catches ``Exception`` in all cases, so we never
+    fall back to the mutable ``:master`` tag.
+    """
+    image_repo = image.replace("ghcr.io/", "")
+
+    token_resp = requests.get(
+        f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
+        timeout=10,
+    )
+    if token_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR token request failed: status={token_resp.status_code}")
+
+    token = token_resp.json().get("token")
+    if not token:
+        raise _ImageDigestResolutionError("GHCR token response missing token field")
+
+    manifest_resp = requests.get(
+        f"https://ghcr.io/v2/{image_repo}/manifests/master",
+        headers={
+            "Accept": "application/vnd.oci.image.index.v1+json",
+            "Authorization": f"Bearer {token}",
+        },
+        timeout=10,
+    )
+    if manifest_resp.status_code != 200:
+        raise _ImageDigestResolutionError(f"GHCR manifest request failed: status={manifest_resp.status_code}")
+
+    digest = manifest_resp.headers.get("Docker-Content-Digest")
+    if not digest:
+        raise _ImageDigestResolutionError("GHCR manifest response missing Docker-Content-Digest header")
+
+    return f"{image}@{digest}"
 
 
 @cached(cache=_image_ref_cache, lock=_image_ref_lock)
 def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
-    """Modal caches sandbox images indefinitely. This function resolves the digest of the master tag
-    so Modal fetches the correct version. Re-resolves from GHCR every ~5 minutes.
+    """Resolve the sandbox image to an immutable digest pin.
+
+    Modal caches sandbox images by reference indefinitely, so a mutable
+    ``:master`` tag would let Modal keep serving a stale or broken image. We
+    therefore retry transient GHCR failures with exponential backoff and, if
+    resolution still fails, fail closed by raising ``SandboxProvisionError``
+    (transient — the provisioning activity retries) rather than ever returning
+    the floating tag. Successful resolutions are cached for ~5 minutes;
+    failures are not cached and re-resolve on the next call.
     """
-    image_repo = image.replace("ghcr.io/", "")
-    try:
-        token_resp = requests.get(
-            f"https://ghcr.io/token?service=ghcr.io&scope=repository:{image_repo}:pull",
-            timeout=10,
-        )
-        if token_resp.status_code != 200:
-            logger.warning(f"Failed to get GHCR token: status={token_resp.status_code}")
-            return f"{image}:master"
+    last_error: Exception | None = None
+    for attempt in range(1, _GHCR_RESOLVE_MAX_ATTEMPTS + 1):
+        try:
+            reference = _resolve_image_digest_once(image)
+            logger.info(f"Resolved sandbox image digest for {image} on attempt {attempt}: {reference}")
+            return reference
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                f"Failed to resolve sandbox image digest for {image} "
+                f"(attempt {attempt}/{_GHCR_RESOLVE_MAX_ATTEMPTS}): {e}"
+            )
+            if attempt < _GHCR_RESOLVE_MAX_ATTEMPTS:
+                time.sleep(_GHCR_RESOLVE_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)))
 
-        token = token_resp.json().get("token")
-        if not token:
-            logger.warning("GHCR token response missing token field")
-            return f"{image}:master"
-
-        manifest_resp = requests.get(
-            f"https://ghcr.io/v2/{image_repo}/manifests/master",
-            headers={
-                "Accept": "application/vnd.oci.image.index.v1+json",
-                "Authorization": f"Bearer {token}",
-            },
-            timeout=10,
-        )
-        if manifest_resp.status_code == 200:
-            digest = manifest_resp.headers.get("Docker-Content-Digest")
-            if digest:
-                logger.info(f"Resolved sandbox image digest for {image_repo}: {digest}")
-                return f"{image}@{digest}"
-        logger.warning(f"Failed to get sandbox image digest: status={manifest_resp.status_code}")
-    except Exception as e:
-        logger.warning(f"Failed to fetch sandbox image digest: {e}")
-
-    return f"{image}:master"
+    raise SandboxProvisionError(
+        f"Could not resolve an immutable digest for {image}:master after "
+        f"{_GHCR_RESOLVE_MAX_ATTEMPTS} attempts; refusing to fall back to the mutable "
+        f":master tag because Modal caches images by reference indefinitely",
+        {"image": image},
+        cause=last_error if last_error is not None else RuntimeError("digest resolution failed"),
+    )
 
 
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
@@ -160,7 +220,7 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
     return image
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=2, ttl=300)
+_template_image_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
 _template_image_lock = threading.Lock()
 
 
@@ -169,6 +229,8 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
+        SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
+        SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -182,7 +244,7 @@ def _get_template_image(template: SandboxTemplate) -> modal.Image:
     return _attach_local_package_mounts(image, template)
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, str]:
     dockerfile_relative_path = LOCAL_MODAL_DOCKERFILES.get(template)
     if dockerfile_relative_path is None:
@@ -198,6 +260,12 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
     destination_dockerfile_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_dockerfile_path, destination_dockerfile_path)
 
+    # Both base and notebook Dockerfiles COPY the git guard, so include it in
+    # every local build context.
+    destination_git_guard_path = context_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT
+    destination_git_guard_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(base_dir / LOCAL_MODAL_GIT_GUARD_SCRIPT, destination_git_guard_path)
+
     if template == SandboxTemplate.DEFAULT_BASE:
         source_install_script_path = base_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
         destination_install_script_path = context_dir / LOCAL_MODAL_INSTALL_SKILLS_SCRIPT
@@ -208,6 +276,15 @@ def _prepare_local_modal_build_context(template: SandboxTemplate) -> tuple[str, 
         # latest rendered output.
         LocalSkillsCache(base_dir).ensure_built()
         populate_skills_directory(context_dir / LOCAL_BUILT_SKILLS_PATH, base_dir=base_dir)
+
+    elif template == SandboxTemplate.STREAMLIT_BASE:
+        # Copy all sibling files (streamlit_auth_proxy.py, etc.)
+        # needed by COPY instructions in the Dockerfile
+        source_images_dir = source_dockerfile_path.parent
+        dest_images_dir = destination_dockerfile_path.parent
+        for sibling in source_images_dir.iterdir():
+            if sibling.is_file() and sibling != source_dockerfile_path:
+                shutil.copy2(sibling, dest_images_dir / sibling.name)
 
     return str(destination_dockerfile_path), str(context_dir)
 
@@ -245,17 +322,18 @@ class ModalSandbox(SandboxBase):
         return modal.App.lookup(cls.DEFAULT_APP_NAME, create_if_missing=True)
 
     @classmethod
-    def _get_app_for_template(cls, template: SandboxTemplate, app_name: str | None = None) -> modal.App:
-        if app_name:
-            return modal.App.lookup(app_name, create_if_missing=True)
+    def _get_app_for_template(cls, template: SandboxTemplate) -> modal.App:
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return modal.App.lookup(cls.NOTEBOOK_APP_NAME, create_if_missing=True)
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            return modal.App.lookup(STREAMLIT_MODAL_APP_NAME, create_if_missing=True)
         return cls._get_default_app()
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
         try:
-            app = cls._get_app_for_template(config.template, config.modal_app_name)
+            modal.enable_output()
+            app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
             used_snapshot_image = False
@@ -299,6 +377,12 @@ class ModalSandbox(SandboxBase):
                 "region": region,
                 "verbose": True,
             }
+
+            if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
+                create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.outbound_domain_allowlist:
+                create_kwargs["outbound_domain_allowlist"] = config.outbound_domain_allowlist
 
             if secrets:
                 create_kwargs["secrets"] = secrets
@@ -357,7 +441,7 @@ class ModalSandbox(SandboxBase):
         timeout_seconds: int | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -367,6 +451,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
 
             process.wait()
@@ -391,12 +476,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
     def execute_stream(
@@ -405,7 +493,7 @@ class ModalSandbox(SandboxBase):
         timeout_seconds: int | None = None,
     ) -> ExecutionStream:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -415,6 +503,7 @@ class ModalSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
+            redacted_command = redact_sandbox_command(command)
             process = self._sandbox.exec("bash", "-c", command, timeout=timeout_seconds)
         except TimeoutError as e:
             capture_exception(e)
@@ -424,12 +513,15 @@ class ModalSandbox(SandboxBase):
                 cause=e,
             )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Failed to execute command: {e}")
+            redacted_error = redact_sandbox_command(str(e))
+            # Provider exceptions can echo the shell command, so avoid exc_info here.
+            logger.error(  # noqa: TRY400
+                "Failed to execute command", extra={"sandbox_id": self.id, "redacted_error": redacted_error}
+            )
             raise SandboxExecutionError(
-                f"Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
-                cause=e,
+                "Failed to execute command",
+                {"sandbox_id": self.id, "command": redacted_command, "error": redacted_error},
+                cause=RuntimeError(redacted_error),
             )
 
         class _ModalExecutionStream:
@@ -466,7 +558,7 @@ class ModalSandbox(SandboxBase):
 
     def write_file(self, path: str, payload: bytes) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -544,6 +636,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -551,12 +644,18 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        # Scope BASH_ENV to the agent-server process (not the container env) so only the
+        # agent's per-command tool shells re-source the refreshed token. Backend maintenance
+        # execs (clone/checkout/token injection) must not source it — the script could be
+        # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
         server_cmd = (
+            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
@@ -570,9 +669,7 @@ class ModalSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            env_file = shlex.quote(PREWARMED_SANDBOX_ENV_FILE)
-            unwrapped_inner = f"[ -f {env_file} ] && . {env_file}; {inner}"
-            return f"cd /scripts && nohup bash -c {shlex.quote(unwrapped_inner)} > /tmp/agent-server-launch.log 2>&1 &"
+            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         result = self.execute(command, timeout_seconds=30)
@@ -596,6 +693,7 @@ class ModalSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -606,10 +704,17 @@ class ModalSandbox(SandboxBase):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
+        if self._agent_server_is_healthy():
+            logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
+            return
+        self._free_agent_server_port()
+
         repo_path: str | None = None
         if repository:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
@@ -633,6 +738,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -664,22 +770,36 @@ class ModalSandbox(SandboxBase):
 
         setup_script = build_setup_script(workspace_path)
         result = self.execute(setup_script, timeout_seconds=30)
-        if result.exit_code != 0:
+        if not self._agentsh_daemon_is_healthy():
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            logger.error(
+                "agentsh daemon failed to start in sandbox %s (setup exit_code=%s); stderr=%r agentsh_log=%r",
+                self.id,
+                result.exit_code,
+                result.stderr.strip()[:1000],
+                agentsh_log.stdout.strip()[:2000],
+            )
             raise SandboxExecutionError(
                 "Failed to start agentsh daemon",
                 {
                     "sandbox_id": self.id,
                     "stderr": result.stderr,
                     "stdout": result.stdout,
+                    "exit_code": result.exit_code,
                     "agentsh_log": agentsh_log.stdout,
                 },
-                cause=RuntimeError(result.stderr),
+                cause=RuntimeError(result.stderr or "agentsh daemon health check failed"),
             )
 
         session_check = self.execute(f"cat {SESSION_ID_FILE}", timeout_seconds=5)
         if session_check.exit_code != 0 or not session_check.stdout.strip():
             agentsh_log = self.execute("cat /var/log/agentsh/agentsh.log 2>/dev/null || true", timeout_seconds=5)
+            logger.error(
+                "agentsh session creation failed in sandbox %s; stderr=%r agentsh_log=%r",
+                self.id,
+                session_check.stderr.strip()[:1000],
+                agentsh_log.stdout.strip()[:2000],
+            )
             raise SandboxExecutionError(
                 "Failed to create agentsh session",
                 {
@@ -692,13 +812,38 @@ class ModalSandbox(SandboxBase):
 
         logger.info("agentsh daemon started and session created in sandbox %s", self.id)
 
-    def _wait_for_health_check(self, max_attempts: int = 60, poll_interval: float = 0.5) -> bool:
+    def _agentsh_daemon_is_healthy(self, max_attempts: int = 30, poll_interval: float = 0.5) -> bool:
+        health_script = (
+            f"for i in $(seq 1 {max_attempts}); do "
+            f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://127.0.0.1:{AGENTSH_DAEMON_PORT}/health); "
+            f'  [ "$status" = "200" ] && exit 0; '
+            f'  [ "$i" -lt {max_attempts} ] && sleep {poll_interval}; '
+            f"done; "
+            f"exit 1"
+        )
+        result = self.execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
+        return result.exit_code == 0
+
+    def _wait_for_health_check(
+        self, max_attempts: int = AGENT_SERVER_HEALTH_MAX_ATTEMPTS, poll_interval: float = 0.5
+    ) -> bool:
         """Poll health endpoint until server is ready (single remote call)."""
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts, poll_interval)
 
+    def _agent_server_is_healthy(self) -> bool:
+        return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
+
+    def _free_agent_server_port(self) -> None:
+        self.execute(
+            "pkill -TERM -f agent-server 2>/dev/null || true; "
+            "for _ in $(seq 1 10); do pgrep -f agent-server >/dev/null || break; sleep 0.5; done; "
+            "pkill -KILL -f agent-server 2>/dev/null || true",
+            timeout_seconds=15,
+        )
+
     def create_snapshot(self) -> str:
         if not self.is_running():
-            raise SandboxExecutionError(
+            raise SandboxNotRunningError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -707,7 +852,8 @@ class ModalSandbox(SandboxBase):
         try:
             # Modal can report the sandbox as running before filesystem snapshotting is ready.
             self._sandbox.exec("true", timeout=30).wait()
-            image = self._sandbox.snapshot_filesystem()
+            # ttl=None keeps indefinite retention; modal 1.5.0 otherwise defaults snapshots to a 30-day TTL.
+            image = self._sandbox.snapshot_filesystem(ttl=None)
 
             snapshot_id = image.object_id
 

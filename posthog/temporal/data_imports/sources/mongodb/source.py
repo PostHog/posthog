@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
+    DATABASE_NAME_REQUIRED_ERROR,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
@@ -26,6 +28,11 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+_MONGO_UNREACHABLE_MESSAGE = (
+    "Could not reach your MongoDB cluster. Check that the cluster is running and that PostHog's "
+    "IP addresses are allowlisted in your database's network access settings."
+)
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -34,14 +41,36 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         return ExternalDataSourceType.MONGODB
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
+        auth_failed_msg = "MongoDB authentication failed. Please check the username and password for this source."
+        return {
+            "The DNS query name does not exist": None,
+            # pymongo raises OperationFailure with codeName 'AuthenticationFailed' (code 18) and
+            # errmsg 'Authentication failed.' when the credentials are wrong. Non-retryable error
+            # matching is case-sensitive, so the previous lowercase "authentication failed" never
+            # matched the real message — key off the stable codeName and the capitalised message.
+            "AuthenticationFailed": auth_failed_msg,
+            "Authentication failed": auth_failed_msg,
+            "SSL handshake failed": None,
+            # pymongo raises ServerSelectionTimeoutError ("No servers found yet" / "No replica set
+            # members found yet") when it can't reach any cluster node for the whole selection
+            # timeout. On a managed cluster this is a persistent connectivity problem — the worker
+            # IP isn't allowlisted, or the cluster is paused/decommissioned — not a momentary blip
+            # (a mid-sync outage surfaces differently), so retrying the job won't recover it.
+            "No servers found yet": _MONGO_UNREACHABLE_MESSAGE,
+            "No replica set members found yet": _MONGO_UNREACHABLE_MESSAGE,
+        }
 
     def get_schemas(
-        self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MongoDBSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
-        connection_params = _parse_connection_string(config.connection_string)
+        connection_params = _parse_connection_string(config.connection_string, config.database_name)
         leading_keys_by_collection: dict[str, set[str] | None] = {}
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
@@ -81,12 +110,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         from pymongo.errors import OperationFailure
 
         try:
-            connection_params = _parse_connection_string(config.connection_string)
+            connection_params = _parse_connection_string(config.connection_string, config.database_name)
         except:
             return False, "Invalid connection string"
 
         if not connection_params.get("database"):
-            return False, "Database name is required in connection string"
+            return False, DATABASE_NAME_REQUIRED_ERROR
 
         if not connection_params["is_srv"]:
             # For SRV connections the hostname is a DNS namespace (e.g.
@@ -121,6 +150,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             team_id=inputs.team_id,
+            database_name=config.database_name,
         )
 
     @property
@@ -129,7 +159,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             name=SchemaExternalDataSourceType.MONGO_DB,
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/Mongodb.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/mongodb",
             fields=cast(
@@ -142,7 +172,19 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                         required=True,
                         placeholder="mongodb://username:password@host:port/database?authSource=admin&tls=true",
                         secret=True,
-                    )
+                    ),
+                    SourceFieldInputConfig(
+                        name="database_name",
+                        label="Database name",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="my_database",
+                        caption=(
+                            "Only needed if your connection string doesn't already include the database "
+                            "(Atlas `mongodb+srv://...` strings usually don't)."
+                        ),
+                        secret=False,
+                    ),
                 ],
             ),
         )

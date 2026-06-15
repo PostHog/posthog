@@ -18,8 +18,7 @@ from django.conf import settings
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
 
-from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.temporal.exceptions import (
+from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -27,20 +26,22 @@ from products.tasks.backend.temporal.exceptions import (
     SandboxTimeoutError,
     SnapshotCreationError,
 )
+from products.tasks.backend.models import SandboxSnapshot
 
 from .agentsh import (
+    BASH_ENV_SCRIPT,
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
     build_exec_prefix,
     build_setup_script,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
 )
 from .local_skills import ENV_LOCAL_SKILLS_HOST_PATH, LocalSkillsCache
 from .sandbox import (
-    PREWARMED_SANDBOX_ENV_FILE,
     WORKING_DIR,
     AgentServerResult,
     ExecutionResult,
@@ -51,6 +52,7 @@ from .sandbox import (
     SandboxTemplate,
     build_agent_runtime_env_prefix,
     parse_sandbox_repo_mount_map,
+    redact_sandbox_command,
     wait_for_health_check,
 )
 
@@ -59,13 +61,52 @@ logger = logging.getLogger(__name__)
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
 PI_IMAGE_NAME = "posthog-sandbox-pi"
+STREAMLIT_IMAGE_NAME = "posthog-sandbox-streamlit"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
+# Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
+# host-published port maps to it so connect_info can reach the app across processes.
+
+STREAMLIT_AUTH_PROXY_PORT = 8080
+
+# Env vars holding a PostHog URL the sandbox must reach from inside the container.
+# localhost would resolve to the container itself, so they're rewritten to
+# host.docker.internal at `docker run` time (non-localhost hosts pass through).
+_DOCKER_URL_ENV_KEYS = frozenset(
+    {
+        "POSTHOG_API_URL",
+        "POSTHOG_SITE_URL",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+    }
+)
+
+# A failing `docker build` can emit megabytes of output. Stuffing all of it into a
+# Temporal ApplicationError's details overflows the failure-payload size limit, and
+# Temporal then discards the real error in favor of an opaque "Failure exceeds size
+# limit." Keep the tail — Docker prints the failing step and error there.
+_MAX_CAPTURED_OUTPUT_CHARS = 8000
+
+
+def _truncate_output(output: str | None) -> str:
+    if not output:
+        return ""
+    if len(output) <= _MAX_CAPTURED_OUTPUT_CHARS:
+        return output
+    return f"...[truncated {len(output) - _MAX_CAPTURED_OUTPUT_CHARS} chars]...\n{output[-_MAX_CAPTURED_OUTPUT_CHARS:]}"
 
 
 class DockerSandbox(SandboxBase):
     """
     Docker-based sandbox for local development and testing.
     Implements the same interface as the Modal-based Sandbox.
+
+    Local dev requirements (set in .env.local, then restart ./bin/start so the
+    supervisor re-reads them — a per-process restart inherits the old env):
+      - SANDBOX_PROVIDER=docker   — route sandboxes here instead of Modal.
+      - POSTHOG_DEV_SANDBOX=0      — REQUIRED. The dev Seatbelt sandbox
+        (bin/dev-sandbox.sb) deliberately denies the Docker socket as an escape
+        vector, so with it enabled the worker can't reach the daemon and every
+        create() fails with a generic "Failed to create Docker sandbox".
     """
 
     id: str
@@ -98,7 +139,7 @@ class DockerSandbox(SandboxBase):
     @staticmethod
     def _run(args: list[str], check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess:
         """Run a subprocess command with logging."""
-        logger.debug(f"Running: {' '.join(args)}")
+        logger.debug(f"Running: {redact_sandbox_command(' '.join(args))}")
         result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
         if result.stdout:
             logger.debug(f"stdout: {result.stdout[:500]}")
@@ -234,6 +275,15 @@ class DockerSandbox(SandboxBase):
             DockerSandbox._build_image_if_needed(NOTEBOOK_IMAGE_NAME, dockerfile_path)
             return NOTEBOOK_IMAGE_NAME
 
+        # Streamlit ships its own standalone image (FROM python:3.11-slim with a `streamlit`
+        # user + auth proxy), so it doesn't build on top of the base image like PI does.
+        if template == SandboxTemplate.STREAMLIT_BASE:
+            dockerfile_path = os.path.join(
+                settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"
+            )
+            DockerSandbox._build_image_if_needed(STREAMLIT_IMAGE_NAME, dockerfile_path)
+            return STREAMLIT_IMAGE_NAME
+
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
         )
@@ -302,12 +352,18 @@ class DockerSandbox(SandboxBase):
             if config.environment_variables:
                 for key, value in config.environment_variables.items():
                     if value is not None:
-                        if key == "POSTHOG_API_URL":
+                        if key in _DOCKER_URL_ENV_KEYS:
                             value = DockerSandbox._transform_url_for_docker(value)
                         env_args.extend(["-e", f"{key}={value}"])
 
             host_port = DockerSandbox._find_available_port()
-            port_args = ["-p", f"{host_port}:{AGENT_SERVER_PORT}"]
+            # Streamlit sandboxes are reached via their auth proxy (8080); everything else
+            # via the agent-server. Ports must be published at `docker run` time — the proxy
+            # boots later inside the container, so we publish 8080 up front regardless.
+            container_port = (
+                STREAMLIT_AUTH_PROXY_PORT if config.template == SandboxTemplate.STREAMLIT_BASE else AGENT_SERVER_PORT
+            )
+            port_args = ["-p", f"{host_port}:{container_port}"]
 
             mount_map = parse_sandbox_repo_mount_map()
             volume_args: list[str] = []
@@ -370,16 +426,34 @@ class DockerSandbox(SandboxBase):
             logger.exception(f"Failed to create Docker sandbox: {e.stderr}")
             raise SandboxProvisionError(
                 "Failed to create Docker sandbox",
-                {"config_name": config.name, "error": e.stderr},
+                {"config_name": config.name, "error": _truncate_output(e.stderr)},
                 cause=e,
             )
         except Exception as e:
             logger.exception(f"Failed to create Docker sandbox: {e}")
             raise SandboxProvisionError(
                 "Failed to create Docker sandbox",
-                {"config_name": config.name, "error": str(e)},
+                {"config_name": config.name, "error": _truncate_output(str(e))},
                 cause=e,
             )
+
+    @staticmethod
+    def _recover_published_host_port(container_id: str) -> int | None:
+        """Read the host port a container publishes, via `docker port`.
+
+        Output lines look like `8080/tcp -> 0.0.0.0:49153`; we return the first
+        host port found so a freshly-reconstructed sandbox can build its URL.
+        """
+        try:
+            result = DockerSandbox._run(["docker", "port", container_id])
+        except subprocess.CalledProcessError:
+            return None
+        for line in result.stdout.splitlines():
+            _, _, mapping = line.partition("->")
+            host_port = mapping.strip().rsplit(":", 1)[-1]
+            if host_port.isdigit():
+                return int(host_port)
+        return None
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> DockerSandbox:
@@ -393,7 +467,10 @@ class DockerSandbox(SandboxBase):
             )
             full_id = result.stdout.strip()
             config = SandboxConfig(name=f"sandbox-{sandbox_id}")
-            return DockerSandbox(container_id=full_id, config=config)
+            # Recover the published host port so connect_info (which runs in a different
+            # process than create()) can build the connect URL.
+            host_port = DockerSandbox._recover_published_host_port(full_id)
+            return DockerSandbox(container_id=full_id, config=config, host_port=host_port)
 
         except subprocess.CalledProcessError as e:
             raise SandboxNotFoundError(
@@ -429,7 +506,8 @@ class DockerSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
-            logger.debug(f"Executing in sandbox {self.id}: {command[:100]}...")
+            redacted_command = redact_sandbox_command(command)
+            logger.debug(f"Executing in sandbox {self.id}: {redacted_command[:100]}...")
             result = DockerSandbox._run(
                 ["docker", "exec", self._container_id, "bash", "-c", command],
                 timeout=timeout_seconds,
@@ -452,7 +530,7 @@ class DockerSandbox(SandboxBase):
             logger.exception(f"Failed to execute command: {e}")
             raise SandboxExecutionError(
                 "Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
             )
 
@@ -472,7 +550,8 @@ class DockerSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
-            logger.debug(f"Streaming execution in sandbox {self.id}: {command[:100]}...")
+            redacted_command = redact_sandbox_command(command)
+            logger.debug(f"Streaming execution in sandbox {self.id}: {redacted_command[:100]}...")
             process = subprocess.Popen(
                 ["docker", "exec", self._container_id, "bash", "-c", command],
                 stdout=subprocess.PIPE,
@@ -484,7 +563,7 @@ class DockerSandbox(SandboxBase):
             logger.exception(f"Failed to start streaming command: {e}")
             raise SandboxExecutionError(
                 "Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
             )
 
@@ -638,6 +717,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -645,18 +725,31 @@ class DockerSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        # Scope BASH_ENV to the agent-server process (not the container env) so only the
+        # agent's per-command tool shells re-source the refreshed token. Backend maintenance
+        # execs (clone/checkout/token injection) must not source it — the script could be
+        # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
         server_cmd = (
+            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
-        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
+        # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The
+        # per-session port can go stale and cause ECONNREFUSED on otherwise-valid local URLs,
+        # so route host.docker.internal traffic (llm-gateway, MCP) around the proxy.
+        no_proxy_export = (
+            'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
+        )
+        inner = f"cd /scripts && {no_proxy_export}{server_cmd} > /tmp/agent-server.log 2>&1"
 
         if allowed_domains is not None:
             return (
@@ -664,9 +757,9 @@ class DockerSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            env_file = shlex.quote(PREWARMED_SANDBOX_ENV_FILE)
-            unwrapped_inner = f"[ -f {env_file} ] && . {env_file}; {inner}"
-            return f"cd /scripts && nohup bash -c {shlex.quote(unwrapped_inner)} > /tmp/agent-server-launch.log 2>&1 &"
+            # Write the env file even without agentsh so BASH_ENV (and the
+            # in-process token resolver) can re-read a backend-refreshed token.
+            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -694,6 +787,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -710,6 +804,12 @@ class DockerSandbox(SandboxBase):
         if repository:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        # The agent runs each tool command in a fresh shell; BASH_ENV re-sources
+        # the (backend-refreshed) GitHub token from the env file per command, so
+        # mid-session credential refreshes reach git/gh. Needed for both agentsh
+        # and non-agentsh runs.
+        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)
@@ -733,6 +833,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -765,6 +866,7 @@ class DockerSandbox(SandboxBase):
                 reasoning_effort=reasoning_effort,
                 mcp_servers_arg=mcp_servers_arg,
                 allowed_domains=allowed_domains,
+                event_ingest_token=event_ingest_token,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

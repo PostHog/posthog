@@ -1,18 +1,16 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    logsSamplingRulesCreate,
-    logsSamplingRulesPartialUpdate,
-    logsSamplingRulesSimulateCreate,
-    logsServicesCreate,
-} from 'products/logs/frontend/generated/api'
+import { FilterLogicalOperator, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+
+import { logsSamplingRulesCreate, logsSamplingRulesPartialUpdate } from 'products/logs/frontend/generated/api'
 import {
     LogsSamplingRuleApi,
     PatchedLogsSamplingRuleApi,
@@ -22,192 +20,150 @@ import { logsDropRulesSettingsUrl } from 'products/logs/frontend/logsDropRulesSe
 
 import type { logsSamplingFormLogicType } from './logsSamplingFormLogicType'
 
-export type SeverityActionChoice = 'keep' | 'drop' | 'sample'
+const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
+    type: FilterLogicalOperator.And,
+    values: [],
+}
 
-/** What `path_drop` regex lines are evaluated against (maps to config.match_attribute_key). */
-export type PathDropMatchTarget = 'auto_path' | 'custom_attribute'
+// Burst capacity is not user-configurable — hardcoded to 10× sustained.
+const BURST_MULTIPLIER = 10
+
+export type RateLimitUnit = 'KB/s' | 'MB/s' | 'GB/s'
+
+/** Multiplier to convert the chosen unit into the wire-format unit (KB/s). */
+const UNIT_TO_KB_PER_S: Record<RateLimitUnit, number> = {
+    'KB/s': 1,
+    'MB/s': 1000,
+    'GB/s': 1_000_000,
+}
+
+/** 1 KB/s minimum, 1 GB/s maximum, expressed in the wire-format unit (KB/s). */
+export const MIN_RATE_LIMIT_KB_PER_S = 1
+export const MAX_RATE_LIMIT_KB_PER_S = 1_000_000
 
 export interface LogsSamplingFormType {
     name: string
     enabled: boolean
     rule_type: RuleTypeEnumApi
-    scope_service: string
-    scope_path_pattern: string
-    path_drop_match_target: PathDropMatchTarget
-    /** When path_drop_match_target is custom_attribute, patterns match only this attribute. */
-    path_drop_match_attribute_key: string
-    path_drop_patterns: string
-    severity_debug: SeverityActionChoice
-    severity_debug_rate: number
-    severity_info: SeverityActionChoice
-    severity_info_rate: number
-    severity_warn: SeverityActionChoice
-    severity_warn_rate: number
-    severity_error: SeverityActionChoice
-    severity_error_rate: number
-    always_keep_status_gte: string
-    always_keep_latency_ms_gt: string
-    rate_limit_logs_per_second: string
-    rate_limit_burst_logs: string
+    filter_group: UniversalFiltersGroup
+    /** User-entered amount in the chosen unit. Fractional values are allowed. */
+    rate_limit_amount: string
+    rate_limit_unit: RateLimitUnit
 }
 
 const DEFAULT_FORM: LogsSamplingFormType = {
     name: '',
     enabled: true,
     rule_type: RuleTypeEnumApi.PathDrop,
-    scope_service: '',
-    scope_path_pattern: '',
-    path_drop_match_target: 'auto_path',
-    path_drop_match_attribute_key: '',
-    path_drop_patterns: '',
-    severity_debug: 'keep',
-    severity_debug_rate: 0.5,
-    severity_info: 'keep',
-    severity_info_rate: 0.5,
-    severity_warn: 'keep',
-    severity_warn_rate: 0.5,
-    severity_error: 'keep',
-    severity_error_rate: 0.5,
-    always_keep_status_gte: '',
-    always_keep_latency_ms_gt: '',
-    rate_limit_logs_per_second: '',
-    rate_limit_burst_logs: '',
+    filter_group: EMPTY_FILTER_GROUP,
+    rate_limit_amount: '',
+    rate_limit_unit: 'MB/s',
 }
 
-function parseSeverityPart(
-    key: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR',
-    actionsObj: Record<string, unknown> | undefined,
-    form: LogsSamplingFormType
-): void {
-    const raw = actionsObj?.[key] as Record<string, unknown> | undefined
-    const prefix =
-        key === 'DEBUG'
-            ? 'severity_debug'
-            : key === 'INFO'
-              ? 'severity_info'
-              : key === 'WARN'
-                ? 'severity_warn'
-                : 'severity_error'
-    if (!raw || typeof raw.type !== 'string') {
-        return
+/** Pick the largest unit that keeps the displayed amount ≥ 1 (and ≤ 999 where possible). */
+function chooseDisplayUnit(kbPerSecond: number): { amount: string; unit: RateLimitUnit } {
+    if (kbPerSecond >= UNIT_TO_KB_PER_S['GB/s']) {
+        return { amount: formatAmount(kbPerSecond / UNIT_TO_KB_PER_S['GB/s']), unit: 'GB/s' }
     }
-    const patch = form as unknown as Record<string, unknown>
-    if (raw.type === 'drop') {
-        patch[prefix] = 'drop'
-    } else if (raw.type === 'sample') {
-        // Sampling is not exposed in the UI; coerce legacy configs to keep on load.
-        patch[prefix] = 'keep'
-    } else {
-        patch[prefix] = 'keep'
+    if (kbPerSecond >= UNIT_TO_KB_PER_S['MB/s']) {
+        return { amount: formatAmount(kbPerSecond / UNIT_TO_KB_PER_S['MB/s']), unit: 'MB/s' }
     }
+    return { amount: formatAmount(kbPerSecond), unit: 'KB/s' }
+}
+
+/** Strip trailing zeros after a decimal point so 1500 KB/s round-trips as "1.5 MB/s", not "1.500000". */
+function formatAmount(value: number): string {
+    if (!Number.isFinite(value)) {
+        return ''
+    }
+    return Number(value.toFixed(6)).toString()
+}
+
+/** Convert a user-entered amount + unit into KB/s, rounded to the nearest integer. Returns NaN on invalid input. */
+export function rateLimitAmountToKbPerSecond(amount: string, unit: RateLimitUnit): number {
+    const parsed = parseFloat(amount.trim())
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        return Number.NaN
+    }
+    return Math.round(parsed * UNIT_TO_KB_PER_S[unit])
+}
+
+/** Read either the wrapped `{type, values: [innerGroup]}` (logs-viewer/alerts shape) or the bare inner group. */
+function extractFilterGroup(stored: unknown): UniversalFiltersGroup {
+    if (!stored || typeof stored !== 'object') {
+        return EMPTY_FILTER_GROUP
+    }
+    const candidate = stored as { type?: unknown; values?: unknown[] }
+    if (!Array.isArray(candidate.values)) {
+        return EMPTY_FILTER_GROUP
+    }
+    const first = candidate.values[0] as { type?: unknown; values?: unknown[] } | undefined
+    if (first && Array.isArray(first.values) && typeof first.type === 'string') {
+        return first as UniversalFiltersGroup
+    }
+    return candidate as UniversalFiltersGroup
+}
+
+/** Wrap inner group as the alerts / logs-viewer wire format expects. */
+function wrapFilterGroup(inner: UniversalFiltersGroup): UniversalFiltersGroup {
+    return { type: FilterLogicalOperator.And, values: [inner] as never }
+}
+
+function isFilterGroupNonEmpty(group: UniversalFiltersGroup): boolean {
+    return Array.isArray(group.values) && group.values.length > 0
 }
 
 export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): LogsSamplingFormType {
     if (!rule) {
         return { ...DEFAULT_FORM }
     }
-    const form: LogsSamplingFormType = { ...DEFAULT_FORM, name: rule.name, enabled: rule.enabled ?? false }
-    form.rule_type = rule.rule_type
-    form.scope_service = rule.scope_service ?? ''
-    form.scope_path_pattern = rule.scope_path_pattern ?? ''
+    // Legacy SEVERITY_SAMPLING rules collapse into PathDrop — the new form unifies
+    // severity into the filter group, so the dedicated severity rule type is no longer surfaced.
+    const rule_type = rule.rule_type === RuleTypeEnumApi.SeveritySampling ? RuleTypeEnumApi.PathDrop : rule.rule_type
     const cfg = (rule.config ?? {}) as Record<string, unknown>
-    if (rule.rule_type === RuleTypeEnumApi.PathDrop) {
-        const patterns = (cfg.patterns as string[]) || []
-        form.path_drop_patterns = patterns.join('\n')
-        const mak = cfg.match_attribute_key
-        const makStr = typeof mak === 'string' ? mak : ''
-        form.path_drop_match_attribute_key = makStr
-        form.path_drop_match_target = makStr.trim() !== '' ? 'custom_attribute' : 'auto_path'
+    const form: LogsSamplingFormType = {
+        ...DEFAULT_FORM,
+        name: rule.name,
+        enabled: rule.enabled ?? false,
+        rule_type,
     }
-    if (rule.rule_type === RuleTypeEnumApi.SeveritySampling) {
-        const actionsObj = cfg.actions as Record<string, unknown> | undefined
-        parseSeverityPart('DEBUG', actionsObj, form)
-        parseSeverityPart('INFO', actionsObj, form)
-        parseSeverityPart('WARN', actionsObj, form)
-        parseSeverityPart('ERROR', actionsObj, form)
-        const ak = cfg.always_keep as Record<string, unknown> | undefined
-        if (ak && typeof ak === 'object') {
-            if (typeof ak.status_gte === 'number') {
-                form.always_keep_status_gte = String(ak.status_gte)
-            }
-            if (typeof ak.latency_ms_gt === 'number') {
-                form.always_keep_latency_ms_gt = String(ak.latency_ms_gt)
-            }
+    form.filter_group = extractFilterGroup(cfg.filter_group)
+    if (rule_type === RuleTypeEnumApi.RateLimit) {
+        // Read the byte-rate field the ingestion worker enforces on (`kb_per_second`).
+        // Fall back to the legacy `logs_per_second` field for rules saved before this
+        // fix so they still populate the form — the stored number was always derived as
+        // KB/s, and re-saving rewrites it to `kb_per_second`.
+        const stored = typeof cfg.kb_per_second === 'number' ? cfg.kb_per_second : cfg.logs_per_second
+        if (typeof stored === 'number' && Number.isFinite(stored) && stored > 0) {
+            const { amount, unit } = chooseDisplayUnit(stored)
+            form.rate_limit_amount = amount
+            form.rate_limit_unit = unit
         }
-    }
-    if (rule.rule_type === RuleTypeEnumApi.RateLimit) {
-        form.rate_limit_logs_per_second =
-            typeof cfg.logs_per_second === 'number' && !Number.isNaN(cfg.logs_per_second)
-                ? String(cfg.logs_per_second)
-                : ''
-        form.rate_limit_burst_logs =
-            typeof cfg.burst_logs === 'number' && !Number.isNaN(cfg.burst_logs) ? String(cfg.burst_logs) : ''
     }
     return form
 }
 
-function severityActionPayload(choice: SeverityActionChoice, rate: number): Record<string, unknown> {
-    if (choice === 'drop') {
-        return { type: 'drop' }
-    }
-    if (choice === 'sample') {
-        return { type: 'sample', rate: Math.max(0, Math.min(1, rate)) }
-    }
-    return { type: 'keep' }
-}
-
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
-    if (form.rule_type === RuleTypeEnumApi.PathDrop) {
-        const patterns = form.path_drop_patterns
-            .split('\n')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        const key = form.path_drop_match_target === 'custom_attribute' ? form.path_drop_match_attribute_key.trim() : ''
-        const out: Record<string, unknown> = { patterns }
-        if (key !== '') {
-            out.match_attribute_key = key
-        }
-        return out
-    }
     if (form.rule_type === RuleTypeEnumApi.RateLimit) {
-        const lps = parseInt(form.rate_limit_logs_per_second.trim(), 10)
-        const out: Record<string, unknown> = { logs_per_second: lps }
-        const burst = form.rate_limit_burst_logs.trim()
-        if (burst !== '') {
-            const b = parseInt(burst, 10)
-            if (!Number.isNaN(b)) {
-                out.burst_logs = b
-            }
-        }
-        return out
-    }
-    const always: Record<string, unknown> = {}
-    const sg = form.always_keep_status_gte.trim()
-    if (sg !== '') {
-        const n = parseInt(sg, 10)
-        if (!Number.isNaN(n)) {
-            always.status_gte = n
+        // The form expresses a byte rate (KB/s · MB/s · GB/s) and the preview plots the
+        // threshold in bytes — so the rule must be stored in byte mode (`kb_per_second`),
+        // which charges each log its own uncompressed size. Writing `logs_per_second`
+        // here silently enforced a records-per-second cap instead, ignoring the chosen unit.
+        const kbPerSecond = rateLimitAmountToKbPerSecond(form.rate_limit_amount, form.rate_limit_unit)
+        return {
+            kb_per_second: kbPerSecond,
+            burst_kb: kbPerSecond * BURST_MULTIPLIER,
+            filter_group: wrapFilterGroup(form.filter_group),
         }
     }
-    const lat = form.always_keep_latency_ms_gt.trim()
-    if (lat !== '') {
-        const n = parseFloat(lat)
-        if (!Number.isNaN(n)) {
-            always.latency_ms_gt = n
-        }
+    // `patterns: []` keeps the existing path_drop config validator happy.
+    // Backend filter_group evaluation is wired in the follow-up PR; today the
+    // worker reads `patterns` only, so rules saved through the new UI are
+    // no-ops on the ingestion path until that lands.
+    return {
+        patterns: [],
+        filter_group: wrapFilterGroup(form.filter_group),
     }
-    const out: Record<string, unknown> = {
-        actions: {
-            DEBUG: severityActionPayload(form.severity_debug, form.severity_debug_rate),
-            INFO: severityActionPayload(form.severity_info, form.severity_info_rate),
-            WARN: severityActionPayload(form.severity_warn, form.severity_warn_rate),
-            ERROR: severityActionPayload(form.severity_error, form.severity_error_rate),
-        },
-    }
-    if (Object.keys(always).length > 0) {
-        out.always_keep = always
-    }
-    return out
 }
 
 export interface LogsSamplingFormLogicProps {
@@ -224,153 +180,105 @@ export const logsSamplingFormLogic = kea<logsSamplingFormLogicType>([
     })),
 
     actions({
-        scheduleSimulate: true,
-        refreshServiceTraffic: true,
+        refreshFilterPreview: true,
     }),
 
-    loaders(({ values, props }) => ({
-        simulation: [
-            null as { estimated_reduction_pct: number; notes: string } | null,
+    loaders(({ values }) => ({
+        filterPreview: [
+            null as { time: string; service: string; count: number; bytes_uncompressed?: number }[] | null,
             {
-                runSimulateNow: async () => {
-                    if (
-                        !props.rule?.id ||
-                        props.rule.rule_type === RuleTypeEnumApi.SeveritySampling ||
-                        props.rule.rule_type === RuleTypeEnumApi.RateLimit
-                    ) {
-                        return null
-                    }
-                    const projectId = String(values.currentTeamId)
-                    return await logsSamplingRulesSimulateCreate(projectId, props.rule.id)
-                },
-            },
-        ],
-        serviceTraffic: [
-            null as { log_count: number; avg_logs_per_sec: number } | null,
-            {
-                loadServiceTraffic: async (_, breakpoint) => {
+                loadFilterPreview: async (_, breakpoint) => {
                     await breakpoint(400)
                     const form = values.samplingForm
-                    if (form.rule_type !== RuleTypeEnumApi.RateLimit) {
+                    if (!isFilterGroupNonEmpty(form.filter_group)) {
                         return null
                     }
-                    const svc = form.scope_service.trim()
-                    if (!svc) {
-                        return null
-                    }
-                    const projectId = String(values.currentTeamId)
-                    const res = await logsServicesCreate(projectId, {
+                    const response = await api.logs.sparkline({
                         query: {
                             dateRange: { date_from: '-24h', date_to: null },
-                            serviceNames: [svc],
+                            filterGroup: wrapFilterGroup(form.filter_group) as PropertyGroupFilter,
+                            severityLevels: [],
+                            serviceNames: [],
+                            sparklineBreakdownBy: 'service',
                         },
                     })
-                    const row = res.services.find((s) => s.service_name === svc)
-                    if (!row) {
-                        return { log_count: 0, avg_logs_per_sec: 0 }
-                    }
-                    const logCount = row.log_count
-                    const avg = logCount / (24 * 3600)
-                    return { log_count: logCount, avg_logs_per_sec: avg }
+                    // The backend returns each row keyed by the breakdown value ('service' here),
+                    // not by the underlying column name (service_name).
+                    return response as {
+                        time: string
+                        service: string
+                        count: number
+                        bytes_uncompressed?: number
+                    }[]
                 },
             },
         ],
     })),
 
-    listeners(({ actions, props, cache }) => ({
-        refreshServiceTraffic: () => {
-            actions.loadServiceTraffic(null)
+    listeners(({ actions }) => ({
+        refreshFilterPreview: () => {
+            actions.loadFilterPreview(null)
         },
-        scheduleSimulate: () => {
-            if (!props.rule?.id) {
-                return
+        setSamplingFormValue: ({ name }) => {
+            if (name === 'filter_group') {
+                actions.refreshFilterPreview()
             }
-            const w = cache as { simulateTimer?: ReturnType<typeof setTimeout> }
-            if (w.simulateTimer) {
-                clearTimeout(w.simulateTimer)
-            }
-            w.simulateTimer = setTimeout(() => {
-                actions.runSimulateNow()
-            }, 500)
-        },
-        setSamplingFormValue: () => {
-            actions.scheduleSimulate()
-            actions.refreshServiceTraffic()
-        },
-        submitSamplingFormSuccess: () => {
-            actions.scheduleSimulate()
         },
     })),
 
-    selectors({
-        canSimulate: [
-            () => [(_, props) => props.rule],
-            (rule: LogsSamplingRuleApi | null) =>
-                Boolean(rule?.id) &&
-                rule?.rule_type !== RuleTypeEnumApi.SeveritySampling &&
-                rule?.rule_type !== RuleTypeEnumApi.RateLimit,
-        ],
-        isNewRule: [() => [(_, props) => props.rule], (rule: LogsSamplingRuleApi | null) => !rule],
-    }),
-
-    afterMount(({ actions, props }) => {
-        actions.resetSamplingForm(buildSamplingFormDefaults(props.rule))
-        if (
-            props.rule?.id &&
-            props.rule.rule_type !== RuleTypeEnumApi.SeveritySampling &&
-            props.rule.rule_type !== RuleTypeEnumApi.RateLimit
-        ) {
-            actions.scheduleSimulate()
+    afterMount(({ actions, values }) => {
+        // Kick off an initial preview load on mount whenever the form is opened with
+        // a filter_group already set (edit mode, or pre-filled defaults). Without this
+        // the loader only fires on subsequent edits, leaving the sparkline stuck on
+        // "loading" because filterPreview is null and we never ran the request.
+        if (isFilterGroupNonEmpty(values.samplingForm.filter_group)) {
+            actions.refreshFilterPreview()
         }
-        actions.refreshServiceTraffic()
     }),
 
     forms(({ props, values }) => ({
         samplingForm: {
             defaults: buildSamplingFormDefaults(props.rule),
-            errors: (form) => {
-                const lps = parseInt(form.rate_limit_logs_per_second.trim(), 10)
-                const burstRaw = form.rate_limit_burst_logs.trim()
-                const burst = burstRaw === '' ? null : parseInt(burstRaw, 10)
+            errors: (form: LogsSamplingFormType) => {
+                let rateAmountError: string | undefined
+                if (form.rule_type === RuleTypeEnumApi.RateLimit) {
+                    if (form.rate_limit_amount.trim() === '') {
+                        rateAmountError = 'Enter a rate limit'
+                    } else {
+                        const parsed = parseFloat(form.rate_limit_amount.trim())
+                        const kbPerSecond = rateLimitAmountToKbPerSecond(form.rate_limit_amount, form.rate_limit_unit)
+                        if (!Number.isFinite(parsed) || parsed <= 0) {
+                            rateAmountError = 'Enter a positive number'
+                        } else if (parsed > 999) {
+                            rateAmountError = 'Value must be at most 999 — switch to a larger unit if needed'
+                        } else if (kbPerSecond < MIN_RATE_LIMIT_KB_PER_S) {
+                            rateAmountError = 'Minimum rate limit is 1 KB/s'
+                        } else if (kbPerSecond > MAX_RATE_LIMIT_KB_PER_S) {
+                            rateAmountError = 'Maximum rate limit is 1 GB/s'
+                        }
+                    }
+                }
+                // kea-forms types scalar `errors` per field — filter_group is an object,
+                // so its validation lives in `samplingFormSaveDisabledReason` (consumed by
+                // the scene's submit button) and is displayed inline via the
+                // `filterGroupError` selector below.
                 return {
                     name: !form.name?.trim() ? 'Name is required' : undefined,
-                    path_drop_match_attribute_key:
-                        form.rule_type === RuleTypeEnumApi.PathDrop &&
-                        form.path_drop_match_target === 'custom_attribute' &&
-                        !form.path_drop_match_attribute_key?.trim()
-                            ? 'Enter the log attribute key (e.g. http.route)'
-                            : undefined,
-                    scope_service:
-                        form.rule_type === RuleTypeEnumApi.RateLimit && !form.scope_service?.trim()
-                            ? 'Select or enter a service name'
-                            : undefined,
-                    rate_limit_logs_per_second:
-                        form.rule_type === RuleTypeEnumApi.RateLimit &&
-                        (form.rate_limit_logs_per_second.trim() === '' || Number.isNaN(lps) || lps < 1)
-                            ? 'Enter logs per second (integer ≥ 1)'
-                            : undefined,
-                    rate_limit_burst_logs:
-                        form.rule_type === RuleTypeEnumApi.RateLimit &&
-                        burstRaw !== '' &&
-                        (burst === null || Number.isNaN(burst) || burst < lps)
-                            ? 'Burst must be an integer ≥ sustained rate, or leave empty for default'
-                            : undefined,
+                    rate_limit_amount: rateAmountError,
                 }
             },
-            submit: async (form) => {
+            submit: async (form: LogsSamplingFormType) => {
                 const projectId = String(values.currentTeamId)
                 try {
-                    const scope_service = form.scope_service.trim() || null
-                    const scope_path_pattern =
-                        form.rule_type === RuleTypeEnumApi.RateLimit ? null : form.scope_path_pattern.trim() || null
                     const scope_attribute_filters = (props.rule?.scope_attribute_filters ??
                         []) as PatchedLogsSamplingRuleApi['scope_attribute_filters']
                     const payload = {
                         name: form.name.trim(),
                         enabled: form.enabled,
                         rule_type: form.rule_type,
-                        scope_service,
-                        scope_path_pattern,
+                        scope_service: null,
+                        // scope_path_pattern is folded into the filter group; the backend column will be retired in PR 2.
+                        scope_path_pattern: null,
                         scope_attribute_filters,
                         config: buildSamplingConfigPayload(form),
                     }

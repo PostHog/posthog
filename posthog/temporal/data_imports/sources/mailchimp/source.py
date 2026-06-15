@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -34,7 +35,7 @@ class MailchimpSource(ResumableSource[MailchimpSourceConfig, MailchimpResumeConf
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILCHIMP,
             label="Mailchimp",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Mailchimp API key to automatically pull your Mailchimp data into the PostHog Data warehouse.
 
 You can create an API key in your [Mailchimp account settings](https://us1.admin.mailchimp.com/account/api/).
@@ -66,7 +67,12 @@ The API key format is: `key-dc` (e.g., `abc123def456-us6`), where `dc` is the da
         }
 
     def get_schemas(
-        self, config: MailchimpSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: MailchimpSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

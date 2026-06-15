@@ -5,7 +5,9 @@ import {
     createEvaluation,
     createEvaluationCondition,
     createTagger,
-} from '~/llm-analytics/_tests/fixtures'
+} from '~/ai-observability/_tests/fixtures'
+import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
+import { parseTeamsList } from '~/ingestion/event-processing/split-ai-events-step'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { logger } from '~/utils/logger'
@@ -14,13 +16,15 @@ import {
     EvaluationMatcher,
     checkConditionMatch,
     checkRolloutPercentage,
+    eachBatchEvaluationScheduler,
     filterAndParseMessages,
     groupEventsByTeam,
+    teamShouldBeProcessed,
     unwrapOrLog,
 } from './evaluation-scheduler'
 
-jest.mock('~/llm-analytics/services/temporal.service')
-jest.mock('~/llm-analytics/services/evaluation-manager.service')
+jest.mock('~/ai-observability/services/temporal.service')
+jest.mock('~/ai-observability/services/evaluation-manager.service')
 jest.mock('~/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
@@ -438,6 +442,287 @@ describe('Evaluation Scheduler', () => {
             expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'plain string failure' })
 
             errorSpy.mockRestore()
+        })
+    })
+
+    describe('teamShouldBeProcessed', () => {
+        // Drives the partition between the two scheduler deployments. Both must read
+        // the same aiTopicTeams value or you get gap (some team handled by neither)
+        // or overlap (some team handled by both → broken results may cement).
+        const cases: Array<{
+            name: string
+            topic: 'events' | 'ai_events'
+            teams: number[] | '*'
+            teamId: number
+            expected: boolean
+        }> = [
+            { name: 'ai_events keeps team in list', topic: 'ai_events', teams: [2, 99], teamId: 2, expected: true },
+            {
+                name: 'ai_events drops team not in list',
+                topic: 'ai_events',
+                teams: [2, 99],
+                teamId: 7,
+                expected: false,
+            },
+            { name: 'events drops team in list', topic: 'events', teams: [2, 99], teamId: 2, expected: false },
+            { name: 'events keeps team not in list', topic: 'events', teams: [2, 99], teamId: 7, expected: true },
+            { name: 'ai_events keeps everything when *', topic: 'ai_events', teams: '*', teamId: 1234, expected: true },
+            { name: 'events drops everything when *', topic: 'events', teams: '*', teamId: 1234, expected: false },
+            {
+                name: 'ai_events drops everything when empty list',
+                topic: 'ai_events',
+                teams: [],
+                teamId: 2,
+                expected: false,
+            },
+            { name: 'events keeps everything when empty list', topic: 'events', teams: [], teamId: 2, expected: true },
+        ]
+
+        it.each(cases)('$name', ({ topic, teams, teamId, expected }) => {
+            expect(teamShouldBeProcessed(teamId, topic, teams)).toBe(expected)
+        })
+    })
+
+    describe('eachBatchEvaluationScheduler partitioning', () => {
+        const noopEvaluationManager = {
+            getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
+        } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
+        const noopTaggerManager = {
+            getTaggersForTeams: jest.fn().mockResolvedValue({}),
+        } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
+        const noopTemporal = {} as unknown as import('~/ai-observability/services/temporal.service').TemporalService
+
+        beforeEach(() => {
+            ;(noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mockClear()
+            ;(noopTaggerManager.getTaggersForTeams as jest.Mock).mockClear()
+        })
+
+        const messageFor = (teamIdForEvent: number): Message =>
+            ({
+                headers: [{ productTrack: Buffer.from('llma') }],
+                value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamIdForEvent))),
+            }) as any
+
+        it('ai_events deployment only fetches definitions for teams in the list', async () => {
+            await eachBatchEvaluationScheduler(
+                [messageFor(2), messageFor(7), messageFor(99)],
+                noopEvaluationManager,
+                noopTaggerManager,
+                noopTemporal,
+                { topic: 'ai_events', aiTopicTeams: [2, 99] }
+            )
+
+            expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
+            const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock.calls[0][0] as number[]
+            expect(teamsAsked.sort()).toEqual([2, 99])
+        })
+
+        it('events deployment only fetches definitions for teams NOT in the list', async () => {
+            await eachBatchEvaluationScheduler(
+                [messageFor(2), messageFor(7), messageFor(99)],
+                noopEvaluationManager,
+                noopTaggerManager,
+                noopTemporal,
+                { topic: 'events', aiTopicTeams: [2, 99] }
+            )
+
+            expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
+            const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock.calls[0][0] as number[]
+            expect(teamsAsked).toEqual([7])
+        })
+
+        it('skips Postgres entirely when partition drops every event', async () => {
+            await eachBatchEvaluationScheduler(
+                [messageFor(7), messageFor(8)],
+                noopEvaluationManager,
+                noopTaggerManager,
+                noopTemporal,
+                { topic: 'ai_events', aiTopicTeams: [2, 99] }
+            )
+
+            expect(noopEvaluationManager.getEvaluationsForTeams).not.toHaveBeenCalled()
+            expect(noopTaggerManager.getTaggersForTeams).not.toHaveBeenCalled()
+        })
+
+        // Locks down the contract that gates the deploy ordering: a deployment
+        // running the new image with neither LLMA_EVAL_SCHEDULER_TOPIC nor
+        // LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS set in env behaves identically to
+        // the legacy events-only consumer. This is what lets us land the new
+        // image into state.yaml before any chart override is applied without
+        // any risk of accidental traffic divergence.
+        describe('default config preserves legacy behavior', () => {
+            it('exposes "events" topic and empty team list as defaults', () => {
+                const defaults = getDefaultAIObservabilityConfig()
+                expect(defaults.LLMA_EVAL_SCHEDULER_TOPIC).toBe('events')
+                expect(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS).toBe('')
+            })
+
+            it('parsed defaults yield empty team list (not "*"), so events-mode processes everyone', () => {
+                const defaults = getDefaultAIObservabilityConfig()
+                const parsed = parseTeamsList(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS)
+                expect(parsed).toEqual([])
+                expect(teamShouldBeProcessed(2, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
+                expect(teamShouldBeProcessed(385921, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
+                expect(teamShouldBeProcessed(7, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
+            })
+
+            it('eachBatchEvaluationScheduler with parsed defaults processes every team in the batch', async () => {
+                const defaults = getDefaultAIObservabilityConfig()
+                const partition = {
+                    topic: defaults.LLMA_EVAL_SCHEDULER_TOPIC,
+                    aiTopicTeams: parseTeamsList(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS),
+                }
+
+                await eachBatchEvaluationScheduler(
+                    [messageFor(2), messageFor(7), messageFor(385921), messageFor(99)],
+                    noopEvaluationManager,
+                    noopTaggerManager,
+                    noopTemporal,
+                    partition
+                )
+
+                expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
+                const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock
+                    .calls[0][0] as number[]
+                expect(teamsAsked.sort((a, b) => a - b)).toEqual([2, 7, 99, 385921])
+            })
+        })
+    })
+
+    describe('eachBatchEvaluationScheduler provider key gate', () => {
+        let mockExecHog: jest.Mock
+        let evaluationManager: import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
+        let taggerManager: import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
+        let temporalService: import('~/ai-observability/services/temporal.service').TemporalService
+        let providerKeyManager: import('~/ai-observability/services/provider-key-manager.service').ProviderKeyManagerService
+
+        const messageFor = (event: ReturnType<typeof createAiGenerationEvent>): Message =>
+            ({
+                headers: [{ productTrack: Buffer.from('llma') }],
+                value: Buffer.from(JSON.stringify(event)),
+            }) as any
+
+        beforeEach(() => {
+            mockExecHog = require('~/cdp/utils/hog-exec').execHog as jest.Mock
+            mockExecHog.mockResolvedValue({ execResult: { result: true } })
+
+            evaluationManager = {
+                getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
+            } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
+            taggerManager = {
+                getTaggersForTeams: jest.fn().mockResolvedValue({}),
+            } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
+            temporalService = {
+                startEvaluationRunWorkflow: jest.fn().mockResolvedValue(undefined),
+                startTaggerRunWorkflow: jest.fn().mockResolvedValue(undefined),
+            } as unknown as import('~/ai-observability/services/temporal.service').TemporalService
+            providerKeyManager = {
+                getProviderKey: jest.fn().mockResolvedValue({ id: 'key-1', team_id: teamId, state: 'error' }),
+            } as unknown as import('~/ai-observability/services/provider-key-manager.service').ProviderKeyManagerService
+        })
+
+        it('does not start evaluation workflows when the configured provider key is not ok', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                provider_key_id: 'key-1',
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
+                ],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler(
+                [messageFor(event)],
+                evaluationManager,
+                taggerManager,
+                temporalService,
+                { topic: 'events', aiTopicTeams: [] },
+                { enabled: true, providerKeyManager }
+            )
+
+            expect(providerKeyManager.getProviderKey).toHaveBeenCalledWith('key-1')
+            expect(temporalService.startEvaluationRunWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('still starts evaluation workflows for trial mode evaluations', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                provider_key_id: null,
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
+                ],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler(
+                [messageFor(event)],
+                evaluationManager,
+                taggerManager,
+                temporalService,
+                { topic: 'events', aiTopicTeams: [] },
+                { enabled: true, providerKeyManager }
+            )
+
+            expect(providerKeyManager.getProviderKey).not.toHaveBeenCalled()
+            expect(temporalService.startEvaluationRunWorkflow).toHaveBeenCalledWith(
+                evaluation.id,
+                event,
+                evaluation.evaluation_type
+            )
+        })
+
+        it('does not start tagger workflows when the configured provider key is not ok', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const tagger = createTagger({
+                team_id: teamId,
+                provider_key_id: 'key-1',
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
+                ],
+            })
+            ;(taggerManager.getTaggersForTeams as jest.Mock).mockResolvedValue({ [teamId]: [tagger] })
+
+            await eachBatchEvaluationScheduler(
+                [messageFor(event)],
+                evaluationManager,
+                taggerManager,
+                temporalService,
+                { topic: 'events', aiTopicTeams: [] },
+                { enabled: true, providerKeyManager }
+            )
+
+            expect(providerKeyManager.getProviderKey).toHaveBeenCalledWith('key-1')
+            expect(temporalService.startTaggerRunWorkflow).not.toHaveBeenCalled()
+        })
+
+        it('fails open when provider key lookup fails', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                provider_key_id: 'key-1',
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
+                ],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+            ;(providerKeyManager.getProviderKey as jest.Mock).mockRejectedValue(new Error('db down'))
+
+            await eachBatchEvaluationScheduler(
+                [messageFor(event)],
+                evaluationManager,
+                taggerManager,
+                temporalService,
+                { topic: 'events', aiTopicTeams: [] },
+                { enabled: true, providerKeyManager }
+            )
+
+            expect(temporalService.startEvaluationRunWorkflow).toHaveBeenCalledWith(
+                evaluation.id,
+                event,
+                evaluation.evaluation_type
+            )
         })
     })
 })

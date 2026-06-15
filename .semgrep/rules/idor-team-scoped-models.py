@@ -1,6 +1,8 @@
 from django.shortcuts import get_object_or_404
-
-from posthog.models import Action, ChangeRequest, Cohort, Insight, Notebook
+from posthog.models import ChangeRequest, Notebook
+from products.cohorts.backend.models.cohort import Cohort
+from products.product_analytics.backend.models.insight import Insight
+from products.actions.backend.models.action import Action
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.user_scene_personalisation import UserScenePersonalisation
@@ -49,6 +51,13 @@ def safe_filter_with_team(request, team):
     insight_id = request.data.get("insight_id")
     # ok: idor-lookup-without-team
     return Insight.objects.filter(pk=insight_id, team=team)
+
+
+# ok: idor-taint-user-input-to-model-get
+def safe_get_with_for_team(request, team_id):
+    cohort_id = request.GET.get("cohort_id")
+    # ok: idor-lookup-without-team
+    return Cohort.objects.for_team(team_id).get(pk=cohort_id)
 
 
 # ok: idor-taint-user-input-to-model-get

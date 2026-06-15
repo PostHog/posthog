@@ -93,13 +93,13 @@ export interface CohortFiltersApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -148,10 +148,10 @@ export interface UserBasicApi {
 
 /**
  * * `static` - static
- * `person_property` - person_property
- * `behavioral` - behavioral
- * `realtime` - realtime
- * `analytical` - analytical
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
  */
 export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
@@ -195,12 +195,12 @@ export interface CohortApi {
     readonly count: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-  * `static` - static
-  * `person_property` - person_property
-  * `behavioral` - behavioral
-  * `realtime` - realtime
-  * `analytical` - analytical */
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
@@ -248,12 +248,12 @@ export interface PatchedCohortApi {
     readonly count?: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-  * `static` - static
-  * `person_property` - person_property
-  * `behavioral` - behavioral
-  * `realtime` - realtime
-  * `analytical` - analytical */
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
@@ -310,7 +310,79 @@ export interface PatchedRemovePersonRequestApi {
     person_id?: string
 }
 
+export interface CohortUsedInFlagApi {
+    /** Feature flag database ID */
+    id: number
+    /** Feature flag key (URL slug) */
+    key: string
+    /**
+     * Feature flag display name
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface CohortUsedInFlagsBlockApi {
+    /** Feature flags referencing this cohort, capped at 100 results */
+    results: CohortUsedInFlagApi[]
+    /** Total number of feature flags referencing this cohort, before truncation */
+    total: number
+    /** True when more feature flags exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInInsightApi {
+    /** Insight database ID */
+    id: number
+    /** Insight short ID used for routing in the frontend */
+    short_id: string
+    /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+    name: string
+}
+
+export interface CohortUsedInInsightsBlockApi {
+    /** Insights referencing this cohort, capped at 100 results */
+    results: CohortUsedInInsightApi[]
+    /** Total number of insights referencing this cohort, before truncation */
+    total: number
+    /** True when more insights exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInCohortApi {
+    /** Cohort database ID */
+    id: number
+    /** Cohort display name; falls back to 'Unnamed' when empty */
+    name: string
+}
+
+export interface CohortUsedInCohortsBlockApi {
+    /** Cohorts that include this cohort as a criterion, capped at 100 results */
+    results: CohortUsedInCohortApi[]
+    /** Total number of cohorts referencing this cohort, before truncation */
+    total: number
+    /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInResponseApi {
+    /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+    feature_flags: CohortUsedInFlagsBlockApi
+    /** Insights referencing this cohort with truncation metadata */
+    insights: CohortUsedInInsightsBlockApi
+    /** Other cohorts that include this cohort as a criterion, with truncation metadata */
+    cohorts: CohortUsedInCohortsBlockApi
+}
+
 export type CohortsListParams = {
+    /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean
+    /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean
     /**
      * Number of results to return per page.
      */

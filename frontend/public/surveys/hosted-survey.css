@@ -58,7 +58,7 @@ body.PostHogHostedSurvey {
 }
 
 .PostHogHostedSurvey.HostedSurveyPreviewFrame--mobile {
-    max-width: 360px;
+    max-width: 390px;
     min-height: 560px;
     padding: 1.25rem;
     margin: 0 auto;
@@ -424,6 +424,43 @@ body.PostHogHostedSurvey {
     background: transparent;
     box-shadow: inset 0 0 0 1px var(--ph-survey-border-color, rgb(17 17 17 / 10%));
     opacity: 1;
+}
+
+.PostHogHostedSurvey .form-buttons {
+    display: flex;
+    flex-flow: row wrap;
+    gap: 0.875rem 1rem;
+    align-items: center;
+}
+
+.PostHogHostedSurvey .form-back {
+    min-width: 7rem;
+    min-height: 3rem;
+    padding: 0.75rem 1.5rem;
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 600;
+
+    /* Question text color so the label stays readable on any background. */
+    color: var(--ph-survey-text-primary-color, #111);
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
+    border: 1.5px solid var(--ph-survey-border-color, rgb(17 17 17 / 10%));
+    border-radius: var(--ph-survey-border-radius, 10px);
+    transition:
+        opacity 140ms ease,
+        transform 140ms ease,
+        color 140ms ease;
+}
+
+.PostHogHostedSurvey .form-back:hover {
+    opacity: 0.92;
+    transform: translateY(-1px);
+}
+
+.PostHogHostedSurvey .form-back:active {
+    transform: scale(0.98);
 }
 
 .PostHogHostedSurvey .footer-branding {

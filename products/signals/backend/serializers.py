@@ -30,6 +30,7 @@ _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
     (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): ("Linear", "issues"),
     (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): ("Zendesk", "tickets"),
+    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
 }
 
 
@@ -79,7 +80,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         schema = (
             ExternalDataSchema.objects.filter(
@@ -143,10 +144,49 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    autostart_base_branches = serializers.DictField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        required=False,
+        help_text=(
+            "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
+            "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
+            "(or send {}) to keep targeting the repo default branch."
+        ),
+    )
+
     class Meta:
         model = SignalTeamConfig
-        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "default_autostart_priority",
+            "default_slack_notification_channel",
+            "autostart_base_branches",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "default_slack_notification_channel": {
+                "help_text": (
+                    "Default Slack channel for this team's signal inbox notifications, in the same "
+                    "`channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). "
+                    "Null means no team-level default; per-user channels still apply."
+                )
+            },
+        }
+
+    def validate_autostart_base_branches(self, value: dict) -> dict:
+        cleaned: dict[str, str] = {}
+        for repo, branch in value.items():
+            repo_key = (repo or "").strip()
+            if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
+                raise serializers.ValidationError(
+                    f"Repository keys must be in 'organization/repository' form, got '{repo}'."
+                )
+            branch_value = (branch or "").strip()
+            if branch_value:
+                cleaned[repo_key.lower()] = branch_value
+        return cleaned
 
 
 class _UserSerializer(serializers.ModelSerializer):
@@ -158,11 +198,39 @@ class _UserSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
     user = _UserSerializer(read_only=True)
+    slack_notification_integration_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.",
+    )
 
     class Meta:
         model = SignalUserAutonomyConfig
-        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "user",
+            "autostart_priority",
+            "slack_notification_integration_id",
+            "slack_notification_channel",
+            "slack_notification_min_priority",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "user", "created_at", "updated_at"]
+        extra_kwargs = {
+            "slack_notification_channel": {
+                "help_text": (
+                    "Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere "
+                    "(only the channel id is required). Null disables Slack notifications."
+                )
+            },
+            "slack_notification_min_priority": {
+                "help_text": (
+                    "Minimum report priority that triggers a Slack notification. P0 is highest. "
+                    "Null means notify on every priority (and reports without a priority judgment)."
+                )
+            },
+        }
 
 
 class SignalReportTaskSerializer(serializers.ModelSerializer):
@@ -174,6 +242,27 @@ class SignalReportTaskSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+    slack_notification_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary key of a Slack `Integration` row in one of the caller's teams. Pair with "
+            "`slack_notification_channel` to enable notifications; pass null on either to disable them."
+        ),
+    )
+    slack_notification_channel = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text="`channel_id|#channel-name` target — same convention used by Insight Alerts.",
+    )
+    slack_notification_min_priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        required=False,
+        allow_null=True,
+        help_text="P0 is highest. Null = notify for every priority.",
+    )
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
@@ -311,3 +400,60 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             )
 
         return parsed
+
+
+class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
+    """Single entry in a PUT body for a `suggested_reviewers` artefact.
+
+    Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
+    The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
+    it must map to an org member on this team with a linked GitHub login.
+    """
+
+    github_login = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=200,
+        help_text="GitHub login (case-insensitive). Stored lowercased.",
+    )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "PostHog user UUID. Must be an org member on this team with a linked GitHub identity. "
+            "If supplied together with `github_login`, the server-resolved login from the user wins."
+        ),
+    )
+    github_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Optional human-readable display name. Not backfilled from GitHub by the server.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("github_login") and not attrs.get("user_uuid"):
+            raise serializers.ValidationError("Each entry must include `github_login` or `user_uuid` (or both).")
+        return attrs
+
+
+class SignalReportArtefactWriteSerializer(serializers.Serializer):
+    """PUT body for replacing a `suggested_reviewers` artefact's content.
+
+    Only `suggested_reviewers` artefacts may be modified via this endpoint;
+    the viewset enforces the type check before validation runs.
+    """
+
+    MAX_ENTRIES = 10
+
+    content = SuggestedReviewerEntryWriteSerializer(
+        many=True,
+        allow_empty=True,
+        help_text=(
+            f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
+        ),
+    )
+
+    def validate_content(self, value: list[dict]) -> list[dict]:
+        if len(value) > self.MAX_ENTRIES:
+            raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
+        return value

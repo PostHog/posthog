@@ -5,15 +5,16 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Organization, Team, User
 
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
-from ee.models.session_summaries import (
+from products.replay.backend.models.session_summaries import (
     ExtraSummaryContext,
     SessionGroupSummary,
     SessionSummaryPage,
     SessionSummaryRunMeta,
     SingleSessionSummary,
 )
+
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 
 
 class TestSingleSessionSummary(BaseTest):
@@ -64,7 +65,12 @@ class TestSingleSessionSummary(BaseTest):
         self.assertEqual(summary.extra_summary_context, {"focus_area": "authentication"})
         self.assertEqual(
             summary.run_metadata,
-            {"model_used": "gpt-4", "visual_confirmation": False, "visual_confirmation_results": None},
+            {
+                "model_used": "gpt-4",
+                "visual_confirmation": False,
+                "visual_confirmation_results": None,
+                "failed_sessions": [],
+            },
         )
         self.assertEqual(summary.created_by, self.user)
         self.assertEqual(summary.team_id, self.team.id)

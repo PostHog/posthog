@@ -1,39 +1,48 @@
 import z from 'zod'
 
+import { hasScope, hasScopes } from '@/lib/api'
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
+
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
-import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
-export const ToolDefinitionSchema = z.object({
-    description: z.string(),
-    category: z.string(),
-    feature: z.string(),
-    summary: z.string(),
-    title: z.string(),
-    required_scopes: z.array(z.string()),
-    new_mcp: z.boolean().optional(),
-    requires_ai_consent: z.boolean().optional(),
-    /** PostHog feature flag key that gates this tool. */
-    feature_flag: z.string().optional(),
-    /** How the flag gates the tool: 'enable' (default) or 'disable'. */
-    feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
-    /** One-line selection hint surfaced in the system prompt's query tool catalog. */
-    system_prompt_hint: z.string().optional(),
-    /**
-     * When true, the tool is exposed even when the client passes a `features`
-     * or `tools` allowlist that wouldn't otherwise match. Reserved for
-     * cross-cutting utility tools (e.g. feedback) that should remain
-     * discoverable to every client without forcing them to opt in.
-     * Other filters (readOnly, AI consent, feature flags, scopes) still apply.
-     */
-    always_available: z.boolean().optional(),
-    annotations: z.object({
-        destructiveHint: z.boolean(),
-        idempotentHint: z.boolean(),
-        openWorldHint: z.boolean(),
-        readOnlyHint: z.boolean(),
-    }),
-})
+export const ToolDefinitionSchema = z
+    .object({
+        description: z.string(),
+        category: z.string(),
+        feature: z.string(),
+        summary: z.string(),
+        title: z.string(),
+        required_scopes: z.array(z.string()),
+        requires_ai_consent: z.boolean().optional(),
+        /** PostHog feature flag key that gates this tool. */
+        feature_flag: z.string().optional(),
+        /** How the flag gates the tool: 'enable' (default) or 'disable'. */
+        feature_flag_behavior: z.enum(['enable', 'disable']).optional(),
+        /** Variant of `feature_flag` to match exactly. Requires `feature_flag` to be set. */
+        feature_flag_variant: z.string().optional(),
+        /** One-line selection hint surfaced in the system prompt's query tool catalog. */
+        system_prompt_hint: z.string().optional(),
+        /**
+         * When true, the tool is exposed even when the client passes a `features`
+         * or `tools` allowlist that wouldn't otherwise match. Reserved for
+         * cross-cutting utility tools (e.g. feedback) that should remain
+         * discoverable to every client without forcing them to opt in.
+         * Other filters (readOnly, AI consent, feature flags, scopes) still apply.
+         */
+        always_available: z.boolean().optional(),
+        annotations: z.object({
+            destructiveHint: z.boolean(),
+            idempotentHint: z.boolean(),
+            openWorldHint: z.boolean(),
+            readOnlyHint: z.boolean(),
+        }),
+    })
+    .refine((data) => !(data.feature_flag_variant && !data.feature_flag), {
+        message: '`feature_flag_variant` requires `feature_flag` to be set',
+        path: ['feature_flag_variant'],
+    })
 
 export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>
 
@@ -41,8 +50,7 @@ export type ToolDefinitions = Record<string, ToolDefinition>
 
 const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
-let _toolDefinitionsV1: ToolDefinitions | undefined = undefined
-let _toolDefinitionsV2: ToolDefinitions | undefined = undefined
+let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 
 function getGeneratedToolDefinitions(): ToolDefinitions {
@@ -52,26 +60,40 @@ function getGeneratedToolDefinitions(): ToolDefinitions {
     return _generatedToolDefinitions
 }
 
-export function getToolDefinitions(version?: number): ToolDefinitions {
+export function getToolDefinitions(): ToolDefinitions {
     const generated = getGeneratedToolDefinitions()
-
-    if (version === 2) {
-        if (!_toolDefinitionsV2) {
-            const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
-            const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
-            _toolDefinitionsV2 = { ...new_tools, ...base }
-        }
-        return { ..._toolDefinitionsV2, ...generated }
+    if (!_toolDefinitions) {
+        _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
     }
-
-    if (!_toolDefinitionsV1) {
-        _toolDefinitionsV1 = toolDefinitionsSchema.parse(toolDefinitionsJson)
-    }
-    return { ..._toolDefinitionsV1, ...generated }
+    return { ..._toolDefinitions, ...generated }
 }
 
-export function getToolDefinition(toolName: string, version?: number): ToolDefinition {
-    const toolDefinitions = getToolDefinitions(version)
+let _advertisedOAuthScopes: readonly string[] | undefined = undefined
+
+/**
+ * Scopes published as `scopes_supported` in the MCP protected-resource
+ * metadata: every grantable scope the tool catalog requires, plus identity
+ * scopes (no `:`) that ride every authorize. Narrower than
+ * `OAUTH_SCOPES_SUPPORTED` (the authorization server's full grantable set) so
+ * clients are not asked to consent to write access no tool exercises. Filtering
+ * `OAUTH_SCOPES_SUPPORTED` keeps the result a subset of the AS, so no advertised
+ * scope is rejected at `/authorize`.
+ */
+export function getAdvertisedOAuthScopes(): readonly string[] {
+    if (!_advertisedOAuthScopes) {
+        const required = new Set<string>()
+        for (const definition of Object.values(getToolDefinitions())) {
+            for (const scope of definition.required_scopes ?? []) {
+                required.add(scope)
+            }
+        }
+        _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
+    }
+    return _advertisedOAuthScopes
+}
+
+export function getToolDefinition(toolName: string): ToolDefinition {
+    const toolDefinitions = getToolDefinitions()
 
     const definition = toolDefinitions[toolName]
 
@@ -82,26 +104,38 @@ export function getToolDefinition(toolName: string, version?: number): ToolDefin
     return definition
 }
 
+/**
+ * The product category a tool belongs to (e.g. "Logs", "Tracing"), or undefined
+ * for tools without a catalogued definition (e.g. the `exec` wrapper). Unlike
+ * {@link getToolDefinition} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolCategory(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.category
+}
+
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined
-    version?: number | undefined
     excludeTools?: string[] | undefined
     readOnly?: boolean | undefined
     aiConsentGiven?: boolean | undefined
+    /** Used to gate tools that declare `feature_flag` in their YAML config. */
+    featureFlags?: EvaluatedFlags | undefined
     /**
-     * Map of feature flag key → evaluated boolean result.
-     * Used to gate tools that declare `feature_flag` in their YAML config.
+     * Project IDs the token is restricted to (`scoped_teams` on the API key).
+     * When set, the backend 403s any org-level endpoint, so we drop tools that
+     * need `organization:*` scopes — they'd fail anyway.
      */
-    featureFlags?: Record<string, boolean> | undefined
+    scopedTeams?: number[] | undefined
 }
 
 /**
  * Collect all distinct feature flag keys referenced by tool definitions.
  * Used at init time to batch-evaluate flags before filtering tools.
  */
-export function getRequiredFeatureFlags(version?: number): string[] {
-    const toolDefinitions = getToolDefinitions(version)
+export function getRequiredFeatureFlags(): string[] {
+    const toolDefinitions = getToolDefinitions()
     const flags = new Set<string>()
     for (const definition of Object.values(toolDefinitions)) {
         if (definition.feature_flag) {
@@ -115,16 +149,36 @@ function normalizeFeatureName(name: string): string {
     return name.replace(/-/g, '_')
 }
 
+/**
+ * Predicate: does a tool's `feature_flag` configuration permit it under the
+ * given evaluation map? An undefined map is treated as "no flags evaluated".
+ *
+ *   no `feature_flag`         → always passes
+ *   `feature_flag_variant` set → flag value must equal the variant string
+ *   `feature_flag_behavior: 'enable'` (default) → flag must be `=== true`
+ *   `feature_flag_behavior: 'disable'` → flag must NOT be `=== true`
+ */
+export function toolPassesFlagGate(definition: ToolDefinition, featureFlags: EvaluatedFlags = {}): boolean {
+    if (!definition.feature_flag) {
+        // Belt-and-braces: the schema `.refine` rejects this at parse time, but
+        // `z.infer` strips refinements so TS lets callers hand-roll a bad
+        // ToolDefinition. Treat the misconfig as "always hidden" rather than
+        // silently ungated.
+        return definition.feature_flag_variant === undefined
+    }
+    const flagValue = featureFlags[definition.feature_flag]
+    if (definition.feature_flag_variant !== undefined) {
+        return flagValue === definition.feature_flag_variant
+    }
+    const isOn = flagValue === true
+    return (definition.feature_flag_behavior ?? 'enable') === 'enable' ? isOn : !isOn
+}
+
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags } = options || {}
-    const toolDefinitions = getToolDefinitions(version)
+    const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
+    const toolDefinitions = getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
-
-    // Filter out tools that are not supported in new MCP
-    if (version === 2) {
-        entries = entries.filter(([_, definition]) => definition.new_mcp !== false)
-    }
 
     // Filter by features and/or tools allowlist (OR union).
     // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
@@ -159,32 +213,56 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
         entries = entries.filter(([_, definition]) => !definition.requires_ai_consent)
     }
 
-    // Filter by feature flags — tools with a feature_flag are gated by the flag's evaluation.
-    // behavior 'enable' (default): tool is included only when the flag is on.
-    // behavior 'disable': tool is excluded when the flag is on.
-    if (featureFlags) {
-        entries = entries.filter(([_, definition]) => {
-            if (!definition.feature_flag) {
-                return true
-            }
-            const flagValue = featureFlags[definition.feature_flag]
-            // If the flag wasn't evaluated (missing from the map), exclude the tool
-            // for 'enable' behavior and include it for 'disable' behavior.
-            const isOn = flagValue === true
-            const behavior = definition.feature_flag_behavior ?? 'enable'
-            return behavior === 'enable' ? isOn : !isOn
-        })
-    } else {
-        // When no feature flags have been evaluated, exclude tools that require
-        // a flag to be enabled (behavior 'enable') — they shouldn't appear by default.
-        // Tools with behavior 'disable' are included since their flag hasn't fired.
-        entries = entries.filter(([_, definition]) => {
-            if (!definition.feature_flag) {
-                return true
-            }
-            return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-        })
+    // Filter by feature flags — see {@link toolPassesFlagGate} for the predicate.
+    entries = entries.filter(([_, definition]) => toolPassesFlagGate(definition, featureFlags))
+
+    // Hide tools that need org-level access when the session's token is
+    // project-scoped - the backend would 403 them
+    if (scopedTeams && scopedTeams.length > 0) {
+        entries = entries.filter(
+            ([_, definition]) => !(definition.required_scopes ?? []).some((scope) => scope.startsWith('organization'))
+        )
     }
 
     return entries.map(([toolName, _]) => toolName)
+}
+
+export interface ScopeGatedTool {
+    name: string
+    title: string
+    description: string
+    /** Scopes the tool requires that the current API key is missing. */
+    missingScopes: string[]
+}
+
+/**
+ * Tools that pass every filter except the API key's scopes — i.e. they exist
+ * and are enabled for this session's features, but the token lacks the scopes
+ * to call them. Surfaced by the exec `search` command so an agent gets an
+ * actionable "add this scope" hint instead of silently concluding the tool is
+ * missing.
+ */
+export function getScopeGatedTools(scopes: string[], options?: ToolFilterOptions): ScopeGatedTool[] {
+    const toolDefinitions = getToolDefinitions()
+    const excluded = new Set(options?.excludeTools ?? [])
+    const gated: ScopeGatedTool[] = []
+
+    for (const name of getToolsForFeatures(options)) {
+        if (excluded.has(name)) {
+            continue
+        }
+        const definition = toolDefinitions[name]
+        const required = definition?.required_scopes ?? []
+        if (!definition || required.length === 0 || hasScopes(scopes, required)) {
+            continue
+        }
+        gated.push({
+            name,
+            title: definition.title,
+            description: definition.description,
+            missingScopes: required.filter((scope) => !hasScope(scopes, scope)),
+        })
+    }
+
+    return gated
 }

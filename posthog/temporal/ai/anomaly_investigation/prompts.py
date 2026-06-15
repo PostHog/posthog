@@ -25,8 +25,9 @@ Workflow:
    lean toward `false_positive` or `inconclusive` and use any remaining budget
    to confirm rather than to keep hunting for a story.
 3. Decide which tool, if any, confirms or refutes your leading hypothesis.
-4. Emit a final JSON report matching the schema below. Do not emit any free-form
-   text around it — output the raw JSON object only.
+4. Submit the final report with the `submit_investigation_report` tool. If the
+   tool is unavailable, emit a final JSON report matching the schema below with no
+   free-form text around it.
 
 Final JSON schema (emit exactly these keys):
 {
@@ -54,6 +55,10 @@ Magnitude check (do this before classifying):
     * the triggered value is in the single digits, or
     * the triggered value is within ~50% of recent typical buckets, or
     * the framing is "highest in window" but the runner-up is close behind.
+- Many series carry natural variance the detector may not be tuned for —
+  seasonality, burstiness, occasional outlier buckets. Sense-check the
+  firing against the series' broader shape, not just the triggered point
+  and its immediate neighbours.
 - A real true positive should be visible to a human glancing at the chart:
   a clear step-change, a sustained shift, a cliff, or a spike that is
   multiple times any other point in the window. If you have to squint, it
@@ -113,5 +118,5 @@ def build_anomaly_context(
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
         f"{metadata_line}\n\n"
         "Use your tools to validate the anomaly and investigate the likely cause. "
-        "Return the final InvestigationReport JSON."
+        "Submit the final InvestigationReport using the submit_investigation_report tool."
     )

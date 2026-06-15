@@ -23,6 +23,7 @@ import type {
 import {
     PersonHogClient,
     parseRolloutTeamIds,
+    resolveConsistencyHeader,
     shouldUseGrpcForTeam,
     shouldUseGrpcForTeamItems,
     shouldUseGrpcForTeams,
@@ -102,6 +103,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
     getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
     getGroupTypeMappingByDashboardId: () => ({}),
+    countGroupTypeMappings: () => ({ counts: [] }),
     createGroup: () => ({}),
     updateGroup: () => ({ updated: false }),
     deleteGroupsBatchForTeam: () => ({ deletedCount: 0n }),
@@ -227,6 +229,28 @@ describe('shouldUseGrpcForTeamItems', () => {
 
     it('falls back to percentage when rollout set is empty', () => {
         expect(shouldUseGrpcForTeamItems(new Set(), [{ teamId: 1 }], 100)).toBe(true)
+    })
+})
+
+describe('resolveConsistencyHeader', () => {
+    it('returns "strong" when readOptions.consistency is STRONG', () => {
+        expect(resolveConsistencyHeader({ readOptions: { consistency: ConsistencyLevel.STRONG } })).toBe('strong')
+    })
+
+    it('returns "eventual" when readOptions.consistency is EVENTUAL', () => {
+        expect(resolveConsistencyHeader({ readOptions: { consistency: ConsistencyLevel.EVENTUAL } })).toBe('eventual')
+    })
+
+    it('returns "eventual" when readOptions is missing', () => {
+        expect(resolveConsistencyHeader({})).toBe('eventual')
+    })
+
+    it('returns "eventual" when message is undefined', () => {
+        expect(resolveConsistencyHeader(undefined)).toBe('eventual')
+    })
+
+    it('returns "eventual" when consistency is unset (0)', () => {
+        expect(resolveConsistencyHeader({ readOptions: { consistency: 0 } })).toBe('eventual')
     })
 })
 
@@ -366,6 +390,37 @@ describe('PersonHogClient', () => {
 
                 expect(result).toEqual([])
                 expect(handler).not.toHaveBeenCalled()
+            })
+
+            it('chunks large batches into multiple gRPC calls', async () => {
+                let callCount = 0
+                const batchSizes: number[] = []
+
+                const client = createMockClient({
+                    getGroupsBatch: (req) => {
+                        callCount++
+                        batchSizes.push(req.keys.length)
+                        return {
+                            results: req.keys.map((key) => ({
+                                key,
+                                group: makeProtoGroup({ groupProperties: jsonBytes({ chunked: true }) }),
+                            })),
+                        }
+                    },
+                })
+
+                // 300 items should produce 3 chunks: 100 + 100 + 100
+                const count = 300
+                const teamIds = Array.from({ length: count }, (_, i) => i + 1)
+                const groupTypeIndexes = Array.from({ length: count }, () => 0)
+                const groupKeys = Array.from({ length: count }, (_, i) => `key-${i}`)
+
+                const result = await client.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
+
+                expect(callCount).toBe(3)
+                expect(batchSizes).toEqual([100, 100, 100])
+                expect(result).toHaveLength(300)
+                expect(result.every((r) => r.group_properties.chunked === true)).toBe(true)
             })
         })
 

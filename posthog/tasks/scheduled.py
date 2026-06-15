@@ -10,19 +10,12 @@ from celery.schedules import crontab
 from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.tasks.alerts.checks import alerts_backlog_task, checks_cleanup_task, reset_stuck_alerts_task
+from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
 from posthog.tasks.auth_token_cache_verification import verify_and_fix_auth_token_cache_task
 from posthog.tasks.email import (
     send_error_tracking_weekly_digest,
     send_hog_functions_daily_digest,
     send_matview_failure_digest,
-)
-from posthog.tasks.feature_flags import (
-    cleanup_stale_flag_definitions_expiry_tracking_task,
-    cleanup_stale_flags_expiry_tracking_task,
-    compute_feature_flag_metrics,
-    refresh_expiring_flag_definitions_cache_entries,
-    refresh_expiring_flags_cache_entries,
 )
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
@@ -32,7 +25,6 @@ from posthog.tasks.hypercache_verification import (
 )
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
-from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
@@ -57,10 +49,8 @@ from posthog.tasks.tasks import (
     ingestion_lag,
     kill_stale_queued_task_runs,
     pg_plugin_server_query_timing,
-    pg_row_count,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
-    reconcile_sendblue_prewarmed_sandbox_pool,
     redis_celery_queue_depth,
     redis_heartbeat,
     refresh_activity_log_fields_cache,
@@ -72,15 +62,30 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
-    verify_persons_data_in_sync,
 )
+from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
-from products.conversations.backend.tasks import wake_snoozed_tickets
+from products.conversations.backend.tasks import flush_pending_email_replies, wake_snoozed_tickets
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
 from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.feature_flags.backend.tasks import (
+    cleanup_stale_flag_definitions_expiry_tracking_task,
+    cleanup_stale_flags_expiry_tracking_task,
+    compute_feature_flag_metrics,
+    feature_flags_local_eval_canary_task,
+    refresh_expiring_flag_definitions_cache_entries,
+    refresh_expiring_flags_cache_entries,
+)
 from products.logs.backend.tasks import logs_alert_events_cleanup_task
+from products.streamlit_apps.backend.facade.api import (
+    auto_restart_crashed_streamlit_sandboxes,
+    cleanup_deleted_streamlit_app_zips,
+    cleanup_expired_streamlit_oauth_tokens,
+    prune_old_streamlit_app_versions,
+    stop_idle_streamlit_sandboxes,
+)
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -173,11 +178,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
     )
-    sender.add_periodic_task(
-        60,
-        reconcile_sendblue_prewarmed_sandbox_pool.s(),
-        name="sendblue prewarmed sandbox pool reconciliation",
-    )
 
     sender.add_periodic_task(10, redis_heartbeat.s(), name="10 sec heartbeat")
     sender.add_periodic_task(
@@ -204,6 +204,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
+    sender.add_periodic_task(
+        crontab(hour="*", minute="5"),
+        refresh_expiring_llm_gateway_policy_cache_entries.s(),
+        name="llm-gateway policy cache sync",
     )
 
     # Stale QUEUED task run cleanup - hourly
@@ -287,6 +294,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
+    # Feature flags local-eval canary - every 5 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        feature_flags_local_eval_canary_task.s(),
+        name="feature flags local-eval canary",
+        expires_seconds=5 * 60,
+    )
+
     # Auth token cache verification - every 6 hours at minute 40
     # Verifies per-token auth cache entries against the database,
     # deleting stale entries that signal-based invalidation may have missed.
@@ -321,10 +337,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="send delayed org usage reports",
         )
 
-    # Send LLM Analytics usage reports daily at 4:15 AM UTC
+    # Send AI observability usage reports daily at 4:15 AM UTC
     sender.add_periodic_task(
         crontab(hour="4", minute="15"),
-        send_llm_analytics_usage_reports.s(),
+        send_ai_observability_usage_reports.s(),
         name="send llm analytics usage reports",
     )
 
@@ -356,11 +372,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         send_matview_failure_digest.s(),
         name="send matview failure digest",
     )
-
-    # PostHog Cloud cron jobs
-    # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
-    # Verify that persons data is in sync every day at 4 AM UTC
-    sender.add_periodic_task(crontab(hour="4", minute="0"), verify_persons_data_in_sync.s())
 
     # Every 30 minutes, send decide request counts to the main posthog instance
     sender.add_periodic_task(
@@ -423,12 +434,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="clickhouse instance errors count",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/2"),
-        pg_row_count.s(),
-        name="PG tables row counts",
-    )
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/2"),
@@ -500,24 +505,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         update_survey_adaptive_sampling.s(),
         name="update survey's sampling feature flag rollout  based on date",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/12"),
-        alerts_backlog_task.s(),
-        name="alerts_backlog_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="*", minute="*/15"),
-        reset_stuck_alerts_task.s(),
-        name="reset_stuck_alerts_task",
-    )
-
-    sender.add_periodic_task(
-        crontab(hour="8", minute="0"),
-        checks_cleanup_task.s(),
-        name="clean up old alert checks",
     )
 
     sender.add_periodic_task(
@@ -640,4 +627,48 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+
+    # Re-drive queued outbound support email replies (survives a multi-day email provider outage)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        flush_pending_email_replies.s(),
+        name="flush pending conversation email replies",
+    )
+    # Delete expired Streamlit bridge OAuth tokens.
+    sender.add_periodic_task(
+        # Hourly because tokens have a 1-hour TTL and every connect_info
+        # call mints a fresh one.
+        crontab(hour="*", minute="55"),
+        cleanup_expired_streamlit_oauth_tokens.s(),
+        name="cleanup expired streamlit oauth tokens",
+    )
+
+    # Hard-delete S3 zips for Streamlit apps past their soft-delete retention.
+    sender.add_periodic_task(
+        crontab(hour="4", minute="10"),
+        cleanup_deleted_streamlit_app_zips.s(),
+        name="cleanup deleted streamlit app zips",
+    )
+
+    # Stop streamlit sandboxes left idle past their inactivity window.
+    sender.add_periodic_task(
+        crontab(minute="*/5"),
+        stop_idle_streamlit_sandboxes.s(),
+        name="stop idle streamlit sandboxes",
+    )
+
+    # Restart streamlit sandboxes that died on their own (Modal TTL timeout).
+    sender.add_periodic_task(
+        crontab(minute="*"),
+        auto_restart_crashed_streamlit_sandboxes.s(),
+        name="auto restart crashed streamlit sandboxes",
+    )
+
+    # Prune non-active streamlit app versions past their retention window.
+    sender.add_periodic_task(
+        crontab(hour="3", minute="0"),
+        prune_old_streamlit_app_versions.s(),
+        name="prune old streamlit app versions",
     )

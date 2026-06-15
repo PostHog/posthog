@@ -1,6 +1,6 @@
 Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.
 
-Requires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it). All traces that contain at least one span with the given name are included, and every span in those traces is aggregated against its parent.
+Requires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.
 
 Returns rows with:
 
@@ -37,7 +37,7 @@ Set `query.compareFilter.compare: true` to also fetch a comparison window. The r
 
 `query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 
@@ -53,9 +53,13 @@ All parameters go inside `query`.
 
 ## query.spanName (required)
 
-The span name that anchors the matched trace set. Every trace containing at least one span with this name is included, and every span in those traces is aggregated.
+The span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.
 
 Pick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.
+
+## query.serviceName (required)
+
+The service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.
 
 ## query.dateRange
 
@@ -83,7 +87,8 @@ Property filters applied to both windows. See the "Property filters" section.
 ```json
 {
   "query": {
-    "spanName": "POST /api/orders"
+    "spanName": "POST /api/orders",
+    "serviceName": "web-server"
   }
 }
 ```
@@ -94,6 +99,7 @@ Property filters applied to both windows. See the "Property filters" section.
 {
   "query": {
     "spanName": "checkout_flow",
+    "serviceName": "web-server",
     "dateRange": { "date_from": "-1d" }
   }
 }
@@ -105,19 +111,9 @@ Property filters applied to both windows. See the "Property filters" section.
 {
   "query": {
     "spanName": "POST /api/orders",
+    "serviceName": "web-server",
     "dateRange": { "date_from": "-1d" },
     "compareFilter": { "compare": true, "compare_to": "-7d" }
-  }
-}
-```
-
-## Scope to a single service
-
-```json
-{
-  "query": {
-    "spanName": "render_dashboard",
-    "serviceNames": ["web-server"]
   }
 }
 ```
@@ -128,6 +124,7 @@ Property filters applied to both windows. See the "Property filters" section.
 {
   "query": {
     "spanName": "POST /api/orders",
+    "serviceName": "web-server",
     "filterGroup": [{ "key": "status_code", "operator": "exact", "type": "span", "value": 2 }]
   }
 }
@@ -135,7 +132,7 @@ Property filters applied to both windows. See the "Property filters" section.
 
 # Reminders
 
-- `spanName` is required. Bound to a specific high-level span; avoid generic names like `HTTP`.
+- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.
 - Root spans have `parent_name = "<ROOT>"` and `avg_start_offset_nano = 0`.
 - Duration values are in nanoseconds.
 - Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.

@@ -94,12 +94,12 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
 
 There are four metric types. Each has `kind: "ExperimentMetric"`:
 
-| metric_type   | When to use                                                                            | Key fields                                         |
-| ------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `"mean"`      | Average of a numeric property per user (revenue, session duration, pageviews per user) | `source` EventsNode                                |
-| `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` array of EventsNode steps (**1 or more**) |
-| `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` EventsNode              |
-| `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, window config   |
+| metric_type   | When to use                                                                            | Required fields                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `"mean"`      | Average of a numeric property per user (revenue, session duration, pageviews per user) | `source`                                                                                                                       |
+| `"funnel"`    | Conversion rate from exposure through one or more ordered actions                      | `series` (1 or more steps)                                                                                                     |
+| `"ratio"`     | Rate of one event relative to another                                                  | `numerator`, `denominator` — set `math: "sum"` + `math_property` on a side to aggregate a property; filters never aggregate    |
+| `"retention"` | Do users come back after exposure?                                                     | `start_event`, `completion_event`, `retention_window_start`, `retention_window_end`, `retention_window_unit`, `start_handling` |
 
 **Funnel metrics and the implicit exposure step**
 
@@ -120,7 +120,7 @@ Examples:
 
 Both can reference the same event — the difference is whether you care about count/magnitude (mean) or yes/no conversion (funnel).
 
-See `references/metric-configuration.md` for detailed JSON examples of each type.
+See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
 ### Step 3: Primary vs secondary
 

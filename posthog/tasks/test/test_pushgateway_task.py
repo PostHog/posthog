@@ -16,7 +16,7 @@ class TestPushGatewayTask:
         return CollectorRegistry()
 
     @pytest.fixture
-    def mock_push_context(self, mock_registry: CollectorRegistry) -> Generator[MagicMock, None, None]:
+    def mock_push_context(self, mock_registry: CollectorRegistry) -> Generator[MagicMock]:
         with patch("posthog.tasks.utils.pushed_metrics_registry") as mock:
             mock_context = MagicMock()
             mock_context.__enter__ = MagicMock(return_value=mock_registry)
@@ -93,7 +93,7 @@ class TestPushGatewayTask:
     def test_task_name_extracted_correctly(
         self, mock_push_context: MagicMock, mock_registry: CollectorRegistry
     ) -> None:
-        @shared_task(bind=True, base=PushGatewayTask, name="posthog.tasks.feature_flags.my_complex_task")
+        @shared_task(bind=True, base=PushGatewayTask, name="products.feature_flags.backend.tasks.my_complex_task")
         def my_complex_task(self: Any) -> str:
             return "done"
 

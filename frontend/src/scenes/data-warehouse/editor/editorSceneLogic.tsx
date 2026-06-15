@@ -1,8 +1,7 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
@@ -13,12 +12,7 @@ import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } fro
 import { Breadcrumb } from '~/types'
 
 import type { editorSceneLogicType } from './editorSceneLogicType'
-import {
-    getCurrentVisualizationQuery,
-    normalizeFiltersForUrl,
-    sqlEditorLogic,
-    toDataVisualizationNode,
-} from './sqlEditorLogic'
+import { normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
 
 export interface SaveAsMenuItem {
     action: 'insight' | 'endpoint' | 'view'
@@ -61,7 +55,7 @@ export interface EditorSceneLogicProps {
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
-    tabAwareScene(),
+    key((props) => props.tabId),
     connect((props: EditorSceneLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),
@@ -168,7 +162,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
 
                     return {
                         forceBackTo,
-                        name: editingInsight.name || editingInsight.derived_name || 'Untitled',
+                        name: activeTab?.name || editingInsight.derived_name || '',
+                        description: activeTab?.description ?? editingInsight.description ?? '',
                         resourceType: { type: 'insight/hog' },
                     }
                 }
@@ -282,21 +277,21 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
         updateInsightButtonEnabled: [
-            (s) => [s.sourceQuery, s.activeTab, s.editingInsight, s.dataLogicKey],
-            (sourceQuery, activeTab, editingInsight, dataLogicKey) => {
+            (s) => [s.sourceQuery, s.activeTab, s.editingInsight],
+            (sourceQuery, activeTab, editingInsight) => {
                 if (!editingInsight?.query) {
                     return false
                 }
 
                 const updatedName = activeTab?.name !== editingInsight.name
-                const currentVisualizationQuery = getCurrentVisualizationQuery(dataLogicKey, sourceQuery)
-
-                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(currentVisualizationQuery)
+                const updatedDescription = (activeTab?.description ?? '') !== (editingInsight.description ?? '')
+                const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
                 const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
 
                 return (
                     updatedName ||
+                    updatedDescription ||
                     !equal(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
                 )
             },

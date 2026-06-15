@@ -17,6 +17,7 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -24,6 +25,11 @@ import {
     TaxonomicFilterValue,
     isKeyOnlyForGroup,
 } from 'lib/components/TaxonomicFilter/types'
+import { taxonomicMenuPreferenceLogic } from 'lib/components/TaxonomicPopover/taxonomicMenuPreferenceLogic'
+import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMenuToggle'
+import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -129,6 +135,9 @@ export function TaxonomicPropertyFilter({
     const { cohortsById } = useValues(cohortsModel)
     const { columnsJoinedToPersons } = useValues(joinsLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
+    const menuRebuildEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
     // This is mostly to make TypeScript happy.
@@ -177,6 +186,7 @@ export function TaxonomicPropertyFilter({
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
+            collapseUrlsToContainsRow
         />
     )
 
@@ -249,6 +259,87 @@ export function TaxonomicPropertyFilter({
                       />
                   )
 
+    const legacyDropdown = (
+        <LemonDropdown
+            overlay={taxonomicFilter}
+            placement="bottom-start"
+            visible={dropdownOpen}
+            onClickOutside={closeDropdown}
+        >
+            <LemonButton
+                type="secondary"
+                icon={!valuePresent ? <IconPlusSmall /> : undefined}
+                data-attr={'property-select-toggle-' + index}
+                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
+                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                size={size}
+                truncate={true}
+                tooltip={
+                    <>
+                        {filterContent ?? (addText || 'Add filter')}
+                        {addFilterDocLink && (
+                            <>
+                                <br />
+                                <Link to={addFilterDocLink} target="_blank">
+                                    Read the docs
+                                </Link>
+                            </>
+                        )}
+                    </>
+                }
+            >
+                {filterContent ?? (addText || 'Add filter')}
+            </LemonButton>
+        </LemonDropdown>
+    )
+
+    // The rebuilt menu is a self-contained popover, so it only replaces the
+    // row-branch dropdown variant. The truly inline mode is already routed
+    // away via `showInitialSearchInline`; `disablePopover` still renders a
+    // button + dropdown here, so it's fine to swap.
+    //
+    // Key-only rows route through the rebuilt menu too — the picker fires
+    // the same `taxonomicOnChange` callback in either mode, so the commit
+    // shape is identical (cohort id → `setFilter` with `type: 'cohort'`).
+    //
+    // The rebuilt menu carries its own toggle inside its trigger wrapper, so
+    // it needs no extra DOM and inherits the row's layout exactly. The
+    // legacy path gets a thin positioned wrapper to host the floating toggle.
+    const editablePicker = !menuRebuildEnabled ? (
+        legacyDropdown
+    ) : useNewMenu ? (
+        <TaxonomicPopoverMenu
+            groupType={filterTaxonomicGroupType ?? groupTypes[0]}
+            value={cohortOrOtherValue}
+            groupTypes={groupTypes}
+            onChange={(value, _groupType, item, group) => taxonomicOnChange(group, value, item)}
+            renderValue={() => <span className="truncate">{filterContent}</span>}
+            placeholder={addText || 'Add filter'}
+            metadataSource={metadataSource}
+            eventNames={eventNames}
+            schemaColumns={schemaColumns}
+            excludedProperties={excludedProperties}
+            propertyAllowList={propertyAllowList}
+            optionsFromProp={taxonomicFilterOptionsFromProp}
+            hideBehavioralCohorts={hideBehavioralCohorts}
+            endpointFilters={endpointFilters}
+            hogQLGlobals={hogQLGlobals}
+            enableKeywordShortcuts
+            triggerButtonProps={{
+                type: 'secondary',
+                size,
+                truncate: true,
+                sideIcon: null,
+                icon: !valuePresent ? <IconPlusSmall /> : undefined,
+            }}
+        />
+    ) : (
+        <span className={taxonomicTriggerWrapperClassName()}>
+            {legacyDropdown}
+            <TaxonomicMenuToggle />
+        </span>
+    )
+
     return (
         <div
             className={clsx('TaxonomicPropertyFilter', {
@@ -295,41 +386,7 @@ export function TaxonomicPropertyFilter({
                     )}
                     <div className="TaxonomicPropertyFilter__row-items">
                         {showOperatorValueSelect && placeOperatorValueSelectOnLeft && operatorValueSelect}
-                        {editable ? (
-                            <LemonDropdown
-                                overlay={taxonomicFilter}
-                                placement="bottom-start"
-                                visible={dropdownOpen}
-                                onClickOutside={closeDropdown}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    icon={!valuePresent ? <IconPlusSmall /> : undefined}
-                                    data-attr={'property-select-toggle-' + index}
-                                    sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
-                                    onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                                    size={size}
-                                    truncate={true}
-                                    tooltip={
-                                        <>
-                                            {filterContent ?? (addText || 'Add filter')}
-                                            {addFilterDocLink && (
-                                                <>
-                                                    <br />
-                                                    <Link to={addFilterDocLink} target="_blank">
-                                                        Read the docs
-                                                    </Link>
-                                                </>
-                                            )}
-                                        </>
-                                    }
-                                >
-                                    {filterContent ?? (addText || 'Add filter')}
-                                </LemonButton>
-                            </LemonDropdown>
-                        ) : (
-                            filterContent
-                        )}
+                        {editable ? editablePicker : filterContent}
                         {showOperatorValueSelect && !placeOperatorValueSelectOnLeft && operatorValueSelect}
                     </div>
                 </div>

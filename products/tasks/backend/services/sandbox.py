@@ -12,6 +12,7 @@ This module exports:
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -25,7 +26,7 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel
 
-from products.tasks.backend.constants import SENDBLUE_TASK_REPOSITORY
+from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -48,6 +49,9 @@ class SandboxTemplate(str, Enum):
     DEFAULT_BASE = "default_base"
     NOTEBOOK_BASE = "notebook_base"
     PI_BASE = "pi_base"
+    VM_BASE = "vm_base"
+
+    STREAMLIT_BASE = "streamlit_base"
 
 
 class ExecutionResult(BaseModel):
@@ -63,12 +67,6 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
-# Production: 6 hours (safety net; workflow inactivity timeout handles cleanup).
-# Tests: 15 min so any sandbox orphaned by a crashed test auto-destroys quickly
-# instead of burning Modal capacity for hours.
-SANDBOX_TTL_SECONDS = 15 * 60 if settings.TEST else 6 * 60 * 60
-
-
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
@@ -81,25 +79,30 @@ class SandboxConfig(BaseModel):
     memory_gb: float = 16
     cpu_cores: float = 4
     disk_size_gb: float = 64
-    modal_app_name: str | None = None
+    vm_runtime: bool = False
+    # gVisor only — Modal rejects this under vm_runtime.
+    outbound_domain_allowlist: list[str] | None = None
 
 
 WORKING_DIR = "/tmp/workspace"
-PREWARMED_SANDBOX_ENV_FILE = "/tmp/posthog-prewarmed-agent-env.sh"
 
 PUBLIC_SANDBOX_REPOS: frozenset[str] = frozenset({"posthog/hedgebox", "posthog/.github"})
 """Repos the sandbox is allowed to clone unauthenticated, even when the team has no GitHub integration"""
 # TODO: Remove `posthog/.github` when we switch repo discovery to repo-less agent (now it works as a lightweight dummy)
+
+SENSITIVE_AGENT_RUNTIME_ENV_NAMES: frozenset[str] = frozenset({"POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN"})
+SENSITIVE_AGENT_RUNTIME_ENV_PATTERN = re.compile(
+    r"(?P<name>" + "|".join(re.escape(name) for name in SENSITIVE_AGENT_RUNTIME_ENV_NAMES) + r")="
+    r"(?P<value>'(?:[^']|'\"'\"')*'|\"(?:\\.|[^\"])*\"|\S+)"
+)
 
 
 def is_public_sandbox_repo(repository: str | None) -> bool:
     return repository is not None and repository.lower() in PUBLIC_SANDBOX_REPOS
 
 
-def can_clone_without_github_integration(repository: str | None, origin_product: str | None = None) -> bool:
-    if is_public_sandbox_repo(repository):
-        return True
-    return origin_product == "sendblue" and repository is not None and repository.lower() == SENDBLUE_TASK_REPOSITORY
+def redact_sandbox_command(command: str) -> str:
+    return SENSITIVE_AGENT_RUNTIME_ENV_PATTERN.sub(r"\g<name>=<redacted>", command)
 
 
 def build_agent_runtime_env_prefix(
@@ -109,6 +112,7 @@ def build_agent_runtime_env_prefix(
     provider: str | None = None,
     model: str | None = None,
     reasoning_effort: str | None = None,
+    event_ingest_token: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -116,6 +120,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_PROVIDER": provider,
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -224,6 +229,7 @@ class SandboxBase(ABC):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -346,16 +352,8 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     from .modal_sandbox import ModalSandbox
 
     class ModalDockerSandbox(ModalSandbox):
-        DEFAULT_APP_NAME = getattr(
-            settings,
-            "SANDBOX_MODAL_DOCKER_DEFAULT_APP_NAME",
-            "posthog-sandbox-modal-docker-default",
-        )
-        NOTEBOOK_APP_NAME = getattr(
-            settings,
-            "SANDBOX_MODAL_DOCKER_NOTEBOOK_APP_NAME",
-            "posthog-sandbox-modal-docker-notebook",
-        )
+        DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
+        NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
 
     return ModalDockerSandbox
 

@@ -636,6 +636,7 @@ mod tests {
             "posthog-node/2.2.0",
             "posthog-dotnet/1.0.0",
             "posthog-elixir/0.2.0",
+            "posthog-rs/0.10.0",
         ];
 
         for sdk in server_sdks {

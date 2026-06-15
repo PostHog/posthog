@@ -7,9 +7,9 @@ import {
     IconBug,
     IconCircleDashed,
     IconClock,
-    IconCloud,
     IconCode,
     IconEndpoints,
+    IconEye,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -132,6 +132,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     session_replay: {
         icon: <IconRewindPlay />,
+        iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
+    },
+    replay_vision: {
+        icon: <IconEye />,
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
     },
     survey: {
@@ -310,7 +314,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     inbox: {
         icon: <IconNotification />,
     },
-    sdk_doctor: {
+    sdk_health: {
         icon: <IconCode />,
     },
     pipeline_status: {
@@ -345,10 +349,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
-    },
-    deployments: {
-        icon: <IconCloud />,
-        iconColor: ['var(--color-product-deployments-light)', 'var(--color-product-deployments-dark)'],
     },
 }
 

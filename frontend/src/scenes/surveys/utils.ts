@@ -28,6 +28,7 @@ import {
     SurveyQuestion,
     SurveyQuestionType,
     SurveyRates,
+    SurveySchedule,
     SurveyStats,
     SurveyType,
 } from '~/types'
@@ -64,6 +65,13 @@ export function validateSurveyAppearance(
     hasRatingQuestions: boolean,
     surveyType: SurveyType
 ): DeepPartialMap<SurveyAppearance, ValidationErrorType> {
+    // API surveys are rendered by the customer, so PostHog's appearance CSS is not applied.
+    // The Customization section is also hidden in the editor for API surveys (SurveyEdit.tsx),
+    // so flagging appearance errors would route submitSurveyFailure to a non-existent section
+    // and silently block saves.
+    if (surveyType === SurveyType.API) {
+        return {}
+    }
     return {
         backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
         borderColor: validateCSSProperty('border-color', appearance.borderColor),
@@ -507,6 +515,12 @@ export function isSurveyRunning(survey: Pick<Survey, 'start_date' | 'end_date'>)
 // list in sync with what the wizard's steps actually expose.
 export function canUseSurveyWizard(survey: Survey | NewSurvey): boolean {
     if (survey.type !== SurveyType.Popover) {
+        return false
+    }
+    // SurveySchedule.Always — the wizard offers Once + recurring frequencies, but not "every time
+    // the display conditions are met". Keep Always surveys in the legacy editor where the option
+    // is actually visible, so the wizard never silently misrepresents the cadence.
+    if (survey.schedule === SurveySchedule.Always) {
         return false
     }
     // Adaptive sampling — WhenStep exposes a simple responses_limit but not
@@ -1032,7 +1046,7 @@ export function isSimpleSurveyAudienceTargeting(filters?: FeatureFlagFilters | n
         return true
     }
 
-    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.super_groups?.length) {
+    if (filters.groups.length !== 1 || filters.aggregation_group_type_index != null || filters.feature_enrollment) {
         return false
     }
 
@@ -1156,7 +1170,10 @@ export function getSurveyDisplayConditionsSummary(survey: Survey | NewSurvey): S
     return parts
 }
 
-export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFiltersType {
+export function getSurveyNotificationFilters(
+    surveyId: string,
+    extraSentEventProperties: EventPropertyFilter[] = []
+): CyclotronJobFiltersType {
     const sentEventProperties: EventPropertyFilter[] = [
         {
             key: SurveyEventProperties.SURVEY_ID,
@@ -1170,6 +1187,7 @@ export function getSurveyNotificationFilters(surveyId: string): CyclotronJobFilt
             value: true,
             operator: PropertyOperator.Exact,
         },
+        ...extraSentEventProperties,
     ]
 
     return {

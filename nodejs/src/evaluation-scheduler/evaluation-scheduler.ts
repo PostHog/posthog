@@ -1,28 +1,50 @@
 /**
  * Evaluation Scheduler
  *
- * Consumes AI events (e.g., $ai_generation) from the main events stream,
- * matches them against evaluation filters, and triggers evaluation workflows
- * via Temporal when conditions are met.
+ * Consumes AI events (e.g., $ai_generation) from a Kafka topic, matches them
+ * against evaluation filters, and triggers evaluation workflows via Temporal
+ * when conditions are met.
+ *
+ * Two deployments run in parallel during the AI events table rollout, each
+ * reading a different topic and partitioning teams between them via
+ * LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS:
+ *
+ *   - topic=events     → reads clickhouse_events_json, processes teams NOT in the list.
+ *   - topic=ai_events  → reads clickhouse_ai_events_json, processes teams IN the list.
+ *
+ * The events topic strips heavy AI properties for teams in the strip-heavy
+ * rollout, which would leave the judge grading empty input/output. Routing
+ * those teams to the ai_events topic gets the unstripped payload.
+ *
+ * The two deployments cannot double-fire: the same (evaluation_id, event_uuid)
+ * yields the same Temporal workflow ID with USE_EXISTING — but the per-team
+ * partition makes that a backstop, not the primary correctness mechanism.
  */
 import * as crypto from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { AIObservabilityConfig } from '../ai-observability/config'
+import { EvaluationManagerService } from '../ai-observability/services/evaluation-manager.service'
+import { ProviderKeyManagerService } from '../ai-observability/services/provider-key-manager.service'
+import { TaggerManagerService } from '../ai-observability/services/tagger-manager.service'
+import { TemporalService, TemporalServiceConfig } from '../ai-observability/services/temporal.service'
+import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../ai-observability/types'
 import { execHog } from '../cdp/utils/hog-exec'
-import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
+import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../config/kafka-topics'
+import { parseTeamsList } from '../ingestion/event-processing/split-ai-events-step'
 import { createKafkaConsumer } from '../kafka/consumer'
-import { EvaluationManagerService } from '../llm-analytics/services/evaluation-manager.service'
-import { TaggerManagerService } from '../llm-analytics/services/tagger-manager.service'
-import { TemporalService, TemporalServiceConfig } from '../llm-analytics/services/temporal.service'
-import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '../llm-analytics/types'
 import { PluginServerService, RawKafkaEvent } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
 
-export type EvaluationSchedulerConfig = TemporalServiceConfig
+export type EvaluationSchedulerConfig = TemporalServiceConfig &
+    Pick<
+        AIObservabilityConfig,
+        'LLMA_EVAL_SCHEDULER_TOPIC' | 'LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS' | 'LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING'
+    >
 
 export interface EvaluationSchedulerDeps {
     postgres: PostgresRouter
@@ -58,6 +80,12 @@ const evaluationSchedulerHeaderValues = new Counter({
     labelNames: ['header_value'],
 })
 
+const evaluationSchedulerTeamPartition = new Counter({
+    name: 'evaluation_scheduler_team_partition',
+    help: 'Events kept vs dropped by the team partition filter',
+    labelNames: ['outcome'], // kept | dropped
+})
+
 // Pure functions for testability
 
 /**
@@ -76,6 +104,29 @@ export function unwrapOrLog<T extends Record<string, unknown>>(
         error: result.reason instanceof Error ? result.reason.message : String(result.reason),
     })
     return {} as T
+}
+
+/**
+ * Returns true if the given team should be processed by this deployment. Mode
+ * is implicit from the topic: ai_events processes teams in the list, events
+ * processes teams not in the list. The two deployments must read the same
+ * `aiTopicTeams` value or you get either gap (some team handled by neither) or
+ * overlap (some team handled by both → broken results may cement via Temporal
+ * USE_EXISTING dedup before correct ones arrive). '*' is the final-state
+ * migration: every team has moved to ai_events and the events deployment
+ * becomes a no-op.
+ */
+export function teamShouldBeProcessed(
+    teamId: number,
+    topic: 'events' | 'ai_events',
+    aiTopicTeams: number[] | '*'
+): boolean {
+    const isAiTopicConsumer = topic === 'ai_events'
+    if (aiTopicTeams === '*') {
+        return isAiTopicConsumer
+    }
+    const inList = aiTopicTeams.includes(teamId)
+    return isAiTopicConsumer ? inList : !inList
 }
 
 export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
@@ -228,19 +279,53 @@ export const startEvaluationScheduler = async (
     config: EvaluationSchedulerConfig,
     deps: EvaluationSchedulerDeps
 ): Promise<PluginServerService> => {
-    logger.info('🤖', 'Starting evaluation scheduler')
+    const topic = config.LLMA_EVAL_SCHEDULER_TOPIC
+    if (topic !== 'events' && topic !== 'ai_events') {
+        throw new Error(`Invalid LLMA_EVAL_SCHEDULER_TOPIC: ${topic as string}. Must be 'events' or 'ai_events'.`)
+    }
+    const aiTopicTeams = parseTeamsList(config.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS)
+    // Distinct group id per topic so the two deployments never share offsets.
+    // The events-topic group id is unchanged (no suffix) so the existing
+    // production consumer keeps its committed offsets across this deploy.
+    const groupId =
+        topic === 'ai_events' ? `${KAFKA_PREFIX}evaluation-scheduler-ai-events` : `${KAFKA_PREFIX}evaluation-scheduler`
+    const kafkaTopic = topic === 'ai_events' ? KAFKA_CLICKHOUSE_AI_EVENTS_JSON : KAFKA_EVENTS_JSON
+
+    logger.info('🤖', 'Starting evaluation scheduler', {
+        topic,
+        groupId,
+        kafkaTopic,
+        aiTopicTeams: aiTopicTeams === '*' ? '*' : aiTopicTeams.join(','),
+        providerKeyGating: config.LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING,
+    })
 
     const temporalService = new TemporalService(config)
     const evaluationManager = new EvaluationManagerService(deps.postgres, deps.pubSub)
     const taggerManager = new TaggerManagerService(deps.postgres, deps.pubSub)
+    const providerKeyManager = config.LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING
+        ? new ProviderKeyManagerService(deps.postgres, deps.pubSub)
+        : undefined
 
     const kafkaConsumer = createKafkaConsumer({
-        groupId: `${KAFKA_PREFIX}evaluation-scheduler`,
-        topic: KAFKA_EVENTS_JSON,
+        groupId,
+        topic: kafkaTopic,
     })
 
     await kafkaConsumer.connect((messages) =>
-        eachBatchEvaluationScheduler(messages, evaluationManager, taggerManager, temporalService)
+        eachBatchEvaluationScheduler(
+            messages,
+            evaluationManager,
+            taggerManager,
+            temporalService,
+            {
+                topic,
+                aiTopicTeams,
+            },
+            {
+                enabled: config.LLMA_EVAL_SCHEDULER_PROVIDER_KEY_GATING,
+                providerKeyManager,
+            }
+        )
     )
 
     const onShutdown = async () => {
@@ -255,11 +340,31 @@ export const startEvaluationScheduler = async (
     }
 }
 
-async function eachBatchEvaluationScheduler(
+export interface EachBatchPartitionConfig {
+    topic: 'events' | 'ai_events'
+    aiTopicTeams: number[] | '*'
+}
+
+export interface ProviderKeyGateOptions {
+    enabled: boolean
+    providerKeyManager?: Pick<ProviderKeyManagerService, 'getProviderKey'>
+}
+
+type ProviderKeyGateDefinition = {
+    id: string
+    team_id: number
+    provider_key_id?: string | null
+    evaluation_type?: string
+    tagger_type?: string
+}
+
+export async function eachBatchEvaluationScheduler(
     messages: Message[],
     evaluationManager: EvaluationManagerService,
     taggerManager: TaggerManagerService,
-    temporalService: TemporalService
+    temporalService: TemporalService,
+    partition: EachBatchPartitionConfig,
+    providerKeyGate?: ProviderKeyGateOptions
 ): Promise<void> {
     logger.debug('Processing batch', { messageCount: messages.length })
 
@@ -270,19 +375,28 @@ async function eachBatchEvaluationScheduler(
     evaluationSchedulerEventsFiltered.labels({ passed: 'false' }).inc(messages.length - aiGenerationEvents.length)
     evaluationSchedulerEventsFiltered.labels({ passed: 'true' }).inc(aiGenerationEvents.length)
 
+    // Apply the team partition before any Postgres lookups. Counterpart deployment
+    // (other topic) is responsible for everything we drop here.
+    const partitionedEvents = aiGenerationEvents.filter((event) => {
+        const keep = teamShouldBeProcessed(event.team_id, partition.topic, partition.aiTopicTeams)
+        evaluationSchedulerTeamPartition.labels({ outcome: keep ? 'kept' : 'dropped' }).inc()
+        return keep
+    })
+
     logger.debug('Filtered batch', {
         totalMessages: messages.length,
         aiEventsFound: aiGenerationEvents.length,
+        afterTeamPartition: partitionedEvents.length,
         filteredOut: messages.length - aiGenerationEvents.length,
     })
 
-    if (aiGenerationEvents.length === 0) {
+    if (partitionedEvents.length === 0) {
         return
     }
 
-    logger.debug('Found $ai_generation events', { count: aiGenerationEvents.length })
+    logger.debug('Found $ai_generation events', { count: partitionedEvents.length })
 
-    const eventsByTeam = groupEventsByTeam(aiGenerationEvents)
+    const eventsByTeam = groupEventsByTeam(partitionedEvents)
     const teamIds = Array.from(eventsByTeam.keys())
 
     // Fetch evaluations and taggers independently — a transient DB failure on one
@@ -308,31 +422,39 @@ async function eachBatchEvaluationScheduler(
 
         for (const event of events) {
             for (const evaluationDefinition of evaluationDefinitions) {
-                const task = processEventEvaluationMatch(event, evaluationDefinition, matcher, temporalService).catch(
-                    (error: unknown) => {
-                        logger.error('Error processing evaluation', {
-                            evaluationId: evaluationDefinition.id,
-                            eventUuid: event.uuid,
-                            error: error instanceof Error ? error.message : String(error),
-                        })
-                        evaluationMatchesCounter.labels({ outcome: 'error', type: 'evaluation' }).inc()
-                    }
-                )
+                const task = processEventEvaluationMatch(
+                    event,
+                    evaluationDefinition,
+                    matcher,
+                    temporalService,
+                    providerKeyGate
+                ).catch((error: unknown) => {
+                    logger.error('Error processing evaluation', {
+                        evaluationId: evaluationDefinition.id,
+                        eventUuid: event.uuid,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                    evaluationMatchesCounter.labels({ outcome: 'error', type: 'evaluation' }).inc()
+                })
 
                 tasks.push(task)
             }
 
             for (const taggerDefinition of taggerDefinitions) {
-                const task = processEventTaggerMatch(event, taggerDefinition, matcher, temporalService).catch(
-                    (error: unknown) => {
-                        logger.error('Error processing tagger', {
-                            taggerId: taggerDefinition.id,
-                            eventUuid: event.uuid,
-                            error: error instanceof Error ? error.message : String(error),
-                        })
-                        evaluationMatchesCounter.labels({ outcome: 'error', type: 'tagger' }).inc()
-                    }
-                )
+                const task = processEventTaggerMatch(
+                    event,
+                    taggerDefinition,
+                    matcher,
+                    temporalService,
+                    providerKeyGate
+                ).catch((error: unknown) => {
+                    logger.error('Error processing tagger', {
+                        taggerId: taggerDefinition.id,
+                        eventUuid: event.uuid,
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                    evaluationMatchesCounter.labels({ outcome: 'error', type: 'tagger' }).inc()
+                })
 
                 tasks.push(task)
             }
@@ -351,7 +473,8 @@ async function processEventEvaluationMatch(
     event: RawKafkaEvent,
     evaluationDefinition: Evaluation,
     matcher: EvaluationMatcher,
-    temporalService: TemporalService
+    temporalService: TemporalService,
+    providerKeyGate?: ProviderKeyGateOptions
 ): Promise<void> {
     evaluationSchedulerEventsProcessed.labels({ status: 'received', type: 'evaluation' }).inc()
 
@@ -359,6 +482,12 @@ async function processEventEvaluationMatch(
 
     if (!result.matched) {
         evaluationMatchesCounter.labels({ outcome: result.reason, type: 'evaluation' }).inc()
+        return
+    }
+
+    const providerKeySkipOutcome = await getProviderKeySkipOutcome(evaluationDefinition, providerKeyGate)
+    if (providerKeySkipOutcome) {
+        evaluationMatchesCounter.labels({ outcome: providerKeySkipOutcome, type: 'evaluation' }).inc()
         return
     }
 
@@ -382,7 +511,8 @@ async function processEventTaggerMatch(
     event: RawKafkaEvent,
     taggerDefinition: Tagger,
     matcher: EvaluationMatcher,
-    temporalService: TemporalService
+    temporalService: TemporalService,
+    providerKeyGate?: ProviderKeyGateOptions
 ): Promise<void> {
     evaluationSchedulerEventsProcessed.labels({ status: 'received', type: 'tagger' }).inc()
 
@@ -391,6 +521,12 @@ async function processEventTaggerMatch(
 
     if (!result.matched) {
         evaluationMatchesCounter.labels({ outcome: result.reason, type: 'tagger' }).inc()
+        return
+    }
+
+    const providerKeySkipOutcome = await getProviderKeySkipOutcome(taggerDefinition, providerKeyGate)
+    if (providerKeySkipOutcome) {
+        evaluationMatchesCounter.labels({ outcome: providerKeySkipOutcome, type: 'tagger' }).inc()
         return
     }
 
@@ -404,4 +540,43 @@ async function processEventTaggerMatch(
 
     await temporalService.startTaggerRunWorkflow(taggerDefinition.id, event)
     evaluationSchedulerEventsProcessed.labels({ status: 'success', type: 'tagger' }).inc()
+}
+
+async function getProviderKeySkipOutcome(
+    definition: ProviderKeyGateDefinition,
+    providerKeyGate?: ProviderKeyGateOptions
+): Promise<'provider_key_not_ok' | 'provider_key_not_found' | 'provider_key_team_mismatch' | null> {
+    if (!providerKeyGate?.enabled || !providerKeyGate.providerKeyManager) {
+        return null
+    }
+
+    if (definition.evaluation_type === 'hog' || definition.tagger_type === 'hog') {
+        return null
+    }
+
+    const providerKeyId = definition.provider_key_id
+    if (!providerKeyId) {
+        return null
+    }
+
+    try {
+        const providerKey = await providerKeyGate.providerKeyManager.getProviderKey(providerKeyId)
+        if (!providerKey) {
+            return 'provider_key_not_found'
+        }
+        if (providerKey.team_id !== definition.team_id) {
+            return 'provider_key_team_mismatch'
+        }
+        if (providerKey.state !== 'ok') {
+            return 'provider_key_not_ok'
+        }
+    } catch (error) {
+        logger.error('Provider key gate failed open', {
+            definitionId: definition.id,
+            providerKeyId,
+            error: error instanceof Error ? error.message : String(error),
+        })
+    }
+
+    return null
 }

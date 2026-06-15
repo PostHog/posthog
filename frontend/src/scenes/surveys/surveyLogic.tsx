@@ -7,13 +7,16 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
@@ -109,6 +112,7 @@ import {
     getSurveyResponse,
     getSurveyStartDateForQuery,
     isSurveyRunning,
+    isThumbQuestion,
     sanitizeSurvey,
     sanitizeSurveyAppearance,
     validateSurveyAppearance,
@@ -705,6 +709,7 @@ export const surveyLogic = kea<surveyLogicType>([
             notificationId,
             enabled,
         }),
+        deleteSurveyNotification: (notification: HogFunctionType) => ({ notification }),
         setPersonNames: (personNames: Record<string, string>) => ({ personNames }),
         generateTranslationDrafts: (language: string, overwrite: boolean = true) => ({ language, overwrite }),
         setGeneratingTranslationDrafts: (generating: boolean) => ({ generating }),
@@ -1150,6 +1155,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
+                const surveyType = survey.type ? `${survey.type} ` : ''
+                tryShowMCPHint('surveys.create', {
+                    derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
+                })
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)
@@ -1493,6 +1502,28 @@ export const surveyLogic = kea<surveyLogicType>([
                         survey: values.survey.id,
                         notification: notificationId,
                     })
+                }
+            },
+            deleteSurveyNotification: async ({ notification }) => {
+                const previous = values.surveyNotifications
+                // Optimistically remove the row; restore on undo or on a swallowed API error.
+                actions.loadSurveyNotificationsSuccess(previous.filter((n) => n.id !== notification.id))
+
+                let callbackFired = false
+                await deleteWithUndo({
+                    endpoint: `projects/${projectLogic.values.currentProjectId}/hog_functions`,
+                    object: { id: notification.id, name: notification.name },
+                    callback: (undo) => {
+                        callbackFired = true
+                        if (undo) {
+                            actions.loadSurveyNotifications()
+                        }
+                    },
+                })
+
+                if (!callbackFired) {
+                    // deleteWithUndo swallows API errors and only fires the callback on success.
+                    actions.loadSurveyNotificationsSuccess(previous)
                 }
             },
         }
@@ -2264,7 +2295,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         groups: survey.targeting_flag_filters.groups,
                         multivariate: null,
                         payloads: {},
-                        super_groups: undefined,
+                        feature_enrollment: undefined,
                     }
                 }
                 return survey.targeting_flag?.filters || undefined
@@ -3018,12 +3049,21 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
 
                         if (question.type === SurveyQuestionType.Rating) {
+                            // Thumb questions (emoji + 2-point scale) hide the bound-label inputs in the editor,
+                            // so requiring them here would silently block save with no visible error.
+                            const requiresBoundLabels = !isThumbQuestion(question)
                             return {
                                 ...questionErrors,
                                 display: !question.display && 'Please choose a display type.',
                                 scale: !question.scale && 'Please choose a scale.',
-                                lowerBoundLabel: !question.lowerBoundLabel && 'Please enter a lower bound label.',
-                                upperBoundLabel: !question.upperBoundLabel && 'Please enter an upper bound label.',
+                                lowerBoundLabel:
+                                    requiresBoundLabels &&
+                                    !question.lowerBoundLabel &&
+                                    'Please enter a lower bound label.',
+                                upperBoundLabel:
+                                    requiresBoundLabels &&
+                                    !question.upperBoundLabel &&
+                                    'Please enter an upper bound label.',
                             }
                         } else if (
                             question.type === SurveyQuestionType.SingleChoice ||

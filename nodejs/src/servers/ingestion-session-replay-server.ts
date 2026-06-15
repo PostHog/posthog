@@ -1,10 +1,9 @@
+import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
-    KafkaIngestionProducerEnvConfig,
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
+    KafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
@@ -17,8 +16,8 @@ import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../ses
 import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-recording/outputs/registry'
 import {
-    KafkaDefaultProducerEnvConfig,
-    getDefaultKafkaDefaultProducerEnvConfig,
+    KafkaSessionreplayProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '../session-replay/shared/outputs/producer-config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
@@ -42,9 +41,8 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     KafkaBrokerConfig &
-    KafkaDefaultProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
-    KafkaIngestionProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
+    KafkaSessionreplayProducerEnvConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
@@ -65,9 +63,8 @@ export class IngestionSessionReplayServer implements NodeServer {
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
             ...config,
         }
@@ -86,6 +83,8 @@ export class IngestionSessionReplayServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
+        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+
         this.postgres = new PostgresRouter(this.config, this.config.PLUGIN_SERVER_MODE ?? undefined)
         logger.info('👍', 'Postgres Router ready')
 

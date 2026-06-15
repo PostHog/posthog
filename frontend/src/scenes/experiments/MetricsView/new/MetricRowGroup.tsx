@@ -9,7 +9,7 @@ import { IconTrending } from '@posthog/icons'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
@@ -20,15 +20,13 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { Experiment, InsightType } from '~/types'
-
-import { experimentLogic } from '../../experimentLogic'
-import { isLaunched } from '../../experimentsLogic'
-import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
-import { ChartEmptyState } from '../shared/ChartEmptyState'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
-import { MetricHeader } from '../shared/MetricHeader'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { isLaunched } from '~/scenes/experiments/experimentsLogic'
+import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
+import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
+import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
+import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
+import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -42,7 +40,9 @@ import {
     isDeltaPositive,
     isSignificant,
     isWinning,
-} from '../shared/utils'
+} from '~/scenes/experiments/MetricsView/shared/utils'
+import { Experiment, InsightType } from '~/types'
+
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -477,6 +477,7 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
+    onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
     error?: any
@@ -497,6 +498,7 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
+    onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
     error,
@@ -701,6 +703,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
                     </td>
@@ -741,8 +744,7 @@ export function MetricRowGroup({
     // At this point, we know result is defined, so we can safely access its properties
     const baselineResult = result.baseline
     const variantResults = result.variant_results || []
-    const totalRows = 1 + variantResults.length
-    const totalRowsHeightStyle = getScaledHeightStyle(totalRows)
+    const totalRowsHeightStyle = getScaledHeightStyle(variantResults.length + 1)
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (
@@ -789,7 +791,7 @@ export function MetricRowGroup({
                                 : undefined
                         }
                     >
-                        {renderTooltipContent(tooltipState.variantResult, metric)}
+                        {renderTooltipContent(tooltipState.variantResult, metric, baselineResult.key)}
                     </div>,
                     document.body
                 )}
@@ -799,7 +801,7 @@ export function MetricRowGroup({
                 {/* Metric column - with rowspan */}
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={totalRows}
+                    rowSpan={variantResults.length + 1}
                     style={totalRowsHeightStyle}
                 >
                     <MetricHeader
@@ -809,6 +811,7 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />
                 </td>
@@ -861,7 +864,7 @@ export function MetricRowGroup({
                     className={`w-20 pt-3 align-top relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={totalRows}
+                    rowSpan={variantResults.length + 1}
                     style={totalRowsHeightStyle}
                 >
                     {showDetailsModal && (

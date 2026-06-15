@@ -13,10 +13,13 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 
+import posthog.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
+from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
+    TemporaryFileSizeExceedsLimitException,
 )
 from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     WINDOW_MAX_QUERY_CANCELED_RETRIES,
@@ -36,21 +39,31 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
+    PostgresDiscoveredSchema,
+    PostgresImplementation,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
     _build_count_query,
     _build_query,
+    _connect_with_dropped_retry,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
     _get_primary_keys,
+    _get_rows_to_sync,
     _get_sslmode,
     _get_table,
+    _get_table_chunk_size,
     _has_duplicate_primary_keys,
+    _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
+    _is_unsupported_function_error,
     _normalize_function_names,
+    _rls_active_from_conn,
+    _role_subject_to_rls,
+    _statement_timeout_as_non_retryable,
     filter_postgres_incremental_fields,
     get_foreign_keys,
     get_leading_index_columns,
@@ -90,6 +103,18 @@ class TestSafeDateLoader:
         assert loader.load(input_data) == expected
 
 
+class TestPostgresImplementationWiring:
+    def test_source_exposes_postgres_implementation_singleton(self):
+        source = PostgresSource()
+        assert isinstance(source.get_implementation, PostgresImplementation)
+        # Same instance across two PostgresSource constructions — module-level singleton.
+        assert source.get_implementation is PostgresSource().get_implementation
+
+    def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
+        impl = PostgresSource().get_implementation
+        assert impl.get_incremental_filter() is filter_postgres_incremental_fields
+
+
 class TestPostgresSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -117,6 +142,7 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -136,7 +162,360 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
 
-    def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Source column type changed",
+            "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
+        ],
+    )
+    def test_widened_integer_column_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Hit 30 successive SerializationFailure errors. Aborting.",
+            "Exception: Hit 30 successive SerializationFailure errors. Aborting.",
+        ],
+    )
+    def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Exhausted recovery-conflict error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # A single recovery conflict is retried in-process; on its own it must stay retryable.
+            "canceling statement due to conflict with recovery",
+            "could not serialize access due to conflict with recovery",
+            # The connection-dropped abort is a separate, genuinely transient condition.
+            "Hit 10 successive connection-dropped errors. Aborting.",
+        ],
+    )
+    def test_recovery_conflict_related_transients_stay_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient error should remain retryable: {error_msg}"
+
+
+class TestIsConnectionDroppedError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError("connection to server was lost"),
+            psycopg.OperationalError("connection to server was closed unexpectedly"),
+            psycopg.OperationalError("consuming input failed: EOF detected"),
+            psycopg.OperationalError("terminating connection due to administrator command"),
+            psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+        ],
+    )
+    def test_connection_dropped_errors_are_detected(self, error):
+        assert _is_connection_dropped_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            psycopg.OperationalError("password authentication failed for user"),
+            # Initial-connect failures embed "connection to server …" but are
+            # permanent — they must not be misclassified as a recoverable drop.
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
+            ValueError("server conn crashed?"),
+            Exception("server conn crashed?"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_dropped_error(error) is False
+
+
+class TestConnectWithDroppedRetry:
+    @pytest.fixture
+    def logger(self):
+        return structlog.get_logger()
+
+    def test_retries_dropped_connection_then_succeeds(self, logger):
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                # The exact error surfaced in production: a mid-stream SSL EOF on
+                # the reconnect that bootstraps offset-chunking recovery.
+                psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected"),
+                psycopg.OperationalError("server closed the connection unexpectedly"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 3
+
+    def test_permanent_error_is_not_retried(self, logger):
+        connect = mock.MagicMock(
+            side_effect=psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            )
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert connect.call_count == 1
+
+    def test_gives_up_after_max_attempts(self, logger):
+        connect = mock.MagicMock(
+            side_effect=psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_dropped_retry(connect, logger, max_attempts=3)
+
+        assert connect.call_count == 3
+
+
+class TestStatementTimeoutAsNonRetryable:
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,incremental_field,expected_substr",
+        [
+            # Incremental syncs map the timeout to a non-retryable QueryTimeoutException.
+            (True, "updated_at", "updated_at"),
+            # Full-table syncs must re-raise the raw QueryCanceled so a fresh re-sync can
+            # reorder rows; we only short-circuit incremental reads.
+            (False, None, None),
+        ],
+    )
+    def test_statement_timeout_mapping(self, should_use_incremental_field, incremental_field, expected_substr):
+        result = _statement_timeout_as_non_retryable(
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field=incremental_field,
+        )
+        if expected_substr is None:
+            assert result is None
+        else:
+            assert isinstance(result, QueryTimeoutException)
+            assert expected_substr in str(result)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.errors.SerializationFailure("due to conflict with recovery"),
+            Exception("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_non_statement_timeout_errors_are_not_mapped(self, error):
+        assert (
+            _statement_timeout_as_non_retryable(
+                error,
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+            is None
+        )
+
+
+class TestPostgresSourceForPipelineSchemaResolution:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    def _make_inputs(self, schema_name: str):
+        return mock.MagicMock(
+            schema_id="00000000-0000-0000-0000-000000000000",
+            schema_name=schema_name,
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            team_id=1,
+            logger=mock.MagicMock(),
+        )
+
+    def _make_config(self, schema: str | None = None):
+        return mock.MagicMock(
+            user="u",
+            password="p",
+            database="db",
+            schema=schema,
+        )
+
+    def _make_schema_model(
+        self,
+        name: str,
+        schema_metadata: dict | None = None,
+        source_model=None,
+        sync_type_config: dict | None = None,
+    ):
+        schema = mock.MagicMock()
+        schema.name = name
+        schema.id = "00000000-0000-0000-0000-000000000000"
+        schema.is_cdc = False
+        schema.cdc_mode = None
+        schema.initial_sync_complete = True
+        schema.enabled_columns = None
+        schema.chunk_size_override = None
+        schema.schema_metadata = schema_metadata
+        schema.sync_type_config = sync_type_config or {}
+        schema.source = source_model or mock.MagicMock()
+        return schema
+
+    def test_dotted_schema_name_without_metadata_routes_to_correct_source_schema(self, source):
+        # Repro: row created before this PR has name="poblic.example_table" and no schema_metadata.
+        # source_for_pipeline must not fall through to config.schema or "public" — that produces
+        # `SELECT FROM "public"."poblic.example_table"`, an undefined relation.
+        schema_model = self._make_schema_model("poblic.example_table", schema_metadata=None)
+        inputs = self._make_inputs("poblic.example_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+
+            assert postgres_source_mock.called, "postgres_source was not invoked"
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "poblic", f"expected schema='poblic', got {kwargs['schema']!r}"
+            assert kwargs["table_names"] == ["example_table"], (
+                f"expected table_names=['example_table'], got {kwargs['table_names']!r}"
+            )
+
+    def test_schema_metadata_wins_over_dotted_name_inference(self, source):
+        # Metadata is the source of truth — explicit pin always beats name-splitting.
+        schema_model = self._make_schema_model(
+            "weird.name",
+            schema_metadata={"source_schema": "real_schema", "source_table_name": "real_table"},
+        )
+        inputs = self._make_inputs("weird.name")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "real_schema"
+            assert kwargs["table_names"] == ["real_table"]
+
+    def test_dwh_storage_key_drives_response_name_so_delta_writes_to_legacy_path(self, source):
+        # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
+        # the row carries `dwh_storage_key="example_table"`. `validate_schema_and_update_table` uses
+        # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
+        # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
+        # points at `.../example_table/` and HogQL reads from an empty location.
+        from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+        schema_model = self._make_schema_model(
+            "public.example_table",
+            schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
+            sync_type_config={"dwh_storage_key": "example_table"},
+        )
+        inputs = self._make_inputs("public.example_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            response = mock.MagicMock()
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = response
+
+            source.source_for_pipeline(config, inputs)
+
+            assert response.name == NamingConvention.normalize_identifier("example_table"), (
+                f"response.name must derive from dwh_storage_key to keep Delta writes anchored to the "
+                f"legacy folder; got {response.name!r}"
+            )
+
+    def test_response_name_uses_schema_name_when_no_storage_key(self, source):
+        # New (non-migrated) rows have no dwh_storage_key — response.name falls back to the row's
+        # current name so the Delta path matches `url_pattern` (also derived from the row's name).
+        from posthog.temporal.data_imports.naming_convention import NamingConvention
+
+        schema_model = self._make_schema_model(
+            "poblic.new_table",
+            schema_metadata={"source_schema": "poblic", "source_table_name": "new_table"},
+            sync_type_config={},
+        )
+        inputs = self._make_inputs("poblic.new_table")
+        config = self._make_config(schema=None)
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            response = mock.MagicMock()
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = response
+
+            source.source_for_pipeline(config, inputs)
+
+            assert response.name == NamingConvention.normalize_identifier("poblic.new_table")
+
+    def test_unqualified_name_falls_back_to_config_schema(self, source):
+        # Legacy row "example_table" with no metadata + config.schema="public" → ("public", "example_table").
+        schema_model = self._make_schema_model("example_table", schema_metadata=None)
+        inputs = self._make_inputs("example_table")
+        config = self._make_config(schema="public")
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            postgres_source_mock.return_value = mock.MagicMock()
+
+            source.source_for_pipeline(config, inputs)
+            kwargs = postgres_source_mock.call_args.kwargs
+            assert kwargs["schema"] == "public"
+            assert kwargs["table_names"] == ["example_table"]
+
+    def test_validate_credentials_for_access_method_allows_blank_schema_for_warehouse_imports(self, source):
+        # Multi-schema parity: warehouse mode now accepts blank `schema` (browse-all) just like
+        # direct mode. Each `ExternalDataSchema` row pins its own `(schema, table)` in metadata.
         config = source.parse_config(
             {
                 "host": "localhost",
@@ -148,10 +527,12 @@ class TestPostgresSourceNonRetryableErrors:
             }
         )
 
-        valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
+        with mock.patch.object(source, "validate_credentials", return_value=(True, None)) as validate_credentials:
+            valid, error = source.validate_credentials_for_access_method(config, team_id=1, access_method="warehouse")
 
-        assert valid is False
-        assert error == "Schema is required for warehouse imports."
+        assert valid is True
+        assert error is None
+        validate_credentials.assert_called_once_with(config, 1, schema_name=None)
 
     def test_validate_credentials_for_access_method_allows_blank_schema_for_direct_queries(self, source):
         config = source.parse_config(
@@ -171,6 +552,67 @@ class TestPostgresSourceNonRetryableErrors:
         assert valid is True
         assert error is None
         validate_credentials.assert_called_once_with(config, 1, schema_name=None)
+
+
+class TestValidateCredentialsErrorMapping:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    @pytest.fixture
+    def config(self, source):
+        return source.parse_config(
+            {
+                "host": "db.example.com",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "error_msg, expected",
+        [
+            (
+                'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
+                "error received from server in SCRAM exchange: Wrong password",
+                "Invalid user or password",
+            ),
+            (
+                'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
+                "FATAL:  the database system is starting up",
+                "Your database is starting up or recovering. Wait a moment and try again.",
+            ),
+            (
+                'connection failed: connection to server at "1.2.3.4", port 5432 failed: '
+                "server does not support SSL, but SSL was required",
+                "SSL/TLS connection is required but your database does not support it. "
+                "Please enable SSL/TLS on your PostgreSQL server.",
+            ),
+            (
+                "consuming input failed: SSL connection has been closed unexpectedly",
+                "The SSL/TLS connection to your database was closed unexpectedly. "
+                "Check your database's SSL configuration and that the port is correct.",
+            ),
+            # Unmapped errors fall back to the generic message.
+            (
+                "some brand new failure",
+                "Could not connect to Postgres. Please check all connection details are valid.",
+            ),
+        ],
+    )
+    def test_operational_errors_map_to_friendly_messages(self, source, config, error_msg, expected):
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=psycopg.OperationalError(error_msg)),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert error == expected
 
 
 class TestPostgresSchemaDiscovery:
@@ -225,6 +667,64 @@ class TestPostgresSchemaDiscovery:
         assert schemas["public.users"].source_table_name == "users"
         assert schemas["analytics.events"].source_schema == "analytics"
         assert schemas["analytics.events"].source_table_name == "events"
+
+    @pytest.mark.parametrize(
+        "selected_schema,requested_name,fetchall_results,expected_keys",
+        [
+            # Qualified lookup against a schema that's keyed unqualified (config.schema set).
+            # This is the multi-schema migration scenario: row name was rewritten to
+            # `public.tracking_link` while the source still has `schema="public"` configured.
+            (
+                "public",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+            # Unqualified lookup against an unqualified keyspace — the legacy path.
+            (
+                "public",
+                "tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"tracking_link"},
+            ),
+            # Qualified lookup against a qualified keyspace (no config.schema, multi-schema mode).
+            (
+                "",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+        ],
+    )
+    def test_get_schemas_accepts_qualified_and_unqualified_names(
+        self, selected_schema, requested_name, fetchall_results, expected_keys
+    ):
+        connection = self._mock_connection(*fetchall_results)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema=selected_schema,
+                names=[requested_name],
+            )
+
+        assert set(schemas.keys()) == expected_keys
 
     def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(
@@ -310,6 +810,64 @@ class TestPostgresSchemaDiscovery:
 
         assert row_counts == {}
         patch_connect_to_postgres.assert_not_called()
+
+
+class TestPostgresSourceGetSchemasDegradesGracefully:
+    @pytest.fixture
+    def source(self):
+        return PostgresSource()
+
+    def _config(self):
+        return mock.MagicMock(user="u", password="p", database="db", schema="", ssh_tunnel=None)
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            psycopg.errors.OutOfMemory(
+                'out of memory\nDETAIL:  Failed on request of size 2048 in memory context "ExecutorState".'
+            ),
+            psycopg.OperationalError("connection refused"),
+            Exception("unexpected error"),
+        ],
+    )
+    def test_foreign_key_discovery_failure_does_not_break_schema_listing(self, source, exc):
+        # A failing foreign-key lookup (e.g. the source DB OOMs on the information_schema join)
+        # must degrade to empty foreign keys, not take down the whole schema listing.
+        discovered = {
+            "public.users": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="users",
+                columns=[("id", "integer", False)],
+            )
+        }
+
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value=discovered,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                side_effect=exc,
+            ),
+            # PK/index discovery opens its own connection; let it fail so the test needs no real DB.
+            # That path is already guarded and defaults gracefully.
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                side_effect=psycopg.OperationalError("no db in test"),
+            ),
+        ):
+            schemas = source.get_schemas(self._config(), team_id=1)
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "public.users"
+        assert schemas[0].foreign_keys == []
 
 
 class TestGetSslmode:
@@ -491,6 +1049,166 @@ class TestBuildQuery:
         assert '"id"' in rendered
         assert "LIMIT 1000" in rendered
 
+    @pytest.mark.parametrize(
+        "case_name,enabled_columns,primary_keys,should_use_incremental,incremental_field,incremental_type,last_value,must_contain,must_not_contain,ordered",
+        [
+            (
+                "explicit_list_includes_pk",
+                ["email", "name"],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ['"email"', '"name"', '"id"'],
+                ["SELECT *"],
+                None,
+            ),
+            (
+                "preserves_user_order_pk_appended",
+                ["zeta", "alpha"],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                [],
+                None,
+                ['"zeta"', '"alpha"', '"id"'],
+            ),
+            (
+                "includes_incremental_field",
+                ["payload"],
+                ["id"],
+                True,
+                "updated_at",
+                IncrementalFieldType.Timestamp,
+                "2024-01-01",
+                ['"payload"', '"updated_at"', '"id"'],
+                None,
+                None,
+            ),
+            (
+                "none_is_select_star",
+                None,
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ["SELECT *"],
+                None,
+                None,
+            ),
+            (
+                "empty_keeps_only_pks_and_incremental",
+                [],
+                ["id"],
+                False,
+                None,
+                None,
+                None,
+                ['"id"'],
+                ["SELECT *"],
+                None,
+            ),
+            # Guard against an invalid `SELECT  FROM` when no columns can be retained.
+            (
+                "empty_with_no_pks_or_incremental_falls_back_to_star",
+                [],
+                None,
+                False,
+                None,
+                None,
+                None,
+                ["SELECT *"],
+                None,
+                None,
+            ),
+        ],
+    )
+    def test_enabled_columns_projection(
+        self,
+        case_name,
+        enabled_columns,
+        primary_keys,
+        should_use_incremental,
+        incremental_field,
+        incremental_type,
+        last_value,
+        must_contain,
+        must_not_contain,
+        ordered,
+    ):
+        query = _build_query(
+            "public",
+            "events" if should_use_incremental else "users",
+            should_use_incremental,
+            "table",
+            incremental_field,
+            incremental_type,
+            last_value,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+        )
+        rendered = self._render(query)
+        for substring in must_contain or []:
+            assert substring in rendered, f"[{case_name}] expected {substring!r} in {rendered!r}"
+        for substring in must_not_contain or []:
+            assert substring not in rendered, f"[{case_name}] expected {substring!r} NOT in {rendered!r}"
+        if ordered:
+            positions = [rendered.index(s) for s in ordered]
+            assert positions == sorted(positions), f"[{case_name}] expected {ordered} in order in {rendered!r}"
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            # Date cursors must be inclusive — saving cursor='2026-05-13' and re-querying with
+            # `>` skips every row that lands on 2026-05-13 after the cursor advanced.
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Timestamp, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = _build_query("public", "events", True, "table", "cursor", field_type, last_value)
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+        # The other operator never appears for the cursor column.
+        wrong = ">" if expected_operator == ">=" else ">="
+        assert f'"cursor" {wrong} ' not in rendered
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_count_query_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = _build_count_query("public", "events", True, "cursor", field_type, last_value)
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
+
+    def test_windowed_mode_keeps_exclusive_lower_bound_for_date(self):
+        # iterate_date_windows feeds previous_hi as next_lo; `>=` would re-fetch every
+        # boundary date inside one run, so the upper_bound_inclusive path must stay `>`.
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "cursor",
+            IncrementalFieldType.Date,
+            date(2026, 5, 13),
+            upper_bound_inclusive=date(2026, 5, 14),
+        )
+        rendered = self._render(query)
+        assert '"cursor" > ' in rendered
+        assert '"cursor" >= ' not in rendered
+
 
 class TestBuildPartitionQuery:
     def _render(self, composed: sql.Composed) -> str:
@@ -534,6 +1252,26 @@ class TestBuildPartitionQuery:
                 incremental_field_type=None,
                 db_incremental_field_last_value=None,
             )
+
+    @pytest.mark.parametrize(
+        "field_type,last_value,expected_operator",
+        [
+            (IncrementalFieldType.Date, date(2026, 5, 13), ">="),
+            (IncrementalFieldType.DateTime, datetime(2026, 5, 13, 1, 36, tzinfo=UTC), ">"),
+            (IncrementalFieldType.Integer, 100, ">"),
+        ],
+    )
+    def test_operator_matches_field_type(self, field_type, last_value, expected_operator):
+        query = build_partition_query(
+            "public",
+            "events_2026_01",
+            should_use_incremental_field=True,
+            incremental_field="cursor",
+            incremental_field_type=field_type,
+            db_incremental_field_last_value=last_value,
+        )
+        rendered = self._render(query)
+        assert f'"cursor" {expected_operator} ' in rendered
 
 
 class TestBuildCountQuery:
@@ -586,6 +1324,64 @@ class TestIsPartitionedTable:
             for stmt in setup_ddl:
                 dj_cursor.execute(stmt)
             assert _is_partitioned_table(cast(Any, dj_cursor), "public", table_name) is expected
+
+
+class TestGetTableChunkSize:
+    @pytest.mark.django_db
+    def test_failing_probe_falls_back_without_poisoning_transaction(self):
+        logger = structlog.get_logger()
+
+        with django_connection.cursor() as dj_cursor:
+            inner_query = sql.SQL("SELECT * FROM does_not_exist_chunk_probe").format()
+
+            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
+            assert chunk_size == DEFAULT_CHUNK_SIZE
+
+            dj_cursor.execute("SELECT 1")
+            assert dj_cursor.fetchone()[0] == 1
+
+
+class TestGetRowsToSync:
+    @pytest.mark.django_db
+    def test_failing_count_query_falls_back_to_zero_without_capturing(self):
+        logger = structlog.get_logger()
+
+        # Count query references a column that doesn't exist — mirrors a misconfigured
+        # incremental field (e.g. djstripe_updated on a table that lacks it).
+        count_query = sql.SQL("SELECT COUNT(*) FROM {table} WHERE {col} > 0").format(
+            table=sql.Identifier("information_schema", "tables"),
+            col=sql.Identifier("does_not_exist_count_col"),
+        )
+
+        with django_connection.cursor() as dj_cursor:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+                rows = _get_rows_to_sync(cast(Any, dj_cursor), count_query, logger)
+
+        # Best-effort estimate falls back to 0 and never reports the handled failure.
+        assert rows == 0
+        mock_capture.assert_not_called()
+
+    def test_temp_file_limit_error_still_raises(self):
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(TemporaryFileSizeExceedsLimitException):
+                _get_rows_to_sync(cast(Any, cursor), count_query, logger)
+
+        # The temp-file signal is actionable, so it propagates rather than being swallowed.
+        mock_capture.assert_not_called()
+
+
+class TestPartitionedTableChunkSizing:
+    """Incremental reads use per-child partition queries; no parent FETCH chunk cap."""
+
+    def test_no_partitioned_fetch_cap_exported(self) -> None:
+        assert not hasattr(partitioned_tables_pkg, "PARTITIONED_TABLE_MAX_CHUNK_SIZE")
+        assert "PARTITIONED_TABLE_MAX_CHUNK_SIZE" not in partitioned_tables_pkg.__all__
 
 
 class TestGetEstimatedRowCountForPartitionedTable:
@@ -2092,3 +2888,106 @@ class TestIteratePartitionsRealDb:
                 )
             )
             assert sum(t.num_rows for t in tables) == 80
+
+
+class TestRlsDetectionRealDb:
+    def _create_table(self, cursor, *, rls_active: bool) -> None:
+        cursor.execute("CREATE TABLE test_rls_param (id SERIAL PRIMARY KEY, user_id INTEGER)")
+        if not rls_active:
+            return
+        cursor.execute("ALTER TABLE test_rls_param ENABLE ROW LEVEL SECURITY")
+        cursor.execute("ALTER TABLE test_rls_param FORCE ROW LEVEL SECURITY")
+        cursor.execute("CREATE POLICY test_rls_param_policy ON test_rls_param USING (false)")
+        # FORCE subjects a non-superuser owner directly; a superuser bypasses even FORCE, so observe
+        # via a freshly created unprivileged role (a superuser can always create one).
+        cursor.execute("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
+        if cursor.fetchone()[0]:
+            cursor.execute("CREATE ROLE test_rls_param_role NOLOGIN")
+            cursor.execute("GRANT SELECT ON test_rls_param TO test_rls_param_role")
+            cursor.execute("SET LOCAL ROLE test_rls_param_role")
+
+    @pytest.mark.parametrize("rls_active,expected", [(False, False), (True, True)])
+    @pytest.mark.django_db
+    def test_role_subject_to_rls(self, rls_active, expected):
+        logger = structlog.get_logger()
+        with django_connection.cursor() as dj_cursor:
+            self._create_table(dj_cursor, rls_active=rls_active)
+            try:
+                assert _role_subject_to_rls(cast(Any, dj_cursor), "public", "test_rls_param", logger) is expected
+            finally:
+                dj_cursor.execute("RESET ROLE")
+
+    @pytest.mark.parametrize("rls_active,expected", [(False, False), (True, True)])
+    @pytest.mark.django_db
+    def test_rls_active_from_conn(self, rls_active, expected):
+        with django_connection.cursor() as dj_cursor:
+            self._create_table(dj_cursor, rls_active=rls_active)
+            try:
+                result = _rls_active_from_conn(
+                    cast(Any, _DjangoBackedConnection(dj_cursor)), "public", ["test_rls_param"]
+                )
+                assert result == {"test_rls_param": expected}
+            finally:
+                dj_cursor.execute("RESET ROLE")
+
+    @pytest.mark.django_db
+    def test_rls_active_from_conn_runs_without_schema_or_names(self):
+        # Regression: an early-return guard used to bail when no schema and no names were given,
+        # silently dropping every RLS warning in multi-schema discovery. The full table list must
+        # still be checked, so the table appears in the result (keyed by its qualified name).
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("CREATE TABLE test_rls_noschema (id SERIAL PRIMARY KEY)")
+            result = _rls_active_from_conn(cast(Any, _DjangoBackedConnection(dj_cursor)), "", None)
+            assert "public.test_rls_noschema" in result
+
+
+# Message a DuckDB/Flight-SQL-backed Postgres-wire engine returns when `row_security_active` is
+# absent — the engine accepts the connection but lacks the Postgres-only catalog function.
+_FLIGHT_MISSING_FUNCTION_MSG = (
+    "flight execute: rpc error: code = InvalidArgument desc = failed to prepare query: "
+    "Catalog Error: Scalar Function with name row_security_active does not exist!"
+)
+
+
+class TestIsUnsupportedFunctionError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            (psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG), True),
+            (Exception('function "row_security_active" does not exist'), True),
+            (Exception("Unknown function: row_security_active"), True),
+            # Real Postgres raises UndefinedFunction (SQLSTATE 42883) — recognised by type alone.
+            (psycopg.errors.UndefinedFunction("function row_security_active(oid) does not exist"), True),
+            # Different function missing -> not our concern, should still be captured.
+            (Exception("function some_other_func does not exist"), False),
+            # A genuine permission error mentioning the function must NOT be swallowed.
+            (Exception("permission denied for function row_security_active"), False),
+            (Exception("connection reset by peer"), False),
+        ],
+    )
+    def test_recognises_missing_function(self, error, expected):
+        assert _is_unsupported_function_error(error, "row_security_active") is expected
+
+
+class TestRlsActiveFromConnErrorHandling:
+    @staticmethod
+    def _conn_raising(exc: Exception):
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = exc
+        return conn
+
+    def test_unsupported_function_error_is_not_captured(self):
+        # A Postgres-wire engine without `row_security_active` is an expected shape: degrade to no
+        # RLS warnings without flooding error tracking.
+        conn = self._conn_raising(psycopg.errors.InternalError(_FLIGHT_MISSING_FUNCTION_MSG))
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
+    def test_unexpected_error_is_still_captured(self):
+        conn = self._conn_raising(Exception("connection reset by peer"))
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_called_once()

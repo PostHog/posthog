@@ -9,9 +9,9 @@ import { humanFriendlyNumber } from 'lib/utils'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
-import { formatDuration } from './TraceFlameChart'
+import { formatDuration } from './TraceWaterfallView'
 
-export interface TreeNode {
+interface TreeNode {
     serviceName: string
     name: string
     node: SpanTreeNode | null
@@ -441,45 +441,13 @@ function findPathByName(root: TreeNode, name: string): string[] | null {
     return null
 }
 
-/**
- * Prune the tree to keep only spans that can reach the target via parent or child:
- * the unique path from the synthetic root down to the target, plus the entire subtree
- * rooted at the target. Sibling/cousin subtrees of ancestors are dropped.
- *
- * Returns the original tree if the target name isn't found, so callers don't accidentally
- * blank the flame when the row's span name no longer matches anything in the result set.
- */
-export function pruneToLineage(root: TreeNode, targetName: string): TreeNode {
-    const path = findPathByName(root, targetName)
-    if (!path) {
-        return root
-    }
-    function walk(node: TreeNode, depth: number, lineage: string[]): TreeNode {
-        if (depth >= lineage.length) {
-            return node
-        }
-        const nextKey = lineage[depth]
-        return {
-            ...node,
-            children: node.children
-                .filter((c) => nodeKey(c.serviceName, c.name) === nextKey)
-                .map((c) => walk(c, depth + 1, lineage)),
-        }
-    }
-    return walk(root, 0, path)
-}
-
 export function TraceCompareFlame({
     current,
     previous,
     loading,
     initialSpanName,
 }: TraceCompareFlameProps): JSX.Element {
-    const rawTree = useMemo(() => buildTree(current, previous), [current, previous])
-    const tree = useMemo(
-        () => (initialSpanName ? pruneToLineage(rawTree, initialSpanName) : rawTree),
-        [rawTree, initialSpanName]
-    )
+    const tree = useMemo(() => buildTree(current, previous), [current, previous])
     // Focus path: keys of nodes from the synthetic root down to the currently focused span.
     // Each click on a flame bar appends; breadcrumb clicks truncate.
     const [focusPath, setFocusPath] = useState<string[]>([])

@@ -1,23 +1,48 @@
-import os
-import tempfile
+"""Snowflake driver for PostHog's data-warehouse import pipeline.
+
+Everything Snowflake-specific — connection lifecycle (with password vs
+keypair auth and the keypair tempfile dance), schema listing, per-cursor
+metadata, and the dlt pipeline build — lives on
+`SnowflakeImplementation`. The source-class `SnowflakeSource` is a thin
+PostHog-layer wrapper that just holds an instance and validates
+credentials.
+"""
+
+from __future__ import annotations
+
 import collections
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Optional
 
 import structlog
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from snowflake.connector.cursor import SnowflakeCursor
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+)
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.sql import (
+    AnsiIdentifierQuoter,
+    compute_projected_columns,
+    format_projected_select_clause,
+)
+from posthog.temporal.data_imports.sources.common.sql.implementation import SourceMetadata, SQLSourceImplementation
+from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
 from posthog.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
+
+__all__ = [
+    "SnowflakeImplementation",
+    "filter_snowflake_incremental_fields",
+]
 
 
 def filter_snowflake_incremental_fields(
@@ -38,109 +63,35 @@ def filter_snowflake_incremental_fields(
     return results
 
 
-def get_schemas(
-    config: SnowflakeSourceConfig, names: list[str] | None = None
-) -> dict[str, list[tuple[str, str, bool]]]:
-    auth_connect_args: dict[str, str | None] = {}
-    file_name: str | None = None
+_SNOWFLAKE_IDENTIFIER_QUOTER = AnsiIdentifierQuoter()
 
-    if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
-        with tempfile.NamedTemporaryFile(delete=False) as tf:
-            tf.write(config.auth_type.private_key.encode("utf-8"))
-            file_name = tf.name
-
-        auth_connect_args = {
-            "user": config.auth_type.user,
-            "private_key_file": file_name,
-            "private_key_file_pwd": config.auth_type.passphrase
-            if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
-            else None,
-        }
-    else:
-        auth_connect_args = {
-            "password": config.auth_type.password,
-            "user": config.auth_type.user,
-        }
-
-    with snowflake.connector.connect(
-        account=config.account_id,
-        warehouse=config.warehouse,
-        database=config.database,
-        schema="information_schema",
-        role=config.role,
-        **auth_connect_args,
-    ) as connection:
-        with connection.cursor() as cursor:
-            if cursor is None:
-                raise Exception("Can't create cursor to Snowflake")
-
-            cursor.execute(
-                "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = %(schema)s ORDER BY table_name ASC",
-                {"schema": config.schema},
-            )
-            result = cursor.fetchall()
-
-            schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
-            for row in result:
-                schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
-
-    if file_name is not None:
-        os.unlink(file_name)
-
-    if names is not None:
-        names_set = set(names)
-        schema_list = {k: v for k, v in schema_list.items() if k in names_set}
-
-    return schema_list
+# Snowflake exposes one metadata schema per database; everything else is user data.
+SNOWFLAKE_SYSTEM_SCHEMA = "INFORMATION_SCHEMA"
 
 
-def _get_connection(
-    account_id: str,
-    user: Optional[str],
-    password: Optional[str],
-    passphrase: Optional[str],
-    private_key: Optional[str],
-    auth_type: str,
-    database: str,
-    warehouse: str,
-    schema: str,
-    role: Optional[str] = None,
-) -> snowflake.connector.SnowflakeConnection:
-    if auth_type == "password" and user is not None and password is not None:
-        return snowflake.connector.connect(
-            account=account_id,
-            user=user,
-            password=password,
-            warehouse=warehouse,
-            database=database,
-            schema=schema,
-            role=role if role else None,
-        )
+def _split_display_name(display_name: str, default_schema: Optional[str]) -> tuple[Optional[str], str]:
+    """Split a `schema.table` display name into `(schema, table)`.
 
-    if private_key is None:
-        raise ValueError("Private key is missing for snowflake")
+    Multi-schema discovery qualifies every table as `schema.table`; a single-schema
+    source keeps bare table names and falls back to the configured schema. The dotted
+    form mirrors `resolve_source_location`'s self-heal so listing keys and per-row
+    routing agree.
+    """
+    if "." in display_name:
+        schema, _, table = display_name.partition(".")
+        return (normalize_namespace(schema) or default_schema), table
+    return default_schema, display_name
 
-    p_key = serialization.load_pem_private_key(
-        private_key.encode("utf-8"),
-        password=passphrase.encode() if passphrase else None,
-        backend=default_backend(),
-    )
 
-    pkb = p_key.private_bytes(
-        encoding=serialization.Encoding.DER,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-
-    return snowflake.connector.connect(
-        account=account_id,
-        user=user,
-        warehouse=warehouse,
-        database=database,
-        schema=schema,
-        role=role if role else None,
-        private_key=pkb,
-    )
+def _display_by_pair(tables: list[str], default_schema: Optional[str]) -> dict[tuple[str, str], str]:
+    """Map each resolvable `(schema, table)` back to its display name, dropping unresolved rows."""
+    pairs: dict[tuple[str, str], str] = {}
+    for display_name in tables:
+        schema, table = _split_display_name(display_name, default_schema)
+        if schema is None:
+            continue
+        pairs[(schema, table)] = display_name
+    return pairs
 
 
 def _build_query(
@@ -151,9 +102,14 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
 ) -> tuple[str, tuple[Any, ...]]:
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause = format_projected_select_clause(projected, _SNOWFLAKE_IDENTIFIER_QUOTER)
+
     if not should_use_incremental_field:
-        return "SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
+        return f"SELECT {select_clause} FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -161,38 +117,15 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return "SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) > %s ORDER BY IDENTIFIER(%s) ASC", (
-        f"{database}.{schema}.{table_name}",
-        incremental_field,
-        db_incremental_field_last_value,
-        incremental_field,
+    operator = incremental_type_to_operator(incremental_field_type)
+    quoted_field = _SNOWFLAKE_IDENTIFIER_QUOTER.quote(incremental_field)
+    return (
+        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {quoted_field} {operator} %s ORDER BY {quoted_field} ASC",
+        (
+            f"{database}.{schema}.{table_name}",
+            db_incremental_field_last_value,
+        ),
     )
-
-
-def _get_rows_to_sync(
-    cursor: SnowflakeCursor, inner_query: str, inner_query_args: tuple[Any, ...], logger: FilteringBoundLogger
-) -> int:
-    try:
-        query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
-
-        cursor.execute(query, inner_query_args)
-        row = cursor.fetchone()
-
-        if row is None:
-            logger.debug(f"_get_rows_to_sync: No results returned. Using 0 as rows to sync")
-            return 0
-
-        rows_to_sync = row[0] or 0
-        rows_to_sync_int = int(rows_to_sync)
-
-        logger.debug(f"_get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
-
-        return int(rows_to_sync)
-    except Exception as e:
-        logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
-        capture_exception(e)
-
-        return 0
 
 
 def _parse_clustering_key_leading_column(clustering_key: str | None) -> str | None:
@@ -224,38 +157,62 @@ def _parse_clustering_key_leading_column(clustering_key: str | None) -> str | No
     return leading.upper()
 
 
-def get_leading_clustering_columns_for_schemas(
-    config: SnowflakeSourceConfig,
-    table_names: list[str],
-) -> dict[str, set[str]] | None:
-    """Return the leading column of the clustering key per table.
+class SnowflakeImplementation(
+    SQLSourceImplementation[SnowflakeSourceConfig, snowflake.connector.SnowflakeConnection, Any]
+):
+    """Snowflake driver implementation paired with `SnowflakeSource`.
 
-    Snowflake doesn't have B-tree indexes; clustering keys are the structure that
-    enables partition pruning for `WHERE col >= …` predicates. Tables without a
-    clustering key map to an empty set so the UI warning fires.
+    One class owns everything Snowflake-specific: the connection
+    lifecycle (password vs keypair, with private-key tempfile cleanup),
+    `information_schema`-style batch queries used during schema listing,
+    per-cursor metadata used during the streaming sync (primary keys),
+    and the dlt pipeline factory (`build_pipeline`).
 
-    Returns None when discovery fails so the caller defaults to no warning.
+    Snowflake does not currently use the optional streaming-side hooks
+    (`fetch_table_stats`, `fetch_average_row_size`, `get_table_metadata`)
+    — it streams via `cursor.fetch_arrow_batches()` and lets the base
+    class return `None` for partition settings and the default chunk
+    size. That preserves current behavior.
     """
-    if not table_names:
-        return {}
 
-    result: dict[str, set[str]] = {table: set() for table in table_names}
-    file_name: str | None = None
+    # ------------------------------------------------------------------
+    # Connection lifecycle
+    # ------------------------------------------------------------------
 
-    try:
-        auth_connect_args: dict[str, str | None] = {}
+    @contextmanager
+    def connect(
+        self,
+        config: SnowflakeSourceConfig,
+    ) -> Iterator[snowflake.connector.SnowflakeConnection]:
+        """Open a Snowflake connection for the duration of the context.
+
+        Branches on `config.auth_type.selection`. In keypair mode the
+        PEM private key is parsed in process and handed to the
+        connector as DER bytes via `private_key=` — never written to
+        disk, matching the streaming-side helper that the pre-refactor
+        code used.
+
+        Uses `config.schema` as the session schema when set; a blank schema
+        (multi-schema import) leaves the session schema unset. All listing and
+        sync queries fully qualify their references so the session schema does
+        not affect their results.
+        """
+        auth_connect_args: dict[str, Any] = {}
 
         if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
-            with tempfile.NamedTemporaryFile(delete=False) as tf:
-                tf.write(config.auth_type.private_key.encode("utf-8"))
-                file_name = tf.name
-
+            p_key = serialization.load_pem_private_key(
+                config.auth_type.private_key.encode("utf-8"),
+                password=config.auth_type.passphrase.encode() if config.auth_type.passphrase else None,
+                backend=default_backend(),
+            )
+            pkb = p_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
             auth_connect_args = {
                 "user": config.auth_type.user,
-                "private_key_file": file_name,
-                "private_key_file_pwd": config.auth_type.passphrase
-                if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
-                else None,
+                "private_key": pkb,
             }
         else:
             auth_connect_args = {
@@ -267,171 +224,311 @@ def get_leading_clustering_columns_for_schemas(
             account=config.account_id,
             warehouse=config.warehouse,
             database=config.database,
-            schema=config.schema,
+            # A blank schema (multi-schema import) must reach the connector as None, not "" —
+            # `schema=""` would try `USE SCHEMA ""`, an invalid identifier, and fail at connect time.
+            schema=normalize_namespace(config.schema),
             role=config.role,
             **auth_connect_args,
         ) as connection:
-            with connection.cursor() as cursor:
-                if cursor is None:
-                    raise Exception("Can't create cursor to Snowflake")
+            yield connection
 
-                placeholders = ",".join(["%s"] * len(table_names))
+    # ------------------------------------------------------------------
+    # Listing — batch queries run once during `get_schemas`
+    # ------------------------------------------------------------------
+
+    def get_columns(
+        self,
+        conn: snowflake.connector.SnowflakeConnection,
+        config: SnowflakeSourceConfig,
+        names: list[str] | None,
+    ) -> dict[str, list[tuple[str, str, bool]]]:
+        selected_schema = normalize_namespace(config.schema)
+        qualify = selected_schema is None
+
+        with conn.cursor() as cursor:
+            if cursor is None:
+                raise Exception("Can't create cursor to Snowflake")
+
+            if selected_schema is not None:
                 cursor.execute(
-                    f"""
-                    SELECT TABLE_NAME, CLUSTERING_KEY
-                    FROM INFORMATION_SCHEMA.TABLES
-                    WHERE TABLE_CATALOG = %s
-                      AND TABLE_SCHEMA = %s
-                      AND TABLE_NAME IN ({placeholders})
-                    """,
-                    (config.database, config.schema, *table_names),
+                    "SELECT table_schema, table_name, column_name, data_type, is_nullable"
+                    " FROM information_schema.columns"
+                    " WHERE table_schema = %(schema)s"
+                    " ORDER BY table_schema ASC, table_name ASC",
+                    {"schema": selected_schema},
                 )
+            else:
+                cursor.execute(
+                    "SELECT table_schema, table_name, column_name, data_type, is_nullable"
+                    " FROM information_schema.columns"
+                    " WHERE table_schema != %(system_schema)s"
+                    " ORDER BY table_schema ASC, table_name ASC",
+                    {"system_schema": SNOWFLAKE_SYSTEM_SCHEMA},
+                )
+            result = cursor.fetchall()
 
-                for table_name, clustering_key in cursor:
-                    leading = _parse_clustering_key_leading_column(clustering_key)
-                    if leading is not None:
-                        result.setdefault(table_name, set()).add(leading)
-    except Exception as e:
-        structlog.get_logger().warning("Failed to detect clustering keys for Snowflake schemas", exc_info=e)
-        return None
-    finally:
-        if file_name is not None:
-            os.unlink(file_name)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
+        for table_schema, table_name, column_name, data_type, is_nullable in result:
+            display_name = f"{table_schema}.{table_name}" if qualify else table_name
+            schema_list[display_name].append((column_name, data_type, is_nullable == "YES"))
 
-    return result
+        if names is not None:
+            # Match qualified (`schema.table`) and bare (`table`) names — a row requested by its
+            # qualified name can still map to a bare discovery key (or vice versa) mid-migration.
+            available = dict(schema_list)
+            filtered: dict[str, list[tuple[str, str, bool]]] = {}
+            for name in names:
+                if name in available:
+                    filtered[name] = available[name]
+                elif "." in name:
+                    _schema, _, unqualified = name.partition(".")
+                    if unqualified in available:
+                        filtered[name] = available[unqualified]
+            return filtered
 
+        return dict(schema_list)
 
-def get_primary_keys_for_schemas(
-    config: SnowflakeSourceConfig,
-    table_names: list[str],
-) -> dict[str, list[str] | None]:
-    """Detect primary keys for all tables by iterating SHOW PRIMARY KEYS."""
-    result: dict[str, list[str] | None] = dict.fromkeys(table_names)
-    file_name: str | None = None
+    def get_primary_keys(
+        self,
+        conn: snowflake.connector.SnowflakeConnection,
+        config: SnowflakeSourceConfig,
+        tables: list[str],
+    ) -> dict[str, list[str] | None]:
+        """Detect primary keys for the given (possibly multi-schema) tables.
 
-    try:
-        auth_connect_args: dict[str, str | None] = {}
+        Batches one `SHOW PRIMARY KEYS IN SCHEMA` per distinct namespace rather
+        than one per table, so a blank-namespace discovery over a wide catalog
+        stays bounded by schema count instead of table count.
 
-        if config.auth_type.selection == "keypair" and config.auth_type.private_key is not None:
-            with tempfile.NamedTemporaryFile(delete=False) as tf:
-                tf.write(config.auth_type.private_key.encode("utf-8"))
-                file_name = tf.name
+        Permission-sensitive — some Snowflake roles can't see catalog-level PK
+        metadata. Swallow and log per-schema failures so schema discovery keeps
+        working without PKs.
+        """
+        result: dict[str, list[str] | None] = dict.fromkeys(tables)
+        if not tables:
+            return result
 
-            auth_connect_args = {
-                "user": config.auth_type.user,
-                "private_key_file": file_name,
-                "private_key_file_pwd": config.auth_type.passphrase
-                if config.auth_type.passphrase and len(config.auth_type.passphrase) > 0
-                else None,
-            }
-        else:
-            auth_connect_args = {
-                "password": config.auth_type.password,
-                "user": config.auth_type.user,
-            }
+        display_by_pair = _display_by_pair(tables, normalize_namespace(config.schema))
 
-        with snowflake.connector.connect(
-            account=config.account_id,
-            warehouse=config.warehouse,
-            database=config.database,
-            schema=config.schema,
-            role=config.role,
-            **auth_connect_args,
-        ) as connection:
-            with connection.cursor() as cursor:
+        try:
+            with conn.cursor() as cursor:
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")
 
-                for tbl in table_names:
+                for schema in sorted({schema for schema, _table in display_by_pair}):
                     try:
                         cursor.execute(
-                            "SHOW PRIMARY KEYS IN IDENTIFIER(%s)",
-                            (f"{config.database}.{config.schema}.{tbl}",),
+                            f"SHOW PRIMARY KEYS IN SCHEMA {_SNOWFLAKE_IDENTIFIER_QUOTER.quote_qualified(config.database, schema)}"
                         )
-
+                        table_index = next(
+                            (i for i, row in enumerate(cursor.description) if row.name == "table_name"), -1
+                        )
                         column_index = next(
                             (i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1
                         )
-                        if column_index == -1:
+                        sequence_index = next(
+                            (i for i, row in enumerate(cursor.description) if row.name == "key_sequence"), -1
+                        )
+                        if table_index == -1 or column_index == -1:
                             continue
 
-                        keys = [row[column_index] for row in cursor]
-                        if keys:
-                            result[tbl] = keys
+                        keys_by_table: dict[str, list[tuple[int, str]]] = collections.defaultdict(list)
+                        for row in cursor:
+                            sequence = row[sequence_index] if sequence_index != -1 else 0
+                            keys_by_table[row[table_index]].append((sequence, row[column_index]))
+
+                        for table, ordered in keys_by_table.items():
+                            display_name = display_by_pair.get((schema, table))
+                            if display_name is None:
+                                continue
+                            keys = [column for _sequence, column in sorted(ordered, key=lambda pair: pair[0])]
+                            if keys:
+                                result[display_name] = keys
                     except Exception as e:
                         structlog.get_logger().warning(
-                            "Failed to detect primary keys for Snowflake table",
-                            table=tbl,
+                            "Failed to detect primary keys for Snowflake schema",
+                            schema=schema,
                             exc_info=e,
                         )
                         continue
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect primary keys for Snowflake schemas", exc_info=e)
 
-    except Exception as e:
-        structlog.get_logger().warning("Failed to detect primary keys for Snowflake schemas", exc_info=e)
-    finally:
-        if file_name is not None:
-            os.unlink(file_name)
+        return result
 
-    return result
+    def get_leading_index_columns(
+        self,
+        conn: snowflake.connector.SnowflakeConnection,
+        config: SnowflakeSourceConfig,
+        tables: list[str],
+    ) -> dict[str, set[str]] | None:
+        """Return the leading column of the clustering key per table.
 
+        Snowflake doesn't have B-tree indexes; clustering keys are the
+        structure that enables partition pruning for `WHERE col >= …`
+        predicates. Tables without a clustering key map to an empty set
+        so the UI warning fires. Returns None when discovery fails so
+        the caller defaults to no warning.
+        """
+        if not tables:
+            return {}
 
-def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table_name: str) -> list[str] | None:
-    cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+        display_by_pair = _display_by_pair(tables, normalize_namespace(config.schema))
+        result: dict[str, set[str]] = {display_name: set() for display_name in tables}
+        if not display_by_pair:
+            return result
 
-    column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
+        schemas = {schema for schema, _table in display_by_pair}
+        table_names = {table for _schema, table in display_by_pair}
 
-    if column_index == -1:
-        raise ValueError("column_name not found in Snowflake cursor description")
+        try:
+            with conn.cursor() as cursor:
+                if cursor is None:
+                    raise Exception("Can't create cursor to Snowflake")
 
-    keys = [row[column_index] for row in cursor]
+                schema_placeholders = ",".join(["%s"] * len(schemas))
+                table_placeholders = ",".join(["%s"] * len(table_names))
+                cursor.execute(
+                    f"""
+                    SELECT TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
+                    FROM INFORMATION_SCHEMA.TABLES
+                    WHERE TABLE_CATALOG = %s
+                      AND TABLE_SCHEMA IN ({schema_placeholders})
+                      AND TABLE_NAME IN ({table_placeholders})
+                    """,
+                    (config.database, *schemas, *table_names),
+                )
 
-    return keys if len(keys) > 0 else None
+                for table_schema, table_name, clustering_key in cursor:
+                    display_name = display_by_pair.get((table_schema, table_name))
+                    if display_name is None:
+                        continue
+                    leading = _parse_clustering_key_leading_column(clustering_key)
+                    if leading is not None:
+                        result[display_name].add(leading)
+        except Exception as e:
+            structlog.get_logger().warning("Failed to detect clustering keys for Snowflake schemas", exc_info=e)
+            return None
 
+        return result
 
-def snowflake_source(
-    account_id: str,
-    user: Optional[str],
-    password: Optional[str],
-    passphrase: Optional[str],
-    private_key: Optional[str],
-    auth_type: str,
-    database: str,
-    warehouse: str,
-    schema: str,
-    table_names: list[str],
-    should_use_incremental_field: bool,
-    logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
-    role: Optional[str] = None,
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
-) -> SourceResponse:
-    table_name = table_names[0]
-    if not table_name:
-        raise ValueError("Table name is missing")
+    def get_source_metadata(
+        self,
+        conn: snowflake.connector.SnowflakeConnection,
+        config: SnowflakeSourceConfig,
+        tables: list[str],
+    ) -> SourceMetadata:
+        """Stamp catalog/schema/table per discovered table so per-row routing can pin a namespace.
 
-    with _get_connection(
-        account_id, user, password, passphrase, private_key, auth_type, database, warehouse, schema, role
-    ) as connection:
-        with connection.cursor() as cursor:
-            inner_query, inner_query_params = _build_query(
-                database,
-                schema,
-                table_name,
-                should_use_incremental_field,
-                incremental_field,
-                incremental_field_type,
-                db_incremental_field_last_value,
-            )
-            primary_keys = _get_primary_keys(cursor, database, schema, table_name)
-            rows_to_sync = _get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
+        The catalog is the connection's database (constant, display-only); the
+        schema and unqualified table come from the `schema.table` display name,
+        falling back to the configured schema for a single-schema source.
+        """
+        default_schema = normalize_namespace(config.schema)
+        catalog_by_table: dict[str, str | None] = {}
+        schema_by_table: dict[str, str | None] = {}
+        table_name_by_table: dict[str, str | None] = {}
+        for display_name in tables:
+            schema, table = _split_display_name(display_name, default_schema)
+            catalog_by_table[display_name] = config.database
+            schema_by_table[display_name] = schema
+            table_name_by_table[display_name] = table
+        return SourceMetadata(
+            catalog_by_table=catalog_by_table,
+            schema_by_table=schema_by_table,
+            table_name_by_table=table_name_by_table,
+        )
 
-    def get_rows() -> Iterator[Any]:
-        with _get_connection(
-            account_id, user, password, passphrase, private_key, auth_type, database, warehouse, schema, role
-        ) as connection:
+    def get_incremental_filter(self) -> IncrementalFieldFilter:
+        return filter_snowflake_incremental_fields
+
+    # ------------------------------------------------------------------
+    # Per-cursor metadata — used during `build_pipeline`
+    # ------------------------------------------------------------------
+
+    def get_primary_keys_for_table(
+        self,
+        cursor: Any,
+        database: str,
+        schema: str,
+        table_name: str,
+    ) -> list[str] | None:
+        """Return the primary-key column names for a single table, or None.
+
+        Snowflake's `SHOW PRIMARY KEYS IN IDENTIFIER(...)` requires the
+        fully qualified `database.schema.table` reference, so this method
+        takes `database` in addition to schema/table_name — the only
+        driver to do so.
+        """
+        cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+
+        column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
+
+        if column_index == -1:
+            raise ValueError("column_name not found in Snowflake cursor description")
+
+        keys = [row[column_index] for row in cursor]
+
+        return keys if len(keys) > 0 else None
+
+    def get_rows_to_sync(
+        self,
+        cursor: Any,
+        inner_query: str,
+        inner_query_args: tuple[Any, ...],
+        logger: FilteringBoundLogger,
+    ) -> int:
+        """Count the rows the given `inner_query` will produce. Returns 0 on error."""
+        try:
+            query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+            cursor.execute(query, inner_query_args)
+            row = cursor.fetchone()
+
+            if row is None:
+                logger.debug("get_rows_to_sync: No results returned. Using 0 as rows to sync")
+                return 0
+
+            rows_to_sync = row[0] or 0
+            rows_to_sync_int = int(rows_to_sync)
+
+            logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+            return rows_to_sync_int
+        except Exception as e:
+            logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+            capture_exception(e)
+            return 0
+
+    # ------------------------------------------------------------------
+    # Pipeline build — the dlt `SourceResponse` for a single table
+    # ------------------------------------------------------------------
+
+    def build_pipeline(self, config: SnowflakeSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        # Per-row routing: a multi-schema row pins its own namespace via `schema_metadata`,
+        # a legacy single-schema row falls back to `config.schema`. The database is fixed
+        # per connection. `response_name` preserves the legacy Delta subdir (`dwh_storage_key`).
+        location = resolve_source_location(inputs, config_namespace=config.schema)
+        table_name = location.table_name
+        schema = location.schema
+        if not table_name:
+            raise ValueError("Table name is missing")
+        if not schema:
+            raise ValueError("Schema is missing")
+
+        database = config.database
+        logger = inputs.logger
+        should_use_incremental_field = inputs.should_use_incremental_field
+        incremental_field = inputs.incremental_field
+        incremental_field_type = inputs.incremental_field_type
+        db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
+
+        with self.connect(config) as connection:
             with connection.cursor() as cursor:
-                query, params = _build_query(
+                if cursor is None:
+                    raise Exception("Can't create cursor to Snowflake")
+                primary_keys = self.get_primary_keys_for_table(cursor, database, schema, table_name)
+                inner_query, inner_query_params = _build_query(
                     database,
                     schema,
                     table_name,
@@ -439,14 +536,41 @@ def snowflake_source(
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
                 )
-                logger.debug(f"Snowflake query: {query.format(params)}")
-                cursor.execute(query, params)
+                rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_params, logger)
 
-                # We cant control the batch size from snowflake when using the arrow function
-                # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
-                yield from cursor.fetch_arrow_batches()
+        def get_rows() -> Iterator[Any]:
+            with self.connect(config) as streaming_connection:
+                with streaming_connection.cursor() as streaming_cursor:
+                    if streaming_cursor is None:
+                        raise Exception("Can't create cursor to Snowflake")
+                    query, params = _build_query(
+                        database,
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                    )
+                    logger.debug(f"Snowflake query: {query.format(params)}")
+                    streaming_cursor.execute(query, params)
 
-    name = NamingConvention.normalize_identifier(table_name)
+                    # We cant control the batch size from snowflake when using the arrow function
+                    # https://github.com/snowflakedb/snowflake-connector-python/issues/1712
+                    #
+                    # Force microsecond precision so every batch shares one timestamp unit.
+                    # Otherwise the connector picks the unit per batch from the data — `ns` for
+                    # values in the nanosecond range (~1677–2262) and `us` for anything outside it
+                    # (e.g. a `0001-01-01`/`9999-12-31` sentinel) — and the mixed units make
+                    # pyarrow fail to assemble the batches ("Schema at index N was different").
+                    # The pipeline normalizes timestamps to `us` downstream regardless.
+                    yield from streaming_cursor.fetch_arrow_batches(force_microsecond_precision=True)
 
-    return SourceResponse(name=name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync)
+        return SourceResponse(
+            name=location.response_name, items=get_rows, primary_keys=primary_keys, rows_to_sync=rows_to_sync
+        )

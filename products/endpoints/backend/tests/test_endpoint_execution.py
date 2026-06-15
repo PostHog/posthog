@@ -9,12 +9,11 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.models.insight_variable import InsightVariable
-
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
@@ -200,7 +199,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        self.assertEqual(response.json()["attr"], "query_override")
 
     def test_hogql_endpoint_rejects_filters_override(self):
         endpoint = create_endpoint_with_version(
@@ -344,7 +343,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("query_override", response.json()["detail"])
+        self.assertEqual(response.json()["attr"], "query_override")
 
     def test_insight_endpoint_accepts_filters_override_for_backwards_compat(self):
         endpoint = create_endpoint_with_version(
@@ -1795,7 +1794,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[1][0])
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
-        from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
         for event_name in [f"event_{i}" for i in range(30)]:
             _create_event(
@@ -1821,7 +1820,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
-            mock.patch("products.endpoints.backend.api.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.endpoints.backend.materialization.ENDPOINT_BREAKDOWN_LIMIT", 5),
             mock.patch("products.endpoints.backend.api.capture_exception") as mock_capture,
         ):
             response = self.client.post(
@@ -2152,7 +2151,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         viewset = EndpointViewSet()
         viewset.team_id = self.team.id
-        viewset._disable_materialization(endpoint)
+        viewset._disable_materialization(endpoint, mock.MagicMock())
 
         after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
         self.assertEqual(after - before, 0.0)
@@ -2187,7 +2186,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
 
         with mock.patch(
-            "products.signals.backend.api.emit_signal",
+            "products.signals.backend.facade.api.emit_signal",
             side_effect=RuntimeError("signal layer exploded"),
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)

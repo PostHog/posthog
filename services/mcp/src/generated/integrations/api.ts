@@ -36,6 +36,7 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
             'google-cloud-service-account',
             'google-cloud-storage',
             'google-pubsub',
+            'google-search-console',
             'google-sheets',
             'hubspot',
             'intercom',
@@ -57,7 +58,7 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe(
-            '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
+            '* `anthropic` - Anthropic\n* `apns` - Apple Push\n* `azure-blob` - Azure Blob\n* `bing-ads` - Bing Ads\n* `clickup` - Clickup\n* `customerio-app` - Customerio App\n* `customerio-track` - Customerio Track\n* `customerio-webhook` - Customerio Webhook\n* `databricks` - Databricks\n* `email` - Email\n* `firebase` - Firebase\n* `github` - Github\n* `gitlab` - Gitlab\n* `google-ads` - Google Ads\n* `google-cloud-service-account` - Google Cloud Service Account\n* `google-cloud-storage` - Google Cloud Storage\n* `google-pubsub` - Google Pubsub\n* `google-search-console` - Google Search Console\n* `google-sheets` - Google Sheets\n* `hubspot` - Hubspot\n* `intercom` - Intercom\n* `jira` - Jira\n* `linear` - Linear\n* `linkedin-ads` - Linkedin Ads\n* `meta-ads` - Meta Ads\n* `pinterest-ads` - Pinterest Ads\n* `postgresql` - Postgresql\n* `reddit-ads` - Reddit Ads\n* `salesforce` - Salesforce\n* `slack` - Slack\n* `slack-posthog-code` - Slack Posthog Code\n* `snapchat` - Snapchat\n* `stripe` - Stripe\n* `tiktok-ads` - Tiktok Ads\n* `twilio` - Twilio\n* `vercel` - Vercel'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -88,4 +89,30 @@ export const IntegrationsChannelsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
+})
+
+export const integrationsChannelsRetrieveQueryLimitDefault = 50
+export const integrationsChannelsRetrieveQueryLimitMax = 200
+
+export const integrationsChannelsRetrieveQueryOffsetDefault = 0
+export const integrationsChannelsRetrieveQueryOffsetMin = 0
+
+export const integrationsChannelsRetrieveQuerySearchDefault = ``
+
+export const IntegrationsChannelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsChannelsRetrieveQueryLimitMax)
+        .default(integrationsChannelsRetrieveQueryLimitDefault)
+        .describe('Maximum number of channels to return per request (max 200).'),
+    offset: zod
+        .number()
+        .min(integrationsChannelsRetrieveQueryOffsetMin)
+        .default(integrationsChannelsRetrieveQueryOffsetDefault)
+        .describe('Number of channels to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsChannelsRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive channel name or ID search query.'),
 })

@@ -1,5 +1,3 @@
-import 'chartjs-adapter-dayjs-3'
-
 import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
 import { useActions, useValues } from 'kea'
 
@@ -16,7 +14,10 @@ import {
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
 import { isString } from 'lib/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import {
+    formatAggregationAxisValue,
+    formatAggregationAxisValueWithShareOfTotal,
+} from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -245,14 +246,12 @@ export function PieChart({
                                                         (a: number, b: number) => a + b,
                                                         0
                                                     )
-                                                    const percentageLabel: number = parseFloat(
-                                                        ((value / total) * 100).toFixed(1)
-                                                    )
-                                                    return `${formatAggregationAxisValue(
+                                                    return formatAggregationAxisValueWithShareOfTotal(
                                                         trendsFilter,
                                                         value,
+                                                        total,
                                                         baseCurrency
-                                                    )} (${percentageLabel}%)`
+                                                    )
                                                 })
                                             }
                                             hideInspectActorsSection={!onClick || !showPersonsModal}

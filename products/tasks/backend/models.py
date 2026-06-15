@@ -20,6 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -27,7 +28,11 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import Integration
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -36,6 +41,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.metrics import observe_task_run_created
+from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -49,19 +55,20 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
-class Task(DeletedMetaFields, models.Model):
+class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
         AUTOMATION = "automation", "Automation"
         SLACK = "slack", "Slack"
-        SENDBLUE = "sendblue", "Sendblue"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
+        # Headless Signals scout — proactively explores a project and emits signals.
+        SIGNALS_SCOUT = "signals_scout", "Signals Scout"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -121,6 +128,15 @@ class Task(DeletedMetaFields, models.Model):
         help_text="If true, this task is for internal use and should not be exposed to end users.",
     )
 
+    archived = models.BooleanField(
+        default=False,
+        help_text=(
+            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "to share archive state across desktop and mobile."
+        ),
+    )
+    archived_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     ci_prompt = models.TextField(
@@ -134,6 +150,7 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
+            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
         ]
 
     def __str__(self):
@@ -156,6 +173,32 @@ class Task(DeletedMetaFields, models.Model):
 
         if is_new:
             self._track_task_created()
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
+        # Tasks live only on the desktop surface, never the web app tree.
+        if surface != DESKTOP_SURFACE:
+            return cls.objects.none()
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="task", ref_field="id", surface=surface)
+
+    def get_file_system_representation(self, folder: str | None = None) -> FileSystemRepresentation:
+        # Tasks live only on the desktop surface, never the web app tree. They land in
+        # Unfiled/Tasks/<title> on first save (via FileSystemSyncMixin) and stay there
+        # unless filed into another folder — e.g. a canvas channel.
+        return FileSystemRepresentation(
+            base_folder=folder or self._get_assigned_folder("Unfiled/Tasks"),
+            type="task",
+            ref=str(self.id),
+            name=self.title or "Untitled",
+            href=f"/tasks/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=bool(self.deleted),
+            surface=DESKTOP_SURFACE,
+        )
 
     def capture_event(self, event: str, properties: dict | None = None) -> None:
         try:
@@ -225,6 +268,13 @@ class Task(DeletedMetaFields, models.Model):
         state: dict = {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
+        # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
+        if "use_dedicated_stream" not in state:
+            distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
+            state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
+                organization_id=str(self.team.organization_id),
+                distinct_id=distinct_id,
+            )
         is_resume = bool((extra_state or {}).get("resume_from_run_id"))
         has_pending = bool(
             (extra_state or {}).get("pending_user_message") or (extra_state or {}).get("pending_user_artifact_ids")
@@ -291,7 +341,7 @@ class Task(DeletedMetaFields, models.Model):
 
         created_by = User.objects.get(id=user_id)
 
-        from products.tasks.backend.services.sandbox import can_clone_without_github_integration
+        from products.tasks.backend.services.sandbox import is_public_sandbox_repo
         from products.tasks.backend.temporal.process_task.utils import (
             PrAuthorshipMode,
             RunSource,
@@ -335,11 +385,7 @@ class Task(DeletedMetaFields, models.Model):
                 github_user_integration = user_github_integration.integration
 
         if repository:
-            if (
-                not github_integration
-                and github_user_integration is None
-                and not can_clone_without_github_integration(repository, origin_product)
-            ):
+            if not github_integration and github_user_integration is None and not is_public_sandbox_repo(repository):
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
 
         sandbox_env = None
@@ -383,6 +429,9 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        if branch:
+            extra_state["pr_base_branch"] = branch
 
         if model:
             extra_state["model"] = model
@@ -585,6 +634,18 @@ class TaskRun(models.Model):
     class Meta:
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
+        indexes = [
+            # Partial functional index backing the per-PR-webhook lookup
+            # `filter(output__pr_url=...)`. The equality lookup implies the key is
+            # present, so the `IS NOT NULL` condition keeps the index off the many
+            # runs without a PR URL (queued/in-progress/failed) while still serving
+            # the query.
+            models.Index(
+                KeyTransform("pr_url", "output"),
+                name="task_run_output_pr_url_idx",
+                condition=models.Q(output__pr_url__isnull=False),
+            ),
+        ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
@@ -705,11 +766,14 @@ class TaskRun(models.Model):
         """Get the Temporal workflow ID for this task run."""
         return self.get_workflow_id(self.task_id, self.id)
 
-    def heartbeat_workflow(self) -> None:
-        from django.core.cache import cache
+    def heartbeat_workflow(self, agent_active: bool = False) -> None:
+        if not agent_active:
+            return
 
-        cache_key = f"tasks:task_run:heartbeat:{self.id}"
-        if not cache.add(cache_key, True, timeout=60):
+        from products.tasks.backend.redis import get_tasks_cache
+
+        cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
+        if not get_tasks_cache().add(cache_key, True, timeout=60):
             return
 
         import asyncio
@@ -721,7 +785,7 @@ class TaskRun(models.Model):
         try:
             client = sync_connect()
             handle = client.get_workflow_handle(self.workflow_id)
-            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat))
+            asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
@@ -931,7 +995,7 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event)
+        publish_task_run_stream_event(str(self.id), event, run_uses_dedicated_stream(self.state))
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
@@ -1015,54 +1079,6 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
-
-
-class TaskPrewarmedSandbox(models.Model):
-    class Status(models.TextChoices):
-        PROVISIONING = "provisioning", "Provisioning"
-        AVAILABLE = "available", "Available"
-        LEASED = "leased", "Leased"
-        TERMINATED = "terminated", "Terminated"
-        FAILED = "failed", "Failed"
-
-    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    pool_key = models.CharField(max_length=255, db_index=True)
-    origin_product = models.CharField(max_length=20, choices=Task.OriginProduct)
-    repository = models.CharField(max_length=255)
-    provider = models.CharField(max_length=32)
-    template = models.CharField(max_length=50)
-    sandbox_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
-    status = models.CharField(max_length=20, choices=Status, default=Status.PROVISIONING, db_index=True)
-    leased_task_run = models.ForeignKey(
-        TaskRun,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="prewarmed_sandbox_leases",
-    )
-    metadata = models.JSONField(default=dict, blank=True)
-    last_error = models.TextField(null=True, blank=True)
-    warmed_at = models.DateTimeField(null=True, blank=True)
-    leased_at = models.DateTimeField(null=True, blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_task_prewarmed_sandbox"
-        indexes = [
-            models.Index(fields=["team", "pool_key", "status"], name="task_prewarmed_team_pool_idx"),
-            models.Index(fields=["pool_key", "status"], name="task_prewarmed_pool_status_idx"),
-            models.Index(
-                fields=["team", "origin_product", "repository", "status"], name="task_prewarmed_team_origin_idx"
-            ),
-            models.Index(fields=["origin_product", "repository", "status"], name="task_prewarmed_origin_repo_idx"),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.pool_key} {self.status} {self.sandbox_id or self.id}"
 
 
 class SandboxSnapshot(UUIDModel):
@@ -1344,6 +1360,170 @@ class CodeInviteRedemption(UUIDModel):
 
     def __str__(self):
         return f"{self.user} redeemed {self.invite_code}"
+
+
+# How long a single beacon keeps a device "present" before the row is treated as stale.
+# Clients beacon every ~30s; expiring after 60s gives them one missed POST of slack.
+TASK_PRESENCE_TTL_SECONDS = 60
+
+
+class TaskPresence(TeamScopedRootMixin):
+    """Per-device 'this user is actively watching this task' beacon.
+
+    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    task screen is foregrounded. The push fanout consults this table to skip
+    devices that are demonstrably already watching the task, so we don't fire
+    phantom notifications at a phone while the user is mid-conversation with
+    the agent on their laptop.
+
+    Rows are ephemeral (expire after ``TASK_PRESENCE_TTL_SECONDS``). Cleanup is
+    lazy: every push fanout filters on ``expires_at > now``, so stale rows are
+    ignored automatically. We can layer a periodic sweep on top later if the
+    row count ever becomes a problem; for now there's nothing to maintain.
+    """
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # `related_name="+"` on every FK so Django doesn't add reverse accessors
+    # (`user.task_presences`, etc.). Presence is always queried forward — by
+    # (task, user) or by push_token id — and skipping the reverse manager
+    # keeps frameworks that walk all reverse relations on related models
+    # (notably the User activity-logger) from tripping on this model's
+    # fail-closed manager when no team context is set.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    # Identifies the device that's watching. Push fanout joins on this FK to
+    # decide which tokens to suppress, and CASCADE means unregistering the push
+    # token automatically clears the presence too.
+    push_token = models.ForeignKey(
+        "posthog.UserPushToken",
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    last_seen_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        db_table = "posthog_task_presence"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "push_token"],
+                name="task_presence_task_push_token_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
+
+
+class CodeWorkflowConfig(TeamScopedRootMixin):
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    version = models.PositiveIntegerField(default=1)
+    bindings = models.JSONField(default=dict, help_text="Situation id → ordered WorkflowAction list")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_workflow_config"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="code_workflow_config_team_user_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
+
+
+class CodePrSnapshot(TeamScopedRootMixin):
+    class State(models.TextChoices):
+        OPEN = "open", "Open"
+        DRAFT = "draft", "Draft"
+        MERGED = "merged", "Merged"
+        CLOSED = "closed", "Closed"
+
+    class CiStatus(models.TextChoices):
+        PASSING = "passing", "Passing"
+        FAILING = "failing", "Failing"
+        PENDING = "pending", "Pending"
+        NONE = "none", "None"
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    github_integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    pr_url = models.CharField(max_length=500)
+    number = models.PositiveIntegerField()
+    title = models.TextField(blank=True, default="")
+    state = models.CharField(max_length=10, choices=State.choices)
+    ci_status = models.CharField(max_length=10, choices=CiStatus.choices, default=CiStatus.NONE)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision.choices, null=True, blank=True)
+    unresolved_threads = models.PositiveIntegerField(default=0)
+    mergeable = models.BooleanField(null=True, blank=True)
+    author_login = models.CharField(max_length=255, null=True, blank=True)
+    requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
+    pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
+    fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")
+    fetched_at = models.DateTimeField(default=django_timezone.now, help_text="When this snapshot was last polled")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_pr_snapshot"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "pr_url"], name="code_pr_snapshot_team_url_unique"),
+        ]
+
+    def __str__(self):
+        return f"CodePrSnapshot({self.pr_url} {self.state})"
+
+
+class CodeWorkstream(TeamScopedRootMixin):
+    class WorkstreamState(models.TextChoices):
+        ATTENTION = "attention", "Needs attention"
+        IN_PROGRESS = "in_progress", "In progress"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    key = models.CharField(max_length=600, help_text="Grouping key: pr:<url> | branch:<repo>#<branch> | path:<path>")
+    repo_name = models.CharField(max_length=255, null=True, blank=True)
+    repo_full_path = models.CharField(max_length=512, null=True, blank=True)
+    branch = models.CharField(max_length=255, null=True, blank=True)
+    pr_url = models.CharField(max_length=500, null=True, blank=True)
+    pr_snapshot = models.ForeignKey(CodePrSnapshot, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    pr = models.JSONField(null=True, blank=True, help_text="Per-user-resolved PrSnapshot wire shape")
+    situations = models.JSONField(default=list, help_text="List of situation ids this workstream is in")
+    primary_situation = models.CharField(max_length=20, null=True, blank=True, help_text="Board column placement")
+    state = models.CharField(max_length=20, choices=WorkstreamState.choices)
+    tasks = models.JSONField(default=list, help_text="List of {id, title, status} for grouped tasks")
+    last_activity_at = models.DateTimeField()
+    generated_at = models.DateTimeField(default=django_timezone.now, help_text="When this row was last rebuilt")
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_code_workstream"
+        ordering = ["-last_activity_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "key"], name="code_workstream_team_user_key_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "state"], name="code_workstream_state_idx"),
+        ]
+
+    def __str__(self):
+        return f"CodeWorkstream({self.key} {self.state})"
 
 
 @receiver(post_save, sender=TaskRun)

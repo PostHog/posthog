@@ -3,12 +3,14 @@ from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
+import structlog
 from oauth2_provider.models import (
     AbstractAccessToken,
     AbstractApplication,
@@ -18,6 +20,7 @@ from oauth2_provider.models import (
 )
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -49,7 +52,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
@@ -92,6 +95,31 @@ class OAuthApplication(AbstractApplication):
         choices=[(brand.value, brand.value) for brand in OAuthApplicationAuthBrand],
         default=OAuthApplicationAuthBrand.POSTHOG.value,
         help_text="Branding to use on authentication pages",
+    )
+
+    # Server-stored scope ceiling for tokens issued for this app.
+    # CharField max_length matches PersonalAPIKey.scopes (`max_length=100`)
+    # so the same `obj:action` strings fit identically across both
+    # PAT and OAuth surfaces.
+    scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+    )
+
+    # Generation marker for app-wide session revocation. A refresh presenting a token issued
+    # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
+    # can't slip new tokens past the one-shot bulk revoke.
+    sessions_revoked_at: models.DateTimeField = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an admin last force-revoked every session for this app. Tokens issued before this "
+            "are rejected on refresh, forcing re-authorization."
+        ),
     )
 
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
@@ -140,6 +168,14 @@ class OAuthApplication(AbstractApplication):
     )
     provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
         default=True, help_text="Can this app provision projects and API keys"
+    )
+    provisioning_issues_personal_api_key: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Whether provisioning mints a Personal API Key for this app. Off by default; "
+            "only grandfathered apps (the legacy Stripe app) still issue one, capped at the app's scopes."
+        ),
     )
     provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
@@ -294,6 +330,27 @@ class OAuthAccessToken(AbstractAccessToken):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
+    # When set, this token was minted by a staff user impersonating `user`. Used to revoke
+    # tokens at impersonation end. SET_NULL so the customer's tokens survive admin deactivation.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
+
+    # Optional user-facing label set at mint time. Carried across refreshes so
+    # it persists for the life of the connection, not just one rotated token.
+    label: models.CharField = models.CharField(
+        max_length=40,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Optional user-facing label so a user can identify a token (per-device, per-IP, or by purpose).",
+    )
+
 
 class OAuthIDToken(AbstractIDToken):
     class Meta(AbstractIDToken.Meta):
@@ -329,6 +386,16 @@ class OAuthRefreshToken(AbstractRefreshToken):
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
 
+    # See OAuthAccessToken.impersonated_by — propagated through token rotation.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
+
 
 class OAuthGrant(AbstractGrant):
     class Meta(AbstractGrant.Meta):
@@ -354,6 +421,16 @@ class OAuthGrant(AbstractGrant):
 
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     scoped_organizations: ArrayField = ArrayField(models.CharField(max_length=100), null=True, blank=True)
+
+    # See OAuthAccessToken.impersonated_by — propagated from grant to access token at code exchange.
+    impersonated_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_index=True,
+    )
 
 
 def find_oauth_access_token(token: str) -> OAuthAccessToken | None:
@@ -414,6 +491,34 @@ def revoke_oauth_session(
 
         # Delete all grants for this user+application
         OAuthGrant.objects.filter(user=user, application=application).delete()
+
+
+def revoke_application_sessions(application: "OAuthApplication") -> None:
+    """Force-invalidate every outstanding token and grant for an application, across all users.
+
+    Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
+    re-authorize under the new ceiling, instead of waiting for each token to hit its next
+    refresh (where `get_original_scopes` caps it).
+
+    Revokes refresh tokens before deleting access tokens, all in one transaction, so a
+    concurrent refresh can't mint a fresh access token in the gap and a mid-way failure
+    can't leave refresh tokens live after their access tokens are already gone.
+
+    Stamps `sessions_revoked_at` so a refresh that validated its (now-revoked) token before
+    this transaction committed is rejected when it tries to mint — DOT validates the refresh
+    token in autocommit, before its own transaction takes the row lock, so the bulk update
+    here would otherwise miss the tokens that racing refresh is about to create.
+
+    Grants are deleted before the token sweep: a racing code exchange locks its grant row at
+    mint (`_reject_code_exchange_racing_revoke`), so deleting grants first makes this
+    transaction block on that lock and re-snapshot the token sweep after the mint commits.
+    Sweeping tokens first would let the racing mint's tokens escape the sweep."""
+    now = timezone.now()
+    with transaction.atomic():
+        OAuthApplication.objects.filter(pk=application.pk).update(sessions_revoked_at=now)
+        OAuthGrant.objects.filter(application=application).delete()
+        OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
+        OAuthAccessToken.objects.filter(application=application).delete()
 
 
 def generate_random_token_cimd_verification() -> str:
@@ -492,6 +597,52 @@ class CIMDBlocklistEntry(models.Model):
     class Meta:
         verbose_name = "CIMD Blocklist Entry"
         verbose_name_plural = "CIMD Blocklist Entries"
+
+
+logger = structlog.get_logger(__name__)
+
+
+@receiver(user_logged_out)
+def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
+    """Revoke OAuth tokens minted during an impersonation session when it ends.
+
+    Fires on every logout, but only acts on impersonation logouts — when the loginas
+    session flag is still set and we can recover the original (staff) user. Tokens
+    are matched by `(user=<impersonated>, impersonated_by=<staff>)`, so only tokens
+    this admin minted during this kind of impersonation are revoked; the customer's
+    own pre-existing tokens (impersonated_by IS NULL) are untouched.
+
+    Lives in the model module so the receiver is registered as soon as Django
+    imports `OAuthAccessToken` — no explicit `apps.py` wiring required.
+    """
+    if request is None or user is None:
+        return
+
+    from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
+
+    if not is_impersonated_session(request):
+        return
+
+    impersonator = get_original_user_from_session(request)
+    if impersonator is None:
+        return
+
+    now = timezone.now()
+    access_deleted, _ = OAuthAccessToken.objects.filter(user=user, impersonated_by=impersonator).delete()
+    refresh_revoked = OAuthRefreshToken.objects.filter(
+        user=user, impersonated_by=impersonator, revoked__isnull=True
+    ).update(revoked=now)
+    grants_deleted, _ = OAuthGrant.objects.filter(user=user, impersonated_by=impersonator).delete()
+
+    if access_deleted or refresh_revoked or grants_deleted:
+        logger.info(
+            "impersonation_oauth_tokens_revoked",
+            impersonated_user_id=user.pk,
+            impersonator_user_id=impersonator.pk,
+            access_tokens_deleted=access_deleted,
+            refresh_tokens_revoked=refresh_revoked,
+            grants_deleted=grants_deleted,
+        )
 
 
 @receiver(models.signals.post_delete, sender=OAuthApplication)

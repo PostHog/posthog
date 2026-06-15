@@ -1,0 +1,118 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The span call-tree aggregation query to execute.",
+            "properties": {
+                "compareFilter": {
+                    "description": "Optional comparison-window configuration. When omitted, only the primary window is returned.",
+                    "properties": {
+                        "compare": {
+                            "default": false,
+                            "description": "When true, also fetch results for a comparison window and return them under `compare`.",
+                            "type": "boolean"
+                        },
+                        "compare_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length."
+                        }
+                    },
+                    "type": "object"
+                },
+                "dateRange": {
+                    "description": "Date range for the primary window. Defaults to last hour.",
+                    "properties": {
+                        "date_from": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc."
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                        }
+                    },
+                    "type": "object"
+                },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Additional property filters applied to spans in both windows.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "lt",
+                                    "is_set",
+                                    "is_not_set"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "description": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                                "enum": ["span", "span_attribute", "span_resource_attribute"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                            }
+                        },
+                        "required": ["key", "type", "operator"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "serviceName": {
+                    "description": "Service name that scopes the returned tree. Applied to the spans CTE so the call-tree only contains spans from this service, even when matched traces span multiple services.",
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "description": "Filter by service names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "spanName": {
+                    "description": "Span name to scope the matched trace set. Required because the (trace_id, parent_span_id) self-join is unsafe without bounding the matched traces.",
+                    "type": "string"
+                }
+            },
+            "required": ["spanName", "serviceName"],
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

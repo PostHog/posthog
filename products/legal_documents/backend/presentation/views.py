@@ -18,10 +18,30 @@ from .permissions import IsCloudOrDevDeployment, IsOrganizationAdminOrOwner
 from .serializers import CreateLegalDocumentSerializer, LegalDocumentSerializer
 
 
-@extend_schema(tags=["core"])
+class _PandaDocUnavailable(exceptions.APIException):
+    """503 surfaced when a self-serve delete couldn't cancel the PandaDoc envelope."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "Couldn't cancel the PandaDoc envelope. Please try again, or contact PostHog support if this keeps happening."
+    )
+    default_code = "legal_document_void_failed"
+
+
 class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "legal_document"
     permission_classes = [IsCloudOrDevDeployment, permissions.IsAuthenticated, IsOrganizationAdminOrOwner]
+
+    def dangerously_get_permissions(self) -> list[permissions.BasePermission]:
+        # Staff users (Django admin) need to download signed PDFs from the
+        # admin change view without first joining the customer's organization.
+        # The default permission chain adds OrganizationMemberPermissions which
+        # rejects them; bypass it here for the download action only. The
+        # download still scopes by URL-provided org_id inside the view, so a
+        # staff user can't grab a document that doesn't belong to that org.
+        if self.action == "download" and getattr(self.request.user, "is_staff", False):
+            return [IsCloudOrDevDeployment(), permissions.IsAuthenticated()]
+        raise NotImplementedError()
 
     @extend_schema(responses={200: LegalDocumentSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -80,3 +100,32 @@ class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not presigned_url:
             raise exceptions.NotFound()
         return HttpResponseRedirect(presigned_url)
+
+    @extend_schema(responses={204: None, 403: None, 404: None, 503: None})
+    def destroy(self, request: Request, pk: str, **kwargs) -> Response:
+        """
+        Delete an unsigned legal document. The PandaDoc envelope is voided
+        first so the original signer can no longer complete it; only if that
+        succeeds is the row removed, freeing the unique-per-org-per-type
+        constraint so a fresh document can be generated.
+
+        Returns 503 if the PandaDoc void fails — the row stays in that case
+        and the frontend should prompt the user to retry. Returns 403 for
+        signed documents (legal artifacts; staff can still delete signed
+        rows from Django admin).
+        """
+        try:
+            document_id = UUID(pk)
+        except (ValueError, DjangoValidationError):
+            raise exceptions.NotFound()
+        try:
+            api.delete_document(document_id, self.organization.id)
+        except api.LegalDocumentNotFound:
+            raise exceptions.NotFound()
+        except api.LegalDocumentAlreadySigned:
+            raise exceptions.PermissionDenied(
+                "Signed documents can't be deleted from the UI. Contact PostHog support if you need to remove a signed record."
+            )
+        except api.LegalDocumentVoidFailed:
+            raise _PandaDocUnavailable()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -13,6 +13,7 @@ import { HogFunctionType, PluginConfigTypeNew, PluginType } from '~/types'
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
+import { humanizeBatchExportDescription } from '../batch-exports/utils'
 import type { nonHogFunctionsLogicType } from './nonHogFunctionsLogicType'
 
 export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
@@ -147,7 +148,7 @@ export const nonHogFunctionsLogic = kea<nonHogFunctionsLogicType>([
                         hogFunctions.push({
                             id: `batch-export-${batchExport.id}`,
                             name: batchExport.name,
-                            description: `${batchExport.destination.type} batch export`,
+                            description: humanizeBatchExportDescription(batchExport.destination.type),
                             type: 'destination',
                             created_by: null,
                             created_at: batchExport.created_at,

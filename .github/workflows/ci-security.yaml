@@ -5,10 +5,6 @@ on:
     pull_request:
     merge_group:
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 name: Security
 
 permissions:
@@ -16,130 +12,174 @@ permissions:
 
 env:
     SEMGREP_ENABLE_VERSION_CHECK: 'false'
+    SEMGREP_IMAGE: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
 
 jobs:
-    ensure-pinned-actions:
-        runs-on: ubuntu-latest
-        timeout-minutes: 15
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v6
-            - name: Ensure SHA pinned actions
-              uses: zgosalvez/github-actions-ensure-sha-pinned-actions@6124774845927d14c601359ab8138699fa5b70c3 # v4.0.1
-              with:
-                  allowlist: |
-                      actions/
-                      github/
-                      PostHog/
-
     semgrep-python:
         runs-on: ubuntu-latest
-        timeout-minutes: 15
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 30
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
-                  semgrep \
-                    --config "p/python" \
-                    --config "p/owasp-top-ten" \
-                    --config "p/security-audit" \
-                    --config "p/trailofbits" \
-                    --config ".semgrep/rules" \
-                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                    --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
-                    --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/python" \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --config ".semgrep/rules" \
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                      --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
+                      --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      bin/ common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 10
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
-                  semgrep \
-                    --config "p/golang" \
-                    --config "p/owasp-top-ten" \
-                    --config "p/security-audit" \
-                    --config "p/trailofbits" \
-                    --config "r/go.lang.security" \
-                    --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    livestream/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/golang" \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --config "r/go.lang.security" \
+                      --exclude-rule go.lang.security.audit.xss.no-fprintf-to-responsewriter.no-fprintf-to-responsewriter \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      livestream/
 
     semgrep-rust:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 10
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
-                  semgrep \
-                    --config "p/rust" \
-                    --config "p/owasp-top-ten" \
-                    --config "p/security-audit" \
-                    --config "p/trailofbits" \
-                    --config "r/rust.lang.security" \
-                    --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
-                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                    --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    cli/ rust/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/rust" \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --config "r/rust.lang.security" \
+                      --exclude-rule trailofbits.generic.curl-unencrypted-url.curl-unencrypted-url \
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                      --exclude-rule trailofbits.rs.panic-in-function-returning-result.panic-in-function-returning-result \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      cli/ rust/
 
     semgrep-js:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 20
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Run Semgrep
               run: |
-                  semgrep \
-                    --config ".semgrep/rules/" \
-                    --config "p/javascript" \
-                    --config "p/owasp-top-ten" \
-                    --config "p/security-audit" \
-                    --config "p/trailofbits" \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/" \
+                      --config "p/javascript" \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     semgrep-products-frontend:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 20
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Single-rule scan — keeps the failure surface here aligned with the
             # job name. Other custom TS rules (no-direct-fuse-instantiation,
@@ -147,51 +187,66 @@ jobs:
             # product-specific rules land, extend the --config list explicitly.
             - name: Run Semgrep
               run: |
-                  semgrep \
-                    --config ".semgrep/rules/prefer-codegen-api.yaml" \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    products/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/rules/prefer-codegen-api.yaml" \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      products/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 20
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # exclude all directories already scanned by other jobs
             - name: Run Semgrep
               run: |
-                  semgrep \
-                    --config "p/owasp-top-ten" \
-                    --config "p/security-audit" \
-                    --config "p/trailofbits" \
-                    --config "p/github-actions" \
-                    --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
-                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
-                    --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    --exclude ./cli/ \
-                    --exclude ./common/ \
-                    --exclude ./ee/ \
-                    --exclude ./frontend/ \
-                    --exclude ./livestream/ \
-                    --exclude ./nodejs/ \
-                    --exclude ./posthog/ \
-                    --exclude ./products/ \
-                    --exclude ./rust/ \
-                    --exclude ./.semgrep/ \
-                    --exclude ./docs/ \
-                    --exclude ./services/ \
-                    .
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --config "p/github-actions" \
+                      --exclude-rule dockerfile.security.no-sudo-in-dockerfile.no-sudo-in-dockerfile \
+                      --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                      --exclude-rule trailofbits.yaml.docker-compose.port-all-interfaces.port-all-interfaces \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      --exclude ./cli/ \
+                      --exclude ./common/ \
+                      --exclude ./ee/ \
+                      --exclude ./frontend/ \
+                      --exclude ./livestream/ \
+                      --exclude ./nodejs/ \
+                      --exclude ./posthog/ \
+                      --exclude ./products/ \
+                      --exclude ./rust/ \
+                      --exclude ./.semgrep/ \
+                      --exclude ./docs/ \
+                      --exclude ./services/ \
+                      .
 
     # Devex / hygiene rules. Two passes:
     #   - WARNING-severity rules print findings without failing the job
@@ -200,51 +255,78 @@ jobs:
     # See `.semgrep/devex-rules/README.md`.
     semgrep-devex:
         runs-on: ubuntu-latest
-        timeout-minutes: 10
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 20
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             # Pass 1: print WARNING-severity findings. No --error — this step
             # does not fail CI. Backlogs from migration-in-progress rules show
             # up here.
             - name: Warnings (informational)
               run: |
-                  semgrep \
-                    --config ".semgrep/devex-rules/" \
-                    --severity=WARNING \
-                    --metrics=off \
-                    --verbose \
-                    common/ ee/ frontend/ posthog/ products/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/devex-rules/" \
+                      --severity=WARNING \
+                      --metrics=off \
+                      --verbose \
+                      bin/ common/ ee/ frontend/ posthog/ products/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
             - name: Errors (blocking)
               run: |
-                  semgrep \
-                    --config ".semgrep/devex-rules/" \
-                    --severity=ERROR \
-                    --error \
-                    --metrics=off \
-                    --verbose \
-                    common/ ee/ frontend/ posthog/ products/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config ".semgrep/devex-rules/" \
+                      --severity=ERROR \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      bin/ common/ ee/ frontend/ posthog/ products/
 
     semgrep-test-rules:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
-        container:
-            image: semgrep/semgrep
+        timeout-minutes: 10
+
+        env:
+            DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Checkout
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - name: Test custom Semgrep rules
               run: |
-                  semgrep --test .semgrep/
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep --test .semgrep/
 
     semgrep_checks:
         needs:

@@ -11,6 +11,7 @@
  */
 
 import { cssVarsFlat } from './css'
+import { generateDataVizVars } from './data-viz'
 import { generateShadowCSS, shadow } from './shadow'
 import { generateSpacingCSS } from './spacing'
 import { generateFontSizeCSS, generateFontFamilyCSS } from './typography'
@@ -61,11 +62,7 @@ export type ColorTuple = readonly [light: string, dark: string, tailwindClass: s
 function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark', alpha?: number): string {
     const hueVar = mode === 'light' ? 'var(--theme-hue)' : 'var(--theme-dark-hue)'
     const chromaExpr =
-        chromaScale === 1
-            ? 'var(--theme-tint)'
-            : chromaScale === 0
-              ? '0'
-              : `calc(var(--theme-tint) * ${chromaScale})`
+        chromaScale === 1 ? 'var(--theme-tint)' : chromaScale === 0 ? '0' : `calc(var(--theme-tint) * ${chromaScale})`
     const alphaSuffix = alpha !== undefined ? ` / ${alpha * 100}%` : ''
     return `oklch(${lightness} ${chromaExpr} ${hueVar}${alphaSuffix})`
 }
@@ -87,7 +84,11 @@ function oklch(l: number, c: number, h: number, alpha?: number): string {
 export function buildSemanticColors(): Record<string, ColorTuple> {
     return {
         // ── Surfaces (theme-derived) ──────────────────
-        background: [surface(0.97, 1, 'light'), surface(0.145, 1.5, 'dark'), 'bg-background'],
+        // Matched to PostHog app's --color-bg-primary so quill panels blend
+        // with the surrounding app: light hsl(75 14% 95%), dark hsl(240 8% 8%),
+        // converted to OKLCH. Dark equals `muted` — PostHog uses one token for
+        // both; surfaces separate via `card` / borders, not background tone.
+        background: [surface(0.966, 0.79, 'light'), surface(0.187, 1.1, 'dark'), 'bg-background'],
         foreground: [oklch(0.13, 0.028, 262), oklch(0.967, 0.003, 265), 'text-foreground'],
 
         card: [surface(0.995, 0.3, 'light'), surface(0.2, 1.2, 'dark'), 'bg-card'],
@@ -95,8 +96,16 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // primitives migrate to plain `text-foreground`.
         'card-foreground': ['var(--foreground)', 'var(--foreground)', 'text-card-foreground'],
 
-        muted: [surface(0.94, 1.5, 'light'), surface(0.27, 1.5, 'dark'), 'bg-muted'],
+        // Matched to PostHog app's --color-bg-surface-secondary (subdued cards,
+        // list rows): light hsl(70 16% 93%), dark hsl(240 8% 10%), in OKLCH.
+        muted: [surface(0.953, 1.28, 'light'), surface(0.209, 1.33, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
+
+        // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
+        // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
+        // dark hsl(240 8% 8%), in OKLCH. Hue stays theme-derived; chroma is
+        // near-zero so the hue offset is imperceptible.
+        chrome: [surface(0.923, 1.67, 'light'), surface(0.187, 1.1, 'dark'), 'bg-chrome'],
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
@@ -105,17 +114,15 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // ── Status (independent of theme hue) ─────────
         destructive: [oklch(0.92, 0.03, 32.22), oklch(0.24, 0.03, 2.79), 'bg-destructive'],
         'destructive-foreground': [
-            oklch(0.59, 0.2, 23.61),
-            oklch(0.6316, 0.1927, 24.53),
+            // Darkened from L=0.59 → 0.51 to clear WCAG AA (5.0:1) on the light
+            // destructive surface; the prior value sat at ~3.6:1.
+            oklch(0.51, 0.2, 23.61),
+            oklch(0.6605, 0.1821, 23.51),
             'text-destructive-foreground',
         ],
 
         success: [oklch(0.94, 0.06, 154.03), oklch(0.27, 0.04, 157.6), 'bg-success'],
-        'success-foreground': [
-            oklch(0.448, 0.119, 151.328),
-            oklch(0.925, 0.084, 155.995),
-            'text-success-foreground',
-        ],
+        'success-foreground': [oklch(0.448, 0.119, 151.328), oklch(0.925, 0.084, 155.995), 'text-success-foreground'],
 
         warning: [oklch(0.93, 0.04, 74.41), oklch(0.29, 0.03, 75), 'bg-warning'],
         'warning-foreground': [oklch(0.476, 0.114, 61.907), oklch(0.77, 0.14, 99.29), 'text-warning-foreground'],
@@ -124,8 +131,8 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         'info-foreground': [oklch(0.49, 0.02, 254), oklch(0.882, 0.059, 254.128), 'text-info-foreground'],
 
         // ── Borders & rings (theme-derived) ───────────
-        border: [surface(0.90, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
-        input: [surface(0.81, 0.5, 'light'), surface(0.30, 1.5, 'dark'), 'border-input'],
+        border: [surface(0.9, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
+        input: [surface(0.81, 0.5, 'light'), surface(0.3, 1.5, 'dark'), 'border-input'],
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
         // ── Interactive fills for default button / interactive elements ───────────
@@ -205,6 +212,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'background',
     'card',
     'muted',
+    'chrome',
     'primary',
     'border',
     'input',
@@ -289,6 +297,10 @@ export function generateColorSystemCSS(
     const light = partition(0)
     const dark = partition(1)
 
+    // Data-viz tokens (categorical palette + graph chrome) are static like the
+    // semantic static vars — they live with them on :root / the scope selector.
+    const dataViz = generateDataVizVars()
+
     // ── Scoped mode ─────────────────────────────────────
     // All vars gated behind the scope selector to avoid clashing
     // with the consumer's existing CSS custom properties.
@@ -324,6 +336,9 @@ ${themeKnobs()}
 ${cssVarsFlat(light.staticVars)}
 ${cssVarsFlat(light.dynamicVars)}
 
+  /* Data-visualization palette + graph chrome (see data-viz.ts) */
+${dataViz.light}
+
   /* Override Tailwind --color-* theme tokens within scope so utilities
    * like bg-card, text-foreground, border-border resolve to quill's
    * values instead of the consumer's global theme. */
@@ -333,6 +348,7 @@ ${generateColorMappingsCSS()}
 ${darkScopeSel} {
 ${cssVarsFlat(dark.staticVars)}
 ${cssVarsFlat(dark.dynamicVars)}
+${dataViz.dark}
 }
 `
     }
@@ -356,10 +372,14 @@ ${themeKnobs()}
 /* Static colors (no theme-var references, safe on :root) */
 :root {
 ${cssVarsFlat(light.staticVars)}
+
+  /* Data-visualization palette + graph chrome (see data-viz.ts) */
+${dataViz.light}
 }
 
 ${darkSelector} {
 ${cssVarsFlat(dark.staticVars)}
+${dataViz.dark}
 }
 
 /*

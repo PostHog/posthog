@@ -1,8 +1,9 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -57,11 +58,28 @@ function defaultsFor(documentType: LegalDocumentType): LegalDocumentFormValues {
 export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
     path(['products', 'legal_documents', 'legalDocumentsLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization', 'currentOrganizationId'], billingLogic, ['billing']],
+        values: [
+            organizationLogic,
+            ['currentOrganization', 'currentOrganizationId', 'isAdminOrOwner'],
+            billingLogic,
+            ['billing'],
+        ],
+        actions: [organizationLogic, ['loadCurrentOrganizationSuccess']],
     })),
     actions({
         setDocumentType: (documentType: LegalDocumentType) => ({ documentType }),
         setDpaMode: (dpaMode: DPAMode) => ({ dpaMode }),
+        deleteLegalDocument: (id: string, documentType: LegalDocumentType) => ({ id, documentType }),
+        // Internal — used by the listener to drive the per-row spinner.
+        setDeletingId: (id: string | null) => ({ id }),
+    }),
+    reducers({
+        deletingId: [
+            null as string | null,
+            {
+                setDeletingId: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         legalDocuments: [
@@ -71,8 +89,18 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                     if (!values.currentOrganizationId) {
                         return []
                     }
-                    const response = await api.legalDocumentsList(values.currentOrganizationId)
-                    return (response.results ?? []) as LegalDocument[]
+                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                        return []
+                    }
+                    try {
+                        const response = await api.legalDocumentsList(values.currentOrganizationId)
+                        return (response.results ?? []) as LegalDocument[]
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 403) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -129,6 +157,32 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
         setDpaMode: ({ dpaMode }) => {
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
         },
+        deleteLegalDocument: async ({ id, documentType }) => {
+            if (!values.currentOrganizationId) {
+                return
+            }
+            actions.setDeletingId(id)
+            try {
+                await api.legalDocumentsDestroy(values.currentOrganizationId, id)
+                actions.loadLegalDocuments()
+                lemonToast.success(`${documentType} deleted. You can now generate a new ${documentType}.`)
+            } catch (error: any) {
+                // 503 from the backend means the PandaDoc envelope couldn't be
+                // cancelled and the row was NOT deleted — surface the backend's
+                // detail so the user knows to retry rather than assuming success.
+                lemonToast.error(
+                    error?.detail ||
+                        `Could not delete the ${documentType}. Please try again, or contact PostHog support.`
+                )
+            } finally {
+                actions.setDeletingId(null)
+            }
+        },
+        loadCurrentOrganizationSuccess: () => {
+            if (values.legalDocuments.length === 0 && values.isAdminOrOwner && !values.legalDocumentsLoading) {
+                actions.loadLegalDocuments()
+            }
+        },
     })),
     selectors({
         hasQualifyingBaaAddon: [
@@ -139,6 +193,31 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 }
                 return billing.products.some((product) =>
                     product.addons?.some((addon) => BAA_ADDON_TYPES.has(addon.type) && !!addon.subscribed)
+                )
+            },
+        ],
+        isOnQualifyingAddonTrial: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                if (!billing?.trial) {
+                    return false
+                }
+                return billing.trial.status === 'active' && BAA_ADDON_TYPES.has(billing.trial.target)
+            },
+        ],
+        // Enterprise 'standard' trials are sales-managed: the billing page hides
+        // the cancel-trial button for them (see BillingProductAddonActions.tsx),
+        // so users need to go through support to convert their trial.
+        isOnEnterpriseStandardTrial: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                if (!billing?.trial) {
+                    return false
+                }
+                return (
+                    billing.trial.status === 'active' &&
+                    billing.trial.target === 'enterprise' &&
+                    billing.trial.type !== 'autosubscribe'
                 )
             },
         ],

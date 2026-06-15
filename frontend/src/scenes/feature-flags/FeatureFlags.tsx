@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
@@ -58,10 +58,29 @@ import {
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+
+function FlagDescription({ name }: { name: string }): JSX.Element {
+    const ref = useRef<HTMLDivElement | null>(null)
+    const [isTruncated, setIsTruncated] = useState(false)
+
+    useEffect(() => {
+        if (ref.current) {
+            setIsTruncated(ref.current.scrollHeight > ref.current.clientHeight)
+        }
+    }, [name])
+
+    return (
+        <Tooltip title={isTruncated ? name : undefined} delayMs={500}>
+            <div ref={ref} className="line-clamp-2 max-w-[30rem]">
+                {name}
+            </div>
+        </Tooltip>
+    )
+}
 
 // Component for rendering status cell with loading state
 function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -149,6 +168,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
             <More
                 overlay={
                     <>
+                        {featureFlag.id && (
+                            <LemonButton to={urls.featureFlag(featureFlag.id)} data-attr="feature-flag-view" fullWidth>
+                                View
+                            </LemonButton>
+                        )}
+
                         <LemonButton
                             onClick={() => {
                                 void copyToClipboard(featureFlag.key, 'feature flag key')
@@ -226,7 +251,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             data-attr="feature-flag-duplicate"
                             fullWidth
                         >
-                            Duplicate feature flag
+                            Duplicate
                         </LemonButton>
 
                         <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
@@ -281,8 +306,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                             : (featureFlag.features?.length || 0) > 0
                                               ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                              : (featureFlag.experiment_set?.length || 0) > 0
-                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag.'
+                                              : featureFlag.experiment_set_metadata?.some((exp) => exp.is_running)
+                                                ? 'This feature flag is linked to a running experiment. Stop the experiment to delete this flag.'
                                                 : (featureFlag.surveys?.length || 0) > 0
                                                   ? 'This feature flag is linked to a survey. Delete the survey to delete this flag.'
                                                   : null
@@ -328,9 +353,7 @@ export function OverviewTab({
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
         useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
-    const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
-    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const newFeatureFlagUrl = urls.featureFlagTemplates()
     const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const { currentProjectId } = useValues(projectLogic)
@@ -375,8 +398,36 @@ export function OverviewTab({
                                 )}
                             </>
                         }
-                        description={featureFlag.name}
+                        description={featureFlag.name ? <FlagDescription name={featureFlag.name} /> : undefined}
                     />
+                )
+            },
+        },
+        {
+            title: 'Type',
+            width: 120,
+            render: function RenderType(_, featureFlag: FeatureFlagType) {
+                const labels: string[] = []
+                if (flagMatchesType(featureFlag, 'remote_config')) {
+                    labels.push('Remote config')
+                }
+                if (flagMatchesType(featureFlag, 'experiment')) {
+                    labels.push('Experiment')
+                }
+                if (flagMatchesType(featureFlag, 'multivariant')) {
+                    labels.push('Multiple variants')
+                }
+                if (labels.length === 0) {
+                    labels.push('Boolean')
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {labels.map((label) => (
+                            <LemonTag key={label} type="default" className="whitespace-nowrap">
+                                {label}
+                            </LemonTag>
+                        ))}
+                    </div>
                 )
             },
         },
@@ -396,15 +447,15 @@ export function OverviewTab({
         updatedAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Release conditions',
-            width: 100,
+            width: 280,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
                 const variants = featureFlag.filters?.multivariate?.variants
                 const isMultivariate = variants && variants.length > 0
 
                 return (
-                    <div className="space-y-1">
-                        <div>
+                    <div className="max-w-[280px] space-y-1 overflow-x-auto">
+                        <div className="whitespace-nowrap">
                             {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
                                 <LemonTag type="highlight">{releaseText}</LemonTag>
                             ) : (
@@ -412,11 +463,12 @@ export function OverviewTab({
                             )}
                         </div>
                         {isMultivariate && (
-                            <div className="flex flex-wrap gap-1">
+                            <div className="flex gap-1">
                                 {variants.map((variant) => (
                                     <span key={variant.key}>
                                         <LemonTag type="muted" size="small">
-                                            {variant.key}: {variant.rollout_percentage}%
+                                            {variant.key}:{' '}
+                                            <span className="tabular-nums">{variant.rollout_percentage}%</span>
                                         </LemonTag>
                                     </span>
                                 ))}
@@ -512,6 +564,7 @@ export function OverviewTab({
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
+                mcpSurfaceKey="feature_flags.create"
             />
             {!isProductIntroVisible && <ApprovalsPromoBanner />}
             <PendingApprovalsBanner />
@@ -656,8 +709,7 @@ export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
-    const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
     const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 
@@ -784,7 +836,7 @@ export function groupFilters(
                 `${rollout_percentage ?? 100}% of one group`
             ) : (
                 <div className="flex items-center">
-                    <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
+                    <span className="shrink-0 mr-2 tabular-nums">{rollout_percentage ?? 100}% of</span>
                     <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} compact />
                 </div>
             )

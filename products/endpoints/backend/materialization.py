@@ -6,16 +6,21 @@ from typing import Any, Optional
 from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.functions.aggregations import COMBINATORS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
+
+ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
 class VariableInHavingClauseError(ValueError):
@@ -47,6 +52,21 @@ def _add_series_index_to_select(query: ast.SelectQuery, index: int) -> None:
         query.group_by = [*list(query.group_by), ast.Field(chain=["__series_index"])]
 
 
+def _print_materialized_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
+    """Like to_printed_hogql, but without the implicit top-level row cap — a materialized table must hold every row."""
+    return prepare_and_print_ast(
+        clone_expr(query),
+        dialect="hogql",
+        context=HogQLContext(
+            team_id=team.pk,
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
+        ),
+        pretty=True,
+    )[0]
+
+
 def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[str, Any]:
     query_kind = query.get("kind")
 
@@ -67,7 +87,7 @@ def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[st
     if query_kind in SERIES_INDEX_QUERY_TYPES:
         inject_series_index(combined_query_ast)
 
-    hogql_string = to_printed_hogql(combined_query_ast, team=team, modifiers=query_runner.modifiers)
+    hogql_string = _print_materialized_hogql(combined_query_ast, team, query_runner.modifiers)
 
     result = HogQLQuery(query=hogql_string, modifiers=query_runner.modifiers).model_dump()
     if "variables" in query:
@@ -334,6 +354,29 @@ def analyze_variables_for_materialization(
                 continue
             downstream = _downstream_ctes(graph, var.cte_name)
             propagating = downstream | {var.cte_name}
+
+            # Propagation adds a column + GROUP BY to propagating CTEs, breaking any
+            # top-level scalar usage of them (`WHERE x = (SELECT col FROM cte)` ends up
+            # returning N rows × 2 cols). No correct rewrite exists — ClickHouse doesn't
+            # support correlated subqueries. Hide the outer WITH so the finder doesn't
+            # treat propagating CTEs as shadowed by their own definitions.
+            original_ctes = ast_node.ctes
+            ast_node.ctes = None
+            try:
+                has_unsafe_reference = _body_has_non_top_from_propagating_reference(ast_node, propagating)
+            finally:
+                ast_node.ctes = original_ctes
+            if has_unsafe_reference:
+                return (
+                    False,
+                    (
+                        "Scalar subquery in top-level query references a CTE downstream of "
+                        "the variable-carrying CTE; the transformer cannot rewrite it to "
+                        "carry the variable column. Move the reference to the top-level FROM."
+                    ),
+                    [],
+                )
+
             plans: dict[str, DownstreamCTEPlan] = {}
             for d_cte_name in _topological_order(graph, downstream):
                 d_cte = ast_node.ctes[d_cte_name]
@@ -1076,7 +1119,7 @@ def transform_query_for_materialization(
     transformer = MaterializationTransformer(variable_infos)
     transformed_ast = transformer.visit(parsed_ast)
 
-    transformed_query_str = to_printed_hogql(transformed_ast, team=team)
+    transformed_query_str = _print_materialized_hogql(transformed_ast, team)
 
     return {
         **hogql_query,
@@ -1219,14 +1262,27 @@ class MaterializationTransformer(CloningVisitor):
 
     def _add_variable_columns(self, node: ast.SelectQuery, vars_for_context: list[MaterializableVariable]) -> None:
         """Add aliased variable columns to SELECT, update GROUP BY, and remove variable WHERE clauses."""
-        select_additions = [self._create_column_field(var) for var in vars_for_context]
-        if node.select:
-            node.select = [*list(node.select), *select_additions]
-        else:
-            node.select = select_additions
+        existing_aliases: dict[str, str] = {
+            expr.alias: expr.expr.to_hogql() for expr in node.select or [] if isinstance(expr, ast.Alias)
+        }
+        vars_to_add: list[MaterializableVariable] = []
+        for var in vars_for_context:
+            existing_expr = existing_aliases.get(var.code_name)
+            if existing_expr is not None:
+                if existing_expr == self._variable_expr(var).to_hogql():
+                    # SELECT already exposes this column under the variable's name
+                    continue
+                raise ValueError(
+                    f"Variable '{var.code_name}' conflicts with an existing SELECT alias for a different expression"
+                )
+            vars_to_add.append(var)
 
-        if node.group_by is not None or self._current_cte_name is None:
-            self._add_group_by(node, vars_for_context)
+        select_additions = [self._create_column_field(var) for var in vars_to_add]
+        if select_additions:
+            node.select = [*list(node.select or []), *select_additions]
+
+        if vars_to_add and (node.group_by is not None or self._has_aggregate_functions(node)):
+            self._add_group_by(node, vars_to_add)
 
         if node.where:
             node.where = self._remove_variable_from_where(node.where)
@@ -1357,3 +1413,56 @@ class MaterializationTransformer(CloningVisitor):
         if isinstance(node, ast.Call):
             return any(self._expr_contains_variable(arg) for arg in node.args)
         return False
+
+
+def prepare_insight_query_for_endpoint(query: dict) -> dict:
+    """Override breakdown_limit to surface all values; keep breakdown_hide_other_aggregation=False so the
+    'Other' bucket appears in results if the limit is ever exceeded."""
+    breakdown_filter = query.get("breakdownFilter")
+    if not breakdown_filter:
+        return query
+
+    return {
+        **query,
+        "breakdownFilter": {
+            **breakdown_filter,
+            "breakdown_hide_other_aggregation": False,
+            "breakdown_limit": ENDPOINT_BREAKDOWN_LIMIT,
+        },
+    }
+
+
+def replace_breakdown_sentinels_in_query(hogql_query: dict) -> dict:
+    """Strip internal sentinel string literals from HogQL so S3-stored data is clean. The 'other' sentinel
+    is embedded in the HogQL by the query builder (in if() and ORDER BY expressions) regardless of
+    breakdown_hide_other_aggregation, which only affects post-processing."""
+    query_text = hogql_query.get("query")
+    if not query_text or not isinstance(query_text, str):
+        return hogql_query
+
+    replacements = {
+        f"'{BREAKDOWN_NULL_STRING_LABEL}'": "''",
+        f"'{BREAKDOWN_OTHER_STRING_LABEL}'": "'Other'",
+    }
+    for old, new in replacements.items():
+        query_text = query_text.replace(old, new)
+
+    return {**hogql_query, "query": query_text}
+
+
+def build_endpoint_hogql(insight_query: dict, team: Team, bucket_overrides: dict[str, str] | None = None) -> dict:
+    """Run the full endpoint conversion pipeline: prepare → convert insight to HogQL → apply variable
+    materialization plan → strip breakdown sentinels. Pure function; no DB side effects."""
+    mat_query = prepare_insight_query_for_endpoint(insight_query)
+    hogql_query = convert_insight_query_to_hogql(mat_query, team)
+
+    if insight_query.get("variables"):
+        can_materialize, _reason, variable_infos = analyze_variables_for_materialization(
+            insight_query, bucket_overrides=bucket_overrides
+        )
+        if can_materialize and variable_infos:
+            hogql_query = transform_query_for_materialization(
+                hogql_query, variable_infos, team, bucket_overrides=bucket_overrides
+            )
+
+    return replace_breakdown_sentinels_in_query(hogql_query)

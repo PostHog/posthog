@@ -8,7 +8,7 @@ import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { ActorsQueryResponse } from '~/queries/schema/schema-general'
 
 interface PersonDisplayNameNudgeBannerProps {
@@ -78,7 +78,7 @@ export function PersonDisplayNameNudgeBanner({ uniqueKey }: PersonDisplayNameNud
             dismissKey="person-display-name-uuid-nudge"
             action={{
                 children: 'Configure',
-                to: urls.settings('environment-product-analytics', 'person-display-name'),
+                to: urls.settings('project-product-analytics', 'person-display-name'),
                 'data-attr': 'person-display-name-uuid-nudge-action',
             }}
         >

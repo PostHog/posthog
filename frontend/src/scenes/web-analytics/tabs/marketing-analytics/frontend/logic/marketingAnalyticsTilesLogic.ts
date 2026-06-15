@@ -40,6 +40,12 @@ export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
 const isSchemaBackedMarketingColumn = (column: validColumnsForTiles): column is rawColumnsForTiles =>
     column !== 'roas' && column !== 'cost_per_reported_conversion'
 
+const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => ({
+    dashboardItemId: getDashboardItemId(tile, tab, false),
+    loadPriority: loadPriorityMap[tile],
+    dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
+})
+
 export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType>([
     path(['scenes', 'webAnalytics', 'marketingAnalyticsTilesLogic']),
     connect(() => ({
@@ -62,157 +68,154 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
         ],
     })),
     selectors({
-        tiles: [
+        // One selector per tile so an input change only invalidates the tile that uses
+        // it — entries keep identity in `tiles` below, so `dataNodeLogic` doesn't refetch.
+        overviewTile: [
+            (s) => [s.compareFilter, s.dateFilter, s.draftConversionGoal, s.integrationFilter],
+            (
+                compareFilter: CompareFilter | null,
+                dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
+                draftConversionGoal: ConversionGoalFilter | null,
+                integrationFilter: IntegrationFilter
+            ): QueryTile => ({
+                kind: 'query',
+                tileId: TileId.MARKETING_OVERVIEW,
+                layout: {
+                    colSpanClassName: 'md:col-span-2 2xl:col-span-3' as `md:col-span-${number}`,
+                    orderWhenLargeClassName: '2xl:order-0',
+                },
+                query: {
+                    kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom,
+                        date_to: dateFilter.dateTo,
+                    },
+                    compareFilter: compareFilter || undefined,
+                    properties: [],
+                    draftConversionGoal: draftConversionGoal || undefined,
+                    integrationFilter: integrationFilter,
+                    tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
+                },
+                insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
+                canOpenInsight: false,
+            }),
+        ],
+        marketingChartTile: [
             (s) => [
                 s.compareFilter,
                 s.dateFilter,
                 s.createMarketingDataWarehouseNodes,
-                s.campaignCostsBreakdown,
                 s.chartDisplayType,
                 s.tileColumnSelection,
-                s.draftConversionGoal,
-                s.integrationFilter,
-                s.drillDownLevel,
                 s.baseCurrency,
             ],
             (
                 compareFilter: CompareFilter | null,
-                dateFilter: {
-                    dateFrom: string | null
-                    dateTo: string | null
-                    interval: IntervalType
-                },
+                dateFilter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType },
                 createMarketingDataWarehouseNodes: DataWarehouseNode[],
-                campaignCostsBreakdown: DataTableNode,
                 chartDisplayType: ChartDisplayType,
                 tileColumnSelection: validColumnsForTiles,
-                draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter,
-                drillDownLevel: MarketingAnalyticsDrillDownLevel,
                 baseCurrency: CurrencyCode
-            ) => {
-                const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
-                    return {
-                        dashboardItemId: getDashboardItemId(tile, tab, false),
-                        loadPriority: loadPriorityMap[tile],
-                        dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                    }
-                }
-
+            ): QueryTile => {
                 const isCurrency =
                     tileColumnSelection && isSchemaBackedMarketingColumn(tileColumnSelection)
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
-
                 const { symbol: currencySymbol, isPrefix: currencyIsPrefix } = getCurrencySymbol(baseCurrency)
-
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
-
-                const tiles: QueryTile[] = [
-                    {
-                        kind: 'query',
-                        tileId: TileId.MARKETING_OVERVIEW,
-                        layout: {
-                            colSpanClassName: 'md:col-span-2 2xl:col-span-3' as `md:col-span-${number}`,
-                            orderWhenLargeClassName: '2xl:order-0',
-                        },
-                        query: {
-                            kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                return {
+                    kind: 'query',
+                    tileId: TileId.MARKETING,
+                    layout: {
+                        colSpanClassName: 'md:col-span-2',
+                        orderWhenLargeClassName: '2xl:order-1',
+                    },
+                    title: `Marketing ${tileColumnSelectionName}`,
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        embedded: true,
+                        hidePersonsModal: true,
+                        hideTooltipOnScroll: true,
+                        source: {
+                            kind: NodeKind.TrendsQuery,
+                            compareFilter: compareFilter || undefined,
+                            series:
+                                createMarketingDataWarehouseNodes.length > 0
+                                    ? createMarketingDataWarehouseNodes
+                                    : [
+                                          // Fallback when no sources are configured
+                                          {
+                                              kind: NodeKind.EventsNode,
+                                              event: 'no_sources_configured',
+                                              custom_name: 'No marketing sources configured',
+                                              math: BaseMathType.TotalCount,
+                                          },
+                                      ],
+                            interval: dateFilter.interval,
                             dateRange: {
                                 date_from: dateFilter.dateFrom,
                                 date_to: dateFilter.dateTo,
                             },
-                            compareFilter: compareFilter || undefined,
-                            properties: [],
-                            draftConversionGoal: draftConversionGoal || undefined,
-                            integrationFilter: integrationFilter,
-                        },
-                        insightProps: createInsightProps(TileId.MARKETING_OVERVIEW),
-                        canOpenInsight: false,
-                    },
-                    {
-                        kind: 'query',
-                        tileId: TileId.MARKETING,
-                        layout: {
-                            colSpanClassName: 'md:col-span-2',
-                            orderWhenLargeClassName: '2xl:order-1',
-                        },
-                        title: `Marketing ${tileColumnSelectionName}`,
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            embedded: true,
-                            hidePersonsModal: true,
-                            hideTooltipOnScroll: true,
-                            source: {
-                                kind: NodeKind.TrendsQuery,
-                                compareFilter: compareFilter || undefined,
-                                series:
-                                    createMarketingDataWarehouseNodes.length > 0
-                                        ? createMarketingDataWarehouseNodes
-                                        : [
-                                              // Fallback when no sources are configured
-                                              {
-                                                  kind: NodeKind.EventsNode,
-                                                  event: 'no_sources_configured',
-                                                  custom_name: 'No marketing sources configured',
-                                                  math: BaseMathType.TotalCount,
-                                              },
-                                          ],
-                                interval: dateFilter.interval,
-                                dateRange: {
-                                    date_from: dateFilter.dateFrom,
-                                    date_to: dateFilter.dateTo,
-                                },
-                                trendsFilter: {
-                                    display: chartDisplayType,
-                                    aggregationAxisFormat: 'numeric',
-                                    aggregationAxisPrefix: isCurrency && currencyIsPrefix ? currencySymbol : undefined,
-                                    aggregationAxisPostfix:
-                                        isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
-                                },
+                            trendsFilter: {
+                                display: chartDisplayType,
+                                aggregationAxisFormat: 'numeric',
+                                aggregationAxisPrefix: isCurrency && currencyIsPrefix ? currencySymbol : undefined,
+                                aggregationAxisPostfix:
+                                    isCurrency && !currencyIsPrefix ? ` ${currencySymbol}` : undefined,
                             },
-                        },
-                        showIntervalSelect: true,
-                        insightProps: createInsightProps(
-                            TileId.MARKETING,
-                            `${chartDisplayType}-${tileColumnSelection}`
-                        ),
-                        canOpenInsight: true,
-                        canOpenModal: false,
-                        docs: {
-                            title: `Marketing ${tileColumnSelectionName}`,
-                            description:
-                                createMarketingDataWarehouseNodes.length > 0
-                                    ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
-                                    : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
+                            tags: MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     },
-                    campaignCostsBreakdown
-                        ? {
-                              kind: 'query',
-                              tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                                  orderWhenLargeClassName: '2xl:order-2',
-                              },
-                              title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
-                              query: campaignCostsBreakdown,
-                              insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
-                              canOpenModal: true,
-                              canOpenInsight: false,
-                              docs: {
-                                  title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
-                                  description:
-                                      drillDownLevel === MarketingAnalyticsDrillDownLevel.Campaign
-                                          ? 'Breakdown of marketing costs by individual campaign names across all ad platforms.'
-                                          : `Breakdown of marketing data by ${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias.toLowerCase()}.`,
-                              },
-                          }
-                        : null,
-                ].filter(isNotNil) as QueryTile[]
-
-                return tiles
+                    showIntervalSelect: true,
+                    insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}-${tileColumnSelection}`),
+                    canOpenInsight: true,
+                    canOpenModal: false,
+                    docs: {
+                        title: `Marketing ${tileColumnSelectionName}`,
+                        description:
+                            createMarketingDataWarehouseNodes.length > 0
+                                ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
+                                : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
+                    },
+                }
             },
+        ],
+        campaignBreakdownTile: [
+            (s) => [s.campaignCostsBreakdown, s.drillDownLevel],
+            (
+                campaignCostsBreakdown: DataTableNode | null,
+                drillDownLevel: MarketingAnalyticsDrillDownLevel
+            ): QueryTile | null =>
+                campaignCostsBreakdown
+                    ? {
+                          kind: 'query',
+                          tileId: TileId.MARKETING_CAMPAIGN_BREAKDOWN,
+                          layout: {
+                              colSpanClassName: 'md:col-span-2',
+                              orderWhenLargeClassName: '2xl:order-2',
+                          },
+                          title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
+                          query: campaignCostsBreakdown,
+                          insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
+                          canOpenModal: true,
+                          canOpenInsight: false,
+                          docs: {
+                              title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
+                              description:
+                                  drillDownLevel === MarketingAnalyticsDrillDownLevel.Campaign
+                                      ? 'Breakdown of marketing costs by individual campaign names across all ad platforms.'
+                                      : `Breakdown of marketing data by ${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias.toLowerCase()}.`,
+                          },
+                      }
+                    : null,
+        ],
+        tiles: [
+            (s) => [s.overviewTile, s.marketingChartTile, s.campaignBreakdownTile],
+            (
+                overviewTile: QueryTile,
+                marketingChartTile: QueryTile,
+                campaignBreakdownTile: QueryTile | null
+            ): QueryTile[] => [overviewTile, marketingChartTile, campaignBreakdownTile].filter(isNotNil) as QueryTile[],
         ],
         campaignCostsBreakdown: [
             (s) => [

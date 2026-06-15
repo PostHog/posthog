@@ -1,3 +1,5 @@
+import './InsightDetails.scss'
+
 import { useValues } from 'kea'
 import React from 'react'
 
@@ -389,7 +391,7 @@ export function PropertiesIgnoredWarning(): JSX.Element {
 export function BreakdownIgnoredWarning(): JSX.Element {
     return (
         <InsightDetailSectionDisplay icon={<IconSort />} label="Breakdown by">
-            <Tooltip title="Breakdown overrides are not applied. Insights with a data warehouse series only support a single data warehouse property breakdown.">
+            <Tooltip title="Breakdown overrides are not applied. Insights with a data warehouse series only support data warehouse property and HogQL breakdowns.">
                 <div className="flex items-center gap-1 text-warning italic">
                     <IconWarning /> Breakdown overrides ignored (data warehouse series).
                 </div>

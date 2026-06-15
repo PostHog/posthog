@@ -7,11 +7,14 @@ from parameterized import parameterized
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
+    GitHubCredentialSource,
     McpServerConfig,
     get_git_identity_env_vars,
+    get_github_credential_source,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
     get_user_mcp_server_configs,
+    is_caller_token_run,
 )
 
 
@@ -33,6 +36,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("https://app.posthog.com", "https://mcp.posthog.com/mcp"),
             ("https://us.posthog.com", "https://mcp.posthog.com/mcp"),
             ("https://eu.posthog.com", "https://mcp-eu.posthog.com/mcp"),
+            ("https://app.dev.posthog.dev", "https://mcp.dev.posthog.dev/mcp"),
         ]
     )
     def test_derives_mcp_config_from_site_url(self, site_url: str, expected_mcp_url: str) -> None:
@@ -110,16 +114,33 @@ class TestGetSandboxMcpConfigs(TestCase):
             ]
 
     @parameterized.expand(
-        [
-            ("http://localhost:8000",),
-            ("https://custom.example.com",),
-        ]
+        [("https://custom.example.com",)],
     )
     def test_returns_empty_list_for_unknown_hosts(self, site_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
             mock_settings.SITE_URL = site_url
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
+
+    @parameterized.expand(
+        [
+            ("http://localhost:8000",),
+            ("http://127.0.0.1:8001",),
+        ]
+    )
+    def test_localhost_site_url_uses_host_docker_internal_mcp(self, site_url: str) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
+            mock_settings.SANDBOX_MCP_URL = None
+            mock_settings.SITE_URL = site_url
+            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
+            assert configs == [
+                McpServerConfig(
+                    type="http",
+                    name="posthog",
+                    url="http://host.docker.internal:8787/mcp",
+                    headers=self._expected_headers(),
+                )
+            ]
 
     def test_returns_empty_list_when_no_site_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
@@ -196,6 +217,12 @@ class TestFetchUserMcpServerConfigs(TestCase):
         defaults.update(kwargs)
         return ActiveInstallationInfo(**defaults)
 
+    def _expected_user_headers(self, *, consumer: str = "posthog-code") -> list[dict[str, str]]:
+        return [
+            {"name": "Authorization", "value": f"Bearer {self.TOKEN}"},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
+        ]
+
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_builds_configs_from_facade_results(self, mock_facade, mock_api_url) -> None:
@@ -211,9 +238,30 @@ class TestFetchUserMcpServerConfigs(TestCase):
                 type="http",
                 name="Linear",
                 url=f"{self.API_BASE}/api/environments/{self.TEAM_ID}/mcp_server_installations/abc-123/proxy/",
-                headers=[{"name": "Authorization", "value": f"Bearer {self.TOKEN}"}],
+                headers=self._expected_user_headers(),
             )
         ]
+
+    @parameterized.expand(
+        [
+            ("slack", "slack"),
+            ("posthog_code", "posthog-code"),
+            (None, "posthog-code"),
+        ]
+    )
+    @patch(MOCK_API_URL)
+    @patch(MOCK_FACADE)
+    def test_consumer_header_reflects_interaction_origin(
+        self, interaction_origin: str | None, expected_consumer: str, mock_facade, mock_api_url
+    ) -> None:
+        mock_api_url.return_value = self.API_BASE
+        mock_facade.return_value = [self._make_installation()]
+
+        configs = get_user_mcp_server_configs(
+            self.TOKEN, self.TEAM_ID, self.USER_ID, interaction_origin=interaction_origin
+        )
+
+        assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
@@ -350,6 +398,7 @@ class TestGetSandboxGitHubToken(TestCase):
             ("identity_without_token_falls_back_to_team_token", None, True, None, "empty_token", "ghs_team"),
         ]
     )
+    @patch("products.tasks.backend.temporal.process_task.sandbox_credentials.resolve_coordinated_user_token")
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
     @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
@@ -364,6 +413,7 @@ class TestGetSandboxGitHubToken(TestCase):
         mock_get_github_token: MagicMock,
         mock_get_identity: MagicMock,
         mock_cached: MagicMock,
+        mock_resolve: MagicMock,
     ) -> None:
         from posthog.models.user_integration import ReauthorizationRequired
 
@@ -371,9 +421,9 @@ class TestGetSandboxGitHubToken(TestCase):
         creator = MagicMock(name="creator")
         identity = MagicMock()
         if error_case == "reauthorization":
-            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+            mock_resolve.side_effect = ReauthorizationRequired("reauthorize GitHub")
         else:
-            identity.get_usable_user_access_token.return_value = identity_token
+            mock_resolve.return_value = identity_token
         mock_get_identity.return_value = identity if has_identity else None
 
         mock_get_github_token.return_value = expected_token
@@ -388,7 +438,7 @@ class TestGetSandboxGitHubToken(TestCase):
         mock_cached.assert_called_once_with("run-1")
         if cached_token:
             mock_get_identity.assert_not_called()
-            identity.get_usable_user_access_token.assert_not_called()
+            mock_resolve.assert_not_called()
         else:
             mock_get_identity.assert_called_once_with(
                 creator,
@@ -397,7 +447,7 @@ class TestGetSandboxGitHubToken(TestCase):
                 allow_refresh=True,
             )
             if has_identity:
-                identity.get_usable_user_access_token.assert_called_once()
+                mock_resolve.assert_called_once_with(identity)
         if error_case in ("missing", "reauthorization", "empty_token"):
             mock_get_github_token.assert_called_once_with(123)
         else:
@@ -409,6 +459,7 @@ class TestGetSandboxGitHubToken(TestCase):
             ("empty_token",),
         ]
     )
+    @patch("products.tasks.backend.temporal.process_task.sandbox_credentials.resolve_coordinated_user_token")
     @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
     @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
     def test_user_authorship_requires_reauthorization_without_team_fallback(
@@ -416,16 +467,16 @@ class TestGetSandboxGitHubToken(TestCase):
         error_case: str,
         mock_get_identity: MagicMock,
         mock_cached: MagicMock,
+        mock_resolve: MagicMock,
     ) -> None:
         from posthog.models.user_integration import ReauthorizationRequired
 
         mock_cached.return_value = None
-        identity = MagicMock()
+        mock_get_identity.return_value = MagicMock()
         if error_case == "reauthorization":
-            identity.get_usable_user_access_token.side_effect = ReauthorizationRequired("reauthorize GitHub")
+            mock_resolve.side_effect = ReauthorizationRequired("reauthorize GitHub")
         else:
-            identity.get_usable_user_access_token.return_value = None
-        mock_get_identity.return_value = identity
+            mock_resolve.return_value = None
 
         with self.assertRaises(ReauthorizationRequired):
             get_sandbox_github_token(
@@ -466,6 +517,53 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
 
         assert result is None
+
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token")
+    def test_caller_token_run_never_substitutes_server_integration(
+        self, mock_cached: MagicMock, mock_get_identity: MagicMock, mock_get_github_token: MagicMock
+    ) -> None:
+        mock_cached.return_value = None  # caller-supplied token has expired from the cache
+
+        result = get_sandbox_github_token(
+            123,
+            run_id="run-1",
+            state={"pr_authorship_mode": "user", "github_credential_source": "caller_token"},
+            created_by=MagicMock(name="creator"),
+        )
+
+        assert result is None
+        mock_get_identity.assert_not_called()
+        mock_get_github_token.assert_not_called()
+
+
+class TestGitHubCredentialSourceHelpers(TestCase):
+    def test_get_github_credential_source_reads_marker(self) -> None:
+        assert (
+            get_github_credential_source({"github_credential_source": "caller_token"})
+            == GitHubCredentialSource.CALLER_TOKEN
+        )
+        assert (
+            get_github_credential_source({"github_credential_source": "server_integration"})
+            == GitHubCredentialSource.SERVER_INTEGRATION
+        )
+        assert get_github_credential_source({}) is None
+        assert get_github_credential_source(None) is None
+
+    def test_marker_is_authoritative_over_cache(self) -> None:
+        with patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token") as mock_cached:
+            assert is_caller_token_run("run-1", {"github_credential_source": "caller_token"}) is True
+            assert is_caller_token_run("run-1", {"github_credential_source": "server_integration"}) is False
+            # Marker decides regardless of cache state — never falls through.
+            mock_cached.assert_not_called()
+
+    @parameterized.expand([("ghu_caller", True), (None, False)])
+    def test_unmarked_run_falls_back_to_cache(self, cached: str | None, expected: bool) -> None:
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value=cached
+        ):
+            assert is_caller_token_run("run-1", {}) is expected
 
     def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
         from posthog.models import Organization, Team

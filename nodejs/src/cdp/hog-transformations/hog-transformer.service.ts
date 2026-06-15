@@ -488,6 +488,7 @@ export function createHogTransformerService(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
@@ -518,7 +519,7 @@ export function createHogTransformerService(
     const hogWatcherMirror: HogWatcherService | null = valkeyShadow
         ? new HogWatcherService(
               deps.teamManager,
-              { ...hogWatcherConfig, sendEvents: false, useV3: true },
+              { ...hogWatcherConfig, sendEvents: false },
               valkeyShadow.writer,
               valkeyShadow.reader
           )

@@ -20,6 +20,7 @@ describe('legendToggle', () => {
                         trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
                     },
                 },
+                hogChartsFunnelEnabled: false,
                 expected: true,
             },
             {
@@ -31,6 +32,7 @@ describe('legendToggle', () => {
                         trendsFilter: { display: ChartDisplayType.WorldMap },
                     },
                 },
+                hogChartsFunnelEnabled: false,
                 expected: false,
             },
             {
@@ -42,6 +44,45 @@ describe('legendToggle', () => {
                         funnelsFilter: { funnelVizType: 'steps' },
                     },
                 },
+                hogChartsFunnelEnabled: false,
+                expected: false,
+            },
+            {
+                title: 'funnels historical trends with breakdown and hog charts enabled',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: 'trends' },
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                },
+                hogChartsFunnelEnabled: true,
+                expected: true,
+            },
+            {
+                title: 'funnels historical trends with breakdown but hog charts disabled',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: 'trends' },
+                        breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    },
+                },
+                hogChartsFunnelEnabled: false,
+                expected: false,
+            },
+            {
+                title: 'funnels historical trends without breakdown',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        funnelsFilter: { funnelVizType: 'trends' },
+                    },
+                },
+                hogChartsFunnelEnabled: true,
                 expected: false,
             },
             {
@@ -50,6 +91,7 @@ describe('legendToggle', () => {
                     kind: NodeKind.InsightVizNode,
                     source: { kind: NodeKind.LifecycleQuery },
                 },
+                hogChartsFunnelEnabled: false,
                 expected: true,
             },
             {
@@ -61,15 +103,17 @@ describe('legendToggle', () => {
                         trendsFilter: { display: ChartDisplayType.ActionsTable },
                     },
                 },
+                hogChartsFunnelEnabled: false,
                 expected: false,
             },
             {
                 title: 'non-insight-viz (SQL)',
                 query: { kind: NodeKind.DataVisualizationNode },
+                hogChartsFunnelEnabled: false,
                 expected: false,
             },
-        ])('returns $expected for $title', ({ query, expected }) => {
-            expect(canToggleLegendInInsightQuery(query as any)).toBe(expected)
+        ])('returns $expected for $title', ({ query, expected, hogChartsFunnelEnabled }) => {
+            expect(canToggleLegendInInsightQuery(query as any, hogChartsFunnelEnabled)).toBe(expected)
         })
     })
 
@@ -88,6 +132,11 @@ describe('legendToggle', () => {
             {
                 kind: NodeKind.LifecycleQuery,
                 filterKey: 'lifecycleFilter',
+                display: undefined,
+            },
+            {
+                kind: NodeKind.FunnelsQuery,
+                filterKey: 'funnelsFilter',
                 display: undefined,
             },
         ])('sets showLegend true when unset ($kind)', ({ kind, filterKey, display }) => {
@@ -145,6 +194,23 @@ describe('legendToggle', () => {
             } as any
 
             expect(getLegendToggleText(query)).toBe('Show legend')
+        })
+
+        it('reflects toggle state for funnels historical trends when hog charts are enabled', () => {
+            const query = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.FunnelsQuery,
+                    funnelsFilter: { funnelVizType: 'trends' },
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                },
+            } as any
+
+            expect(getLegendToggleText(query, true)).toBe('Show legend')
+
+            const next = toggleLegendInInsightQuery(query) as any
+            expect(next.source.funnelsFilter?.showLegend).toBe(true)
+            expect(getLegendToggleText(next, true)).toBe('Hide legend')
         })
 
         it('after toggling unset legend, label reads hide', () => {

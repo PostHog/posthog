@@ -63,6 +63,9 @@ interface SQLEditorProps {
     runQueryDisabledReason?: string
     runQueryTooltip?: string
     onShareTab?: () => void
+    queryPaneDefaultHeight?: number
+    /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
+    autoFocusQueryPane?: boolean
 }
 
 export function SQLEditor({
@@ -77,6 +80,8 @@ export function SQLEditor({
     runQueryDisabledReason,
     runQueryTooltip,
     onShareTab,
+    queryPaneDefaultHeight,
+    autoFocusQueryPane,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -97,6 +102,7 @@ export function SQLEditor({
             navigatorRef,
             sidebarRef,
             databaseTreeRef,
+            queryPaneDefaultHeight,
             sourceNavigatorResizerProps: {
                 containerRef: navigatorRef,
                 logicKey: 'source-navigator',
@@ -120,7 +126,7 @@ export function SQLEditor({
                 marginTop: mode === SQLEditorMode.FullScene ? 8 : 0,
             },
         }),
-        [mode]
+        [mode, queryPaneDefaultHeight]
     )
 
     const [monacoAndEditor, setMonacoAndEditor] = useState(
@@ -243,6 +249,7 @@ export function SQLEditor({
                                                             runQueryDisabledReason={runQueryDisabledReason}
                                                             runQueryTooltip={runQueryTooltip}
                                                             onShareTab={onShareTab}
+                                                            autoFocusQueryPane={autoFocusQueryPane}
                                                         />
                                                     </div>
                                                 </div>
@@ -314,12 +321,19 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
+        setEditingInsightName,
+        setEditingInsightDescription,
     } = useActions(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
     const saveAsViewAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.WarehouseObjects,
+        AccessControlLevel.Editor
+    )
+
+    const saveAsEndpointAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Endpoint,
         AccessControlLevel.Editor
     )
 
@@ -340,9 +354,21 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
                     saveAsView()
                 },
-                accessDisabledReason: item.action === 'view' ? saveAsViewAccessDisabledReason : undefined,
+                accessDisabledReason:
+                    item.action === 'view'
+                        ? saveAsViewAccessDisabledReason
+                        : item.action === 'endpoint'
+                          ? saveAsEndpointAccessDisabledReason
+                          : undefined,
             })),
-        [saveAsEndpoint, saveAsInsight, saveAsMenuItems.secondary, saveAsView, saveAsViewAccessDisabledReason]
+        [
+            saveAsEndpoint,
+            saveAsInsight,
+            saveAsMenuItems.secondary,
+            saveAsView,
+            saveAsViewAccessDisabledReason,
+            saveAsEndpointAccessDisabledReason,
+        ]
     )
 
     const onPrimarySaveClick = (): void => {
@@ -408,6 +434,13 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 noBorder
                 noPadding
                 {...titleSectionProps}
+                {...(editingInsight && {
+                    onNameChange: setEditingInsightName,
+                    onDescriptionChange: setEditingInsightDescription,
+                    canEdit: true,
+                    forceEdit: true,
+                    descriptionMaxLength: 400,
+                })}
                 maxToolProps={{
                     identifier: 'execute_sql',
                     context: getExecuteSqlToolContext(queryInput, sourceQuery),
@@ -490,7 +523,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                 ? [
                                                                       {
                                                                           label: 'Save as endpoint...',
-                                                                          disabledReason: saveAsDisabledReason,
+                                                                          disabledReason:
+                                                                              saveAsDisabledReason ??
+                                                                              saveAsEndpointAccessDisabledReason,
                                                                           onClick: () => saveAsEndpoint(),
                                                                       },
                                                                   ]
@@ -549,7 +584,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             ? [
                                                                   {
                                                                       label: 'Save as endpoint...',
-                                                                      disabledReason: saveAsDisabledReason,
+                                                                      disabledReason:
+                                                                          saveAsDisabledReason ??
+                                                                          saveAsEndpointAccessDisabledReason,
                                                                       onClick: () => saveAsEndpoint(),
                                                                   },
                                                               ]
@@ -577,7 +614,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 type="primary"
                                 size="small"
                                 onClick={onPrimarySaveClick}
-                                disabledReason={saveAsDisabledReason}
+                                disabledReason={
+                                    saveAsDisabledReason ??
+                                    (saveAsMenuItems.primary.action === 'endpoint'
+                                        ? saveAsEndpointAccessDisabledReason
+                                        : undefined)
+                                }
                                 sideAction={{
                                     icon: <IconChevronDown />,
                                     'data-attr': 'sql-editor-save-options-button',

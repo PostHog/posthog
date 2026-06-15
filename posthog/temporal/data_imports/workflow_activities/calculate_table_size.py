@@ -6,12 +6,12 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.models import DataWarehouseTable
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.models import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.s3 import get_size_of_folder
+from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 
@@ -71,7 +71,7 @@ def calculate_table_size_activity(inputs: CalculateTableSizeActivityInputs) -> N
     logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
 
     job.storage_delta_mib = table_size_delta
-    job.save()
+    job.save(update_fields=["storage_delta_mib", "updated_at"])
 
     table.size_in_s3_mib = total_mib
     table.save()

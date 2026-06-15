@@ -1,5 +1,10 @@
+import { useValues } from 'kea'
+
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { FocusModeModal } from 'scenes/web-analytics/focus-mode/FocusModeModal'
+import { FocusModeOnboardingModal } from 'scenes/web-analytics/focus-mode/FocusModeOnboardingModal'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -10,6 +15,28 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 export function WebAnalyticsScene(): JSX.Element {
+    useMaxTool({
+        identifier: 'web_analytics_doctor',
+        active: true,
+        context: {},
+        suggestions: [
+            'Is my web analytics set up correctly?',
+            'Why are my pageviews low?',
+            'Diagnose my reverse proxy setup',
+        ],
+    })
+    useMaxTool({
+        identifier: 'assess_heatmap',
+        active: true,
+        context: {},
+        suggestions: [
+            'Assess the heatmap for my pricing page',
+            'Why are people not clicking my main CTA?',
+            'Where do users rage-click on my homepage?',
+        ],
+    })
+    const { showFocusMode } = useValues(webAnalyticsLogic)
+
     return (
         <>
             <SceneContent>
@@ -24,6 +51,12 @@ export function WebAnalyticsScene(): JSX.Element {
                 />
                 <WebAnalyticsDashboard />
             </SceneContent>
+            {showFocusMode && (
+                <>
+                    <FocusModeModal />
+                    <FocusModeOnboardingModal />
+                </>
+            )}
         </>
     )
 }

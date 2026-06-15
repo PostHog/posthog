@@ -38,6 +38,10 @@ import {
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const STATISTICS_INTERVAL_MS = 5000
 const LOOP_STALL_THRESHOLD_MS_DEFAULT = 60_000
+// auto.offset.reset is a topic-level property and which config form librdkafka honors varies by
+// version (see node-rdkafka #984), so it's applied to both the global config and the explicit
+// topic config. This is the default when a consumer doesn't opt into an override.
+const DEFAULT_AUTO_OFFSET_RESET = 'earliest'
 
 export type KafkaConsumerV2Config = {
     groupId: string
@@ -85,6 +89,10 @@ export class KafkaConsumerV2 {
     private rebalanceQueue: RebalanceEvent[] = []
     private inFlight: TaskEntry[] = []
     private loopDone: Promise<void> | undefined
+
+    // Latched on the first backgroundTask failure: blocks further offset stores and
+    // makes the loop exit on the next tick so the pod replays from the last good commit.
+    private fatalError: unknown | undefined
 
     // Tunables (resolved at construction)
     private fetchBatchSize: number
@@ -138,10 +146,9 @@ export class KafkaConsumerV2 {
             'socket.timeout.ms': 30_000,
             'enable.partition.eof': this.config.enablePartitionEof ?? true,
             'statistics.interval.ms': STATISTICS_INTERVAL_MS,
-            // Newer librdkafka versions require this in the global config (the topic-config
-            // form passed to RdKafkaConsumer's second arg is silently ignored for assign-based
-            // consumers in some versions). See node-rdkafka issue #984.
-            ['auto.offset.reset' as keyof ConsumerGlobalConfig]: 'earliest' as never,
+            // Global/default-topic-conf fallback; the resolved value (incl. any override) is
+            // also applied to the explicit topic config in createConsumer.
+            ['auto.offset.reset' as keyof ConsumerGlobalConfig]: DEFAULT_AUTO_OFFSET_RESET as never,
             ...getKafkaConfigFromEnv('CONSUMER'),
             ...rdKafkaOverrides,
             // Settings we don't allow callers to override.
@@ -241,6 +248,12 @@ export class KafkaConsumerV2 {
             while (this.running) {
                 this.lastLoopTickAt = Date.now()
 
+                // Check before fetching another batch — any further offset commit after a
+                // task failure is the silent-drop bug.
+                if (this.fatalError) {
+                    throw this.fatalError
+                }
+
                 // 1. Drain rebalance events. handleRebalanceEvent on REVOKE awaits drainAll
                 // and calls incrementalUnassign before returning.
                 while (this.rebalanceQueue.length > 0) {
@@ -306,6 +319,11 @@ export class KafkaConsumerV2 {
               })
             : undefined
 
+        // Serialize store decisions in batch order: without this a faster later batch
+        // could store its (higher) offset before an earlier failed batch latches fatalError.
+        const predecessorSettled =
+            this.inFlight.length > 0 ? this.inFlight[this.inFlight.length - 1].settled : undefined
+
         const settled: Promise<void> = (async () => {
             try {
                 const { timedOut } = await raceWithTimeout(Promise.resolve(raw), this.backgroundTaskTimeoutMs)
@@ -315,10 +333,17 @@ export class KafkaConsumerV2 {
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
-                // Do not store offsets when the task failed.
-                return
+                this.fatalError ??= error
             } finally {
                 stopBackgroundTimer?.()
+            }
+
+            if (predecessorSettled) {
+                await predecessorSettled
+            }
+
+            if (this.fatalError) {
+                return
             }
 
             if (this.config.autoCommit && this.config.autoOffsetStore) {
@@ -511,7 +536,14 @@ export class KafkaConsumerV2 {
     // === RdKafkaConsumer construction + event wiring ===
 
     private createConsumer(): RdKafkaConsumer {
-        const consumer = new RdKafkaConsumer(this.rdKafkaConfig, { 'auto.offset.reset': 'earliest' })
+        // Mirror the resolved auto.offset.reset (incl. any override) into the explicit topic
+        // config — the form librdkafka honors on our version. See DEFAULT_AUTO_OFFSET_RESET.
+        const autoOffsetReset =
+            (this.rdKafkaConfig['auto.offset.reset' as keyof ConsumerGlobalConfig] as
+                | 'earliest'
+                | 'latest'
+                | undefined) ?? DEFAULT_AUTO_OFFSET_RESET
+        const consumer = new RdKafkaConsumer(this.rdKafkaConfig, { 'auto.offset.reset': autoOffsetReset })
 
         consumer.on('event.log', (log) => logger.info('📝', 'kafka_consumer_v2_librdkafka_log', { log }))
         consumer.on('event.error', (error: LibrdKafkaError) => {

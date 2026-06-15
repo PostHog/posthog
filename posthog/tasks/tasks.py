@@ -67,7 +67,7 @@ STALE_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
 
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
-    from posthog.models import ExportedAsset
+    from products.exports.backend.models.exported_asset import ExportedAsset
 
     ExportedAsset.delete_expired_assets()
 
@@ -332,31 +332,6 @@ def pg_plugin_server_query_timing() -> None:
         except:
             # if this doesn't work keep going
             pass
-
-
-POSTGRES_TABLES = ["posthog_personoverride", "posthog_personoverridemapping"]
-
-
-@shared_task(ignore_result=True)
-def pg_row_count() -> None:
-    with pushed_metrics_registry("celery_pg_row_count") as registry:
-        row_count_gauge = Gauge(
-            "posthog_celery_pg_table_row_count",
-            "Number of rows per Postgres table.",
-            labelnames=["table_name"],
-            registry=registry,
-        )
-        with connection.cursor() as cursor:
-            for table in POSTGRES_TABLES:
-                QUERY = "SELECT count(*) FROM {table};"
-                query = QUERY.format(table=table)
-
-                try:
-                    cursor.execute(query)
-                    row = cursor.fetchone()
-                    row_count_gauge.labels(table_name=table).set(row[0])
-                except:
-                    pass
 
 
 CLICKHOUSE_TABLES = [
@@ -712,21 +687,6 @@ def capture_task_run_state_metrics() -> None:
 
 
 @shared_task(ignore_result=True)
-@skip_team_scope_audit
-def reconcile_sendblue_prewarmed_sandbox_pool(team_id: int | None = None) -> None:
-    from products.tasks.backend.services.prewarmed_sandbox_pool import (
-        reconcile_sendblue_prewarmed_sandbox_pool as reconcile_pool,
-    )
-
-    try:
-        result = reconcile_pool(team_id=team_id)
-        logger.info("reconcile_sendblue_prewarmed_sandbox_pool", **result)
-    except Exception as err:
-        logger.exception("reconcile_sendblue_prewarmed_sandbox_pool_failed", exception=err)
-        capture_exception(err)
-
-
-@shared_task(ignore_result=True)
 def update_event_partitions() -> None:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -874,7 +834,7 @@ def sync_insight_caching_state(
 
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from posthog.models.feature_flag.flag_analytics import (
+    from products.feature_flags.backend.flag_analytics import (
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
@@ -889,7 +849,7 @@ def calculate_decide_usage() -> None:
 def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
+    from products.feature_flags.backend.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -919,16 +879,6 @@ def check_async_migration_health() -> None:
     from posthog.tasks.async_migrations import check_async_migration_health
 
     check_async_migration_health()
-
-
-@shared_task(ignore_result=True)
-def verify_persons_data_in_sync() -> None:
-    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
-
-    if not is_cloud():
-        return
-
-    verify()
 
 
 @shared_task(ignore_result=True)
@@ -1353,7 +1303,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     from django.core.cache import cache
 
     from posthog.clickhouse.client import sync_execute
-    from posthog.models.feature_flag.feature_flag import FeatureFlag
+
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
     LOCK_KEY = "posthog:feature_flag_last_called_sync:lock"

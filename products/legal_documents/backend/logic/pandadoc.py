@@ -1,9 +1,10 @@
 """
 Thin client for the PandaDoc public API.
 
-We only hit two endpoints:
-    POST /public/v1/documents         -> create a document from a template
-    POST /public/v1/documents/{id}/send -> email the signing envelope
+We hit three endpoints:
+    POST  /public/v1/documents              -> create a document from a template
+    POST  /public/v1/documents/{id}/send    -> email the signing envelope
+    PATCH /public/v1/documents/{id}/status  -> move an envelope to voided (no longer signable)
 
 Plus one helper for verifying the HMAC signature on inbound webhooks. Keeping
 this file free of Django/DRF imports so it's straightforward to unit test.
@@ -28,6 +29,12 @@ logger = structlog.get_logger(__name__)
 
 
 DEFAULT_TIMEOUT_SECONDS = 30
+
+# PandaDoc encodes document statuses as small integers in the status-change API.
+# 11 is `document.voided` — the document is no longer available for signature
+# but stays in PandaDoc as an audit record of the cancelled signing process.
+# See https://developers.pandadoc.com/reference/change-document-status-manually
+_PANDADOC_STATUS_VOIDED = 11
 
 
 class PandaDocError(Exception):
@@ -96,6 +103,23 @@ class PandaDocClient:
         except ValueError as exc:
             raise PandaDocError(f"PandaDoc {path} returned non-JSON body: {exc}") from exc
 
+    def _patch(self, path: str, json: dict[str, Any]) -> int:
+        """
+        PATCH the given path with a JSON body. Returns the HTTP status code so
+        callers can distinguish a successful change (204) from a "no-op,
+        already gone" (404) without inspecting an exception.
+        """
+        url = f"{self._base_url}{path}"
+        try:
+            response = requests.patch(url, headers=self._headers(), json=json, timeout=self._timeout)
+        except requests.RequestException as exc:
+            raise PandaDocError(f"Network error calling PandaDoc {path}: {exc}") from exc
+        if response.status_code == 404:
+            return response.status_code
+        if response.status_code >= 400:
+            raise PandaDocError(f"PandaDoc {path} returned {response.status_code}: {response.text[:500]}")
+        return response.status_code
+
     @contextmanager
     def _get_stream(self, path: str) -> Iterator[IO[bytes]]:
         """
@@ -121,7 +145,7 @@ class PandaDocClient:
         template_id: str,
         name: str,
         recipients: list[PandaDocRecipient],
-        sender_email: str | None = None,
+        owner_email: str | None = None,
         tokens: dict[str, str] | None = None,
         metadata: dict[str, str] | None = None,
     ) -> PandaDocDocument:
@@ -129,8 +153,9 @@ class PandaDocClient:
         Create a new document from a PandaDoc template. The returned document is in
         `document.uploaded` state — call `send_document` to dispatch the signing email.
 
-        `sender_email` is the email address that will be used to send the signing
-        envelope. Defaults to the email address that owns the API key.
+        `owner_email` sets the PandaDoc user who owns the document inside the workspace.
+        It does *not* affect the "From" identity in signing emails — that's controlled
+        by `sender_email` on `send_document`.
 
         `tokens` is a flat {name: value} map that maps onto the template's token
         placeholders (`[Client.Company]`, `[Client.StreetAddress]`, etc.). Only
@@ -143,8 +168,8 @@ class PandaDocClient:
             "recipients": [_serialize_recipient(r) for r in recipients],
         }
 
-        if sender_email:
-            payload["sender"] = {"email": sender_email}
+        if owner_email:
+            payload["owner"] = {"email": owner_email}
         if tokens:
             payload["tokens"] = [{"name": name, "value": value} for name, value in tokens.items()]
         if metadata:
@@ -157,13 +182,45 @@ class PandaDocClient:
             name=data.get("name", name),
         )
 
-    def send_document(self, *, document_id: str, subject: str, message: str) -> None:
+    def send_document(
+        self,
+        *,
+        document_id: str,
+        subject: str,
+        message: str,
+        sender_email: str | None = None,
+    ) -> None:
         """
         Trigger the signing envelope email. PandaDoc returns 200/202 with a body we don't use.
+
+        `sender_email` controls the "From" identity recipients see in the signing
+        email. Without it, PandaDoc falls back to the owner of the API key — the
+        `sender` set during document creation does not affect the send-time email.
         """
-        self._post(
-            f"/public/v1/documents/{document_id}/send",
-            {"subject": subject, "message": message, "silent": False},
+        payload: dict[str, Any] = {"subject": subject, "message": message, "silent": False}
+        if sender_email:
+            payload["sender"] = {"email": sender_email}
+        self._post(f"/public/v1/documents/{document_id}/send", payload)
+
+    def void_document(self, *, document_id: str, notify_recipients: bool = True) -> None:
+        """
+        Move the envelope to `document.voided` so the recipient can no longer
+        complete it. Unlike a hard delete, the envelope stays in PandaDoc as
+        an audit record of the cancelled signing process — which is what we
+        want for documents that may end up in a legal review later.
+
+        `notify_recipients=True` sends PandaDoc's standard "this document was
+        cancelled" email to the original signer, so they're not left
+        wondering why the link from earlier no longer works.
+
+        404 is treated as success — the envelope is already gone, which is
+        the state we wanted anyway. Any other non-2xx (e.g., 423 if PandaDoc
+        has the document locked for editing) surfaces as PandaDocError so
+        the caller can decide whether to retry or log + move on.
+        """
+        self._patch(
+            f"/public/v1/documents/{document_id}/status",
+            {"status": _PANDADOC_STATUS_VOIDED, "notify_recipients": notify_recipients},
         )
 
     @contextmanager

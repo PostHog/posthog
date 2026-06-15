@@ -294,6 +294,31 @@ class TestMaxChatOpenAI(BaseTest):
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["$ai_billable"], True)
             self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["team_id"], self.team.id)
 
+    def test_ai_product_defaults_to_posthog_ai(self):
+        llm = MaxChatOpenAI(user=self.user, team=self.team, use_responses_api=False)
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            llm.generate([[HumanMessage(content="Test query")]])
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "posthog_ai")
+
+    def test_caller_supplied_ai_product_overrides_default(self):
+        llm = MaxChatOpenAI(
+            user=self.user,
+            team=self.team,
+            use_responses_api=False,
+            posthog_properties={"ai_product": "alert_investigation_agent"},
+        )
+
+        mock_result = LLMResult(generations=[[Generation(text="Response")]])
+        with patch("langchain_openai.ChatOpenAI.generate", return_value=mock_result) as mock_generate:
+            llm.generate([[HumanMessage(content="Test query")]])
+
+            call_kwargs = mock_generate.call_args.kwargs
+            self.assertEqual(call_kwargs["metadata"]["posthog_properties"]["ai_product"], "alert_investigation_agent")
+
     @parameterized.expand(
         [
             # (model_billable, is_agent_billable, expected_effective_billable, should_increment_counter)

@@ -3,7 +3,15 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    ExperimentSavedMetricsCreateBody,
+    ExperimentSavedMetricsDestroyParams,
+    ExperimentSavedMetricsListQueryParams,
+    ExperimentSavedMetricsPartialUpdateBody,
+    ExperimentSavedMetricsPartialUpdateParams,
+    ExperimentSavedMetricsRetrieveParams,
     ExperimentsArchiveCreateParams,
+    ExperimentsCopyToProjectCreateBody,
+    ExperimentsCopyToProjectCreateParams,
     ExperimentsCreateBody,
     ExperimentsDestroyParams,
     ExperimentsDuplicateCreateBody,
@@ -46,6 +54,54 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
             return await withPostHogUrl(context, result, `/experiments/${result.id}`)
         },
     })
+
+const ExperimentCopyToProjectSchema = ExperimentsCopyToProjectCreateParams.omit({ project_id: true })
+    .extend(ExperimentsCopyToProjectCreateBody.shape)
+    .extend({
+        id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateParams.shape['id']),
+        target_team_id: z.preprocess(castStringToInt, ExperimentsCopyToProjectCreateBody.shape['target_team_id']),
+    })
+
+const experimentCopyToProject = (): ToolBase<typeof ExperimentCopyToProjectSchema, Schemas.Experiment> => ({
+    name: 'experiment-copy-to-project',
+    schema: ExperimentCopyToProjectSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentCopyToProjectSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.target_team_id !== undefined) {
+            body['target_team_id'] = params.target_team_id
+        }
+        if (params.feature_flag_key !== undefined) {
+            body['feature_flag_key'] = params.feature_flag_key
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.Experiment>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/copy_to_project/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'description',
+            'type',
+            'feature_flag_key',
+            'status',
+            'archived',
+            'start_date',
+            'end_date',
+            'created_at',
+            'parameters',
+            'metrics',
+            'metrics_secondary',
+            'conclusion',
+            'conclusion_comment',
+        ]) as typeof result
+        return filtered
+    },
+})
 
 const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
@@ -108,7 +164,24 @@ const experimentCreate = (): ToolBase<typeof ExperimentCreateSchema, WithPostHog
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -283,7 +356,24 @@ const experimentLaunch = (): ToolBase<typeof ExperimentLaunchSchema, WithPostHog
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/launch/`,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
@@ -309,10 +399,12 @@ const experimentList = (): ToolBase<typeof ExperimentListSchema, WithPostHogUrl<
                 query: {
                     archived: params.archived,
                     created_by_id: params.created_by_id,
+                    event: params.event,
                     feature_flag_id: params.feature_flag_id,
                     limit: params.limit,
                     offset: params.offset,
                     order: params.order,
+                    prompt_name: params.prompt_name,
                     search: params.search,
                     status: params.status,
                 },
@@ -402,6 +494,141 @@ const experimentResume = (): ToolBase<typeof ExperimentResumeSchema, WithPostHog
         },
     })
 
+const ExperimentSavedMetricsCreateSchema = ExperimentSavedMetricsCreateBody
+
+const experimentSavedMetricsCreate = (): ToolBase<
+    typeof ExperimentSavedMetricsCreateSchema,
+    Schemas.ExperimentSavedMetric
+> => ({
+    name: 'experiment-saved-metrics-create',
+    schema: ExperimentSavedMetricsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.ExperimentSavedMetric>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExperimentSavedMetricsDestroySchema = ExperimentSavedMetricsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentSavedMetricsDestroyParams.shape['id']),
+})
+
+const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetricsDestroySchema, unknown> => ({
+    name: 'experiment-saved-metrics-destroy',
+    schema: ExperimentSavedMetricsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ExperimentSavedMetricsListSchema = ExperimentSavedMetricsListQueryParams.extend({
+    limit: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['offset']).optional(),
+})
+
+const experimentSavedMetricsList = (): ToolBase<
+    typeof ExperimentSavedMetricsListSchema,
+    WithPostHogUrl<Schemas.PaginatedExperimentSavedMetricList>
+> => ({
+    name: 'experiment-saved-metrics-list',
+    schema: ExperimentSavedMetricsListSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedExperimentSavedMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'name', 'description', 'query', 'created_at', 'updated_at', 'tags'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/experiments')
+    },
+})
+
+const ExperimentSavedMetricsPartialUpdateSchema = ExperimentSavedMetricsPartialUpdateParams.omit({ project_id: true })
+    .extend(ExperimentSavedMetricsPartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, ExperimentSavedMetricsPartialUpdateParams.shape['id']) })
+
+const experimentSavedMetricsPartialUpdate = (): ToolBase<
+    typeof ExperimentSavedMetricsPartialUpdateSchema,
+    Schemas.ExperimentSavedMetric
+> => ({
+    name: 'experiment-saved-metrics-partial-update',
+    schema: ExperimentSavedMetricsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.ExperimentSavedMetric>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ExperimentSavedMetricsRetrieveSchema = ExperimentSavedMetricsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, ExperimentSavedMetricsRetrieveParams.shape['id']),
+})
+
+const experimentSavedMetricsRetrieve = (): ToolBase<
+    typeof ExperimentSavedMetricsRetrieveSchema,
+    Schemas.ExperimentSavedMetric
+> => ({
+    name: 'experiment-saved-metrics-retrieve',
+    schema: ExperimentSavedMetricsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentSavedMetricsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentSavedMetric>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const ExperimentShipVariantSchema = ExperimentsShipVariantCreateParams.omit({ project_id: true })
     .extend(ExperimentsShipVariantCreateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, ExperimentsShipVariantCreateParams.shape['id']) })
@@ -421,6 +648,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key
+            }
+            if (params.release_to_everyone !== undefined) {
+                body['release_to_everyone'] = params.release_to_everyone
             }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
@@ -498,7 +728,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             filters: true,
             deleted: true,
             type: true,
-            exposure_criteria: true,
             scheduling_config: true,
             _create_in_folder: true,
             primary_metrics_ordered_uuids: true,
@@ -530,6 +759,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             if (params.archived !== undefined) {
                 body['archived'] = params.archived
             }
+            if (params.exposure_criteria !== undefined) {
+                body['exposure_criteria'] = params.exposure_criteria
+            }
             if (params.metrics !== undefined) {
                 body['metrics'] = params.metrics
             }
@@ -556,12 +788,30 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/`,
                 body,
             })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+            const filtered = pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'type',
+                'feature_flag_key',
+                'status',
+                'archived',
+                'start_date',
+                'end_date',
+                'created_at',
+                'parameters',
+                'metrics',
+                'metrics_secondary',
+                'conclusion',
+                'conclusion_comment',
+            ]) as typeof result
+            return await withPostHogUrl(context, filtered, `/experiments/${filtered.id}`)
         },
     })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-archive': experimentArchive,
+    'experiment-copy-to-project': experimentCopyToProject,
     'experiment-create': experimentCreate,
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
@@ -572,6 +822,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-pause': experimentPause,
     'experiment-reset': experimentReset,
     'experiment-resume': experimentResume,
+    'experiment-saved-metrics-create': experimentSavedMetricsCreate,
+    'experiment-saved-metrics-destroy': experimentSavedMetricsDestroy,
+    'experiment-saved-metrics-list': experimentSavedMetricsList,
+    'experiment-saved-metrics-partial-update': experimentSavedMetricsPartialUpdate,
+    'experiment-saved-metrics-retrieve': experimentSavedMetricsRetrieve,
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,

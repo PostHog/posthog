@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field, ValidationError, field_serializer, field_
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.person import Person
-from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
+
+from products.replay.backend.models.session_summaries import SingleSessionSummary
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
@@ -16,7 +18,6 @@ from ee.hogai.session_summaries.session.output_data import SessionSummaryIssueTy
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
-from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -531,15 +532,14 @@ def get_persons_for_sessions_from_distinct_ids(
         # No ids to search for persons - return empty mapping
         return {}
     try:
-        persons = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=distinct_ids)
+        distinct_to_person = get_persons_mapped_by_distinct_id(team_id=team_id, distinct_ids=distinct_ids)
         session_id_to_person_mapping: dict[str, Person | None] = {}
-        for person in persons:
-            for distinct_id in person.distinct_ids:
-                person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)
-                if not person_session_ids:
-                    continue
-                for person_session_id in person_session_ids:
-                    session_id_to_person_mapping[person_session_id] = person
+        for distinct_id, person in distinct_to_person.items():
+            person_session_ids = distinct_id_to_session_id_mapping.get(distinct_id)
+            if not person_session_ids:
+                continue
+            for person_session_id in person_session_ids:
+                session_id_to_person_mapping[person_session_id] = person
         return session_id_to_person_mapping
     except Exception as err:
         # As access to persons DB could fail, return empty mapping to avoid failing the activity

@@ -5,8 +5,10 @@ set -euo pipefail
 # Read-only: does not start, stop, or recreate any containers.
 # Used by phrocs processes to block until infrastructure is ready.
 #
-# Always checks core services (db, redis7, kafka, clickhouse).
-# Pass extra service names as arguments, e.g.: bin/wait-for-docker temporal
+# Usage:
+#   bin/wait-for-docker                     # wait for core (db redis7 kafka clickhouse)
+#   bin/wait-for-docker temporal            # wait for core + temporal
+#   bin/wait-for-docker --only db redis7    # wait only for db and redis7 (skip core)
 
 # In a sandbox container, infra is managed by docker compose externally
 # and is guaranteed healthy via depends_on health checks.
@@ -20,8 +22,22 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
 
-SERVICES=(db redis7 kafka clickhouse)
-SERVICES+=("$@")
+only_listed=0
+if [ "${1:-}" = "--only" ]; then
+    only_listed=1
+    shift
+fi
+
+if [ "$only_listed" -eq 1 ]; then
+    if [ "$#" -eq 0 ]; then
+        echo "wait-for-docker: --only requires at least one service argument" >&2
+        exit 2
+    fi
+    SERVICES=("$@")
+else
+    SERVICES=(db redis7 kafka clickhouse)
+    SERVICES+=("$@")
+fi
 
 unique_services=()
 for svc in "${SERVICES[@]}"; do
@@ -99,8 +115,8 @@ print_service_diagnostics() {
     else
         echo "Container exists (id=${container_id:0:12}) but readiness state is: $status"
         echo ""
-        echo "Last 20 lines of container logs:"
-        docker logs --tail 20 "$container_id" 2>&1 || true
+        echo "Last 100 lines of container logs:"
+        docker logs --tail 100 "$container_id" 2>&1 || true
         echo ""
         echo "Health check log:"
         docker inspect --format='{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{else}}no health check configured{{end}}' "$container_id" 2>&1 | tail -5 || true
@@ -166,7 +182,13 @@ while true; do
         last_progress_log=$SECONDS
     fi
 
-    sleep 1
+    # Poll faster than 1 Hz so the convergence cost summed across the
+    # ~10 phrocs procs that all block on this script is bounded by docker
+    # daemon health-check cadence, not the polling cadence. Five times
+    # the poll rate trims ~3-5s off the slowest proc's ready-pattern wait
+    # without measurably loading dockerd (each iteration is a handful of
+    # cheap docker compose ps + docker inspect calls).
+    sleep 0.2
 done
 
 if [ "${#timed_out_services[@]}" -gt 0 ]; then

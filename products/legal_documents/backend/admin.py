@@ -12,11 +12,11 @@ from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 import structlog
-from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.storage import object_storage
 
+from . import logic
 from .models import LegalDocument
 from .storage import signed_pdf_storage_key
 
@@ -66,7 +66,12 @@ class LegalDocumentAdminForm(forms.ModelForm):
         return pdf
 
 
+@admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
+    # FK to posthog.Organization — without this the add view renders a <select>
+    # of every org on Cloud, which times out. Autocomplete searches lazily via
+    # OrganizationAdmin.search_fields.
+    autocomplete_fields = ("organization",)
     list_display = (
         "id",
         "document_type",
@@ -99,6 +104,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
         "representative_email",
         "status",
         "pandadoc_link",
+        "download_link",
         "created_by",
         "created_at",
         "updated_at",
@@ -136,6 +142,7 @@ class LegalDocumentAdmin(admin.ModelAdmin):
                     "document_type",
                     "status",
                     "pandadoc_link",
+                    "download_link",
                 )
             },
         ),
@@ -226,26 +233,19 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             ) from exc
 
     def delete_model(self, request: HttpRequest, obj: LegalDocument) -> None:
-        self._delete_signed_pdf(obj)
-        super().delete_model(request, obj)
+        # Shared helper voids the PandaDoc envelope, removes the S3 object,
+        # and deletes the row (firing the activity-log entry via
+        # ModelActivityMixin). The same helper backs the public DELETE
+        # endpoint — admin keeps the privilege of deleting signed rows by
+        # calling the helper directly rather than going through the facade.
+        logic.delete_document(obj)
 
     def delete_queryset(self, request: HttpRequest, queryset: Any) -> None:
+        # Per-row delete (rather than queryset.delete()) so each row fires its
+        # own activity-log delete and so the shared helper can run its
+        # PandaDoc + S3 cleanup against each envelope individually.
         for obj in queryset:
-            self._delete_signed_pdf(obj)
-        super().delete_queryset(request, queryset)
-
-    @staticmethod
-    def _delete_signed_pdf(obj: LegalDocument) -> None:
-        try:
-            object_storage.delete(signed_pdf_storage_key(obj))
-        except Exception as exc:
-            # Best effort — the row is going away regardless. Worst case a stale
-            # PDF lingers in S3 with no row referencing it.
-            logger.warning(
-                "legal_document_admin_pdf_delete_failed",
-                document_id=str(obj.id),
-                error=str(exc),
-            )
+            logic.delete_document(obj)
 
     def changelist_view(self, request: HttpRequest, extra_context: dict[str, Any] | None = None) -> HttpResponse:
         if not (is_cloud() or is_dev_mode()):
@@ -283,19 +283,22 @@ class LegalDocumentAdmin(admin.ModelAdmin):
             id=document.pandadoc_document_id,
         )
 
+    @admin.display(description="Signed PDF")
+    def download_link(self, document: LegalDocument) -> str | SafeString:
+        # The PDF only exists once the row is signed (PandaDoc-signed rows get
+        # the file via the completion webhook; admin-uploaded rows write it
+        # synchronously on save). Hide the link until there's something to fetch.
+        if document.status != LegalDocument.Status.SIGNED:
+            return "—"
+        url = f"/api/organizations/{document.organization_id}/legal_documents/{document.id}/download"
+        return format_html('<a href="{}" target="_blank" rel="noopener">Download PDF</a>', url)
 
-class LegalDocumentInline(TabularInlinePaginated):
-    """
-    Read-only list of an organization's legal documents, rendered as an inline
-    on the Organization admin page. The "Upload signed document" button in the
-    inline header links to the LegalDocumentAdmin add view with the
-    organization pre-filled via `?organization=<id>`.
-    """
+
+class LegalDocumentInline(admin.TabularInline):
+    """List of an organization's legal documents on the Organization admin."""
 
     model = LegalDocument
     extra = 0
-    per_page = 20
-    pagination_key = "page-legal-document"
     show_change_link = True
     template = "admin/legal_documents/edit_inline/tabular.html"
 
@@ -304,23 +307,11 @@ class LegalDocumentInline(TabularInlinePaginated):
         "company_name",
         "status",
         "pandadoc_link",
+        "download_link",
         "created_at",
     )
     readonly_fields = fields
-
     can_delete = False
-    max_num = 0
-
-    def has_add_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        # Adding goes through the LegalDocumentAdmin add view via the upload
-        # button rendered in the inline template — never inline.
-        return False
-
-    def has_change_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return False
-
-    def has_delete_permission(self, request: HttpRequest, obj: Any = None) -> bool:
-        return False
 
     @admin.display(description="PandaDoc")
     def pandadoc_link(self, document: LegalDocument) -> str | SafeString:
@@ -330,3 +321,10 @@ class LegalDocumentInline(TabularInlinePaginated):
             '<a href="https://app.pandadoc.com/a/#/documents/{id}" target="_blank" rel="noopener">{id}</a>',
             id=document.pandadoc_document_id,
         )
+
+    @admin.display(description="Signed PDF")
+    def download_link(self, document: LegalDocument) -> str | SafeString:
+        if document.status != LegalDocument.Status.SIGNED:
+            return "—"
+        url = f"/api/organizations/{document.organization_id}/legal_documents/{document.id}/download"
+        return format_html('<a href="{}" target="_blank" rel="noopener">Download PDF</a>', url)

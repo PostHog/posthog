@@ -1,7 +1,7 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
@@ -9,7 +9,6 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -291,7 +290,6 @@ function syncExpandedDirectQuerySchemaKeys(
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
-    tabId?: string
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
 }
@@ -299,7 +297,6 @@ export interface SourceWizardLogicProps {
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
-    key((props) => props.tabId ?? 'default'),
     actions({
         selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
             connector,
@@ -322,6 +319,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schemas,
         }),
         toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
+        setSchemaSyncedColumns: (schema: ExternalDataSourceSyncSchema, enabledColumns: string[] | null) => ({
+            schema,
+            enabledColumns,
+        }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
             syncType: ExternalDataSourceSyncSchema['sync_type'],
@@ -440,22 +441,34 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
                 toggleAllTables: (state, { selectAll, tableNames }) => {
+                    // permission_error rows stay off — bulk toggle never queues guaranteed-403 syncs.
                     if (!tableNames) {
                         return state.map((schema) => ({
                             ...schema,
-                            should_sync: selectAll,
+                            should_sync: schema.permission_error ? false : selectAll,
                         }))
                     }
                     const targetSet = new Set(tableNames)
                     return state.map((schema) => ({
                         ...schema,
-                        should_sync: targetSet.has(schema.table) ? selectAll : schema.should_sync,
+                        should_sync: targetSet.has(schema.table)
+                            ? schema.permission_error
+                                ? false
+                                : selectAll
+                            : schema.should_sync,
                     }))
                 },
                 toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
                     return state.map((s) => ({
                         ...s,
-                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
+                        should_sync:
+                            s.table === schema.table ? (s.permission_error ? false : shouldSync) : s.should_sync,
+                    }))
+                },
+                setSchemaSyncedColumns: (state, { schema, enabledColumns }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        enabled_columns: s.table === schema.table ? enabledColumns : s.enabled_columns,
                     }))
                 },
                 updateSchemaSyncType: (
@@ -1003,7 +1016,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     should_sync:
                         splitDirectQueryTableName(schema.table, values.directQueryDefaultSchema).schemaName ===
                         schemaName
-                            ? shouldSync
+                            ? schema.permission_error
+                                ? false
+                                : shouldSync
                             : schema.should_sync,
                 }))
             )
@@ -1176,6 +1191,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         incremental_field_type: schema.incremental_field_type,
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
+                                        enabled_columns: schema.enabled_columns ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
                                             : {}),
@@ -1330,6 +1346,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     getDatabaseSchemaPayload(values.source)
                 )
 
+                // Backend `cdc_available` only reflects the team flag — clear it when the
+                // user didn't toggle CDC on for this source in step 1.
+                const sourceCdcEnabled = !!values.source.payload?.cdc_enabled
+                if (!sourceCdcEnabled) {
+                    for (const schema of schemas) {
+                        schema.cdc_available = false
+                    }
+                }
+
                 let showToast = false
 
                 for (const schema of schemas) {
@@ -1339,11 +1364,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         continue
                     }
 
+                    // Unreachable scope → leave off. User fixes permissions before opting in.
+                    if (schema.permission_error) {
+                        schema.should_sync = false
+                        continue
+                    }
+
                     if (schema.sync_type === null) {
                         showToast = true
                         schema.should_sync = schema.should_sync_default ?? true
 
-                        const cdcEnabled = values.source.payload?.cdc_enabled
+                        const cdcEnabled = sourceCdcEnabled
                         if (cdcEnabled && schema.cdc_available) {
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
@@ -1465,7 +1496,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.setDatabaseSchemas(values.databaseSchema)
         },
     })),
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         const handleUrlChange = (_: Record<string, string | undefined>, searchParams: Record<string, string>): void => {
             const kind = searchParams.kind?.toLowerCase()
             const accessMethod = searchParams.access_method === 'direct' ? 'direct' : 'warehouse'

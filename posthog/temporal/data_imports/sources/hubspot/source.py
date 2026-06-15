@@ -85,6 +85,11 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            # Raised by source_for_pipeline when the source config carries no refresh token at all
+            # (integration never connected or lost its token). Retrying cannot recover.
+            "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by source_for_pipeline (OAuth path) when the integration is missing its access or refresh token.
+            "Hubspot refresh or access token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
@@ -100,6 +105,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for endpoint in HUBSPOT_ENDPOINTS:
@@ -191,8 +197,7 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
         if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
             return False
-
-        from products.data_warehouse.backend.models import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         try:
             schema = ExternalDataSchema.objects.get(id=inputs.schema_id, team_id=inputs.team_id)

@@ -38,7 +38,12 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         }
 
     def get_schemas(
-        self, config: ZendeskSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ZendeskSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(

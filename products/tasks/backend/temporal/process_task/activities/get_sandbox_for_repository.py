@@ -8,15 +8,19 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.connection_token import (
+    SANDBOX_JWT_STATE_KID_KEY,
+    get_primary_sandbox_jwt_kid,
+    get_sandbox_jwt_public_key,
+)
 from products.tasks.backend.services.sandbox import (
     Sandbox,
     SandboxConfig,
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
 )
-from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -100,8 +104,6 @@ class GetSandboxForRepositoryOutput:
     connect_token: str | None
     used_snapshot: bool
     should_create_snapshot: bool
-    used_prewarmed_sandbox: bool = False
-    prewarmed_sandbox_pool_entry_id: str | None = None
 
 
 @activity.defn
@@ -323,6 +325,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         sandbox_state = {
             "sandbox_id": sandbox.id,
             "sandbox_url": credentials.url,
+            SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
         }
         if credentials.token:
             sandbox_state["sandbox_connect_token"] = credentials.token

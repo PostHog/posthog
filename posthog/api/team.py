@@ -1,7 +1,6 @@
 import re
 import json
 import math
-import hashlib
 import secrets
 from datetime import timedelta
 from functools import cached_property
@@ -31,7 +30,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
-from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -42,10 +41,11 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
+from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
+from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
@@ -61,10 +61,10 @@ from posthog.permissions import (
     CREATE_ACTIONS,
     AccessControlPermission,
     APIScopePermission,
-    OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    UserCanCreateProjectPermission,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -88,9 +88,50 @@ from posthog.utils import (
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    TeamDefaultEvaluationContext,
+    normalize_context_name,
+)
+from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
+
+
+class TeamLogsConfigSerializer(serializers.ModelSerializer):
+    logs_distinct_id_attribute_key = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "Log attribute key whose value should match a person's distinct_id. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
+            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "https://posthog.com/docs/logs/link-session-replay and the key the "
+            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
+            "your pipeline emits a different attribute."
+        ),
+    )
+
+    class Meta:
+        model = TeamLogsConfig
+        fields = ["logs_distinct_id_attribute_key"]
+
+
+def handle_logs_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the logs_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamLogsConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamLogsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamLogsConfigSerializer(config).data)
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -102,6 +143,27 @@ def _format_serializer_errors(serializer_errors: dict) -> str:
         else:
             error_messages.append(f"{field}: {field_errors}")
     return ". ".join(error_messages)
+
+
+PROMOTED_PRODUCT_INTENT_DESCRIPTION = (
+    "Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary "
+    "product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` "
+    "record (the one carrying the `onboarding product selected - primary` context) — not from the "
+    "`user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no "
+    "primary onboarding product intent has been captured (e.g. teams created before this signal existed, or "
+    "where onboarding was skipped)."
+)
+
+
+class PromotedProductIntentSerializer(serializers.Serializer):
+    product_key = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The product key the team selected as their primary product during onboarding "
+            "(e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no "
+            "primary onboarding product intent has been captured for this team."
+        ),
+    )
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -221,9 +283,29 @@ TEAM_CONFIG_FIELDS = (
     "conversations_enabled",
     "conversations_settings",
     "proactive_tasks_enabled",
+    "workflows_config",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
+
+TEAM_CONFIG_MEMBER_FIELDS = (
+    "completed_snippet_onboarding",
+    "has_completed_onboarding_for",
+    "onboarding_tasks",
+    "session_recording_opt_in",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "surveys_opt_in",
+    "primary_dashboard",
+)
+TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
+
+TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_MEMBER_FIELDS_SET) | {
+    "is_demo",
+    "app_urls",
+    "access_control",
+}
 
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -326,12 +408,39 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
         return instance
 
 
+class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    capture_workflows_engagement_events = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "When enabled, workflows engagement activity (email sends, opens, clicks, bounces, "
+            "spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) "
+            "alongside the existing workflow metrics."
+        ),
+    )
+
+    class Meta:
+        model = TeamWorkflowsConfig
+        fields = ["capture_workflows_engagement_events"]
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    activity_event = serializers.JSONField(required=False)
-    signup_pageview_event = serializers.JSONField(required=False)
-    signup_event = serializers.JSONField(required=False)
-    subscription_event = serializers.JSONField(required=False)
-    payment_event = serializers.JSONField(required=False)
+    activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
+    signup_pageview_event = serializers.JSONField(
+        required=False, help_text="Event used to count signup pageviews on dashboards."
+    )
+    signup_event = serializers.JSONField(required=False, help_text="Event used to count signups on dashboards.")
+    subscription_event = serializers.JSONField(
+        required=False, help_text="Event used to count subscriptions on dashboards."
+    )
+    payment_event = serializers.JSONField(required=False, help_text="Event used to count payments on dashboards.")
+    account_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Index of the group type to treat as an Account in customer analytics. "
+            "Must reference an existing group type configured for the project."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -341,7 +450,12 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "signup_event",
             "subscription_event",
             "payment_event",
+            "account_group_type_index",
         ]
+
+    @staticmethod
+    def validate_account_group_type_index(value):
+        return validate_group_type_index("account_group_type_index", value)
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
@@ -391,9 +505,6 @@ test_account_filters_adapter = TypeAdapter(list[AnyPropertyFilter])
 
 
 def validate_test_account_filters(value: object) -> list[dict[str, object]]:
-    if not getattr(settings, "TEST_ACCOUNT_FILTERS_STRICT_VALIDATION_ENABLED", False):
-        return cast(list[dict[str, object]], value)
-
     try:
         test_account_filters_adapter.validate_python(value)
     except PydanticValidationError as error:
@@ -439,13 +550,13 @@ LIVE_EVENTS_TOKEN_TTL_SECONDS = 24 * 60 * 60
 def _live_events_token_cache_key(team: Team, user_id: int | None) -> str:
     """Build the cache key for the live-events JWT.
 
-    Includes a short fingerprint of `settings.SECRET_KEY` so that rotating the
-    signing secret automatically partitions the cache namespace - cached tokens
-    signed with the old key become unreachable rather than served until TTL.
+    Includes a short fingerprint of `settings.JWT_SIGNING_KEY` so that rotating the
+    signing key automatically partitions the cache namespace - cached tokens signed
+    with the old key become unreachable rather than served until TTL.
     Hashing also defends the cache key against future api-token formats that
     might contain the `:` separator we use between components.
     """
-    signing_fingerprint = hashlib.sha256(settings.SECRET_KEY.encode()).hexdigest()[:16]
+    signing_fingerprint = signing_key_fingerprint(settings.JWT_SIGNING_KEY)
     return f"live_events_token:{signing_fingerprint}:{team.id}:{user_id}:{team.api_token}:{team.organization_id}"
 
 
@@ -455,8 +566,8 @@ def get_or_mint_live_events_token(team: Team, user_id: int | None) -> str:
     The JWT itself is valid for 7 days. The cache TTL is 24h, so any token returned
     from cache still has at least 6 days of remaining validity. The cache key includes
     every field that ends up in the claims so api-token rotations or organization
-    moves automatically force a fresh mint, plus a SECRET_KEY fingerprint so signing-
-    key rotation auto-partitions the cache namespace (no manual flush needed).
+    moves automatically force a fresh mint, plus a JWT_SIGNING_KEY fingerprint so
+    signing-key rotation auto-partitions the cache namespace (no manual flush needed).
     """
     cache_key = _live_events_token_cache_key(team, user_id)
     cached = get_safe_cache(cache_key)
@@ -487,6 +598,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
+    workflows_config = TeamWorkflowsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     class Meta:
@@ -584,7 +696,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
-        from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
@@ -632,6 +744,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             return None
 
         serializer = TeamCustomerAnalyticsConfigSerializer(data=value)
+        if not serializer.is_valid():
+            raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
+        return serializer.validated_data
+
+    @staticmethod
+    def validate_workflows_config(value):
+        if value is None:
+            return None
+
+        serializer = TeamWorkflowsConfigSerializer(data=value)
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
@@ -1010,6 +1132,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 raise serializers.ValidationError(
                     {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
                 )
+        for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave"):
+            if toggle_key in value:
+                value[toggle_key] = bool(value[toggle_key])
+        if "slack_alert_channel_id" in value:
+            alert_channel = value.get("slack_alert_channel_id")
+            if alert_channel is None:
+                value["slack_alert_channel_id"] = None
+            elif isinstance(alert_channel, str):
+                value["slack_alert_channel_id"] = alert_channel.strip() or None
+            else:
+                raise serializers.ValidationError({"slack_alert_channel_id": "Must be a string."})
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:
@@ -1109,7 +1242,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
 
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
@@ -1162,6 +1295,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("customer_analytics_config", None):
             self._update_customer_analytics_config(instance, config_data)
+
+        if config_data := validated_data.pop("workflows_config", None):
+            self._update_workflows_config(instance, config_data)
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -1309,7 +1445,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
             from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1364,6 +1500,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "signup_event": instance.customer_analytics_config.signup_event,
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
+            "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
@@ -1382,6 +1519,28 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             for field in TeamCustomerAnalyticsConfigSerializer.Meta.fields
         }
         self._capture_diff(instance, "customer_analytics_config", old_config, new_config)
+        return instance
+
+    def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        old_config = {
+            field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
+        }
+
+        serializer = TeamWorkflowsConfigSerializer(
+            instance.workflows_config,
+            data=validated_data,
+            partial=True,
+            context={**self.context, "user_access_control": self.user_access_control},
+        )
+        if not serializer.is_valid():
+            raise serializers.ValidationError(_format_serializer_errors(serializer.errors))
+
+        serializer.save()
+
+        new_config = {
+            field: getattr(instance.workflows_config, field) for field in TeamWorkflowsConfigSerializer.Meta.fields
+        }
+        self._capture_diff(instance, "workflows_config", old_config, new_config)
         return instance
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
@@ -1462,8 +1621,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if mixin_result is not None:
             return mixin_result
 
-        # If the request only contains config fields, require read:team scope
-        # Otherwise, require write:team scope (handled by APIScopePermission)
         # NOTE: This downgrade only applies to session-based auth (browser users).
         # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
         # to modify any fields, preserving the semantic meaning of read-only API keys.
@@ -1471,8 +1628,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields:
+                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
@@ -1503,7 +1659,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(OrganizationAdminWritePermissions)
+                    permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -1547,14 +1703,28 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         user = cast(User, self.request.user)
 
-        # Queue background task to handle all deletion
-        # bulky postgres, batch exports, team record, ClickHouse, email
-        delete_project_data_and_notify_task.delay(
-            team_ids=[team_id],
-            project_id=None,  # Only deleting a team, not the whole project
-            user_id=user.id,
-            project_name=team_name,
+        # Hand off all deletion work (bulky postgres, batch exports, team record,
+        # ClickHouse, email). Route to the durable Temporal workflow when the rollout flag
+        # is enabled for this org; otherwise keep the legacy Celery task.
+        from posthog.temporal.delete_teams.dispatch import (
+            delete_via_temporal_enabled,
+            start_delete_project_data_workflow,
         )
+
+        if delete_via_temporal_enabled(str(organization_id)):
+            start_delete_project_data_workflow(
+                team_ids=[team_id],
+                project_id=None,  # Only deleting a team, not the whole project
+                user_id=user.id,
+                project_name=team_name,
+            )
+        else:
+            delete_project_data_and_notify_task.delay(
+                team_ids=[team_id],
+                project_id=None,  # Only deleting a team, not the whole project
+                user_id=user.id,
+                project_name=team_name,
+            )
 
         log_activity(
             organization_id=cast(UUIDT, organization_id),
@@ -1671,6 +1841,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         methods=["GET", "PATCH"],
         detail=True,
         permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this environment."""
+        return handle_logs_config(request, self.get_object())
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="experiments_config",
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -1688,6 +1868,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "default_experiment_stats_method",
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
+                    "default_cuped_enabled",
+                    "default_cuped_lookback_days",
+                    "default_minimum_detectable_effect",
+                    "default_sequential_testing_enabled",
+                    "default_sequential_tuning_parameter",
                 ]
 
         team = self.get_object()
@@ -1952,6 +2137,17 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
+    @extend_schema(
+        tags=["platform_features"],
+        responses={200: PromotedProductIntentSerializer},
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
+        team = self.get_object()
+        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
+        return response.Response({"product_key": product_key})
+
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):
         team = self.get_object()
@@ -2022,8 +2218,34 @@ def handle_conversations_token_on_update(
 
 
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Team | Project | None
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, instance: Team | Project | None
 ) -> dict[str, Any]:
+    if instance is not None:
+        admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        if admin_fields_touched:
+            team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
+            level = view.user_permissions.team(team_for_check).effective_membership_level
+            if level is None or level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
+                )
+    else:
+        # On create there's no team yet, so check the creator's org-level membership. Without this a
+        # non-admin member (allowed to create projects via members_can_create_projects) could set
+        # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
+        # project creation is intentionally open to members and gated separately.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        if admin_fields_touched:
+            membership = OrganizationMembership.objects.filter(
+                user=cast(User, view.request.user), organization_id=view.organization_id
+            ).first()
+            member_level = membership.level if membership else None
+            if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Only organization admins can set these settings on project creation: "
+                    + ", ".join(sorted(admin_fields_touched))
+                )
+
     if "primary_dashboard" in attrs:
         if not instance:
             raise exceptions.ValidationError(
