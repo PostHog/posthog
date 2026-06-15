@@ -33,7 +33,7 @@ export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidget
             to={urls.event(event.uuid, event.timestamp)}
             target="_blank"
             subtle
-            className="flex flex-col gap-0.5 px-3 py-2 hover:bg-surface-secondary"
+            className="@container flex flex-col gap-0.5 px-3 py-2 hover:bg-surface-secondary focus-visible:outline-offset-[-2px]"
             data-attr="activity-events-widget-row"
         >
             <div className="flex items-center justify-between gap-2">
@@ -61,7 +61,7 @@ export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidget
             </div>
             <div className="flex min-h-4 min-w-0 items-center gap-2 text-xs text-muted">
                 {event.lib ? <span className="shrink-0">{event.lib}</span> : null}
-                {event.url ? <span className="min-w-0 truncate">{event.url}</span> : null}
+                {event.url ? <span className="min-w-0 max-w-[60cqw] truncate">{event.url}</span> : null}
             </div>
         </Link>
     )
