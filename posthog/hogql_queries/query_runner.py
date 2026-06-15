@@ -2110,7 +2110,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         dashboard_breakdown_filter = dashboard_filter.breakdown_filter
 
-        should_ignore_dashboard_breakdown = (
+        # Query types like LifecycleQuery, PathsQuery, RetentionQuery and StickinessQuery
+        # have no breakdownFilter field — they simply don't support breakdowns, so a dashboard
+        # breakdown override is expected to be a no-op rather than an error.
+        should_ignore_dashboard_breakdown = not hasattr(self.query, "breakdownFilter") or (
             isinstance(self.query, TrendsQuery)
             and has_data_warehouse_series
             and (
@@ -2161,14 +2164,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 date_range.explicitDate = dashboard_filter.explicitDate
 
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
-            if hasattr(self.query, "breakdownFilter"):
-                self.query.breakdownFilter = dashboard_filter.breakdown_filter
-            else:
-                capture_exception(
-                    NotImplementedError(
-                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
-                    )
-                )
+            self.query.breakdownFilter = dashboard_filter.breakdown_filter
         self.__post_init__()
 
 
