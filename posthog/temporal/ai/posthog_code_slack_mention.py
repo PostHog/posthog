@@ -2,9 +2,8 @@
 import re
 import json
 import asyncio
-from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -13,7 +12,13 @@ from temporalio.common import RetryPolicy
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
-from posthog.temporal.ai.slack_app import PostHogCodeSlackMentionWorkflowInputs, classify_untagged_followup_activity
+from posthog.temporal.ai.slack_app import (
+    PostHogCodeRepoCascadeOutcome,
+    PostHogCodeRulesCommandResult,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackRepoSelectionOutcome,
+    classify_untagged_followup_activity,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -164,48 +169,6 @@ def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") 
     else:
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
     return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
-
-
-@dataclass
-class PostHogCodeRepoCascadeOutcome:
-    """Synchronous fast-path repo resolution before the discovery agent runs.
-
-    `auto` → use `repository` directly. `no_repo` → create a task with no repo
-    (e.g. team has no GitHub integration connected). `agent_needed` → there are
-    multiple candidates and no explicit mention. `needs_user_github` → the team
-    has a GitHub install but the mentioning user has not connected their personal
-    GitHub yet, so the workflow should fire the connect-GitHub prompt rather than
-    silently creating a no-repo task.
-    """
-
-    mode: Literal["auto", "no_repo", "agent_needed", "needs_user_github"]
-    repository: str | None
-    reason: str
-
-
-@dataclass
-class SlackRepoSelectionOutcome:
-    """Discovery-agent result wrapped at the activity boundary.
-
-    `found` → use `repository`. `no_match` → no plausible candidate, create a
-    no-repo task. `failed` → agent crashed/timed out/hallucinated, fall back to
-    the interactive repo picker so the user can resolve manually.
-
-    `repo_research_task_id`/`repo_research_run_id` point at the internal sandbox
-    run the repo discovery agent spun up to make this call.
-    """
-
-    status: Literal["found", "no_match", "failed"]
-    repository: str | None
-    reason: str
-    repo_research_task_id: str | None = None
-    repo_research_run_id: str | None = None
-
-
-@dataclass
-class PostHogCodeRulesCommandResult:
-    status: str  # "not_a_command" | "handled" | "needs_picker"
-    pending_rule_text: str | None = None
 
 
 @workflow.defn(name="posthog-code-slack-mention-processing")

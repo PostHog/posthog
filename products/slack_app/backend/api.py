@@ -41,14 +41,11 @@ from posthog.temporal.ai.posthog_code_slack_interactivity import (
     PostHogCodeSlackInteractivityInputs,
     PostHogCodeSlackTerminateTaskWorkflow,
 )
-from posthog.temporal.ai.posthog_code_slack_mention import (
-    PostHogCodeSlackMentionWorkflow,
-    PostHogCodeSlackMentionWorkflowInputs,
-    derive_mention_workflow_id,
-)
-from posthog.temporal.ai.posthog_code_slack_mention_command import (
-    PostHogCodeSlackMentionCommandWorkflow,
+from posthog.temporal.ai.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow, derive_mention_workflow_id
+from posthog.temporal.ai.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
+from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
+    PostHogCodeSlackMentionWorkflowInputs,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions

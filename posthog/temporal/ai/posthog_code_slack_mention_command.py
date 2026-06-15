@@ -1,11 +1,13 @@
 import json
-from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.temporal.ai.slack_app import (
+    PostHogCodeSlackMentionCommandResult,
+    PostHogCodeSlackMentionCommandWorkflowInputs,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -14,34 +16,6 @@ POSTHOG_CODE_SLACK_COMMAND_ACTIVITY_TIMEOUT_SECONDS = 60
 # consistent across both flows. The lifetime of a command workflow that posts a
 # picker is bounded by this timeout.
 POSTHOG_CODE_SLACK_COMMAND_PICKER_TIMEOUT_MINUTES = 25
-
-
-@dataclass
-class PostHogCodeSlackMentionCommandWorkflowInputs:
-    event: dict[str, Any]
-    integration_ids: list[int]
-    slack_team_id: str
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity below. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
-    user_id: int | None = None
-
-
-@dataclass
-class PostHogCodeSlackMentionCommandResult:
-    """Outcome of the synchronous command-dispatch activity.
-
-    ``status="done"`` means the command was handled (or refused) inline by the
-    activity and the workflow has nothing left to do. ``status="needs_picker"``
-    means the parsed command is a ``rules add`` without an inline repository,
-    and the workflow must drive the interactive repo-picker flow against
-    ``target_integration_id`` using ``pending_rule_text``.
-    """
-
-    status: str  # "done" | "needs_picker"
-    pending_rule_text: str | None = None
-    target_integration_id: int | None = None
 
 
 @workflow.defn(name="posthog-code-slack-mention-command")
