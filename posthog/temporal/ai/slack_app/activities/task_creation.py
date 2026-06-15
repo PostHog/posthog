@@ -127,14 +127,21 @@ def create_posthog_code_task_for_repo_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_messages import (
+        labeled_mentions_to_display_names,
+        resolve_user_mentions_text,
+    )
     from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
 
     bot_user_id = _get_cached_bot_user_id(slack, integration)
     user_text = resolve_user_mentions_text(
         slack, integration, event.get("text", ""), strip_bot_user_id=bot_user_id
     ).strip()
-    title = user_text[:255] if user_text else "Task from Slack"
+    # Title is shown in PostHog Code's UI (task lists, PR titles) where the
+    # labeled `<@U…|name>` form would render as literal noise; the description
+    # keeps the labeled form so the agent can echo tokens back as real pings.
+    title_text = labeled_mentions_to_display_names(user_text)
+    title = title_text[:255] if title_text else "Task from Slack"
     description = _build_posthog_code_task_description(user_text, thread_messages, user_message_ts)
 
     slack_thread_context = SlackThreadContext(

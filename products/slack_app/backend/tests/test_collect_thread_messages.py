@@ -9,7 +9,10 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.api import _collect_thread_messages, _extract_message_text, _flatten_block_text
-from products.slack_app.backend.services.slack_messages import resolve_user_mentions_text
+from products.slack_app.backend.services.slack_messages import (
+    labeled_mentions_to_display_names,
+    resolve_user_mentions_text,
+)
 
 
 class TestFlattenBlockText:
@@ -175,7 +178,7 @@ class TestResolveUserMentionsText:
 
         return _lookup
 
-    def test_strips_bot_mention_keeps_and_resolves_user_mention(self, mock_get_user_info):
+    def test_strips_bot_mention_keeps_and_labels_user_mention(self, mock_get_user_info):
         mock_get_user_info.side_effect = self._profiles({"UCLEO": "cleo"})
 
         result = resolve_user_mentions_text(
@@ -185,21 +188,21 @@ class TestResolveUserMentionsText:
             strip_bot_user_id="UBOT",
         )
 
-        assert result == "can you do what @cleo asked"
+        assert result == "can you do what <@UCLEO|cleo> asked"
 
     def test_keeps_user_mention_when_no_bot_id_given(self, mock_get_user_info):
         mock_get_user_info.side_effect = self._profiles({"UCLEO": "cleo"})
 
         result = resolve_user_mentions_text(self.slack, self.integration, "ping <@UCLEO>")
 
-        assert result == "ping @cleo"
+        assert result == "ping <@UCLEO|cleo>"
 
     def test_unresolvable_user_becomes_unknown(self, mock_get_user_info):
         mock_get_user_info.side_effect = RuntimeError("slack down")
 
         result = resolve_user_mentions_text(self.slack, self.integration, "hey <@UCLEO>")
 
-        assert result == "hey @Unknown"
+        assert result == "hey <@UCLEO|Unknown>"
 
     def test_no_mentions_passes_through_unchanged(self, mock_get_user_info):
         result = resolve_user_mentions_text(self.slack, self.integration, "just some text", strip_bot_user_id="UBOT")
@@ -213,6 +216,22 @@ class TestResolveUserMentionsText:
         )
 
         assert result == "do the thing"
+
+
+class TestLabeledMentionsToDisplayNames:
+    def test_unwraps_labeled_mention(self):
+        assert labeled_mentions_to_display_names("ping <@UCLEO|cleo> please") == "ping @cleo please"
+
+    def test_unwraps_multiple_labeled_mentions(self):
+        assert labeled_mentions_to_display_names("<@UA|andy> and <@UB|bob>") == "@andy and @bob"
+
+    def test_leaves_bare_id_mention_alone(self):
+        # Bare `<@U…>` (no label) is something we never emit on the agent path,
+        # but if it shows up we leave it as-is rather than dropping the user id.
+        assert labeled_mentions_to_display_names("hi <@UCLEO>") == "hi <@UCLEO>"
+
+    def test_no_op_on_plain_text(self):
+        assert labeled_mentions_to_display_names("just some text") == "just some text"
 
 
 @patch("products.slack_app.backend.api._get_slack_user_info")
@@ -367,7 +386,7 @@ class TestCollectThreadMessages:
 
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
-        assert result[0]["text"] == "hey @posthog-code can you help"
+        assert result[0]["text"] == "hey <@UBOT|posthog-code> can you help"
 
     def test_includes_thread_root_when_our_bot_id_is_none(self, mock_get_user_info):
         # Defensive: if auth_test() somehow returned no bot_id we still process the thread.
