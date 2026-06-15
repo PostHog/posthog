@@ -1331,20 +1331,22 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert key_blocked != key_unblocked
 
     @parameterized.expand(RUNNER_BASES)
-    def test_admin_and_no_user_produce_no_restriction_keys(self, _name, base):
+    def test_admin_has_no_restrictions_but_userless_fails_closed(self, _name, base):
         self._ac(resource="notebook", access_level="none")
 
-        # Org admin bypasses object/resource AC.
+        # Org admin bypasses object/resource AC - no restriction keys, so they share the
+        # unrestricted cache partition.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         admin_payload = self._runner(self.user, base).get_cache_payload()
         assert "restricted_objects" not in admin_payload
         assert "restricted_resources" not in admin_payload
 
-        # No user -> no UserAccessControl for the fingerprint.
+        # Userless runs fail-closed (see no system.* tables), so they must partition separately
+        # from the admin's unrestricted result.
         no_user_payload = self._runner(None, base).get_cache_payload()
-        assert "restricted_objects" not in no_user_payload
-        assert "restricted_resources" not in no_user_payload
+        assert no_user_payload["restricted_resources"] == ["*"]
+        assert self._runner(None, base).get_cache_key() != self._runner(self.user, base).get_cache_key()
 
     def test_hogql_query_runner_partitions_cache_on_access_control(self):
         # Raw HogQL is the only way to reach access-controlled system.* tables.

@@ -2240,6 +2240,9 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         """Sorted list of resources the user has no access to at the resource level. Reuses
         UserAccessControl.blocked_resources, the same predicate that drives schema filtering, so
         the cache key matches the exposed schema."""
+        # Userless runs fail-closed - every access-controlled table is denied.
+        if self.user is None:
+            return ["*"]
         user_access_control = self.user_access_control
         if user_access_control is None:
             return None
