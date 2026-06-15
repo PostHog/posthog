@@ -2,10 +2,10 @@ import { urls } from 'scenes/urls'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 
+import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
-import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from './configSchemas'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -113,6 +113,13 @@ export const DASHBOARD_WIDGET_CATALOG = {
         tileFilters: {
             quickFilterContext: QuickFilterContext.ErrorTrackingIssueFilters,
             allowedPropertyNames: ERROR_TRACKING_LIST_TILE_FILTER_PROPERTIES,
+        },
+        availability: {
+            requirement: 'exception_autocapture',
+            unavailableTitle: "You haven't captured any exceptions",
+            unavailableReason: 'Enable exception autocapture to get started.',
+            setupActionLabel: 'Enable exception autocapture',
+            docsHref: 'https://posthog.com/docs/error-tracking',
         },
     },
     session_replay_list: {

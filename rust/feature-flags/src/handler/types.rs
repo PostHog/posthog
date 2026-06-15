@@ -122,6 +122,8 @@ pub enum Library {
     PosthogDotnet,
     /// posthog-elixir SDK
     PosthogElixir,
+    /// posthog-rs SDK
+    PosthogRs,
     /// posthog-android SDK
     PosthogAndroid,
     /// posthog-ios SDK
@@ -152,6 +154,7 @@ impl Library {
             Library::PosthogJava => "posthog-java",
             Library::PosthogDotnet => "posthog-dotnet",
             Library::PosthogElixir => "posthog-elixir",
+            Library::PosthogRs => "posthog-rs",
             Library::PosthogAndroid => "posthog-android",
             Library::PosthogIos => "posthog-ios",
             Library::PosthogReactNative => "posthog-react-native",
@@ -174,6 +177,7 @@ impl Library {
         Library::PosthogJava,
         Library::PosthogDotnet,
         Library::PosthogElixir,
+        Library::PosthogRs,
         Library::PosthogAndroid,
         Library::PosthogIos,
         Library::PosthogReactNative,
@@ -274,6 +278,7 @@ mod tests {
     #[case("posthog-java/1.2.0", Library::PosthogJava)]
     #[case("posthog-dotnet/1.0.0", Library::PosthogDotnet)]
     #[case("posthog-elixir/0.2.0", Library::PosthogElixir)]
+    #[case("posthog-rs/0.10.0", Library::PosthogRs)]
     #[case("posthog-server/1.0.0", Library::PosthogServer)]
     #[case("posthog-server/3.2.1 (Android SDK)", Library::PosthogServer)]
     // Client-side SDKs
@@ -358,6 +363,7 @@ mod tests {
     #[case(Library::PosthogJava, "posthog-java")]
     #[case(Library::PosthogDotnet, "posthog-dotnet")]
     #[case(Library::PosthogElixir, "posthog-elixir")]
+    #[case(Library::PosthogRs, "posthog-rs")]
     #[case(Library::PosthogAndroid, "posthog-android")]
     #[case(Library::PosthogIos, "posthog-ios")]
     #[case(Library::PosthogReactNative, "posthog-react-native")]
@@ -378,6 +384,7 @@ mod tests {
     #[case(Library::PosthogJava, "\"posthog-java\"")]
     #[case(Library::PosthogDotnet, "\"posthog-dotnet\"")]
     #[case(Library::PosthogElixir, "\"posthog-elixir\"")]
+    #[case(Library::PosthogRs, "\"posthog-rs\"")]
     #[case(Library::PosthogAndroid, "\"posthog-android\"")]
     #[case(Library::PosthogIos, "\"posthog-ios\"")]
     #[case(Library::PosthogReactNative, "\"posthog-react-native\"")]

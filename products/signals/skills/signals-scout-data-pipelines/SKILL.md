@@ -12,14 +12,9 @@ description: >
   on other skills.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (mostly read-only, plus signal_scout_internal:write for scratchpad-remember/forget and
-  emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus the
-  pipeline MCP tools (cdp-functions-list, cdp-functions-retrieve,
-  cdp-functions-metrics-retrieve, cdp-functions-logs-retrieve, batch-exports-list,
-  batch-export-get, workflows-list, workflows-global-stats, workflows-stats,
-  workflows-list-invocations, workflows-logs) and standard analytics tools
-  (execute-sql, activity-log-list, inbox-reports-list).
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the CDP function, batch export, workflow, and
+  analytics tools listed in the body's MCP tools section.
 metadata:
   owner_team: signals
   scope: data_pipelines

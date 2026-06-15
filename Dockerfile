@@ -289,7 +289,9 @@ RUN apt-get update && \
     "libxmlsec1=1.2.37-2" \
     "libxmlsec1-openssl=1.2.37-2" \
     "libxml2" \
-    "libssl3=3.0.19-1~deb12u2" \
+    # libssl pinned to the 3.0 series (ABI-stable), not an exact version: Debian rotates
+    # point releases out of the security archive, which breaks exact pins on uncached builds.
+    "libssl3=3.0.*" \
     "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*

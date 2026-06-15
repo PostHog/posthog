@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -79,7 +80,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(

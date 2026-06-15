@@ -110,8 +110,7 @@ tracked but still below the emit bar), `noise:` (ignore), `addressed:` (fixed/mo
 (tooling gap). This vocabulary is open — scouts coin their own prefixes and `<domain>` labels, so
 treat an unfamiliar prefix as just another category. Entries link to each other with `[[key]]`
 wikilinks. The canonical prefix set and the four-state dedupe classifier the fleet reasons in terms
-of live in
-[`../../authoring-signals-scouts/references/dedupe-and-memory.md`](../../authoring-signals-scouts/references/dedupe-and-memory.md).
+of live in the `authoring-signals-scouts` skill (`references/dedupe-and-memory.md`).
 
 ## SignalProjectProfile — orientation snapshot
 

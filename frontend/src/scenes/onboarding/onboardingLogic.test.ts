@@ -539,8 +539,8 @@ describe('onboardingLogic — flow composition', () => {
     describe('completion redirect URL', () => {
         // Each entry: [primary, expected redirect path-substring].
         // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // Two products (DATA_WAREHOUSE and EXPERIMENTS) intentionally fall through to
-        // urls.default() — same behaviour as the original central switch.
+        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
+        // the original central switch.
         const cases: Array<[ProductKey, RegExp]> = [
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
@@ -551,6 +551,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.AI_OBSERVABILITY, /ai-observability/i],
             [ProductKey.WORKFLOWS, /workflow/i],
             [ProductKey.LOGS, /log/i],
+            [ProductKey.DATA_WAREHOUSE, /sources|data-management/i],
         ]
 
         it.each(cases)('%s lands on a product-specific page', (product, pattern) => {
@@ -558,10 +559,8 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments and data warehouse fall through to urls.default()', () => {
+        it('experiments falls through to urls.default()', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-            logic.actions.setProductKey(ProductKey.DATA_WAREHOUSE)
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
         })
 

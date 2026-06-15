@@ -20,6 +20,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
     job_channel,
@@ -31,12 +32,14 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     DEFAULT_TTL_SCHEDULE,
     DEFAULT_WAIT_TIMEOUT_SECONDS,
     NON_RETRYABLE_CLICKHOUSE_ERROR_CODES,
+    PREAGGREGATION_INSERT_QUORUM,
     LazyComputationExecutor,
     LazyComputationResult,
     LazyComputationTable,
     QueryInfo,
     TtlSchedule,
     _build_manual_insert_sql,
+    _get_insert_settings,
     build_lazy_computation_insert_sql,
     compute_query_hash,
     create_lazy_computation_job,
@@ -45,6 +48,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     find_missing_contiguous_windows,
     is_non_retryable_error,
     parse_ttl_schedule,
+    run_lazy_computation_insert,
     split_ranges_by_ttl,
 )
 from products.analytics_platform.backend.models import PreaggregationJob
@@ -2672,3 +2676,76 @@ class TestIsNonRetryableError(BaseTest):
     def test_generic_exception_is_retryable(self):
         error = Exception("Something went wrong")
         assert is_non_retryable_error(error) is False
+
+
+class TestInsertSettings(BaseTest):
+    def test_insert_settings_guarantee_read_your_writes(self):
+        settings = _get_insert_settings(self.team.pk)
+
+        # The executor marks jobs READY the moment the INSERT returns, which is only sound if
+        # the distributed write is synchronous. Production profiles default to async, so this
+        # must be set per-query — a missing value here means readers race the distribution queue.
+        assert settings["insert_distributed_sync"] == 1
+        assert settings["insert_quorum"] == PREAGGREGATION_INSERT_QUORUM
+        assert settings["load_balancing"] == "in_order"
+        assert settings["max_execution_time"] == HOGQL_INCREASED_MAX_EXECUTION_TIME
+        assert "readonly" not in settings
+
+
+class TestInsertSettingsAppliedToInserts(BaseTest):
+    INSERT_QUERY = """
+        SELECT
+            toStartOfDay(timestamp) as time_window_start,
+            [] as breakdown_value,
+            uniqExactState(person_id) as uniq_exact_state
+        FROM events
+        WHERE event = '$pageview'
+            AND timestamp >= {time_window_min}
+            AND timestamp < {time_window_max}
+        GROUP BY time_window_start
+    """
+
+    def test_manual_insert_path_passes_insert_settings_to_clickhouse(self):
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        assert result.ready is True
+        # Bind the assertion to the INSERT specifically, so the test doesn't break (or silently
+        # check the wrong call) if the executor flow ever issues other queries around the insert.
+        insert_calls = [c for c in mock_execute.call_args_list if c.args[0].lstrip().startswith("INSERT")]
+        assert len(insert_calls) == 1  # one missing range -> one INSERT
+        assert insert_calls[0].kwargs["settings"] == _get_insert_settings(self.team.pk)
+
+    def test_ast_insert_path_passes_insert_settings_to_clickhouse(self):
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        query = parse_select(
+            self.INSERT_QUERY,
+            placeholders={
+                "time_window_min": ast.Constant(value=datetime(2024, 1, 1, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 1, 2, tzinfo=UTC)),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS)
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute"
+        ) as mock_execute:
+            run_lazy_computation_insert(self.team, job, query_info)
+
+        assert mock_execute.call_count == 1
+        assert mock_execute.call_args.kwargs["settings"] == _get_insert_settings(self.team.pk)

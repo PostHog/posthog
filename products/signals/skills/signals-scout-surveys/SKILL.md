@@ -7,15 +7,12 @@ description: >
   the team should know about (clusters of complaints, praise, feature requests). Emits
   findings only when a theme or anomaly clears the confidence bar; otherwise writes
   durable memory and closes out empty. Self-contained peer in the signals-scout-* fleet
-  — no dependencies on other skills. Picked uniformly at random by the coordinator
-  alongside `signals-scout-general` and other specialists.
+  — no dependencies on other skills.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal) plus
-  the surveys MCP tools (surveys-get-all, survey-get, survey-stats, surveys-global-stats)
-  and standard analytics tools (execute-sql, query-trends, read-data-schema,
-  activity-log-list).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family plus the surveys and analytics tools listed in the
+  body's MCP tools section.
 metadata:
   owner_team: signals
   scope: surveys
@@ -126,56 +123,14 @@ Surveys with rating questions (NPS 0–10, CSAT 1–5, single rating) are the cl
 quantitative signal. For each rating-style active survey, pull the last 30 days of
 `survey sent` events and compute the score trend.
 
-**Resolving the response value — coalesce both key schemes.** PostHog writes each
-answer under two property keys and the product reads them with a `coalesce`
-(`getSurveyResponse()` in `frontend/src/scenes/surveys/utils.ts`). Query the same way
-or you will miss responses. Read `survey-get` for the question's `id` **and** its
-position in the `questions` array:
-
-- **id-based** (modern posthog-js): `$survey_response_<question_id>` — the question's UUID.
-- **index-based** (legacy, still emitted): bare `$survey_response` for the first
-  question (index 0), `$survey_response_<n>` (numeric) for question index _n_.
-
-A survey whose responses are only index-based — common when the rating is the first
-question, so the key is bare `$survey_response` — returns all-NULL under the id-based
-key alone, which reads as "no responses." Always coalesce id-based over the
-index-based fallback:
-
-```sql
-SELECT
-    toDate(timestamp) AS day,
-    avg(toFloat64OrNull(coalesce(
-        nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),  -- id-based (modern)
-        nullIf(JSONExtractString(properties, '<index_based_key>'), '')                -- '$survey_response' (index 0) or '$survey_response_<n>'
-    ))) AS avg_score,
-    count() AS responses
-FROM events
-WHERE event = 'survey sent'
-  AND JSONExtractString(properties, '$survey_id') = '<survey_id>'
-  AND timestamp > now() - INTERVAL 30 DAY
-GROUP BY day
-ORDER BY day
-```
-
-Always dedupe by `$survey_submission_id` for surveys collected after that property
-shipped — the legacy path is one row per submission, but newer client versions can
-emit multiple `survey sent` events per submission and you'll over-count rating
-responses. Pattern (from `products/surveys/backend/util.py`):
-
-```sql
--- Inside the WHERE clause
-AND uuid IN (
-    SELECT argMax(uuid, timestamp) FROM events
-    WHERE event = 'survey sent'
-      AND JSONExtractString(properties, '$survey_id') = '<survey_id>'
-      AND timestamp > now() - INTERVAL 30 DAY
-    GROUP BY CASE
-        WHEN COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
-        THEN toString(uuid)
-        ELSE JSONExtractString(properties, '$survey_submission_id')
-    END
-)
-```
+**Two mechanical traps make response SQL non-obvious — read
+[`references/response-querying.md`](references/response-querying.md) before writing
+any.** Answers land under two property key schemes (id-based
+`$survey_response_<question_id>` and legacy index-based `$survey_response` /
+`$survey_response_<n>`) that must be coalesced — querying the id-based key alone reads
+as "no responses" on legacy surveys — and newer clients can emit multiple `survey sent`
+events per submission, so every count needs the `$survey_submission_id` dedupe. The
+reference has the copy-ready rating-trend SQL with both handled.
 
 What counts as "enough responses" depends on the survey's normal volume. Flagship
 NPS surveys can hit 100+/week; a feature-specific widget survey running at 15–25
@@ -255,29 +210,10 @@ naturally has high dismiss); don't re-flag every run.
 #### Recurring theme in open-text responses
 
 This is the highest-value pattern — and the one with the highest false-positive risk.
-For each survey with at least one open-text question, pull recent responses and look
-for clustering.
-
-```sql
-SELECT
-    coalesce(
-        nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),  -- id-based (modern)
-        nullIf(JSONExtractString(properties, '<index_based_key>'), '')                -- '$survey_response' (index 0) or '$survey_response_<n>'
-    ) AS response,
-    person_id,
-    timestamp
-FROM events
-WHERE event = 'survey sent'
-  AND JSONExtractString(properties, '$survey_id') = '<survey_id>'
-  AND timestamp > now() - INTERVAL 14 DAY
-  AND coalesce(
-        nullIf(JSONExtractString(properties, '$survey_response_<question_id>'), ''),
-        nullIf(JSONExtractString(properties, '<index_based_key>'), '')
-      ) != ''
-  -- dedupe by submission as above
-ORDER BY timestamp DESC
-LIMIT 200
-```
+For each survey with at least one open-text question, pull recent responses (the
+open-text pull SQL — key coalesce and submission dedupe included — is in
+[`references/response-querying.md`](references/response-querying.md)) and look for
+clustering.
 
 Read the responses. Look for:
 
@@ -469,16 +405,9 @@ Direct calls (read-only):
   `survey-get` per id. Use `surveys-get-all {"search": "..."}` if you need to
   resolve a name from a memory entry.
 - `execute-sql` against `events` — for raw response analysis (rating trends, theme
-  aggregation, dedupe by `$survey_submission_id`). The properties to extract:
-  - `$survey_id` — which survey
-  - `$survey_iteration` — which iteration of a recurring survey
-  - `$survey_submission_id` — dedupe key (newer events; older events lack this)
-  - `$survey_response` — first question's response, index-based legacy key (index 0)
-  - `$survey_response_<n>` — index-based key for question index _n_ > 0 (numeric suffix)
-  - `$survey_response_<question_id>` — id-based per-question key (question UUID; preferred,
-    but coalesce over the index-based keys above — see "Resolving the response value")
-  - `$survey_completed`, `$survey_partially_completed`, `$survey_dismissed` — status
-  - `$survey_responded` — whether the user responded at all
+  aggregation). The property reference, the dual response-key coalesce, and the
+  `$survey_submission_id` dedupe SQL are all in
+  [`references/response-querying.md`](references/response-querying.md).
 - `read-data-schema event_property_values` — sample response values to confirm
   property keys exist and have the shape you expect before running heavy aggregations.
 - `query-trends` — confirm `survey shown` / `survey sent` volume trends with weekly
