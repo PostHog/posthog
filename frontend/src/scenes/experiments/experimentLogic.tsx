@@ -1456,9 +1456,7 @@ export const experimentLogic = kea<experimentLogicType>([
             experiment && actions.reportExperimentViewed(experiment, duration)
 
             // Load metrics for launched experiments (sets up auto-refresh once the load completes).
-            // Paint cached results for a fast first load, then — while the experiment is still warming
-            // up — fetch fresh once, so a freshly launched experiment surfaces its first numbers without
-            // requiring a manual refresh.
+            // Shows cached results immediately, then force-refreshes once if the experiment is warming up.
             if (experiment && isLaunched(experiment)) {
                 actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
             }
@@ -1685,11 +1683,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.resetAutoRefreshInterval()
                 }
 
-                // On page load, a still-warming-up experiment can show a stale "no results yet" cached
-                // snapshot. Fetch fresh once so its first numbers surface without a manual refresh. Once
-                // it has the exposures needed to show results we leave it to the cached paint and the
-                // in-tab auto-refresh, since recomputes over real data are expensive. Gated on
-                // `!forceRefresh` so the refresh we trigger here can't re-trigger itself.
+                // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
+                // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
+                // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
                 if (
                     refreshIfStale &&
                     !forceRefresh &&
