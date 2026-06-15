@@ -352,8 +352,13 @@ function mergeWithExisting(
         const existingBaseIds = new Set(Object.values(existingTools).map((c) => c.operation.replace(/_\d+$/, '')))
         for (const op of ops) {
             const base = op.operationId.replace(/_\d+$/, '')
-            if (!existingBaseIds.has(base)) {
-                mergedTools[operationIdToToolName(op.operationId)] = {
+            const toolName = operationIdToToolName(op.operationId)
+            // Don't clobber a hand-authored tool that already owns this key — e.g. a
+            // tool deliberately repointed to a different operation (its canonical
+            // operation then has no entry, which is intentional). Preserving the
+            // author's mapping mirrors the merge loop above.
+            if (!existingBaseIds.has(base) && !(toolName in mergedTools)) {
+                mergedTools[toolName] = {
                     operation: op.operationId,
                     enabled: false,
                 }
