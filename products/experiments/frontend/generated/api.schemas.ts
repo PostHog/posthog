@@ -497,6 +497,7 @@ export const ExperimentStatusEnumApi = {
     Draft: 'draft',
     Running: 'running',
     Paused: 'paused',
+    ExposureClosed: 'exposure_closed',
     Stopped: 'stopped',
 } as const
 
@@ -582,7 +583,7 @@ export interface ExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
-    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_closed' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
     /**
      * The effective access level the user has for this object
@@ -682,7 +683,7 @@ export interface PatchedExperimentApi {
     only_count_matured_users?: boolean
     /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
     update_feature_flag_params?: boolean
-    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_closed' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended). */
     readonly status?: ExperimentStatusEnumApi
     /**
      * The effective access level the user has for this object
