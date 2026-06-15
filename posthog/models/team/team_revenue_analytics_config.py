@@ -1,14 +1,18 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
-
-from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
 from posthog.rbac.decorators import field_access_control
+
+# This model loads at django.setup() in every process; posthog.schema (the pydantic models)
+# is runtime-imported in the accessors that materialize typed objects.
+if TYPE_CHECKING:
+    from posthog.schema import RevenueAnalyticsEventItem, RevenueAnalyticsGoal
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +36,15 @@ class TeamRevenueAnalyticsConfig(models.Model):
     base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
 
     @property
-    def events(self) -> list[RevenueAnalyticsEventItem]:
+    def events(self) -> list["RevenueAnalyticsEventItem"]:
+        from posthog.schema import RevenueAnalyticsEventItem  # noqa: PLC0415
+
         return [RevenueAnalyticsEventItem.model_validate(event) for event in self._events or []]
 
     @events.setter
     def events(self, value: list[dict]) -> None:
+        from posthog.schema import RevenueAnalyticsEventItem  # noqa: PLC0415
+
         value = value or []
         try:
             dumped_value = [RevenueAnalyticsEventItem.model_validate(event).model_dump() for event in value]
@@ -50,11 +58,15 @@ class TeamRevenueAnalyticsConfig(models.Model):
             raise ValidationError(f"Invalid events schema: {str(e)}")
 
     @property
-    def goals(self) -> list[RevenueAnalyticsGoal]:
+    def goals(self) -> list["RevenueAnalyticsGoal"]:
+        from posthog.schema import RevenueAnalyticsGoal  # noqa: PLC0415
+
         return [RevenueAnalyticsGoal.model_validate(goal) for goal in self._goals or []]
 
     @goals.setter
     def goals(self, value: list[dict]) -> None:
+        from posthog.schema import RevenueAnalyticsGoal  # noqa: PLC0415
+
         value = value or []
         try:
             dumped_value = sorted(

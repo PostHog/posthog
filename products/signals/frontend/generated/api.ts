@@ -26,6 +26,7 @@ import type {
     SignalReportApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
+    SignalScoutConfigCreateApi,
     SignalScoutEmissionApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
@@ -205,7 +206,7 @@ export const getSignalsScoutConfigListUrl = (projectId: string) => {
 }
 
 /**
- * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout. A freshly authored scout skill appears here once its config is registered, either explicitly via create or by the coordinator's next tick.
  * @summary List scout configs
  */
 export const signalsScoutConfigList = async (
@@ -215,6 +216,27 @@ export const signalsScoutConfigList = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/`
+}
+
+/**
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * @summary Create a scout config
+ */
+export const signalsScoutConfigCreate = async (
+    projectId: string,
+    signalScoutConfigCreateApi: SignalScoutConfigCreateApi,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi> => {
+    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutConfigCreateApi),
     })
 }
 

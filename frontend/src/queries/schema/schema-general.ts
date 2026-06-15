@@ -53,6 +53,8 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SimpleIntervalType,
+    SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -61,6 +63,10 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
+// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -108,6 +114,7 @@ export enum NodeKind {
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
+    TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -233,6 +240,7 @@ export type AnyDataNode =
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -335,6 +343,7 @@ export type QuerySchema =
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -396,6 +405,7 @@ export type AnyResponseType =
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
+    | TraceSpansAttributeBreakdownQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1676,6 +1686,12 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean
+    /**
+     * Whether to show a legend describing the series. The legend only renders when the funnel has
+     * multiple series. Only applies to historical-trends funnels.
+     * @default false
+     */
+    showLegend?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -2782,12 +2798,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+    /** @deprecated Ignored — V2 query path was removed. Kept so requests from older clients still validate. */
     useQueryV2?: boolean
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    /** @deprecated Ignored — V3 is the only query path. Kept so requests from older clients still validate. */
     useQueryV3?: boolean
     /**
-     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery.
      * The backend caps the list at 50 entries; extras are dropped silently.
      * @type array
      */
@@ -3308,6 +3324,45 @@ export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase 
 
 export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
 
+/**
+ * One row of a span attribute breakdown: the spans matching the filters, grouped by one
+ * attribute's value. Spans without the attribute group under `value = ''`.
+ */
+export interface AttributeBreakdownRow {
+    value: string
+    count: integer
+    error_count: integer
+    p50_duration_nano: number
+    p95_duration_nano: number
+}
+
+export type TraceSpanBreakdownType = 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
+
+export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
+    kind: NodeKind.TraceSpansAttributeBreakdownQuery
+    dateRange: DateRange
+    /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+    breakdownKey: string
+    /** Where the key lives: span-level attributes or resource-level attributes. */
+    breakdownType: TraceSpanBreakdownType
+    /** Order rows by span count or error count, descending. Defaults to count. */
+    orderBy?: TraceSpanBreakdownOrderBy
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: AttributeBreakdownRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AttributeBreakdownRow[]
+}
+
+export type CachedTraceSpansAttributeBreakdownQueryResponse =
+    CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
+
 export interface FileSystemCount {
     count: number
     entries: FileSystemEntry[]
@@ -3446,6 +3501,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reasonText?: string | null
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
+    /** Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row */
+    pinnedByDefault?: boolean
 }
 
 export interface FileSystemViewLogEntry {
@@ -6148,6 +6205,12 @@ export const externalDataSources = [
     'SapSuccessFactors',
     'OracleEbs',
     'OracleFusion',
+    'AmazonSNS',
+    'AmazonEventBridge',
+    'AmazonSQS',
+    'AmazonKinesis',
+    'AmazonCloudWatch',
+    'OpenAIAds',
     'Custom',
 ] as const
 

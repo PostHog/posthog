@@ -37,7 +37,7 @@ Set `query.compareFilter.compare: true` to also fetch a comparison window. The r
 
 `query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
 - `span_attribute` — span-level attributes
 - `span_resource_attribute` — resource-level attributes
 

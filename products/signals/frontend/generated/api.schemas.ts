@@ -172,6 +172,30 @@ export interface SignalScoutConfigApi {
 }
 
 /**
+ * Request body for registering a scout config without waiting for the coordinator tick.
+ *
+ * Upsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already
+ * registered the row, the provided tunables are applied to it instead.
+ */
+export interface SignalScoutConfigCreateApi {
+    /**
+     * The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.
+     * @maxLength 200
+     */
+    skill_name: string
+    /** Whether this scout runs on its schedule. Defaults to true. */
+    enabled?: boolean
+    /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
+    emit?: boolean
+    /**
+     * Minutes between runs (10–43200). Defaults to 60 (hourly).
+     * @minimum 10
+     * @maximum 43200
+     */
+    run_interval_minutes?: number
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -1233,7 +1257,7 @@ export type SignalsReportsListParams = {
      */
     source_product?: string
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string
     /**

@@ -115,15 +115,18 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
         sharedMetricsResponse: [
             null as CountedPaginatedResponse<SharedMetric> | null,
             {
-                loadSharedMetrics: async () => {
+                loadSharedMetrics: async (_: void, breakpoint) => {
                     const params = toParams({
                         limit: MODAL_PAGE_SIZE,
                         offset: 0,
                         search: values.searchTerm || undefined,
                     })
-                    return (await api.get(
+                    const response = (await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )) as CountedPaginatedResponse<SharedMetric>
+                    // Discard stale responses that resolve after a newer search has fired
+                    breakpoint()
+                    return response
                 },
                 // Page through every remaining result so the tag filter and tag chip list cover the
                 // whole set of shared metrics, not just the first page rendered in the table.

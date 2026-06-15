@@ -68,6 +68,41 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting `run_interval_minutes`, `enabled`, and `emit` in the same call. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * @summary Create a scout config
+ */
+export const signalsScoutConfigCreateBodySkillNameMax = 200
+
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
+
+export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
+    .object({
+        skill_name: zod
+            .string()
+            .max(signalsScoutConfigCreateBodySkillNameMax)
+            .describe(
+                'The `signals-scout-\*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.'
+            ),
+        enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
+        emit: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
+            .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
+            .optional()
+            .describe('Minutes between runs (10–43200). Defaults to 60 (hourly).'),
+    })
+    .describe(
+        'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
+    )
+
+/**
  * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */

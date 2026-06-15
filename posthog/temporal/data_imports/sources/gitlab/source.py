@@ -49,7 +49,6 @@ Create a personal access token in your GitLab **User settings > Access tokens** 
 For self-managed GitLab, set the instance URL (for example `https://gitlab.example.com`); leave it as `https://gitlab.com` for GitLab.com.""",
             iconPath="/static/services/gitlab.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/gitlab",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

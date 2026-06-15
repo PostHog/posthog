@@ -581,7 +581,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Default CUPED variance reduction',
                 description:
                     'When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedEnabled />,
                 keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
             },
@@ -589,7 +588,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-experiment-cuped-lookback-days',
                 title: 'Default CUPED lookback window',
                 description: `Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.`,
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
             },

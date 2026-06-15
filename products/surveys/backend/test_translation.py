@@ -72,6 +72,46 @@ def test_generate_survey_translation_preserves_manual_translations(mock_generate
     ]
     assert trace_id == "trace-1"
     assert "description_or_goal" in mock_generate_structured_output.call_args.kwargs["user_prompt"]
+    assert mock_generate_structured_output.call_args.kwargs["billable"] is True
+    assert mock_generate_structured_output.call_args.kwargs["team_id"] == 1
+    assert mock_generate_structured_output.call_args.kwargs["posthog_properties"]["ai_product"] == "surveys"
+    assert mock_generate_structured_output.call_args.kwargs["posthog_properties"]["ai_feature"] == "survey_translation"
+
+
+@patch("products.surveys.backend.translation.generate_structured_output")
+def test_generate_survey_translation_includes_submit_and_back_button_labels(
+    mock_generate_structured_output: Mock,
+) -> None:
+    mock_generate_structured_output.return_value = (
+        SurveyTranslationResponse.model_validate(
+            {
+                "root": {
+                    "submitButtonText": "Enviar",
+                    "backButtonText": "Atras",
+                },
+                "questions": [],
+            }
+        ),
+        "trace-buttons",
+    )
+    survey = {
+        "name": "Customer feedback",
+        "type": "popover",
+        "appearance": {"submitButtonText": "Submit", "allowGoBack": True, "backButtonText": "Back"},
+        "translations": {},
+        "questions": [],
+    }
+
+    translations, _questions, generated_paths, _trace_id = generate_survey_translation(
+        survey=survey,
+        target_language="es",
+        source_language="en",
+        team_id=1,
+    )
+
+    assert translations == {"es": {"submitButtonText": "Enviar", "backButtonText": "Atras"}}
+    assert "translations.es.submitButtonText" in generated_paths
+    assert "translations.es.backButtonText" in generated_paths
 
 
 @patch("products.surveys.backend.translation.generate_structured_output")

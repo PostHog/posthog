@@ -1,3 +1,5 @@
+import './InsightDetails.scss'
+
 import { useValues } from 'kea'
 import React from 'react'
 
