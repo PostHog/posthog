@@ -12,9 +12,10 @@ Usage:
     python manage.py llm_gateway_team refresh 42
     python manage.py llm_gateway_team status 42
 
-The admission fields and overspend_allowance_usd live on Team. enabled_at/revoked_at
-project into the dedicated llm_gateway_policy blob; overspend_allowance_usd projects
-into each credential's gateway_credential blob. Both flow through Team.save() signal
+The admission fields and llm_gateway_overspend_allowance_usd live on Team.
+enabled_at/revoked_at project into the dedicated llm_gateway_policy blob;
+llm_gateway_overspend_allowance_usd projects into each credential's gateway_credential
+blob (under the wire key overspend_allowance_usd). Both flow through Team.save() signal
 handlers. The gateway admits a team only when enabled_at is set and revoked_at is null.
 """
 
@@ -33,8 +34,8 @@ _VERBS = (
     ("unenable", "clear llm_gateway_enabled_at (no-op if already null)"),
     ("revoke", "set llm_gateway_revoked_at to now (idempotent: no-op if already set)"),
     ("unrevoke", "clear llm_gateway_revoked_at (no-op if already null)"),
-    ("set-allowance", "set overspend_allowance_usd (USD, 0–10000, max 6 dp)"),
-    ("clear-allowance", "clear overspend_allowance_usd (unset → gateway falls back to its default)"),
+    ("set-allowance", "set llm_gateway_overspend_allowance_usd (USD, 0–10000, max 6 dp)"),
+    ("clear-allowance", "clear llm_gateway_overspend_allowance_usd (unset → gateway falls back to its default)"),
     ("refresh", "rewrite the team's policy cache entry from current DB state (no field change)"),
     ("status", "print the team's current admission state"),
 )
@@ -134,14 +135,14 @@ def _apply(team: Team, action: str, allowance: Decimal | None) -> bool:
         team.llm_gateway_revoked_at = None
         return True
     if action == "set-allowance":
-        if team.overspend_allowance_usd == allowance:
+        if team.llm_gateway_overspend_allowance_usd == allowance:
             return False
-        team.overspend_allowance_usd = allowance
+        team.llm_gateway_overspend_allowance_usd = allowance
         return True
     if action == "clear-allowance":
-        if team.overspend_allowance_usd is None:
+        if team.llm_gateway_overspend_allowance_usd is None:
             return False
-        team.overspend_allowance_usd = None
+        team.llm_gateway_overspend_allowance_usd = None
         return True
     raise CommandError(f"unknown action {action!r}")
 
@@ -149,7 +150,7 @@ def _apply(team: Team, action: str, allowance: Decimal | None) -> bool:
 def _snapshot(team: Team) -> str:
     return (
         f"enabled_at={team.llm_gateway_enabled_at} revoked_at={team.llm_gateway_revoked_at} "
-        f"overspend_allowance_usd={team.overspend_allowance_usd}"
+        f"overspend_allowance_usd={team.llm_gateway_overspend_allowance_usd}"
     )
 
 
@@ -159,4 +160,4 @@ def _print_status(stdout: Any, team: Team) -> None:
     stdout.write(f"team {team.id} ({team.api_token}) state={state}")
     stdout.write(f"  enabled_at: {team.llm_gateway_enabled_at}")
     stdout.write(f"  revoked_at: {team.llm_gateway_revoked_at}")
-    stdout.write(f"  overspend_allowance_usd: {team.overspend_allowance_usd}")
+    stdout.write(f"  overspend_allowance_usd: {team.llm_gateway_overspend_allowance_usd}")

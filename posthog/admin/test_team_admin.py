@@ -319,12 +319,12 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
         request.user = self.user
         form_class = TeamAdmin(Team, AdminSite()).get_form(request, instance)
         form = form_class(instance=instance)
-        form.cleaned_data = {"overspend_allowance_usd": value}
+        form.cleaned_data = {"llm_gateway_overspend_allowance_usd": value}
         return form
 
     @parameterized.expand([("whole", Decimal("5"), Decimal("5.000000")), ("none_passthrough", None, None)])
     def test_clean_accepts_valid(self, _name, value, expected) -> None:
-        self.assertEqual(self._form(value).clean_overspend_allowance_usd(), expected)
+        self.assertEqual(self._form(value).clean_llm_gateway_overspend_allowance_usd(), expected)
 
     @parameterized.expand(
         [("negative", Decimal("-1")), ("over_max", Decimal("10001")), ("too_precise", Decimal("1.0000001"))]
@@ -333,11 +333,11 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
         from django.forms import ValidationError
 
         with self.assertRaises(ValidationError):
-            self._form(value).clean_overspend_allowance_usd()
+            self._form(value).clean_llm_gateway_overspend_allowance_usd()
 
     def test_clean_rejects_child_environment(self) -> None:
         from django.forms import ValidationError
 
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         with self.assertRaises(ValidationError):
-            self._form(Decimal("5"), instance=child).clean_overspend_allowance_usd()
+            self._form(Decimal("5"), instance=child).clean_llm_gateway_overspend_allowance_usd()

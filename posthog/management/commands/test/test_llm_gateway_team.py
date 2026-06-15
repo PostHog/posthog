@@ -109,21 +109,21 @@ class TestLLMGatewayTeamCommand(BaseTest):
     def test_set_allowance_stores_quantized_value(self, _name: str, arg: str, expected: str) -> None:
         out = self._run("set-allowance", str(self.team.id), arg)
         self.team.refresh_from_db()
-        self.assertEqual(self.team.overspend_allowance_usd, Decimal(expected))
+        self.assertEqual(self.team.llm_gateway_overspend_allowance_usd, Decimal(expected))
         self.assertIn("set-allowance ok", out)
 
     def test_set_allowance_idempotent(self) -> None:
-        self.team.overspend_allowance_usd = Decimal("5.000000")
+        self.team.llm_gateway_overspend_allowance_usd = Decimal("5.000000")
         self.team.save()
         out = self._run("set-allowance", str(self.team.id), "5")
         self.assertIn("no-op", out)
 
     def test_clear_allowance_unsets_value(self) -> None:
-        self.team.overspend_allowance_usd = Decimal("5.000000")
+        self.team.llm_gateway_overspend_allowance_usd = Decimal("5.000000")
         self.team.save()
         out = self._run("clear-allowance", str(self.team.id))
         self.team.refresh_from_db()
-        self.assertIsNone(self.team.overspend_allowance_usd)
+        self.assertIsNone(self.team.llm_gateway_overspend_allowance_usd)
         self.assertIn("clear-allowance ok", out)
 
     def test_clear_allowance_on_unset_is_noop(self) -> None:
@@ -135,7 +135,7 @@ class TestLLMGatewayTeamCommand(BaseTest):
         with self.assertRaises(CommandError):
             self._run("set-allowance", str(self.team.id), arg)
         self.team.refresh_from_db()
-        self.assertIsNone(self.team.overspend_allowance_usd)
+        self.assertIsNone(self.team.llm_gateway_overspend_allowance_usd)
 
     def test_set_allowance_rejects_child_environment(self) -> None:
         # The projection reads the allowance from the project-root team, so setting it on a
@@ -144,7 +144,7 @@ class TestLLMGatewayTeamCommand(BaseTest):
         with self.assertRaises(CommandError):
             self._run("set-allowance", str(child.id), "5")
         child.refresh_from_db()
-        self.assertIsNone(child.overspend_allowance_usd)
+        self.assertIsNone(child.llm_gateway_overspend_allowance_usd)
 
     def test_refresh_rewrites_cache_without_field_change(self) -> None:
         # refresh exists so an operator can re-warm a drifted cache without

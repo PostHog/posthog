@@ -75,8 +75,8 @@ class TeamAdminForm(ModelForm):
             raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
         return value
 
-    def clean_overspend_allowance_usd(self):
-        value = self.cleaned_data.get("overspend_allowance_usd")
+    def clean_llm_gateway_overspend_allowance_usd(self):
+        value = self.cleaned_data.get("llm_gateway_overspend_allowance_usd")
         if value is None:
             return value
         # The projection reads the allowance from the canonical (project-root) team, so a
@@ -260,7 +260,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "fields": [
                     "llm_gateway_enabled_at",
                     "llm_gateway_revoked_at",
-                    "overspend_allowance_usd",
+                    "llm_gateway_overspend_allowance_usd",
                     "admit_state",
                     "ai_gateway_actions",
                     "policy_cache_blob",
@@ -271,7 +271,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "matching Team row there. The gateway admits a team only when "
                     "<code>llm_gateway_enabled_at</code> is set and "
                     "<code>llm_gateway_revoked_at</code> is null. "
-                    "<code>overspend_allowance_usd</code> (0–10000) lets the team keep dispatching "
+                    "<code>llm_gateway_overspend_allowance_usd</code> (0–10000) lets the team keep dispatching "
                     "past $0 down to that USD floor; leave blank to use the gateway's operator default."
                 ),
             },

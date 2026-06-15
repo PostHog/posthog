@@ -287,7 +287,7 @@ def _policy_for_credential(
 
     # Unset (null) is meaningful: omit so the gateway falls back to its operator default.
     # An explicit 0 ("0.000000") disables the allowance regardless of that default.
-    allowance = team.overspend_allowance_usd
+    allowance = team.llm_gateway_overspend_allowance_usd
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
 

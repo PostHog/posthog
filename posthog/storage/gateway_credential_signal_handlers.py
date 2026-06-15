@@ -262,25 +262,25 @@ def _capture_old_team_fields_if_deferred(sender: type[Team], instance: Team, **k
         return
     if not instance.pk or instance._state.adding:
         return
-    row = Team.objects.filter(pk=instance.pk).values("api_token", "overspend_allowance_usd").first()
+    row = Team.objects.filter(pk=instance.pk).values("api_token", "llm_gateway_overspend_allowance_usd").first()
     if row is not None:
         instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = row["api_token"]
-        instance.__dict__[_LOADED_TEAM_OVERSPEND_ATTR] = row["overspend_allowance_usd"]
+        instance.__dict__[_LOADED_TEAM_OVERSPEND_ATTR] = row["llm_gateway_overspend_allowance_usd"]
 
 
 def _reproject_team_on_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
     # Two team-level fields feed every credential blob on this team's gateways:
-    # project_token (the team's api_token) and overspend_allowance_usd. A change to
-    # either leaves the blobs stale, so re-project the team's credentials.
+    # project_token (the team's api_token) and llm_gateway_overspend_allowance_usd. A change
+    # to either leaves the blobs stale, so re-project the team's credentials.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_token = instance.__dict__.get(_LOADED_TEAM_API_TOKEN_ATTR)
     old_allowance = instance.__dict__.get(_LOADED_TEAM_OVERSPEND_ATTR, _UNSET)
     instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = instance.api_token
-    instance.__dict__[_LOADED_TEAM_OVERSPEND_ATTR] = instance.overspend_allowance_usd
+    instance.__dict__[_LOADED_TEAM_OVERSPEND_ATTR] = instance.llm_gateway_overspend_allowance_usd
 
     token_changed = bool(old_token) and old_token != instance.api_token
-    allowance_changed = old_allowance is not _UNSET and old_allowance != instance.overspend_allowance_usd
+    allowance_changed = old_allowance is not _UNSET and old_allowance != instance.llm_gateway_overspend_allowance_usd
     if not token_changed and not allowance_changed:
         return
 

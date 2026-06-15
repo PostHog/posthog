@@ -180,7 +180,7 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
     )
     def test_overspend_allowance_projected_as_fixed_point_string(self, _name, value, expected):
         # update() bypasses signals (no Redis needed) and persists for the fresh team read.
-        Team.objects.filter(pk=self.team.pk).update(overspend_allowance_usd=value)
+        Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=value)
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
         project_gateway_credential(credential)
         blob = self._read_blob(credential_hash(credential))
@@ -721,13 +721,13 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
     def test_team_overspend_allowance_change_reprojects(self, mock_delay, mock_settings, mock_transaction):
-        # overspend_allowance_usd projects into every credential blob on the team; a change
-        # must rebuild them rather than waiting out the TTL.
+        # llm_gateway_overspend_allowance_usd projects into every credential blob on the team;
+        # a change must rebuild them rather than waiting out the TTL.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         team = Team.objects.get(pk=self.team.pk)  # snapshot allowance under patched setting
-        team.overspend_allowance_usd = Decimal("5")
+        team.llm_gateway_overspend_allowance_usd = Decimal("5")
         team.save()
 
         mock_delay.assert_called_with(self.team.id)
@@ -738,7 +738,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     def test_team_save_without_gateway_field_change_does_not_reproject(
         self, mock_delay, mock_settings, mock_transaction
     ):
-        # A save that touches neither api_token nor overspend_allowance_usd must not enqueue.
+        # A save touching neither api_token nor llm_gateway_overspend_allowance_usd must not enqueue.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
