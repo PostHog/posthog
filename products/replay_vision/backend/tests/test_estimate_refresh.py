@@ -154,14 +154,14 @@ class TestEstimateInvalidationOnSave:
         assert scanner.estimated_monthly_observations == 10
 
     @pytest.mark.parametrize(
-        "initial_enabled, new_enabled, expect_stale",
+        "initial_enabled, new_enabled",
         [
-            (False, True, True),  # re-enable resurfaces the estimate in the quota sum → refresh needed
-            (True, False, False),  # disabling keeps the last estimate for display
-            (True, True, False),  # no transition
+            (False, True),  # the refresher keeps disabled scanners fresh, so re-enabling needs no invalidation
+            (True, False),
+            (True, True),
         ],
     )
-    def test_enabled_transitions(self, initial_enabled: bool, new_enabled: bool, expect_stale: bool) -> None:
+    def test_enabled_transitions_keep_the_estimate(self, initial_enabled: bool, new_enabled: bool) -> None:
         scanner = _make_scanner(enabled=initial_enabled)
         _set_estimate(scanner, 10, hours_ago=1)
         scanner.refresh_from_db()
@@ -170,7 +170,7 @@ class TestEstimateInvalidationOnSave:
         scanner.save(update_fields=["enabled"])
 
         scanner.refresh_from_db()
-        assert (scanner.estimated_at is None) == expect_stale
+        assert scanner.estimated_at is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -181,12 +181,11 @@ class TestRefreshScannerEstimateActivity:
             (True, None, True),  # never computed → refresh
             (True, 25, True),  # stale → refresh
             (True, 1, False),  # fresh → no-op
-            (False, 25, False),  # disabled → no-op
+            (False, 25, True),  # disabled scanners refresh too, so re-enabling uses an accurate number
+            (False, 1, False),  # fresh → no-op regardless of enabled
         ],
     )
-    def test_gates_on_enabled_and_staleness(
-        self, enabled: bool, estimated_hours_ago: int | None, expect_refresh: bool
-    ) -> None:
+    def test_gates_on_staleness(self, enabled: bool, estimated_hours_ago: int | None, expect_refresh: bool) -> None:
         scanner = _make_scanner(enabled=enabled)
         if estimated_hours_ago is not None:
             _set_estimate(scanner, 10, hours_ago=estimated_hours_ago)
@@ -218,7 +217,7 @@ class TestRefreshScannerEstimateActivity:
 
 @pytest.mark.django_db(transaction=True)
 class TestListStaleScannerEstimatesActivity:
-    def test_returns_stale_enabled_scanners_oldest_first(self) -> None:
+    def test_returns_stale_scanners_enabled_first_then_oldest(self) -> None:
         never = _make_scanner(name="never-estimated")
         stale = _make_scanner(name="stale")
         _set_estimate(stale, 10, hours_ago=48)
@@ -227,11 +226,12 @@ class TestListStaleScannerEstimatesActivity:
         fresh = _make_scanner(name="fresh")
         _set_estimate(fresh, 10, hours_ago=1)
         disabled = _make_scanner(name="disabled", enabled=False)
-        _set_estimate(disabled, 10, hours_ago=48)
+        _set_estimate(disabled, 10, hours_ago=96)
 
         entries = list_stale_scanner_estimates_activity()
 
-        assert [e.scanner_id for e in entries] == [never.id, very_stale.id, stale.id]
+        # Disabled scanners are included but sort behind enabled ones even when staler.
+        assert [e.scanner_id for e in entries] == [never.id, very_stale.id, stale.id, disabled.id]
         assert entries[0].team_id == never.team_id
 
     def test_caps_the_batch(self) -> None:

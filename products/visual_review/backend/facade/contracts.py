@@ -93,6 +93,7 @@ class FinalizeRunRequestInput:
 
     approve_all: bool = False
     commit_to_github: bool = True
+    add_images_to_comment_on_pr: bool = False
 
 
 # --- Output DTOs ---
