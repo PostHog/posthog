@@ -6733,6 +6733,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
     ERROR_TRACKING = 'error_tracking',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',

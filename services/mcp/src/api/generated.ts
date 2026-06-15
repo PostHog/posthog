@@ -25016,6 +25016,11 @@ export namespace Schemas {
          * @nullable
          */
       detail?: string | null;
+      /**
+         * GitHub Actions run id for ci_started/ci_finished events, null otherwise.
+         * @nullable
+         */
+      run_id?: number | null;
     }
 
     export interface PRLifecycle {
@@ -43508,7 +43513,22 @@ export namespace Schemas {
       results: WidgetCatalogEntry[];
     }
 
+    export interface WorkflowHealthDay {
+      /** UTC calendar day. */
+      day: string;
+      /** Runs started that day. */
+      run_count: number;
+      /** Runs that completed that day. */
+      completed: number;
+      /** Completed runs with conclusion 'success' that day. */
+      successes: number;
+    }
+
     export interface WorkflowHealthItem {
+      /** Repository the workflow runs in. */
+      repo: RepoRef;
+      /** Daily run history across the whole window, oldest first, zero-filled. */
+      daily: WorkflowHealthDay[];
       /** GitHub Actions workflow name. */
       workflow_name: string;
       /** Total runs started in the window. */

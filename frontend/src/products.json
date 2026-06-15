@@ -113,6 +113,13 @@
             "intents": ["endpoints"]
         },
         {
+            "path": "CI analytics",
+            "category": "Unreleased",
+            "iconType": null,
+            "type": "engineering_analytics",
+            "intents": ["engineering_analytics"]
+        },
+        {
             "path": "Error tracking",
             "category": "App monitoring",
             "iconType": null,
