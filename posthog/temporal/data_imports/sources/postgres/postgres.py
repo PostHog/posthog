@@ -7,7 +7,7 @@ import collections
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
@@ -994,6 +995,54 @@ class SafeDateLoader(Loader):
 
         # Fallback: clamp to max for unparseable dates
         return date.max
+
+
+def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
+    """Map a Postgres timestamp value outside Python's datetime range onto datetime.min/max.
+
+    PostgreSQL timestamps span years 4713 BC to 294276 AD and include 'infinity'/'-infinity',
+    far wider than Python's datetime (year 1 to 9999). We pick the boundary by sign so values
+    'before year 1' (BC dates, '-infinity', negative years) clamp low and everything else
+    clamps high. `tzinfo` keeps the result aware/naive to match the column's Arrow type.
+    """
+    s = bytes(data).decode("utf-8", "replace").strip().lower()
+    if s == "-infinity" or s.startswith("-") or "bc" in s:
+        return datetime.min.replace(tzinfo=tzinfo)
+    return datetime.max.replace(tzinfo=tzinfo)
+
+
+class SafeTimestampLoader(TimestampLoader):
+    """Load PostgreSQL timestamps, handling values beyond Python's datetime range.
+
+    psycopg's default loader raises `DataError` on timestamps outside Python's datetime
+    range (years > 9999, 'infinity'/'-infinity'), which aborts the whole table sync. We
+    defer to the default loader for in-range values and clamp the rest, mirroring
+    `SafeDateLoader`. `timestamp` columns map to a naive Arrow type, so the clamp stays naive.
+    """
+
+    def load(self, data) -> datetime | None:
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=None)
+
+
+class SafeTimestamptzLoader(TimestamptzLoader):
+    """`timestamptz` counterpart of `SafeTimestampLoader` (see its docstring).
+
+    `timestamptz` columns map to a UTC-aware Arrow type, so the clamp is made tz-aware to
+    avoid mixing naive and aware datetimes in the same Arrow column.
+    """
+
+    def load(self, data) -> datetime | None:
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
 
 
 def _build_query(
@@ -2027,6 +2076,8 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                connection.adapters.register_loader("timestamp", SafeTimestampLoader)
+                connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
