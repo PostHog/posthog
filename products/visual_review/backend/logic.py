@@ -895,23 +895,26 @@ def complete_run(run_id: UUID) -> Run:
 
     # is_partial is client-supplied and only suppresses removed-baseline
     # detection. Never honor it on the default branch (authoritative full
-    # baseline), so a token can't hide deleted snapshots from the gate.
-    # On PR branches honoring the client is deliberate: the baseline file
-    # ships in the repo checkout, so any caller able to set this flag could
-    # equally forge a green run by reporting every identifier at its baseline
-    # hash — a server-side check buys nothing there. The mitigations are this
-    # default-branch fence, approval merges that never delete untouched
-    # baseline entries, and the "(partial run)" annotation on posted statuses.
-    effective_is_partial = run.is_partial
-    if effective_is_partial and _run_is_on_default_branch(repo, run.branch):
+    # baseline), so a token can't hide deleted snapshots from the gate. Persist
+    # the correction so every downstream reader (status posting, UI) sees the
+    # effective value rather than the raw client claim.
+    #
+    # On PR branches honoring the client is deliberate, but a partial run must
+    # never satisfy the gating status context: _post_commit_status routes it to
+    # a separate non-gating "(partial)" context (see there). Branch protection
+    # keys off context + state, not the human-facing description, so a separate
+    # context is what actually keeps a one-flag subset run from turning the gate
+    # green — the description annotation alone does not.
+    if run.is_partial and _run_is_on_default_branch(repo, run.branch):
         logger.warning(
             "visual_review.is_partial_ignored_on_default_branch",
             run_id=str(run.id),
             branch=run.branch,
         )
-        effective_is_partial = False
+        run.is_partial = False
+        run.save(using=WRITER_DB, update_fields=["is_partial"])
 
-    classifier = SnapshotClassifier(run, baseline, tolerated_lookup, is_partial=effective_is_partial)
+    classifier = SnapshotClassifier(run, baseline, tolerated_lookup, is_partial=run.is_partial)
     classifier.classify()
 
     # Update total and counts from actual RunSnapshot rows
@@ -1524,17 +1527,24 @@ def _post_commit_status(
 
     state: "pending", "success", "failure", "error"
 
-    Partial runs are annotated in the description: is_partial is client-supplied
-    and suppresses removed-baseline detection on PR branches, so the status must
-    disclose that the run didn't exercise the full suite — a clean partial run
-    must never be indistinguishable from a clean full run to a reviewer.
+    Partial runs (is_partial, client-supplied) suppress removed-baseline
+    detection on PR branches, so they must not be able to satisfy the gating
+    status context that branch protection evaluates. Branch protection keys off
+    the (context, state) pair, not the human-facing description, so a partial
+    run is posted to a separate "PostHog Visual Review / {run_type} (partial)"
+    context rather than the gating "PostHog Visual Review / {run_type}" one.
+    A subset run therefore can never turn the gated context green; a reviewer
+    must require the partial context explicitly to gate on partial runs. The
+    description is also annotated so the disclosure is visible to humans.
     """
     if not repo.repo_full_name:
         return
 
     from .github import github_request
 
+    context = f"PostHog Visual Review / {run.run_type}"
     if run.is_partial:
+        context = f"{context} (partial)"
         description = f"{description} (partial run)"
 
     try:
@@ -1556,7 +1566,7 @@ def _post_commit_status(
             json={
                 "state": state,
                 "description": description[:140],
-                "context": f"PostHog Visual Review / {run.run_type}",
+                "context": context,
                 "target_url": target_url,
             },
             timeout=10,

@@ -398,6 +398,9 @@ class TestRunOperations:
         assert completed.removed_count == 1
         removed = run.snapshots.get(identifier="deleted")
         assert removed.result == SnapshotResult.REMOVED
+        # The default-branch correction is persisted, so the run is no longer
+        # treated as partial anywhere downstream (status context, UI).
+        assert completed.is_partial is False
 
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
         """complete_run passes run.commit_sha so default-branch baselines are pinned."""
@@ -968,6 +971,8 @@ class TestCommitStatusChecks:
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert statuses[-1]["description"] == "No visual changes"
+        # A full run posts to the gating context that branch protection evaluates.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook"
 
     def test_complete_run_partial_annotates_posted_status(self, github_repo, mock_github_api, mocker):
         run, _ = logic.create_run(
@@ -989,11 +994,16 @@ class TestCommitStatusChecks:
         mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
         logic.complete_run(run.id)
 
-        # A clean partial run must be distinguishable from a clean full run:
-        # is_partial suppresses removal detection, so the status discloses it.
+        # A partial run suppresses removal detection, so it must never satisfy
+        # the gating status context branch protection evaluates. It posts to a
+        # separate "(partial)" context instead, and the description discloses it.
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
         assert statuses[-1]["description"] == "No visual changes (partial run)"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (partial)"
+        # The gating context is never posted green by a partial run.
+        gating_context = "PostHog Visual Review / storybook"
+        assert all(s["context"] != gating_context for s in statuses)
 
     def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api, mocker):
         github_repo.enable_pr_comments = True
