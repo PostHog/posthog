@@ -7,6 +7,12 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_sessi
 logger = structlog.get_logger(__name__)
 
 
+class HubspotRetryableError(Exception):
+    """Transient HubSpot API failure (429 rate limit or 5xx) that should be retried with backoff."""
+
+    pass
+
+
 def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
     res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
@@ -20,6 +26,11 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
 
     if res.status_code != 200:
         err_message = res.json()["message"]
+        # A 429 (rate limit) or 5xx from the OAuth token endpoint is transient. Surface it as a
+        # retryable error so the calling fetch loop backs off and retries instead of failing the
+        # whole sync on a momentary rate limit.
+        if res.status_code == 429 or res.status_code >= 500:
+            raise HubspotRetryableError(err_message)
         raise Exception(err_message)
 
     access_token = res.json()["access_token"]
