@@ -556,12 +556,7 @@ function ColumnSelect({ options, value, onChange, allowHogQL }: ColumnSelectProp
                 onChange(item ? (item.value === HOGQL_SENTINEL ? '' : item.value) : '')
             }
         >
-            <Button
-                ref={triggerRef}
-                variant="outline"
-                className="h-min"
-                onClick={() => setOpen((prev) => !prev)}
-            >
+            <Button ref={triggerRef} variant="outline" className="h-min" onClick={() => setOpen((prev) => !prev)}>
                 {selectedItem ? (
                     <ItemContent variant="menuItem">
                         <ItemTitle>{selectedItem.title}</ItemTitle>
