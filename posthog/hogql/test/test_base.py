@@ -39,11 +39,10 @@ def _structural_equal(a: Any, b: Any, seen: set | None = None) -> bool:
     if isinstance(a, tuple):
         return isinstance(b, tuple) and len(a) == len(b) and all(_structural_equal(x, y, seen) for x, y in zip(a, b))
     if isinstance(a, dict):
-        return (
-            isinstance(b, dict)
-            and len(a) == len(b)
-            and all(_structural_equal(x, y, seen) for x, y in zip(a.values(), b.values()))
-        )
+        # Keys, not just positional values: a key swap/corruption (column/alias names in resolved ASTs) must fail.
+        if not isinstance(b, dict) or a.keys() != b.keys():
+            return False
+        return all(_structural_equal(a[k], b[k], seen) for k in a)
     return bool(a == b)
 
 
@@ -59,12 +58,17 @@ def _assert_independent(original: Any, clone: Any, seen: set | None = None) -> N
             _assert_independent(getattr(original, f.name, None), getattr(clone, f.name, None), seen)
     elif isinstance(original, list | tuple):
         assert original is not clone, "clone shares a sequence with the original"
+        assert len(original) == len(clone), "clone changed a sequence's length"
         for x, y in zip(original, clone):
             _assert_independent(x, y, seen)
     elif isinstance(original, dict):
         assert original is not clone, "clone shares a dict with the original"
-        for x, y in zip(original.values(), clone.values()):
-            _assert_independent(x, y, seen)
+        assert len(original) == len(clone), "clone changed a dict's length"
+        for (ok, ov), (ck, cv) in zip(original.items(), clone.items()):
+            _assert_independent(ok, ck, seen)  # keys too (str keys are atomic no-ops; container keys get checked)
+            _assert_independent(ov, cv, seen)
+    elif isinstance(original, set):
+        assert original is not clone, "clone shares a set with the original"  # frozenset is immutable, sharing is fine
 
 
 def _count_distinct_nodes(node: Any) -> int:
@@ -101,6 +105,7 @@ def _stock_deepcopy(node: Any) -> Any:
 def _assert_faithful_clone(original: Any) -> Any:
     clone = copy.deepcopy(original)
     assert _structural_equal(clone, original)
+    assert _structural_equal(clone, _stock_deepcopy(original))  # parity with stdlib, not just self-consistency
     _assert_independent(original, clone)
     assert _count_distinct_nodes(clone) == _count_distinct_nodes(original)
     return clone
@@ -312,21 +317,25 @@ def _all_concrete_ast_classes():
     )
 
 
+def _field_marker(i: int) -> Any:
+    # Exercises the list, dict, tuple, AST-recursion and scalar branches of _clone_value for every field.
+    return [i, {"k": i}, (i,), ast.Constant(value=i)]
+
+
 @pytest.mark.parametrize("cls", _all_concrete_ast_classes(), ids=lambda c: c.__name__)
 def test_deepcopy_covers_every_field_of_every_node_type(cls):
     instance = cls.__new__(cls)
     node_fields = dataclasses.fields(cls)
     for i, f in enumerate(node_fields):
-        setattr(instance, f.name, [i])  # unique mutable marker per field
+        # start/end are copied by reference, so keep them atomic; every other field gets a deep, mixed-type marker.
+        setattr(instance, f.name, i if f.name in ("start", "end") else _field_marker(i))
 
     clone = copy.deepcopy(instance)
 
     for i, f in enumerate(node_fields):
-        cloned = getattr(clone, f.name)
-        assert cloned == [i], f"{cls.__name__}.{f.name} not copied"
-        # start/end are copied by reference (Optional[int]); every other field is deep-copied
-        if f.name not in ("start", "end"):
-            assert cloned is not getattr(instance, f.name), f"{cls.__name__}.{f.name} shared with original"
+        expected = i if f.name in ("start", "end") else _field_marker(i)
+        assert getattr(clone, f.name) == expected, f"{cls.__name__}.{f.name} not copied"
+    _assert_independent(instance, clone)  # every deep-copied field is a distinct object graph
 
 
 # --- Constant.value covers arbitrary Python payloads ---
