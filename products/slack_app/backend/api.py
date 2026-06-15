@@ -3171,7 +3171,7 @@ def _handle_subscription_explore_submit(payload: dict, request: HttpRequest) -> 
     into the normal routing pipeline — which resolves the clicking user, picks the project, and
     starts the mention workflow exactly as a real mention would.
     """
-    view = payload.get("view", {})
+    view = payload.get("view") or {}
     try:
         meta = json.loads(view.get("private_metadata", "{}"))
     except (json.JSONDecodeError, TypeError):
@@ -3492,7 +3492,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if payload_type == "block_suggestion":
         return _handle_repo_picker_options(payload)
 
-    if payload_type == "view_submission" and payload.get("view", {}).get("callback_id") == EXPLORE_VIEW_CALLBACK_ID:
+    if payload_type == "view_submission" and (payload.get("view") or {}).get("callback_id") == EXPLORE_VIEW_CALLBACK_ID:
         return _handle_subscription_explore_submit(payload, request)
 
     if payload_type == "block_actions":
