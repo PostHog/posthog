@@ -228,10 +228,26 @@ def get_schemas(
     schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
     for row in result.result_rows:
         table_name, column_name, raw_type = row[0], row[1], row[2]
+        if _is_inner_table(table_name):
+            continue
         _, nullable = _strip_type_modifiers(raw_type)
         schema_list[table_name].append((column_name, raw_type, nullable))
 
     return schema_list
+
+
+def _is_inner_table(table_name: str) -> bool:
+    """Whether a table is a materialized view's hidden inner table.
+
+    ClickHouse backs a materialized view created without an explicit `TO`
+    target with an auto-generated inner table — `.inner.<mv_name>` on older
+    Ordinary databases, `.inner_id.<uuid>` on Atomic databases. These are
+    implementation details, not user data: their `.inner_id.<uuid>` names
+    change whenever the view is recreated, so a sync pointed at one breaks
+    the moment the view is rebuilt. Discover the materialized view by its own
+    name instead, never its inner table.
+    """
+    return table_name.startswith(".inner.") or table_name.startswith(".inner_id.")
 
 
 # Match `TO db.table` or `TO table` clause in MV CREATE statement.
