@@ -226,7 +226,9 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to "
             "the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, "
             "'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and "
-            "label_column (labels rows in breach messages for any_row)."
+            "label_column (labels rows in breach messages for any_row). FunnelsAlertConfig (funnel insights): "
+            "funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' "
+            "or 'conversion_from_previous'); funnel alerts only support absolute_value conditions."
         ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)
