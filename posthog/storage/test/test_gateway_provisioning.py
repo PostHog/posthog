@@ -33,6 +33,14 @@ class TestGatewayProvisioning(BaseTest):
         self.assertEqual(len(self._defaults_for(child)), 0)
         self.assertEqual(len(self._defaults_for(parent)), 1)
 
+    def test_child_environment_does_not_resurrect_deleted_default(self):
+        parent = Team.objects.create(organization=self.organization, name="parent")
+        Gateway.all_teams.filter(team=parent).delete()  # team deleted or renamed its default
+        Team.objects.create(organization=self.organization, name="child", parent_team=parent)
+        # A new child env shares the parent's gateway; it must not recreate one the
+        # parent intentionally removed.
+        self.assertEqual(len(self._defaults_for(parent)), 0)
+
     def test_provisions_per_team_across_orgs(self):
         other_org = Organization.objects.create(name="other org")
         team_a = Team.objects.create(organization=self.organization, name="a")

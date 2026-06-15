@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from parameterized import parameterized
 
 from posthog.models.gateway import DEFAULT_GATEWAY_SLUG, Gateway
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
@@ -62,6 +63,12 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
         with self.assertRaises(ValidationError):
             Gateway.objects.create(team=self.team, slug=slug)
 
+    def test_check_constraint_rejects_malformed_slug_bypassing_save(self):
+        # bulk_create skips save()'s validator, so the DB CheckConstraint is the
+        # last line of defence keeping a malformed slug off the billing ledger.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Gateway.all_teams.bulk_create([Gateway(team=self.team, slug="Bad Slug")])
+
     def test_slug_is_stripped_before_validation(self):
         gateway = Gateway.objects.create(team=self.team, slug="  posthog_code  ")
         self.assertEqual(gateway.slug, "posthog_code")
@@ -106,3 +113,27 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
         # Out-of-scope lookup must fail closed, not leak the row.
         with self.assertRaises(Gateway.DoesNotExist):
             Gateway.objects.get(pk=other_gateway.pk)
+
+    def test_key_cannot_bind_other_teams_gateway(self):
+        other = Team.objects.create(organization=self.organization, name="other")
+        with team_scope(other.id):
+            other_gateway = Gateway.all_teams.get(team=other, slug=DEFAULT_GATEWAY_SLUG)
+        # Binding a team-A key to team B's gateway would misattribute team A's spend.
+        with self.assertRaises(ValueError):
+            ProjectSecretAPIKey.objects.create(team=self.team, label="cross", gateway=other_gateway)
+
+    def test_child_env_key_can_bind_parent_gateway(self):
+        child = Team.objects.create(organization=self.organization, name="child", parent_team=self.team)
+        gateway = Gateway.objects.create(team=self.team, slug="shared")
+        # The gateway is project-scoped to the parent, so a child-env key shares it.
+        key = ProjectSecretAPIKey.objects.create(team=child, label="child_key", gateway=gateway)
+        self.assertEqual(key.gateway_id, gateway.id)
+
+    def test_deleting_team_with_bound_gateway_cascades(self):
+        victim = Team.objects.create(organization=self.organization, name="victim")
+        gateway = Gateway.all_teams.get(team=victim, slug=DEFAULT_GATEWAY_SLUG)
+        key = ProjectSecretAPIKey.objects.create(team=victim, label="k", gateway=gateway)
+        # SET_NULL (not PROTECT): a bound credential no longer aborts the team teardown.
+        victim.delete()
+        self.assertFalse(Gateway.all_teams.filter(pk=gateway.pk).exists())
+        self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=key.pk).exists())

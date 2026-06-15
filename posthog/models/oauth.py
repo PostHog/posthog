@@ -123,9 +123,11 @@ class OAuthApplication(AbstractApplication):
 
     # Bound on the application, not the rotating access token. The gateway's slug
     # is the $ai_gateway_slug attribution value; one gateway holds many keys.
+    # SET_NULL: deleting a gateway (or its team) just unbinds; the "drain bindings
+    # first" rule is enforced at the gateway destroy endpoint, not the DB.
     gateway: "Gateway | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Gateway",
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="oauth_applications",

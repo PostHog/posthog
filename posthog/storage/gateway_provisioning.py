@@ -23,10 +23,12 @@ def provision_default_gateway(team_id: int) -> None:
 
 
 def _provision_on_team_create(sender: type[Team], instance: Team, created: bool, **kwargs: object) -> None:
-    if not created:
+    # Only a brand-new canonical team provisions. A child environment shares its
+    # parent's gateway, already provisioned when the parent was created — re-running
+    # get_or_create here would resurrect a "default" the team deleted or renamed.
+    if not created or instance.parent_team_id is not None:
         return
-    canonical_team_id = instance.parent_team_id or instance.id
-    provision_default_gateway(canonical_team_id)
+    provision_default_gateway(instance.id)
 
 
 def connect_signal_handlers() -> None:
