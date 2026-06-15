@@ -152,3 +152,69 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # The query's "plan = paid" filter is preserved, so the free event on the first day is excluded.
         assert result["data"][0] == 1
         assert result["data"][1] == 1
+
+    @snapshot_clickhouse_queries
+    def test_active_users_math_keeps_its_trailing_window(self):
+        # weekly_active counts users active in the trailing 7 days of each bucket. A user active only
+        # on May 10 must still count toward the last bucket (May 14), even though May 10 is neither the
+        # first nor last bucket — so the two-bucket scan restriction must not apply to this math.
+        self._create_events([("u", [("2024-05-10T10:00:00Z",)])])
+        response = self._run(
+            "2024-05-01",
+            "2024-05-14",
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="weekly_active")],
+        )
+
+        result = response.results[0]
+        # May 1: nobody in its trailing window -> 0. May 14: the May 10 user is in its window -> 1.
+        assert result["data"] == [0, 1]
+
+    @snapshot_clickhouse_queries
+    def test_week_interval_scan_filter_aligns_with_the_buckets(self):
+        # The scan filter's bucket windows must line up with the trends week bucketing (incl. team
+        # week-start), or first/last week events would be wrongly excluded.
+        self._create_events(
+            [
+                ("first_week", [("2024-05-02T10:00:00Z",)]),
+                ("middle_week", [("2024-05-15T10:00:00Z",)]),
+                ("last_week", [("2024-05-27T10:00:00Z",)]),
+            ]
+        )
+        response = self._run("2024-05-01", "2024-05-28", interval="week")
+
+        result = response.results[0]
+        # First and last week each keep their event; the middle week is sliced off either way.
+        assert result["data"] == [1, 1]
+
+    @snapshot_clickhouse_queries
+    def test_unique_users_math_is_per_bucket(self):
+        self._create_events(
+            [
+                ("u1", [("2024-05-01T10:00:00Z",), ("2024-05-10T10:00:00Z",)]),
+                ("u2", [("2024-05-01T11:00:00Z",)]),
+            ]
+        )
+        response = self._run(
+            "2024-05-01",
+            "2024-05-10",
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="dau")],
+        )
+
+        result = response.results[0]
+        # May 1: u1 + u2 = 2 unique; May 10: u1 = 1.
+        assert result["data"] == [2, 1]
+
+    @snapshot_clickhouse_queries
+    def test_formula_series(self):
+        self._create_events([("a", [("2024-05-01T10:00:00Z",), ("2024-05-10T10:00:00Z",), ("2024-05-10T11:00:00Z",)])])
+        query = TrendsQuery(
+            dateRange=DateRange(date_from="2024-05-01", date_to="2024-05-10"),
+            interval="day",
+            trendsFilter=TrendsFilter(display=ChartDisplayType.SLOPE_GRAPH, formula="A * 2"),
+            series=[EventsNode(kind="EventsNode", event="$pageview", math="total")],
+        )
+        response = SlopeGraphTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        result = response.results[0]
+        # Formula A*2 over the two end buckets: May 1 has 1 event -> 2, May 10 has 2 -> 4.
+        assert result["data"] == [2, 4]

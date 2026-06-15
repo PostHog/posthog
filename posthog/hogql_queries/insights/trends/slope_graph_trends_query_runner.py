@@ -1,16 +1,26 @@
 from datetime import datetime
 
 from posthog.schema import (
+    BaseMathType,
     ChartDisplayType,
     FilterLogicalOperator,
     HogQLPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     TrendsFilter,
+    TrendsQuery,
     TrendsQueryResponse,
 )
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+
+# Active-users maths compute each bucket from a trailing window, so they need the days *between* the
+# two end buckets — the two-bucket scan restriction can't be applied without starving the lookback.
+_ACTIVE_USERS_MATHS = (BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE)
+
+
+def _needs_full_scan(query: TrendsQuery) -> bool:
+    return any(getattr(s, "math", None) in _ACTIVE_USERS_MATHS for s in query.series)
 
 
 def _keep_first_and_last_bucket(result: dict) -> None:
@@ -44,22 +54,25 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
         series_query.trendsFilter.display = ChartDisplayType.ACTIONS_LINE_GRAPH
         # Read only the two end buckets, not everything between them — ANDed alongside the query's
         # own filters so a filtered (e.g. shared) slope keeps them rather than going unfiltered.
-        existing = series_query.properties
-        end_buckets_filter = self._end_buckets_filter()
-        if isinstance(existing, list):
-            series_query.properties = [*existing, end_buckets_filter]
-        elif existing is None:
-            series_query.properties = [end_buckets_filter]
-        else:
-            # A PropertyGroupFilter — wrap the existing group and the bucket filter under a new AND
-            # so the saved filters are preserved, never replaced.
-            series_query.properties = PropertyGroupFilter(
-                type=FilterLogicalOperator.AND_,
-                values=[
-                    PropertyGroupFilterValue(**existing.model_dump()),
-                    PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[end_buckets_filter]),
-                ],
-            )
+        # Active-users maths need the days between the buckets for their trailing window, so they skip
+        # the restriction and scan the full range (still sliced to two points below).
+        if not _needs_full_scan(series_query):
+            existing = series_query.properties
+            end_buckets_filter = self._end_buckets_filter()
+            if isinstance(existing, list):
+                series_query.properties = [*existing, end_buckets_filter]
+            elif existing is None:
+                series_query.properties = [end_buckets_filter]
+            else:
+                # A PropertyGroupFilter — wrap the existing group and the bucket filter under a new
+                # AND so the saved filters are preserved, never replaced.
+                series_query.properties = PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(**existing.model_dump()),
+                        PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[end_buckets_filter]),
+                    ],
+                )
 
         response = TrendsQueryRunner(
             query=series_query,
