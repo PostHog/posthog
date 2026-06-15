@@ -976,7 +976,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "on the team or carries no description."
         ),
     )
-    origin = serializers.SerializerMethodField(
+    scout_origin = serializers.SerializerMethodField(
         help_text=(
             "Where this scout came from: `canonical` for a scout PostHog ships and maintains "
             "(seeded from `products/signals/skills/`), or `custom` for one a team hand-authored "
@@ -1012,7 +1012,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         return info.description if info else ""
 
     @extend_schema_field(serializers.ChoiceField(choices=["canonical", "custom"]))
-    def get_origin(self, obj: SignalScoutConfig) -> str:
+    def get_scout_origin(self, obj: SignalScoutConfig) -> str:
         # Same single-query `skill_info` map as `get_description`. Falls back to `custom` when
         # the skill row is absent — a config with no skill row isn't a canonical scout.
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
@@ -1024,7 +1024,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "id",
             "skill_name",
             "description",
-            "origin",
+            "scout_origin",
             "enabled",
             "emit",
             "run_interval_minutes",

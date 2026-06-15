@@ -694,7 +694,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.get(self._list_url())
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()[0]["origin"] == expected_origin
+        assert response.json()[0]["scout_origin"] == expected_origin
 
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.
@@ -703,7 +703,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.get(self._list_url())
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()[0]["origin"] == "custom"
+        assert response.json()[0]["scout_origin"] == "custom"
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
