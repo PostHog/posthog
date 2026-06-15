@@ -909,15 +909,20 @@ class TestWorkspaceCreation:
     @pytest.mark.parametrize(
         "kwargs, available_presets, expected_template, expected_preset, expected_params",
         [
+            # Default opts out of presets so a vanilla create never claims a
+            # prebuild; the resolved preset is the NO_PRESET sentinel.
             (
                 {},
                 ["Default (warm)", "Cold"],
                 "posthog-linux",
-                "Default (warm)",
+                "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
+            # An explicit warm preset that the template defines flows through to
+            # the coder argv unchanged, alongside all optional params.
             (
                 {
+                    "preset": "Default (warm)",
                     "git_name": "PostHog Engineer",
                     "git_email": "test-user@example.com",
                     "dotfiles_uri": _DOTFILES,
@@ -938,7 +943,7 @@ class TestWorkspaceCreation:
                 {"template": "posthog-microvm"},
                 ["Default (warm)"],
                 "posthog-microvm",
-                "Default (warm)",
+                "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "us-east-1"},
             ),
             (
@@ -950,9 +955,10 @@ class TestWorkspaceCreation:
             ),
             # Resolution fallback to "none" is exhaustively covered by
             # TestTemplatePresetResolution; one case here is enough to prove
-            # the resolved value flows through to the coder argv.
+            # the resolved value flows through to the coder argv. The requested
+            # preset is not among the template's presets, so it falls back.
             (
-                {"template": "posthog-microvm"},
+                {"template": "posthog-microvm", "preset": "Default (warm)"},
                 ["Cold only"],
                 "posthog-microvm",
                 "none",
@@ -963,13 +969,13 @@ class TestWorkspaceCreation:
                 {"region": "eu-central-1"},
                 ["Default (warm)"],
                 "posthog-linux",
-                "Default (warm)",
+                "none",
                 {"disk_size": "100", "repo": _REPO, "workspace_region": "eu-central-1"},
             ),
         ],
         ids=[
             "defaults",
-            "all-optionals",
+            "explicit-preset-all-optionals",
             "custom-template",
             "preset-opt-out",
             "resolver-fallback-flows-through",
