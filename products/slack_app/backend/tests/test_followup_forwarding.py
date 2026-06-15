@@ -1,9 +1,13 @@
 from types import SimpleNamespace
 
+from unittest import TestCase as UnitTestCase
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.test import TestCase
+
+from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
@@ -16,6 +20,7 @@ from posthog.temporal.ai.slack_app import (
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
 )
+from posthog.temporal.ai.slack_app.helpers import safe_react
 
 from products.slack_app.backend.api import SlackUserContext
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -1045,3 +1050,30 @@ class TestEventLevelDedupe(TestCase):
         event_id_or_fallback = event_id if event_id else f"{channel}:{ts}"
         wf_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
         assert wf_id == "posthog-code-mention-T_SLACK:C123:1234.5678"
+
+
+class TestSafeReact(UnitTestCase):
+    """The 👀/🔍 reaction is cosmetic UX feedback and must never abort an activity."""
+
+    @parameterized.expand(["already_reacted", "message_not_found", "no_reaction", "cant_react"])
+    def test_benign_reaction_errors_are_swallowed(self, error_code):
+        client = MagicMock()
+        client.reactions_add.side_effect = SlackApiError("boom", response={"error": error_code})
+
+        safe_react(client, "C123", "1234.5679", "eyes")
+
+        client.reactions_add.assert_called_once_with(channel="C123", timestamp="1234.5679", name="eyes")
+
+    def test_fatal_reaction_errors_are_reraised(self):
+        client = MagicMock()
+        client.reactions_add.side_effect = SlackApiError("boom", response={"error": "invalid_auth"})
+
+        with self.assertRaises(SlackApiError):
+            safe_react(client, "C123", "1234.5679", "eyes")
+
+    def test_successful_reaction_does_not_raise(self):
+        client = MagicMock()
+
+        safe_react(client, "C123", "1234.5679", "eyes")
+
+        client.reactions_add.assert_called_once_with(channel="C123", timestamp="1234.5679", name="eyes")

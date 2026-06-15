@@ -1719,6 +1719,8 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** @asType integer */
@@ -2332,6 +2334,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     accountExecutive?: integer[]
     /** Match accounts whose account owner is any of these user ids (OR semantics). */
     accountOwner?: integer[]
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: integer[]
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -3293,6 +3297,13 @@ export interface SpanTreeNode {
      * flame graph.
      */
     avg_start_offset_nano: number
+    /**
+     * How many times this child runs per parent invocation (edge count / parent span
+     * count). Separates fan-out volume from per-call cost: a child can dominate
+     * total_duration_nano purely by running many times per parent. Null for root edges
+     * (no parent invocation to ratio against).
+     */
+    calls_per_parent_invocation?: number | null
 }
 
 export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
@@ -6726,6 +6737,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
     ERROR_TRACKING = 'error_tracking',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
@@ -6756,6 +6768,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
+    SKILLS = 'skills',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',

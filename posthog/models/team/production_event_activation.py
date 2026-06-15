@@ -15,7 +15,12 @@ touching the rest of the system:
                   the only code that marks the column and emits the
                   `first team production event ingested` analytics event.
                   Idempotent under concurrent runs via `SELECT FOR UPDATE
-                  SKIP LOCKED`.
+                  SKIP LOCKED`. The emitted event is stamped with the team's
+                  conversion time on the web leg (the earliest production-host
+                  event in the window, carried on the signal) and the run time
+                  otherwise — never the SDK's default send time, so the
+                  milestone lands when the team converted, not when the daily
+                  sweep noticed.
 
 Scheduling lives in `products/growth/dags/team_production_event_activation.py`,
 which wires these helpers into a Dagster job + daily schedule.
@@ -50,8 +55,8 @@ deployments report private ones) can never satisfy any leg.
 """
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
-from datetime import datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Final, Literal
 
@@ -137,11 +142,18 @@ class ProductionTrafficSignal:
 
     `production_host` is set for the web leg; `distinct_count` carries the
     device count (mobile leg) or user count (server leg).
+
+    `converted_at` is the team's activation instant: the event timestamp of the
+    earliest production-host event in the window. Only the web leg can resolve a
+    precise instant cheaply, so it stays None for the mobile/server legs (their
+    qualifying moment is a windowed threshold-crossing) and the transition falls
+    back to the run time for those.
     """
 
     kind: Literal["production_host", "mobile_physical_devices", "server_lib_users"]
     production_host: str | None = None
     distinct_count: int | None = None
+    converted_at: datetime | None = None
 
 
 # Reserved / non-public TLD suffixes. A host ending in one of these is a dev or
@@ -348,7 +360,95 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
             )
         elif server_lib_users >= SERVER_LIB_USERS_THRESHOLD:
             qualifying[team_id] = ProductionTrafficSignal(kind="server_lib_users", distinct_count=server_lib_users)
+
+    # Resolve the web leg's conversion instant. Done as a second, narrowly
+    # scoped query (only the teams that just qualified on the web leg, only
+    # their chosen host) so query 1's full-batch scan and per-team host cap stay
+    # untouched. Mobile/server keep `converted_at=None` — their qualifying
+    # moment is a windowed threshold-crossing the transition doesn't need.
+    web_team_hosts: dict[int, str] = {}
+    for team_id, signal in qualifying.items():
+        if signal.kind == "production_host" and signal.production_host is not None:
+            web_team_hosts[team_id] = signal.production_host
+    if web_team_hosts:
+        for team_id, converted_at in _earliest_production_host_timestamps(
+            web_team_hosts, host_expr, current_url_expr, workload
+        ).items():
+            qualifying[team_id] = replace(qualifying[team_id], converted_at=converted_at)
+
     return qualifying
+
+
+def _earliest_production_host_timestamps(
+    team_hosts: Mapping[int, str],
+    host_expr: str,
+    current_url_expr: str,
+    workload: Workload,
+) -> dict[int, datetime]:
+    """Earliest in-window event timestamp per (team, qualifying production host).
+
+    This is the web-leg activation instant — when the team's first visible
+    production event happened — used to stamp the emitted analytics event so the
+    milestone lands at conversion time rather than at sweep time.
+
+    Scoped to the already-qualified web-leg teams and their chosen hosts via the
+    `team_id` primary-key prefix, so this scan touches only that small subset.
+    Uses `timestamp` (event time, the same column the window filters on), not
+    `_timestamp` (ingestion time), to keep the instant consistent with the rest
+    of the criterion; the trailing-window filter already bounds how far back a
+    client-reported time can pull it.
+    """
+    if not team_hosts:
+        return {}
+
+    # `host IN (...)` rather than a `(team_id, host)` tuple-IN: a flat string
+    # list is the same parameter shape the criterion query already relies on.
+    # A host shared across teams over-matches harmlessly — rows are keyed by
+    # (team_id, host) below and only the team's own chosen host is read back.
+    production_hosts = list(set(team_hosts.values()))
+    # As in `_teams_meeting_criterion`: the interpolated fragments are
+    # server-side SQL expressions from get_property_string_expr, never user
+    # input; all values go through query parameters.
+    query = f"""
+        SELECT team_id, host, min(timestamp) AS converted_at
+        FROM (
+            SELECT
+                team_id,
+                substring(
+                    if({host_expr} != '', {host_expr}, domain({current_url_expr})),
+                    1,
+                    %(host_length_cap)s
+                ) AS host,
+                timestamp
+            FROM events
+            WHERE team_id IN %(team_ids)s
+              AND timestamp >= now() - toIntervalDay(%(window_days)s)
+        )
+        WHERE host IN %(production_hosts)s
+        GROUP BY team_id, host
+    """
+    with tags_context(product=Product.GROWTH, feature=Feature.ENRICHMENT):
+        rows = sync_execute(
+            query,
+            {
+                "team_ids": list(team_hosts.keys()),
+                "production_hosts": production_hosts,
+                "window_days": WINDOW_DAYS,
+                "host_length_cap": SQL_HOST_LENGTH_CAP,
+            },
+            workload=workload,
+            settings={"max_execution_time": 600},
+        )
+
+    converted_at_by_team_host = {(team_id, host): converted_at for team_id, host, converted_at in rows}
+    result: dict[int, datetime] = {}
+    for team_id, host in team_hosts.items():
+        converted_at = converted_at_by_team_host.get((team_id, host))
+        if converted_at is not None:
+            # ClickHouse DateTime is UTC; coerce naive driver values to aware so
+            # the PostHog client doesn't guess a timezone at capture time.
+            result[team_id] = converted_at if converted_at.tzinfo else converted_at.replace(tzinfo=UTC)
+    return result
 
 
 # --- Transition -------------------------------------------------------------
@@ -416,6 +516,10 @@ def _mark_teams_ingested_production_event(team_signals: Mapping[int, ProductionT
                     event="first team production event ingested",
                     properties={key: value for key, value in properties.items() if value is not None},
                     groups=groups(team=team),
+                    # Conversion time for the web leg; run time otherwise. Either
+                    # way explicit, so the milestone never drifts to the SDK's
+                    # default (the flush-loop wall clock) — see `converted_at`.
+                    timestamp=signal.converted_at or now,
                 )
             except Exception as e:
                 capture_exception(e, {"team": "team-growth", "team_id": team.id})
