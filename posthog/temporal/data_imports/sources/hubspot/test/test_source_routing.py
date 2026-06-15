@@ -226,6 +226,9 @@ class TestSettingsShape:
         "Hubspot refresh token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
         # HubspotSourceConfig OAuth path
         "Hubspot refresh or access token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b",
+        # OAuthMixin.get_oauth_integration when the integration row was deleted (id varies per source)
+        "Integration not found: 56366",
+        "Integration not found: 157288",
     ],
 )
 def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
