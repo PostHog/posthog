@@ -1,8 +1,6 @@
 # serializer version: 1
 # name: TestAllTasksRegistered.test_all_posthog_tasks_registered_snapshot
   list([
-    'posthog.api.oauth.cimd.refresh_cimd_metadata_task',
-    'posthog.api.oauth.cimd.register_cimd_provisioning_application_task',
     'posthog.approvals.tasks.expire_old_change_requests',
     'posthog.approvals.tasks.validate_pending_change_requests',
     'posthog.caching.warming.schedule_warming_for_teams_task',
@@ -59,8 +57,6 @@
     'posthog.tasks.email.send_two_factor_reset_email',
     'posthog.tasks.exporter.export_asset',
     'posthog.tasks.gateway_credential.refresh_gateway_credentials',
-    'posthog.tasks.gateway_credential.reproject_gateway_bound_credentials_task',
-    'posthog.tasks.gateway_credential.reproject_oauth_application_gateway_credentials_task',
     'posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task',
     'posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task',
     'posthog.tasks.gateway_credential.update_gateway_credential_cache_task',

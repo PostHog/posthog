@@ -10,12 +10,14 @@ posthog/storage/gateway_credential_signal_handlers.py.
 import time
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 from celery import shared_task
 
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.team.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_REQUIRED_SCOPE,
@@ -36,13 +38,9 @@ _OAUTH_KIND = "oauth_access_token"
 @skip_team_scope_audit
 def update_gateway_credential_cache_task(credential_kind: str, credential_id: str) -> None:
     if credential_kind == _SECRET_KEY_KIND:
-        credential = ProjectSecretAPIKey.objects.select_related("gateway__team").filter(pk=credential_id).first()
+        credential = ProjectSecretAPIKey.objects.select_related("team").filter(pk=credential_id).first()
     elif credential_kind == _OAUTH_KIND:
-        credential = (
-            OAuthAccessToken.objects.select_related("user", "application__gateway__team")
-            .filter(pk=credential_id)
-            .first()
-        )
+        credential = OAuthAccessToken.objects.select_related("user", "application").filter(pk=credential_id).first()
     else:
         logger.warning("Unknown credential kind for gateway credential update", kind=credential_kind)
         return
@@ -61,7 +59,7 @@ def update_gateway_credential_cache_task(credential_kind: str, credential_id: st
 def reproject_user_gateway_credentials_task(user_id: int) -> None:
     """Re-project a user's OAuth credentials after a user/membership/RBAC change.
     Project secret keys have no user, so they're unaffected and not touched here."""
-    for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
+    for token in OAuthAccessToken.objects.select_related("user", "application").filter(
         scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", user_id=user_id, application_id__isnull=False
     ):
         project_gateway_credential(token)
@@ -69,42 +67,24 @@ def reproject_user_gateway_credentials_task(user_id: int) -> None:
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 @skip_team_scope_audit
-def reproject_gateway_bound_credentials_task(gateway_id: str) -> None:
-    """Re-project every credential bound to a gateway after its slug changed."""
-    for secret_key in ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
-        gateway_id=gateway_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
-    ):
-        project_gateway_credential(secret_key)
-    for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
-        application__gateway_id=gateway_id,
-        scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
-        application_id__isnull=False,
-    ):
-        project_gateway_credential(token)
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-@skip_team_scope_audit
-def reproject_oauth_application_gateway_credentials_task(application_id: str) -> None:
-    """Re-project an OAuth application's tokens after its gateway binding changed.
-    The binding lives on the application, not the token, so a token save never fires."""
-    for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
-        application_id=application_id, scope__iregex=r"(^|\s)llm_gateway:read(\s|$)"
-    ):
-        project_gateway_credential(token)
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-@skip_team_scope_audit
 def reproject_team_gateway_credentials_task(team_id: int) -> None:
-    """Re-project the team's gateway credentials after an api_token rotation
-    (project_token changes) or a project access-control change (OAuth RBAC)."""
-    for secret_key in ProjectSecretAPIKey.objects.select_related("gateway__team").filter(
-        gateway__team_id=team_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
+    """Re-project every credential resolving to a team's gateway, after its slug or
+    api_token changed (project_token / $ai_gateway_slug) or a project access-control change.
+
+    No FK binding any more: a secret key resolves by its canonical (project-root) team, so
+    catch the team and its child envs; an OAuth token resolves by its application's org, so
+    catch every token in the team's organization (all resolve to this same gateway)."""
+    for secret_key in ProjectSecretAPIKey.objects.select_related("team").filter(
+        Q(team_id=team_id) | Q(team__parent_team_id=team_id),
+        scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE],
     ):
         project_gateway_credential(secret_key)
-    for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
-        application__gateway__team_id=team_id,
+
+    organization_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return
+    for token in OAuthAccessToken.objects.select_related("user", "application").filter(
+        application__organization_id=organization_id,
         scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
         application_id__isnull=False,
     ):

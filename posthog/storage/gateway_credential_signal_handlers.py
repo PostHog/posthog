@@ -15,7 +15,6 @@ Mutations must go through .save()/.delete(); bulk_update()/.update() bypass sign
 """
 
 from typing import Any
-from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -24,7 +23,7 @@ from django.db.models.signals import post_delete, post_init, post_save, pre_dele
 import structlog
 
 from posthog.models.gateway import Gateway
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
@@ -37,8 +36,6 @@ from posthog.storage.gateway_credential_cache import (
 )
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.gateway_credential import (
-    reproject_gateway_bound_credentials_task,
-    reproject_oauth_application_gateway_credentials_task,
     reproject_team_gateway_credentials_task,
     reproject_user_gateway_credentials_task,
     update_gateway_credential_cache_task,
@@ -53,11 +50,7 @@ _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
 _LOADED_GATEWAY_SLUG_ATTR = "_fp_loaded_gateway_slug"
 _LOADED_MEMBERSHIP_LEVEL_ATTR = "_fp_loaded_membership_level"
-_LOADED_APP_GATEWAY_ATTR = "_fp_loaded_app_gateway_id"
 _LOADED_TEAM_API_TOKEN_ATTR = "_fp_loaded_team_api_token"
-
-# gateway_id is legitimately None (unbound), so distinguish "not snapshotted".
-_UNSET: Any = object()
 
 _SECRET_KEY_KIND = "project_secret_api_key"
 _OAUTH_KIND = "oauth_access_token"
@@ -165,8 +158,8 @@ def _on_credential_save(
 def _update_secret_key_on_save(
     sender: type[ProjectSecretAPIKey], instance: ProjectSecretAPIKey, created: bool, **kwargs: Any
 ) -> None:
-    # A secret key binds directly, so a rebind keeps the hash and re-projects through
-    # the update task with the new slug/team — no separate app-style handler needed.
+    # A scope/team change keeps the hash and re-projects through the update task,
+    # which resolves the key's team gateway afresh.
     _on_credential_save(_SECRET_KEY_KIND, instance, _secret_key_hash(instance), credential_has_gateway_scope(instance))
 
 
@@ -235,44 +228,6 @@ def _reproject_on_membership_delete(
     if not settings.AI_GATEWAY_REDIS_URL:
         return
     _reproject_user_sync_then_async(instance.user_id)
-
-
-def _snapshot_oauth_application(sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL:
-        return
-    if "gateway" not in instance.get_deferred_fields():
-        instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = instance.gateway_id
-
-
-def _capture_old_app_gateway_if_deferred(
-    sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any
-) -> None:
-    # Fallback for an app loaded with `gateway` deferred (post_init skipped the
-    # snapshot): re-read the old gateway before the UPDATE so a rebind still
-    # reprojects. No-op (no query) on the common full-load path.
-    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_APP_GATEWAY_ATTR in instance.__dict__:
-        return
-    if not instance.pk or instance._state.adding:
-        return
-    row = OAuthApplication.objects.filter(pk=instance.pk).values("gateway_id").first()
-    if row is not None:
-        instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = row["gateway_id"]
-
-
-def _reproject_oauth_application_on_save(
-    sender: type[OAuthApplication], instance: OAuthApplication, created: bool, **kwargs: Any
-) -> None:
-    # The binding lives on the application, not the token, so a rebind doesn't fire a
-    # token save. Reproject the app's tokens so they pick up the new slug/team (or clear).
-    if not settings.AI_GATEWAY_REDIS_URL or created:
-        return
-    old_gateway_id = instance.__dict__.get(_LOADED_APP_GATEWAY_ATTR, _UNSET)
-    instance.__dict__[_LOADED_APP_GATEWAY_ATTR] = instance.gateway_id
-    if old_gateway_id is _UNSET or old_gateway_id == instance.gateway_id:
-        return
-
-    application_id = str(instance.pk)
-    transaction.on_commit(lambda: reproject_oauth_application_gateway_credentials_task.delay(application_id))
 
 
 def _snapshot_team(sender: type[Team], instance: Team, **kwargs: Any) -> None:
@@ -359,9 +314,8 @@ def _capture_old_gateway_slug_if_deferred(sender: type[Gateway], instance: Gatew
 
 
 def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created: bool, **kwargs: Any) -> None:
-    # The slug is the attribution value; on change, re-project every bound
-    # credential so its blob carries the new slug. Binding/unbinding a credential
-    # fires that credential's own save signal, so it's covered elsewhere.
+    # The slug is the attribution value; on change, re-project the team's credentials so
+    # each blob carries the new slug (they resolve to this gateway by team, not by binding).
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_slug = instance.__dict__.get(_LOADED_GATEWAY_SLUG_ATTR)
@@ -369,43 +323,18 @@ def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created
     if old_slug is None or old_slug == instance.slug:
         return
 
-    gateway_id = str(instance.pk)
-    transaction.on_commit(lambda: reproject_gateway_bound_credentials_task.delay(gateway_id))
+    team_id = instance.team_id
+    transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
-def _bound_credential_hashes(gateway_id: UUID | str) -> list[str]:
-    """Cache-key hashes of the gateway-scoped credentials bound to a gateway."""
-    hashes = [
-        secure_value
-        for secure_value in ProjectSecretAPIKey.objects.filter(
-            gateway_id=gateway_id, scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]
-        ).values_list("secure_value", flat=True)
-        if secure_value
-    ]
-    hashes += [
-        f"{SHA256_HASH_PREFIX}{checksum}"
-        for checksum in OAuthAccessToken.objects.filter(
-            application__gateway_id=gateway_id, scope__iregex=r"(^|\s)llm_gateway:read(\s|$)"
-        ).values_list("token_checksum", flat=True)
-        if checksum
-    ]
-    return hashes
-
-
-def _clear_gateway_on_delete(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
-    # gateway FK is PROTECT, so a gateway with bound credentials can't be deleted;
-    # this is a safety net for the drained-then-deleted case. on_commit only fires on
-    # a successful delete, so a PROTECT-aborted delete never wrongly clears a blob.
+def _reproject_gateway_on_delete(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
+    # Deleting the team's gateway leaves its scoped credentials with nothing to resolve, so
+    # reproject the team — the projection fails closed and clears each blob. on_commit fires
+    # only on a successful delete, and the task reads post-delete state (gateway gone).
     if not settings.AI_GATEWAY_REDIS_URL:
         return
-    hashes = _bound_credential_hashes(instance.pk)
-    if hashes:
-        transaction.on_commit(lambda: _clear_policy_hashes(hashes))
-
-
-def _clear_policy_hashes(hashes: list[str]) -> None:
-    for hash_key in hashes:
-        clear_gateway_credential(hash_key)
+    team_id = instance.team_id
+    transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
 def _reproject_on_access_control_change(sender: type, instance: Any, **kwargs: Any) -> None:
@@ -437,10 +366,6 @@ def connect_signal_handlers() -> None:
     post_save.connect(_update_oauth_on_save, sender=OAuthAccessToken)
     pre_delete.connect(_clear_oauth_on_delete, sender=OAuthAccessToken)
 
-    post_init.connect(_snapshot_oauth_application, sender=OAuthApplication)
-    pre_save.connect(_capture_old_app_gateway_if_deferred, sender=OAuthApplication)
-    post_save.connect(_reproject_oauth_application_on_save, sender=OAuthApplication)
-
     post_init.connect(_snapshot_team, sender=Team)
     pre_save.connect(_capture_old_team_token_if_deferred, sender=Team)
     post_save.connect(_reproject_team_on_api_token_change, sender=Team)
@@ -456,7 +381,7 @@ def connect_signal_handlers() -> None:
     post_init.connect(_snapshot_gateway, sender=Gateway)
     pre_save.connect(_capture_old_gateway_slug_if_deferred, sender=Gateway)
     post_save.connect(_reproject_gateway_on_save, sender=Gateway)
-    pre_delete.connect(_clear_gateway_on_delete, sender=Gateway)
+    pre_delete.connect(_reproject_gateway_on_delete, sender=Gateway)
 
     # Project access controls live in ee, which isn't installed in FOSS. Connect
     # only when available; the projection's RBAC check default-allows there anyway.
