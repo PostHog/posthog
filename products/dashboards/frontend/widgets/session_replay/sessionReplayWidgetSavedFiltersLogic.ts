@@ -16,7 +16,7 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
             __default: [] as SessionRecordingPlaylistType[],
             loadSavedFilters: async () => {
                 const response = await api.recordings.listPlaylists(
-                    toParams({ limit: 300, order: '-last_modified_at', type: 'filters' })
+                    toParams({ limit: 100, order: '-last_modified_at', type: 'filters' })
                 )
                 return response.results
             },
