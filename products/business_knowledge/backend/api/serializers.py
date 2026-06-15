@@ -1,5 +1,7 @@
 """DRF serializers for business_knowledge."""
 
+from urllib.parse import urlparse
+
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
@@ -25,6 +27,21 @@ from ..models import (
     RefreshInterval,
     SourceType,
 )
+
+
+def _derive_scope_globs(url: str) -> list[str]:
+    """
+    Auto-derive include globs from the entry URL path so that same-origin
+    crawls are scoped to the URL's section by default.
+
+    - Root path (``/`` or empty) → empty list (crawl the whole origin).
+    - Non-root → ``[path, path/*]`` to match the index page + descendants
+      without sibling bleed (e.g. ``/docs/support`` won't grab ``/docs/support-center``).
+    """
+    path = urlparse(url).path.rstrip("/") or "/"
+    if path == "/":
+        return []
+    return [path, f"{path}/*"]
 
 
 class _GlobListField(serializers.ListField):
@@ -272,6 +289,15 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         crawl_config_keys = {"include_globs", "exclude_globs", "max_pages", "max_depth"}
         crawl_fields = {k: attrs.pop(k) for k in crawl_config_keys if k in attrs}
         if crawl_fields:
+            # Re-derive scope when include_globs not explicitly provided and
+            # the source uses same-origin mode with a URL change.
+            if (
+                "include_globs" in crawl_fields
+                and not crawl_fields["include_globs"]
+                and attrs.get("crawl_mode", data.get("crawl_mode")) == CrawlMode.SAME_ORIGIN.value
+                and "url" in attrs
+            ):
+                crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
             attrs["crawl_config"] = crawl_fields
         return attrs
 
@@ -363,8 +389,11 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
         attrs["source_type"] = SourceType.URL.value
+        include_globs = attrs.pop("include_globs")
+        if not include_globs and attrs.get("crawl_mode") == CrawlMode.SAME_ORIGIN.value:
+            include_globs = _derive_scope_globs(attrs["url"])
         attrs["crawl_config"] = {
-            "include_globs": attrs.pop("include_globs"),
+            "include_globs": include_globs,
             "exclude_globs": attrs.pop("exclude_globs"),
             "max_pages": attrs.pop("max_pages"),
             "max_depth": attrs.pop("max_depth"),
