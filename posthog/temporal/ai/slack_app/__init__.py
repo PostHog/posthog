@@ -3,14 +3,33 @@
 Activities living here run on ``settings.MAX_AI_TASK_QUEUE`` and are imported
 by ``posthog/temporal/ai/posthog_code_slack_mention.py`` and
 ``posthog/temporal/ai/posthog_code_slack_mention_command.py`` at module load
-time. The package is the long-term home for activity splits out of those
-files; activities land here one PR at a time.
+time.
 """
 
 from posthog.temporal.ai.slack_app.activities import (
     CLASSIFIER_THREAD_HISTORY_MESSAGES,
+    POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+    block_posthog_code_task_if_no_personal_github_activity,
+    cascade_posthog_code_repository_activity,
     classify_message_is_agent_directed,
+    classify_posthog_code_task_needs_repo_activity,
     classify_untagged_followup_activity,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    create_posthog_code_task_for_repo_activity,
+    derive_mention_workflow_id,
+    discover_posthog_code_repository_via_agent_activity,
+    enforce_posthog_code_billing_quota_activity,
+    forward_posthog_code_followup_activity,
+    handle_posthog_code_rules_command_activity,
+    handle_posthog_code_slack_mention_command_activity,
+    post_posthog_code_internal_error_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_repo_picker_activity,
+    resolve_posthog_code_slack_command_user_activity,
+    resolve_posthog_code_slack_user_activity,
 )
 from posthog.temporal.ai.slack_app.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -23,10 +42,29 @@ from posthog.temporal.ai.slack_app.types import (
 
 SLACK_APP_ACTIVITIES = [
     classify_untagged_followup_activity,
+    resolve_posthog_code_slack_user_activity,
+    resolve_posthog_code_slack_command_user_activity,
+    collect_posthog_code_thread_messages_activity,
+    cascade_posthog_code_repository_activity,
+    discover_posthog_code_repository_via_agent_activity,
+    classify_posthog_code_task_needs_repo_activity,
+    enforce_posthog_code_billing_quota_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_repo_picker_activity,
+    block_posthog_code_task_if_no_personal_github_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_internal_error_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    handle_posthog_code_rules_command_activity,
+    create_posthog_code_routing_rule_activity,
+    handle_posthog_code_slack_mention_command_activity,
 ]
 
 __all__ = [
     "CLASSIFIER_THREAD_HISTORY_MESSAGES",
+    "POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE",
+    "POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE",
     "PostHogCodeRepoCascadeOutcome",
     "PostHogCodeRulesCommandResult",
     "PostHogCodeSlackMentionCommandResult",
@@ -34,6 +72,24 @@ __all__ = [
     "PostHogCodeSlackMentionWorkflowInputs",
     "SLACK_APP_ACTIVITIES",
     "SlackRepoSelectionOutcome",
+    "block_posthog_code_task_if_no_personal_github_activity",
+    "cascade_posthog_code_repository_activity",
     "classify_message_is_agent_directed",
+    "classify_posthog_code_task_needs_repo_activity",
     "classify_untagged_followup_activity",
+    "collect_posthog_code_thread_messages_activity",
+    "create_posthog_code_routing_rule_activity",
+    "create_posthog_code_task_for_repo_activity",
+    "derive_mention_workflow_id",
+    "discover_posthog_code_repository_via_agent_activity",
+    "enforce_posthog_code_billing_quota_activity",
+    "forward_posthog_code_followup_activity",
+    "handle_posthog_code_rules_command_activity",
+    "handle_posthog_code_slack_mention_command_activity",
+    "post_posthog_code_internal_error_activity",
+    "post_posthog_code_no_repos_activity",
+    "post_posthog_code_picker_timeout_activity",
+    "post_posthog_code_repo_picker_activity",
+    "resolve_posthog_code_slack_command_user_activity",
+    "resolve_posthog_code_slack_user_activity",
 ]
