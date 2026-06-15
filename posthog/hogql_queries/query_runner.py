@@ -116,6 +116,7 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 from posthog.schema_helpers import to_dict
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 logger = structlog.get_logger(__name__)
@@ -2202,11 +2203,15 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
         """Access-control snapshot for the cache fingerprint. Built lazily - the fingerprint runs
-        before any database exists, which a cache hit never reaches. None for userless runs."""
-        if self.user is None:
+        before any database exists, which a cache hit never reaches. None for userless runs and for
+        synthetic principals (e.g. a project secret API key)."""
+        # user is typed Optional[User] but a project secret API key passes a SyntheticUser at runtime;
+        # broaden for isinstance.
+        user = cast("Optional[User | SyntheticUser]", self.user)
+        if user is None or isinstance(user, SyntheticUser):
             return None
         if self._user_access_control is None:
-            self._user_access_control = UserAccessControl(user=self.user, team=self.team)
+            self._user_access_control = UserAccessControl(user=user, team=self.team)
         return self._user_access_control
 
     def get_cache_payload(self) -> dict:
@@ -2237,12 +2242,16 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
 
     def _get_resource_access_restrictions(self) -> list[str] | None:
-        """Sorted list of resources the user has no access to at the resource level. Reuses
-        UserAccessControl.blocked_resources, the same predicate that drives schema filtering, so
-        the cache key matches the exposed schema."""
+        """Resources the user has no resource-level access to, from the same blocked_resources
+        predicate that drives schema filtering (so the cache key can't drift from the schema)."""
+        user = cast("Optional[User | SyntheticUser]", self.user)
         # Userless runs fail-closed - every access-controlled table is denied.
-        if self.user is None:
+        if user is None:
             return ["*"]
+        # Synthetic principals (e.g. a project secret API key) are scope-gated; partition on the readable
+        # scopes so a narrower token can't be served a broader principal's cached result.
+        if isinstance(user, SyntheticUser):
+            return ["synthetic", *sorted(f"scope:{scope}" for scope in user.readable_system_table_access_scopes())]
         user_access_control = self.user_access_control
         if user_access_control is None:
             return None

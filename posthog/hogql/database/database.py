@@ -369,11 +369,10 @@ def _compute_system_table_access_decision(
     user_access_control: Optional["UserAccessControl"] = None,
 ) -> tuple[Optional["UserAccessControl"], set[str]]:
     """Decide which scoped system tables to hide, doing the access-control I/O here so the build phase
-    can apply the result without querying. Returns the warmed UserAccessControl (whose membership/role/
-    access-control caches make later reads query-free) and the system-node table names to remove.
+    can apply the result without querying. Returns the warmed UserAccessControl (preloaded, so later
+    reads are query-free) and the system-node table names to remove.
 
-    Pass user_access_control when it's already preloaded to reuse the same instance
-    and avoid an extra query."""
+    Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     system_children = SystemTables().children
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
