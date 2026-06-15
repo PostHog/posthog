@@ -10,7 +10,8 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -29,6 +30,8 @@ from posthog.api.team import (
     PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    EvaluationContextSuggestionRequestSerializer,
+    EvaluationContextSuggestionResponseSerializer,
     PromotedProductIntentSerializer,
     TeamCustomerAnalyticsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
@@ -345,15 +348,31 @@ def team_experiments_config_view(team: Team, request: request.Request) -> respon
 
 
 def team_default_evaluation_contexts_view(team: Team, request: request.Request) -> response.Response:
-    """Manage default evaluation contexts for a project."""
+    """Manage default evaluation contexts for a project.
+
+    Mirrors TeamViewSet.default_evaluation_contexts — keep the two in sync so /api/projects/ and
+    /api/environments/ stay at parity (enforced by test_team_project_differential).
+    """
+    # Feature flags persist contexts under the project root team (RootTeamMixin), so scope
+    # context lookups to the root team — otherwise flag-used contexts are invisible from
+    # child environments.
+    root_team = team.parent_team or team
+
     if request.method == "GET":
-        defaults = TeamDefaultEvaluationContext.objects.filter(team=team).select_related("evaluation_context")
+        defaults = TeamDefaultEvaluationContext.objects.filter(team=root_team).select_related("evaluation_context")
         defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
-        all_contexts = list(EvaluationContext.objects.filter(team=team).values_list("name", flat=True).order_by("name"))
+        all_contexts_qs = list(
+            EvaluationContext.objects.filter(team=root_team)
+            .values_list("name", "hidden_from_suggestions")
+            .order_by("name")
+        )
+        all_contexts = [name for name, hidden in all_contexts_qs if not hidden]
+        hidden_contexts = [name for name, hidden in all_contexts_qs if hidden]
         return response.Response(
             {
                 "default_evaluation_contexts": defaults_data,
                 "available_contexts": all_contexts,
+                "hidden_contexts": hidden_contexts,
                 "enabled": team.default_evaluation_contexts_enabled,
             }
         )
@@ -369,12 +388,19 @@ def team_default_evaluation_contexts_view(team: Team, request: request.Request) 
             return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
         with transaction.atomic():
-            existing = list(TeamDefaultEvaluationContext.objects.filter(team=team).select_for_update())
+            existing = list(TeamDefaultEvaluationContext.objects.filter(team=root_team).select_for_update())
             if len(existing) >= 10:
                 return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
 
-            ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=team)
-            default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(team=team, evaluation_context=ctx)
+            ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=root_team)
+            if ctx.hidden_from_suggestions:
+                level = UserPermissions(cast(User, request.user)).team(team).effective_membership_level
+                if level is not None and level >= OrganizationMembership.Level.ADMIN:
+                    ctx.hidden_from_suggestions = False
+                    ctx.save(update_fields=["hidden_from_suggestions"])
+            default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
+                team=root_team, evaluation_context=ctx
+            )
 
             if created:
                 report_user_action(
@@ -385,7 +411,14 @@ def team_default_evaluation_contexts_view(team: Team, request: request.Request) 
                     request=request,
                 )
 
-        return response.Response({"id": default_ctx.id, "name": ctx.name, "created": created})
+        return response.Response(
+            {
+                "id": default_ctx.id,
+                "name": ctx.name,
+                "created": created,
+                "hidden_from_suggestions": ctx.hidden_from_suggestions,
+            }
+        )
 
     else:  # DELETE
         context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
@@ -397,9 +430,9 @@ def team_default_evaluation_contexts_view(team: Team, request: request.Request) 
 
         with transaction.atomic():
             try:
-                ctx = EvaluationContext.objects.get(name=context_name, team=team)
+                ctx = EvaluationContext.objects.get(name=context_name, team=root_team)
                 deleted_count, _ = TeamDefaultEvaluationContext.objects.filter(
-                    team=team, evaluation_context=ctx
+                    team=root_team, evaluation_context=ctx
                 ).delete()
 
                 if deleted_count > 0:
@@ -414,6 +447,45 @@ def team_default_evaluation_contexts_view(team: Team, request: request.Request) 
                 return response.Response({"success": True})
             except EvaluationContext.DoesNotExist:
                 return response.Response({"error": "Evaluation context not found"}, status=404)
+
+
+def team_evaluation_context_suggestions_view(team: Team, request: request.Request) -> response.Response:
+    """Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+
+    POST hides the name; DELETE restores it. The underlying context row and any flags already
+    using it are never modified — this only controls what gets suggested. Mirrors
+    TeamViewSet.evaluation_context_suggestions — keep the two in sync.
+    """
+    # Contexts are persisted under the project root team (see team_default_evaluation_contexts_view).
+    root_team = team.parent_team or team
+
+    context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
+    if not isinstance(context_name, str):
+        return response.Response({"error": "context_name must be a string"}, status=400)
+    context_name = normalize_context_name(context_name)
+    if not context_name:
+        return response.Response({"error": "context_name is required"}, status=400)
+
+    hidden = request.method == "POST"
+
+    with transaction.atomic():
+        try:
+            ctx = EvaluationContext.objects.select_for_update().get(name=context_name, team=root_team)
+        except EvaluationContext.DoesNotExist:
+            return response.Response({"error": "Evaluation context not found"}, status=404)
+
+        if ctx.hidden_from_suggestions != hidden:
+            ctx.hidden_from_suggestions = hidden
+            ctx.save(update_fields=["hidden_from_suggestions"])
+            report_user_action(
+                cast(User, request.user),
+                "evaluation context suggestion hidden" if hidden else "evaluation context suggestion restored",
+                {"team_id": team.id, "context_name": context_name},
+                team=team,
+                request=request,
+            )
+
+    return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
 def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
@@ -1286,6 +1358,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             if is_session_auth:
                 return ["project:read"]
 
+        # Read-only access for member-readable actions — only downgrade GET, not writes.
+        if self.action == "evaluation_context_suggestions" and request.method == "GET":
+            is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
+            if is_session_auth:
+                return ["project:read"]
+
         # Fall back to the default behavior
         return None
 
@@ -1310,8 +1388,14 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
-                # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
-                permissions.append(TeamMemberLightManagementPermission)
+                # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer.
+                # evaluation_context_suggestions writes stay admin-gated via TeamMemberStrictManagementPermission.
+                if self.action == "evaluation_context_suggestions":
+                    if self.request.method != "GET":
+                        # Writes need strict (admin for all non-safe methods), not light (which only gates DELETE).
+                        permissions.append(TeamMemberStrictManagementPermission)
+                else:
+                    permissions.append(TeamMemberLightManagementPermission)
 
         return [permission() for permission in permissions]
 
@@ -1568,6 +1652,39 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage default evaluation contexts for a project."""
         return team_default_evaluation_contexts_view(self.get_object().passthrough_team, request)
+
+    @extend_schema(
+        methods=["POST"],
+        request=EvaluationContextSuggestionRequestSerializer,
+        responses={200: EvaluationContextSuggestionResponseSerializer},
+        extensions={"x-product": "feature_flags"},
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        parameters=[
+            OpenApiParameter(
+                name="context_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Name of the evaluation context to restore to suggestions.",
+            )
+        ],
+        responses={200: EvaluationContextSuggestionResponseSerializer},
+        extensions={"x-product": "feature_flags"},
+    )
+    @action(
+        methods=["POST", "DELETE"],
+        detail=True,
+        permission_classes=[IsAuthenticated],
+    )
+    def evaluation_context_suggestions(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+
+        POST hides the name; DELETE restores it. The underlying context row and any flags already
+        using it are never modified — this only controls what gets suggested.
+        """
+        return team_evaluation_context_suggestions_view(self.get_object().passthrough_team, request)
 
     @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:
