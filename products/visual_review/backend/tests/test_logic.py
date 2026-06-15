@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -679,6 +679,26 @@ class TestApproveRun:
 
         assert again.approved is True
         assert again.approved_at == approved_at  # unchanged — the second call did no work
+
+    @pytest.mark.parametrize("add_images", [True, False])
+    def test_finalize_always_comments_and_forwards_add_images(self, repo, user, mocker, add_images):
+        # The PR comment is always dispatched on finalize; add_images_to_comment_on_pr only
+        # controls whether the snapshot images are embedded — forwarded to the task.
+        run = self._completed_two_change_run(repo, mocker)
+        mocker.patch.object(logic, "_post_commit_status")
+        mocker.patch.object(logic.transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
+        delay = mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
+
+        logic.finalize_run(
+            run_id=run.id,
+            user_id=user.id,
+            approve_all=True,
+            commit_to_github=True,
+            add_images_to_comment_on_pr=add_images,
+        )
+
+        assert delay.called is True
+        assert delay.call_args.args[2] is add_images
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -2591,3 +2611,205 @@ class TestApprovalComment:
         mocker.patch.object(logic, "_github_api_request", side_effect=RuntimeError("boom"))
         # Must not raise
         logic._post_approval_comment(run_with_snapshots, repo)
+
+    @staticmethod
+    def _mk_artifact(repo, content_hash, *, with_thumbnail=None):
+        from products.visual_review.backend.models import Artifact
+
+        artifact = Artifact.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            content_hash=content_hash,
+            storage_path=f"path/{content_hash}",
+            width=320,
+            height=200,
+        )
+        if with_thumbnail:
+            thumb = Artifact.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                content_hash=with_thumbnail,
+                storage_path=f"thumb/{with_thumbnail}",
+            )
+            artifact.thumbnail = thumb
+            artifact.save(update_fields=["thumbnail"])
+        return artifact
+
+    @staticmethod
+    def _fake_storage(returns_url=True):
+        class _FakeStorage:
+            def __init__(self, repo_id):
+                self.repo_id = repo_id
+
+            def get_presigned_download_url(self, content_hash, expiration=3600):
+                return f"https://cdn.example/{content_hash}?exp={expiration}" if returns_url else None
+
+        return _FakeStorage
+
+    @pytest.fixture
+    def run_with_artifacts(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="cafef00d",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            metadata={"github_comment_id": 9001},
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Login/Form",
+            result=SnapshotResult.CHANGED,
+            baseline_artifact=self._mk_artifact(repo, "base_a", with_thumbnail="thumb_a"),
+            current_artifact=self._mk_artifact(repo, "curr_a"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Settings/Tab",
+            result=SnapshotResult.NEW,
+            current_artifact=self._mk_artifact(repo, "curr_b"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Old/Component",
+            result=SnapshotResult.REMOVED,
+            baseline_artifact=self._mk_artifact(repo, "base_c"),
+        )
+        return run
+
+    def test_build_approval_comment_body_includes_before_after_tables(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        # Changed table: baseline (thumbnail) before, current after
+        assert "**Changed**" in body
+        assert "| Snapshot | Before | After |" in body
+        assert "https://cdn.example/thumb_a" in body  # prefers the thumbnail
+        assert "https://cdn.example/curr_a" in body
+        # Removed snapshot lives in the changed table with an empty after cell
+        assert "_(removed)_" in body
+        assert "https://cdn.example/base_c" in body
+        # New table: empty before cell, current after
+        assert "**New**" in body
+        assert "https://cdn.example/curr_b" in body
+        assert "_(none)_" in body
+        # Long-lived URL so GitHub's image proxy can still fetch it later
+        assert f"exp={logic._COMMENT_IMAGE_URL_EXPIRATION}" in body
+
+    def test_build_approval_comment_body_deep_links_each_snapshot(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        # Each snapshot name links straight to its deep link on the run page
+        changed = run_with_artifacts.snapshots.get(identifier="Login/Form")
+        assert f"[`Login/Form`]({logic._run_url(run_with_artifacts, repo)}?snapshot={changed.id})" in body
+
+    def test_build_approval_comment_body_caps_at_eight_and_links_out(self, repo, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="manysnaps",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        for i in range(11):
+            RunSnapshot.objects.create(
+                team_id=repo.team_id,
+                run=run,
+                identifier=f"Story/{i:02d}",
+                result=SnapshotResult.CHANGED,
+                baseline_artifact=self._mk_artifact(repo, f"base_{i}"),
+                current_artifact=self._mk_artifact(repo, f"curr_{i}"),
+            )
+
+        body = logic._build_approval_comment_body(run, repo, None, add_images=True)
+
+        # 8 of 11 rows rendered, the rest linked out
+        assert body.count("<img") == 8 * 2  # before + after per shown row
+        assert "…and 3 more" in body
+        assert f"/visual_review/runs/{run.id})" in body
+
+    def test_build_approval_comment_body_falls_back_to_text_without_storage(self, repo, run_with_artifacts, mocker):
+        # Images requested, but storage yields no URL — fall back to the text summary.
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage(returns_url=False))
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        assert "<img" not in body
+        assert "**Changed**" not in body
+        # Still carries the textual summary
+        assert "1 changed, 1 new, 1 removed." in body
+
+    def test_build_approval_comment_body_omits_images_unless_opted_in(self, repo, run_with_artifacts, mocker):
+        # add_images defaults false: the comment is always posted but stays a text summary.
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None)
+
+        assert "<img" not in body
+        assert "**Changed**" not in body
+        # The comment still summarizes what changed and links to the run
+        assert "1 changed, 1 new, 1 removed." in body
+        assert f"/visual_review/runs/{run_with_artifacts.id}" in body
+
+    def test_image_cell_escapes_alt_and_src(self):
+        # Both attributes are escaped so a quote in either can't break out of the tag
+        cell = logic._image_cell('https://cdn.example/x?a="b', 'a"b')
+        assert 'alt="a&quot;b"' in cell
+        assert 'src="https://cdn.example/x?a=&quot;b"' in cell
+
+    @pytest.mark.parametrize(
+        "identifier,expected",
+        [
+            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+        ],
+    )
+    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+        assert logic._snapshot_name_cell(identifier) == expected
+
+    def test_snapshot_name_cell_collapses_control_characters(self):
+        # Newlines/tabs/carriage returns would otherwise break out of the table row
+        cell = logic._snapshot_name_cell("a\nb\tc\rd")
+        assert "\n" not in cell
+        assert "\r" not in cell
+        assert "\t" not in cell
+        assert cell == "`a b c d`"
+
+    def test_snapshot_name_cell_newline_cannot_inject_table_rows(self):
+        # A pipe-laden payload across a newline stays a single escaped cell
+        cell = logic._snapshot_name_cell("x\n| --- |")
+        assert "\n" not in cell
+        assert cell == "`x \\| --- \\|`"
+
+    def test_comment_image_url_requests_seven_day_expiry(self, repo, mocker):
+        # The 7-day expiry is load-bearing: GitHub's image proxy may fetch the URL
+        # long after the comment is posted, so lock the behaviour with a test.
+        captured = {}
+
+        class _RecordingStorage:
+            def __init__(self, repo_id):
+                pass
+
+            def get_presigned_download_url(self, content_hash, expiration=3600):
+                captured["content_hash"] = content_hash
+                captured["expiration"] = expiration
+                return "https://cdn.example/x"
+
+        mocker.patch.object(logic, "ArtifactStorage", _RecordingStorage)
+
+        artifact = self._mk_artifact(repo, "h1")
+        url = logic._comment_image_url(repo, artifact)
+
+        assert url == "https://cdn.example/x"
+        assert captured["content_hash"] == "h1"
+        assert captured["expiration"] == 60 * 60 * 24 * 7 == 604800

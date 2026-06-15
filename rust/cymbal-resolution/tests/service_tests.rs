@@ -402,11 +402,12 @@ async fn invalid_payload_and_metadata_formats_are_invalid_payload_errors() {
                 &exc,
                 br#"{"apple_debug_images_json":"not-a-list"}"#.to_vec(),
             ),
+            make_item_with_metadata(4, &exc, br#"{"debug_images_json":"not-a-list"}"#.to_vec()),
         ],
     )
     .await;
 
-    assert_eq!(outcomes.len(), 3);
+    assert_eq!(outcomes.len(), 4);
     for outcome in outcomes {
         assert_eq!(error_kind(&outcome), ErrorKind::InvalidPayload);
     }

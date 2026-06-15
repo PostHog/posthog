@@ -1,11 +1,13 @@
 from collections.abc import MutableMapping
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 import dagster
 from structlog.testing import capture_logs
@@ -15,6 +17,7 @@ from posthog.schema import WebStatsBreakdown
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Organization, Team
 
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
@@ -36,6 +39,24 @@ def _eager_audience(team_ids):
     lazy-eligibility list) to `team_ids`."""
     with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=list(team_ids)):
         yield
+
+
+def _make_preagg_job(
+    team: Team,
+    *,
+    computed_at,
+    status=PreaggregationJob.Status.READY,
+    time_range_end=None,
+) -> PreaggregationJob:
+    end = time_range_end if time_range_end is not None else timezone.now()
+    return PreaggregationJob.objects.create(
+        team=team,
+        time_range_start=end - timedelta(days=1),
+        time_range_end=end,
+        query_hash="a" * 64,
+        status=status,
+        computed_at=computed_at,
+    )
 
 
 @patch(f"{_EAGER_MODULE}.is_cloud", return_value=True)
@@ -68,6 +89,68 @@ class TestWarmEagerBaselineOp(APIBaseTest):
     def _enroll_teams(self, *, count: int) -> list[Team]:
         org = Organization.objects.create(name="Audience")
         return [Team.objects.create(organization=org, name=f"team-{i}") for i in range(count)]
+
+    @patch(f"{_EAGER_MODULE}.WARM_TEAM_CONCURRENCY", 1)
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_warms_least_recently_computed_teams_first(self, get_runner, _tag, _is_cloud):
+        # Concurrency pinned to 1 so the pool drains `eligible` in order, making
+        # the staleness ordering observable through the runner call sequence.
+        never, old, recent = self._enroll_teams(count=3)
+        now = timezone.now()
+        _make_preagg_job(recent, computed_at=now)
+        _make_preagg_job(old, computed_at=now - timedelta(days=2))
+        # `never` has no PreaggregationJob row — it should warm first.
+        get_runner.return_value = Mock(run=Mock(return_value=Mock(usedLazyPrecompute=True)))
+
+        # Enrol in reverse-staleness order to prove the sort (not the input) drives it.
+        with _eager_audience([recent.pk, old.pk, never.pk]):
+            warm_eager_baseline_op(dagster.build_op_context())
+
+        seen: list[int] = []
+        for call in get_runner.call_args_list:
+            team = call.kwargs.get("team") or call.args[1]
+            if not seen or seen[-1] != team.pk:
+                seen.append(team.pk)
+        assert seen == [never.pk, old.pk, recent.pk]
+
+    @patch(f"{_EAGER_MODULE}.WARM_TEAM_CONCURRENCY", 1)
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_staleness_ordering_ignores_out_of_window_and_non_ready_jobs(self, get_runner, _tag, _is_cloud):
+        # `PreaggregationJob` is shared across products and has no product column, so the
+        # ordering scopes its freshness signal to READY jobs covering the baseline window.
+        # A recent-but-out-of-window job, or a recent non-READY job, must NOT make a team
+        # look freshly warmed — both should still sort ahead of a genuinely warm team.
+        genuine, noise_window, noise_status = self._enroll_teams(count=3)
+        now = timezone.now()
+        _make_preagg_job(genuine, computed_at=now)
+        _make_preagg_job(noise_window, computed_at=now, time_range_end=now - timedelta(days=BASELINE_WINDOW_DAYS + 5))
+        _make_preagg_job(noise_status, computed_at=now, status=PreaggregationJob.Status.STALE)
+        get_runner.return_value = Mock(run=Mock(return_value=Mock(usedLazyPrecompute=True)))
+
+        with _eager_audience([genuine.pk, noise_window.pk, noise_status.pk]):
+            warm_eager_baseline_op(dagster.build_op_context())
+
+        seen: list[int] = []
+        for call in get_runner.call_args_list:
+            team = call.kwargs.get("team") or call.args[1]
+            if not seen or seen[-1] != team.pk:
+                seen.append(team.pk)
+        # Both noise teams are treated as never-warmed (front); the genuinely warm team is last.
+        assert seen[-1] == genuine.pk
+        assert set(seen[:2]) == {noise_window.pk, noise_status.pk}
+
+    @patch(f"{_EAGER_MODULE}.tag_queries")
+    @patch(f"{_EAGER_MODULE}.get_query_runner")
+    def test_team_logs_carry_processed_total_progress(self, get_runner, _tag, _is_cloud):
+        get_runner.return_value = Mock(run=Mock(return_value=Mock(usedLazyPrecompute=True)))
+        teams = self._enroll_teams(count=3)
+        with _eager_audience([t.pk for t in teams]), capture_logs() as cap_logs:
+            warm_eager_baseline_op(dagster.build_op_context())
+        team_logs = [log for log in cap_logs if log.get("event") == "eager_baseline_warming_team"]
+        assert {log["processed"] for log in team_logs} == {1, 2, 3}
+        assert all(log["total"] == 3 for log in team_logs)
 
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.tag_queries")
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")

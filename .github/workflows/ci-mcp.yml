@@ -86,10 +86,17 @@ jobs:
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
                         # Composite actions used by the workflow
                         - '.github/actions/commit-snapshots/**'
-                        # hogli db commands used to restore test database
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli db setup (db:restore-test-db). Scoped to the
+                        # modules that command actually imports — framework,
+                        # manifest, boot modules, db_schema — so unrelated hogli
+                        # commands (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - 'hogli.yaml'
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
                         # CI config
                         - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'

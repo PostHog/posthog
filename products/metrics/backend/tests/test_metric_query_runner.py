@@ -1,4 +1,3 @@
-import json
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -8,48 +7,15 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 
-from products.metrics.backend.metric_query_runner import MetricQueryRunner, _pick_interval
-
-
-def _insert_metric_row(
-    *,
-    team_id: int,
-    metric_name: str,
-    value: float,
-    timestamp: dt.datetime,
-    metric_type: str = "gauge",
-) -> None:
-    """Insert a single row into the local `metrics1` table.
-
-    Uses the same shape `rust/capture-logs/src/metric_record.rs` emits, with
-    fields the test doesn't care about set to empty/default.
-    """
-    row = {
-        "uuid": "019e6bc4-4897-77d0-ab21-56ba3e2fe535",
-        "team_id": team_id,
-        "trace_id": "",
-        "span_id": "",
-        "trace_flags": 0,
-        "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "observed_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "service_name": "test-service",
-        "metric_name": metric_name,
-        "metric_type": metric_type,
-        "value": value,
-        "count": 1,
-        "histogram_bounds": [],
-        "histogram_counts": [],
-        "unit": "",
-        "aggregation_temporality": "cumulative",
-        "is_monotonic": False,
-        "resource_attributes": {},
-        "instrumentation_scope": "",
-        "attributes_map_str": {},
-        "attributes_map_float": {},
-    }
-    sync_execute(f"INSERT INTO metrics1 FORMAT JSONEachRow {json.dumps(row)}")
+from products.metrics.backend.metric_query_runner import MetricQueryRunner, _pick_interval, attribute_field
+from products.metrics.backend.tests._seeder import seed_metric
 
 
 class TestPickInterval:
@@ -108,18 +74,20 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_aggregates_sum_per_bucket(self):
         anchor = timezone.now().replace(microsecond=0)
-        _insert_metric_row(
-            team_id=self.team.id, metric_name="m1", value=2.0, timestamp=anchor - dt.timedelta(minutes=5)
-        )
-        _insert_metric_row(
-            team_id=self.team.id, metric_name="m1", value=3.0, timestamp=anchor - dt.timedelta(minutes=5)
-        )
-        _insert_metric_row(
-            team_id=self.team.id, metric_name="m1", value=4.0, timestamp=anchor - dt.timedelta(minutes=20)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[
+                (anchor - dt.timedelta(minutes=5), 2.0),
+                (anchor - dt.timedelta(minutes=5), 3.0),
+                (anchor - dt.timedelta(minutes=20), 4.0),
+            ],
         )
         # Different metric — should be filtered out.
-        _insert_metric_row(
-            team_id=self.team.id, metric_name="m2", value=99.0, timestamp=anchor - dt.timedelta(minutes=5)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m2",
+            points=[(anchor - dt.timedelta(minutes=5), 99.0)],
         )
 
         runner = MetricQueryRunner(
@@ -136,7 +104,11 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
-        _insert_metric_row(team_id=99999, metric_name="m1", value=5.0, timestamp=anchor - dt.timedelta(minutes=5))
+        seed_metric(
+            team_id=99999,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=5), 5.0)],
+        )
 
         runner = MetricQueryRunner(
             team=self.team,
@@ -182,11 +154,13 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_query_returns_aggregated_points(self):
         anchor = timezone.now().replace(microsecond=0)
-        _insert_metric_row(
-            team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor - dt.timedelta(minutes=10)
-        )
-        _insert_metric_row(
-            team_id=self.team.id, metric_name="m1", value=2.0, timestamp=anchor - dt.timedelta(minutes=10)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[
+                (anchor - dt.timedelta(minutes=10), 1.0),
+                (anchor - dt.timedelta(minutes=10), 2.0),
+            ],
         )
 
         response = self.client.post(
@@ -206,3 +180,96 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         self.assertIn("results", body)
         self.assertEqual(sum(point["value"] for point in body["results"]), 3.0)
+
+
+class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
+    """End-to-end tests for the `attribute_field` helper.
+
+    The helper builds an AST node; correctness depends on what ClickHouse
+    actually returns, so we execute a real query against `posthog.metrics`
+    for each scope and assert the resolved value.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metrics1")
+
+    def _select_attribute(self, expr: ast.Expr, metric_name: str) -> str | None:
+        query = parse_select(
+            """
+                SELECT {expr} AS value FROM posthog.metrics
+                WHERE metric_name = {metric_name} LIMIT 1
+            """,
+            placeholders={"expr": expr, "metric_name": ast.Constant(value=metric_name)},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        response = execute_hogql_query(
+            query_type="AttributeFieldTest",
+            query=query,
+            team=self.team,
+            workload=Workload.LOGS,
+        )
+        if not response.results:
+            return None
+        return response.results[0][0]
+
+    def test_rejects_unknown_scope(self):
+        with self.assertRaises(ValueError):
+            attribute_field("container", scope="bogus")  # type: ignore[arg-type]
+
+    def test_resource_scope_reads_resource_attributes(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_resource",
+            points=[(anchor, 1.0)],
+            resource_labels={"service_name": "logs-ingestion"},
+        )
+        value = self._select_attribute(attribute_field("service_name", scope="resource"), "m_resource")
+        self.assertEqual(value, "logs-ingestion")
+
+    def test_attribute_scope_reads_attributes_via_alias(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_attribute",
+            points=[(anchor, 1.0)],
+            labels={"http_method": "POST"},
+        )
+        value = self._select_attribute(attribute_field("http_method", scope="attribute"), "m_attribute")
+        self.assertEqual(value, "POST")
+
+    def test_auto_scope_prefers_resource_when_present(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_auto_resource",
+            points=[(anchor, 1.0)],
+            resource_labels={"container": "capture-logs"},
+            labels={"container": "should-not-win"},
+        )
+        value = self._select_attribute(attribute_field("container"), "m_auto_resource")
+        self.assertEqual(value, "capture-logs")
+
+    def test_auto_scope_falls_back_to_attribute_when_resource_empty(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_auto_attribute",
+            points=[(anchor, 1.0)],
+            labels={"endpoint": "/api/projects/2/metrics/query"},
+        )
+        value = self._select_attribute(attribute_field("endpoint"), "m_auto_attribute")
+        self.assertEqual(value, "/api/projects/2/metrics/query")
+
+    def test_auto_scope_returns_empty_when_neither_present(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_auto_missing",
+            points=[(anchor, 1.0)],
+        )
+        value = self._select_attribute(attribute_field("nonexistent"), "m_auto_missing")
+        self.assertEqual(value, "")

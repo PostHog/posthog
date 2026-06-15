@@ -73,7 +73,7 @@ export const _SpanPropertyFilterOperatorEnumApi = {
 } as const
 
 export interface _SpanPropertyFilterApi {
-    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+    /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
     key: string
     /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
      *
@@ -119,7 +119,7 @@ export interface _TracingCountBodyApi {
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
     /** Property filters for the count. */
     filterGroup?: _SpanPropertyFilterApi[]
@@ -163,7 +163,7 @@ export interface _TracingQueryBodyApi {
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
-    /** Filter by HTTP status codes. */
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
     statusCodes?: number[]
     /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
      *
@@ -192,7 +192,7 @@ export interface _TracingQueryBodyApi {
     rootSpans?: boolean
     /** Number of child spans to prefetch per trace (1-100). */
     prefetchSpans?: number
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 
@@ -209,7 +209,7 @@ export interface _HasSpansResponseApi {
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
-    /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+    /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean
 }
 

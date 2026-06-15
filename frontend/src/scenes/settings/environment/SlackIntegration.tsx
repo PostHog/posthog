@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -9,10 +9,11 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { SLACK_INTEGRATION_SCOPES } from '~/types'
+import { Region, SLACK_INTEGRATION_SCOPES, SLACK_INTEGRATION_SCOPES_IN_REVIEW } from '~/types'
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
 const getSlackAppManifest = (): any => ({
@@ -52,12 +53,25 @@ const getSlackAppManifest = (): any => ({
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
+    const { preflight, isDev } = useValues(preflightLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+
+    // On the DEV instance and local dev (DEBUG=True) the PostHog Slack app manifest lists the
+    // in-review scopes, so we both request them at install and compare against them in the
+    // scope-mismatch banner. On US/EU/self-hosted they'd be rejected by Slack as invalid_scope,
+    // so we stay on the always-on list.
+    const requiredScopes = useMemo(() => {
+        const scopes =
+            isDev || preflight?.region === Region.DEV
+                ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+                : SLACK_INTEGRATION_SCOPES
+        return scopes.join(' ')
+    }, [isDev, preflight?.region])
 
     if (restrictedReason) {
         return <p>{restrictedReason}</p>
@@ -67,11 +81,7 @@ export function SlackIntegration(): JSX.Element {
         <div>
             <div className="deprecated-space-y-2">
                 {slackIntegrations?.map((integration) => (
-                    <IntegrationView
-                        key={integration.id}
-                        integration={integration}
-                        schema={{ requiredScopes: SLACK_INTEGRATION_SCOPES.join(' ') }}
-                    />
+                    <IntegrationView key={integration.id} integration={integration} schema={{ requiredScopes }} />
                 ))}
 
                 <div>
