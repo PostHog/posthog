@@ -10,8 +10,8 @@ export interface BuildSlopeSeriesOpts<R extends SlopeResultLike> {
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     /** Negative when the last bucket is the current, still-accumulating period. The slope collapses
-     *  to two points and the first bucket is never current, so this just dashes the connector to the
-     *  end point — mirroring the line chart — regardless of how many trailing buckets the source had. */
+     *  to two points and the first bucket is never current, so this flags the end as incomplete —
+     *  the chart dashes the second half of the connector — regardless of the source bucket count. */
     incompletenessOffsetFromEnd?: number
 }
 
@@ -37,7 +37,7 @@ export function buildSlopeSeries<R extends SlopeResultLike>(
             label: r.label ?? '',
             color: opts.getColor(r, index),
             data: [data[0], data[data.length - 1]],
-            stroke: lastBucketInProgress ? { partial: { fromIndex: 1 } } : undefined,
+            meta: lastBucketInProgress ? { incompleteEnd: true } : undefined,
         })
     })
     return series

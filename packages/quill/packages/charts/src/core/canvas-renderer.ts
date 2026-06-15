@@ -288,8 +288,12 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 
     ctx.fillStyle = series.color
+    const endpointsOnly = series.points?.endpointsOnly ?? false
 
     for (let i = 0; i < data.length; i++) {
+        if (endpointsOnly && i !== 0 && i !== data.length - 1) {
+            continue
+        }
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {

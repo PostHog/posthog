@@ -30,6 +30,20 @@ export const Default: Story = {
     },
 }
 
+/** When the end point is the current, still-accumulating period (`meta.incompleteEnd`), only the
+ *  second half of each connector dashes — the start-to-mid half stays solid. */
+export const IncompleteEnd: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series<SlopeSeriesMeta>[] = SERIES.map((s) => ({ ...s, meta: { incompleteEnd: true } }))
+        return (
+            <Stage width={420}>
+                <SlopeChart series={series} labels={LABELS} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const WithoutSeriesLabels: Story = {
     render: () => {
         const theme = useReactiveTheme()

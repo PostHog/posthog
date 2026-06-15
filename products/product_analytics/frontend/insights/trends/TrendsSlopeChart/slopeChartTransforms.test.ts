@@ -41,16 +41,16 @@ describe('slopeChartTransforms', () => {
         })
 
         it.each([
-            ['last bucket incomplete', -1, { partial: { fromIndex: 1 } }],
+            ['last bucket incomplete', -1, { incompleteEnd: true }],
             // The offset is measured against the source series length, so a many-bucket source still
-            // dashes the single connector — never a negative fromIndex.
-            ['several trailing buckets incomplete', -5, { partial: { fromIndex: 1 } }],
+            // just flags the end — the chart owns how that renders.
+            ['several trailing buckets incomplete', -5, { incompleteEnd: true }],
             ['nothing incomplete', 0, undefined],
             ['offset omitted', undefined, undefined],
-        ])('dashes the connector when %s', (_name, incompletenessOffsetFromEnd, expectedStroke) => {
+        ])('flags the end as incomplete when %s', (_name, incompletenessOffsetFromEnd, expectedMeta) => {
             const results: FakeResult[] = [{ id: 0, label: 'A', data: [10, 20] }]
             const series = buildSlopeSeries(results, { getColor: COLOR, incompletenessOffsetFromEnd })
-            expect(series[0].stroke).toEqual(expectedStroke)
+            expect(series[0].meta).toEqual(expectedMeta)
         })
     })
 
