@@ -200,7 +200,10 @@ class HogFlowActionSerializer(serializers.Serializer):
             "delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; "
             "seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. "
             "Max 30d. "
-            "conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. "
+            "conditional_branch: {conditions: [{filters: {properties: [<cond>], events?: [...]}}, ...]}. Each "
+            "condition MUST wrap its conditions in a 'filters' key (same shape as trigger.config.filters); a bare "
+            "{properties: [...]} saves but compiles to always-false and errors in the UI. Index N matches the "
+            "'branch' edge with index:N. "
             "wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). "
             "exit: {reason}."
         ),
@@ -846,7 +849,14 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         help_text="True (default) mocks HTTP/email/SMS. False fires real side effects.",
     )
     current_action_id = serializers.CharField(
-        write_only=True, required=False, help_text="Start from this action ID instead of the trigger."
+        write_only=True,
+        required=False,
+        help_text=(
+            "Start execution from this action ID instead of the trigger. Test runs execute ONE node per call and "
+            "return nextActionId — they do not traverse the whole graph. To test a specific branch, set this to that "
+            "node's ID; to verify a full path end-to-end, chain calls (pass each returned nextActionId as the next "
+            "current_action_id). delay nodes aren't simulated — jump to the action after them."
+        ),
     )
 
 

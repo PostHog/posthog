@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "current_action_id": {
-            "description": "Start from this action ID instead of the trigger.",
+            "description": "Start execution from this action ID instead of the trigger. Test runs execute ONE node per call and return nextActionId — they do not traverse the whole graph. To test a specific branch, set this to that node's ID; to verify a full path end-to-end, chain calls (pass each returned nextActionId as the next current_action_id). delay nodes aren't simulated — jump to the action after them.",
             "type": "string"
         },
         "globals": {
