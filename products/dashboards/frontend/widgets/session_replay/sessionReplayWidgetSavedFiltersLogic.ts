@@ -31,6 +31,13 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
                     label: filter.name || filter.derived_name || 'Unnamed filter',
                 })),
         ],
+        // Single source for resolving a saved-filter short_id to its display label, shared by the
+        // tile filter bar and the card header eyebrow.
+        savedFilterLabelById: [
+            (s) => [s.savedFilterOptions],
+            (savedFilterOptions): Record<string, string> =>
+                Object.fromEntries(savedFilterOptions.map((option) => [option.value, option.label])),
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadSavedFilters()

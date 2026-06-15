@@ -111,8 +111,15 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
     }
 
 
-def convert_playlist_to_recordings_query(playlist: SessionRecordingPlaylist) -> RecordingsQuery:
-    """Convert playlist with filters to a RecordingsQuery object."""
+def convert_playlist_to_recordings_query(
+    playlist: SessionRecordingPlaylist, *, persist_legacy_conversion: bool = True
+) -> RecordingsQuery:
+    """Convert playlist with filters to a RecordingsQuery object.
+
+    When ``persist_legacy_conversion`` is False the legacy->universal conversion happens
+    in-memory only — callers on a read path (e.g. rendering a dashboard widget) should not
+    write to the shared playlist row as a side effect.
+    """
     filters = playlist.filters
 
     # we used to send `version` and it's not part of query, so we pop to make sure
@@ -128,9 +135,10 @@ def convert_playlist_to_recordings_query(playlist: SessionRecordingPlaylist) -> 
             # then we have a legacy filter
             # because we know we don't have a query
             filters = convert_legacy_filters_to_universal_filters(filters)
-            playlist.filters = filters
-            playlist.save(update_fields=["filters"])
-            REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED.inc()
+            if persist_legacy_conversion:
+                playlist.filters = filters
+                playlist.save(update_fields=["filters"])
+                REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED.inc()
 
     return convert_filters_to_recordings_query(filters)
 

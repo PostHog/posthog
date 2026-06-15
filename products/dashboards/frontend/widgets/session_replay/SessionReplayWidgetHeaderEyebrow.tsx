@@ -15,10 +15,10 @@ export function SessionReplayWidgetHeaderEyebrow({
 }: DashboardWidgetHeaderEyebrowProps): JSX.Element {
     const rawSavedFilterId = config.savedFilterId
     const savedFilterId = typeof rawSavedFilterId === 'string' && rawSavedFilterId.length > 0 ? rawSavedFilterId : null
-    const { savedFilterOptions } = useValues(sessionReplayWidgetSavedFiltersLogic)
+    const { savedFilterLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
 
     if (savedFilterId) {
-        const savedFilterName = savedFilterOptions.find((option) => option.value === savedFilterId)?.label
+        const savedFilterName = savedFilterLabelById[savedFilterId]
         return (
             <CardTopHeadingRow
                 typeLabel={widgetTypeLabel}

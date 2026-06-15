@@ -456,6 +456,27 @@ class TestDashboardRunWidgets(APIBaseTest):
         assert query.properties[0].value == ["Chrome"]
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_does_not_persist_legacy_filter_conversion(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        # A legacy-format playlist (no filter_group) — rendering must not write the converted filters back.
+        legacy_filters = {"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
+        saved_filter = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Legacy filter", type="filters", filters=legacy_filters
+        )
+
+        run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "savedFilterId": saved_filter.short_id},
+            user=self.user,
+        )
+
+        saved_filter.refresh_from_db()
+        assert saved_filter.filters == legacy_filters
+        assert "filter_group" not in saved_filter.filters
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
         person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
         recording = SessionRecording(
@@ -478,12 +499,12 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertIsNone(body["results"][0]["error"])
         self.assertEqual(body["results"][0]["result"]["results"][0]["person"]["name"], "widget-test@example.com")
 
-    @patch("products.dashboards.backend.widgets.session_replay_list._run_session_replay_list_query")
+    @patch("products.dashboards.backend.widgets.session_replay_list._run_recordings_query")
     def test_session_replay_widget_returns_total_count_when_page_has_more(self, mock_run_query: MagicMock) -> None:
         recording = {"id": "recording-1"}
 
-        def run_side_effect(_team: object, config: dict[str, object], _user: object) -> dict[str, object]:
-            limit = config["limit"]
+        def run_side_effect(_team: object, query: object, _user: object) -> dict[str, object]:
+            limit = query.limit  # type: ignore[attr-defined]
             if limit == 1:
                 return {"results": [recording, {**recording, "id": "recording-2"}], "has_next": True}
             return {
@@ -507,8 +528,8 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertFalse(result["totalCountCapped"])
         self.assertEqual(len(result["results"]), 1)
         self.assertEqual(mock_run_query.call_count, 2)
-        count_call_config = mock_run_query.call_args_list[1].args[1]
-        self.assertEqual(count_call_config["limit"], MAX_WIDGET_RESULT_LIMIT)
+        count_call_query = mock_run_query.call_args_list[1].args[1]
+        self.assertEqual(count_call_query.limit, MAX_WIDGET_RESULT_LIMIT)
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_requests_listing_volume_resolution(self, mock_runner_cls: MagicMock) -> None:

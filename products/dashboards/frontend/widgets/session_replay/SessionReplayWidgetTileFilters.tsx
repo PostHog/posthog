@@ -44,7 +44,9 @@ export function SessionReplayWidgetTileFilters({
     const { quickFilters: projectFilterDefinitions } = useValues(
         quickFiltersLogic({ context: filterDefinitionsContext })
     )
-    const { savedFilterOptions, savedFiltersLoading } = useValues(sessionReplayWidgetSavedFiltersLogic)
+    const { savedFilterOptions, savedFiltersLoading, savedFilterLabelById } = useValues(
+        sessionReplayWidgetSavedFiltersLogic
+    )
     const filterDefinitions = useMemo(
         () => projectFilterDefinitions.filter(isAllowed),
         [projectFilterDefinitions, isAllowed]
@@ -63,10 +65,7 @@ export function SessionReplayWidgetTileFilters({
         ],
         [savedFilterOptions]
     )
-    const savedFilterLabel = useMemo(
-        () => savedFilterOptions.find((option) => option.value === savedFilterId)?.label ?? savedFilterId,
-        [savedFilterOptions, savedFilterId]
-    )
+    const savedFilterLabel = savedFilterId ? (savedFilterLabelById[savedFilterId] ?? savedFilterId) : savedFilterId
 
     const configRef = useRef(config)
     configRef.current = config
