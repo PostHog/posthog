@@ -11,8 +11,6 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from posthog.models.team import Team
-
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CIStatusRollup,
@@ -21,8 +19,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestListItem,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
-from products.engineering_analytics.backend.logic.sources import GitHubTables
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _LIMIT = 1000
 
@@ -46,15 +43,11 @@ _SELECT = f"""
 """
 
 
-def query_pull_request_list(*, team: Team, tables: GitHubTables, date_from: datetime) -> PullRequestList:
-    sql = f"WITH {_curated.ci_rollup_cte(tables.workflow_runs)} {_SELECT}".replace(
-        "__PR_SOURCE__", _curated.pr_source(tables.pull_requests)
-    )
-    response = _curated.run_query(
+def query_pull_request_list(*, curated: CuratedGitHubSource, date_from: datetime) -> PullRequestList:
+    sql = f"WITH {curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", curated.pr_source())
+    response = curated.run(
         sql,
-        team=team,
         query_type="engineering_analytics.pull_request_list",
-        tables=tables,
         placeholders={"date_from": ast.Constant(value=date_from)},
     )
     rows = response.results or []

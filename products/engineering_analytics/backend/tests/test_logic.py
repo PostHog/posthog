@@ -14,8 +14,6 @@ from django.utils import timezone
 import pandas as pd
 from parameterized import parameterized
 
-from posthog.hogql.errors import QueryError
-
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade import api
@@ -31,7 +29,6 @@ from products.engineering_analytics.backend.logic import (
     build_pull_request_list,
     build_workflow_health,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -51,8 +48,10 @@ from products.engineering_analytics.backend.tests.test_views import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-# All query modules run through this helper; patch it to test row mapping without a warehouse.
-_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.run_query"
+# Every query module runs HogQL through this method; patch it to test row mapping without a
+# warehouse. Patching the unbound method means the mock is called without `self`, so a plain
+# return_value / side_effect works as before.
+_RUN_QUERY = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.run"
 _PR_LIST = "products.engineering_analytics.backend.logic.queries.pull_request_list"
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.logic"
@@ -202,7 +201,7 @@ class TestPRLifecycleMapping(BaseTest):
 
 
 class TestEndpointMapping(BaseTest):
-    """Row mapping for the aggregate endpoints (query helper mocked, no warehouse).
+    """Row mapping for the aggregate endpoints (the query method mocked, no warehouse).
     A GitHub source is connected (ORM only) so the resolver succeeds before the mocked
     query runs."""
 
@@ -301,33 +300,6 @@ class TestEndpointMapping(BaseTest):
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
-    @parameterized.expand(
-        [
-            ("myprefixgithub_pull_requests", GitHubSourceNotConnectedError),
-            ("myprefixgithub_workflow_runs", GitHubSourceNotConnectedError),
-            # An unrelated missing table is a real bug, not "no GitHub source" — it must
-            # surface as the original QueryError rather than masquerade as a 4xx.
-            ("some_typo", QueryError),
-        ]
-    )
-    def test_unknown_table_only_translates_for_resolved_tables(self, table: str, expected: type[Exception]) -> None:
-        # The backstop maps "Unknown table" only for THIS request's resolved names — a
-        # source vanishing between resolve and execute — not for any other missing table.
-        tables = GitHubTables(
-            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
-        )
-        with mock.patch(
-            "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
-            side_effect=QueryError(f"Unknown table `{table}`."),
-        ):
-            with self.assertRaises(expected):
-                _curated.run_query("SELECT 1", team=self.team, query_type="engineering_analytics.test", tables=tables)
-
-    def test_build_propagates_source_error(self) -> None:
-        with mock.patch(_RUN_QUERY, side_effect=GitHubSourceNotConnectedError()):
-            with self.assertRaises(GitHubSourceNotConnectedError):
-                build_pull_request_list(team=self.team)
-
 
 class TestResolveGitHubTables(BaseTest):
     """The per-team table resolver over the warehouse models (ORM only, no object storage).
@@ -370,6 +342,11 @@ class TestResolveGitHubTables(BaseTest):
     def test_raises_without_a_github_source(self) -> None:
         with self.assertRaises(GitHubSourceNotConnectedError):
             resolve_github_tables(team=self.team)
+
+    def test_build_raises_without_a_github_source(self) -> None:
+        # The orchestrator surfaces the resolver's error so the viewset can map it to a 400.
+        with self.assertRaises(GitHubSourceNotConnectedError):
+            build_ci_cards(team=self.team)
 
     @parameterized.expand(
         [
