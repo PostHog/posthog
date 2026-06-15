@@ -16,6 +16,7 @@ import flutterImage from 'scenes/onboarding/sdks/logos/flutter.svg'
 import javascriptImage from 'scenes/onboarding/sdks/logos/javascript_web.svg'
 import nextjsImage from 'scenes/onboarding/sdks/logos/nextjs.svg'
 import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
+import { IOSLogo } from 'scenes/onboarding/sdks/logos/IOSLogo'
 import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
 import reactImage from 'scenes/onboarding/sdks/logos/react.svg'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,7 +25,11 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
-export const ERROR_TRACKING_FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
+export const ERROR_TRACKING_FRAMEWORK_LINKS: {
+    name: string
+    image?: string | JSX.Element
+    docsLink: string
+}[] = [
     {
         name: 'JavaScript',
         image: javascriptImage,
@@ -34,7 +39,7 @@ export const ERROR_TRACKING_FRAMEWORK_LINKS: { name: string; image?: string; doc
     { name: 'React', image: reactImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/react' },
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/nodejs' },
     { name: 'Python', image: pythonImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/python' },
-    { name: 'iOS', docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
+    { name: 'iOS', image: <IOSLogo />, docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
     { name: 'Android', image: androidImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/android' },
     {
         name: 'React Native',
@@ -128,8 +133,10 @@ export function ErrorTrackingIngestionPrompt({
                                 targetBlank
                                 onClick={onDocsLinkClick}
                                 icon={
-                                    image ? (
+                                    typeof image === 'string' ? (
                                         <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
+                                    ) : image ? (
+                                        <span className="flex w-5 h-5 [&_svg]:w-full [&_svg]:h-full">{image}</span>
                                     ) : undefined
                                 }
                             >
