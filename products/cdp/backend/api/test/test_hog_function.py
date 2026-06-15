@@ -236,26 +236,28 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             free=True,
         )
 
-    def test_create_from_hidden_template_is_blocked_for_non_staff(self):
+    @parameterized.expand(
+        [
+            ("non_staff", False, status.HTTP_400_BAD_REQUEST),
+            ("staff", True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_from_hidden_template_respects_staff(self, _name, is_staff, expected_status):
         self._create_hidden_template()
+        if is_staff:
+            self.user.is_staff = True
+            self.user.save()
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={"type": "destination", "name": "Sneaky", "template_id": "template-hidden-dest", "inputs": {}},
+            data={"type": "destination", "name": "X", "template_id": "template-hidden-dest", "inputs": {}},
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "template_id" in response.json()
-        assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
-
-    def test_create_from_hidden_template_is_allowed_for_staff(self):
-        self._create_hidden_template()
-        self.user.is_staff = True
-        self.user.save()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={"type": "destination", "name": "Internal", "template_id": "template-hidden-dest", "inputs": {}},
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == "return event"
+        assert response.status_code == expected_status, response.json()
+        created = HogFunction.objects.filter(template_id="template-hidden-dest", deleted=False).exists()
+        assert created is is_staff
+        if is_staff:
+            assert response.json()["hog"] == "return event"
+        else:
+            assert "template_id" in response.json()
 
     def test_create_hog_function(self, *args):
         response = self.client.post(

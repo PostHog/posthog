@@ -404,19 +404,42 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             free=True,
         )
 
-    def test_hidden_templates_excluded_for_personal_api_key_caller(self):
-        # Programmatic callers (MCP server, public API) authenticate with a personal API key. They must
-        # not discover hidden templates on the project mount, otherwise an agent can list one and then
-        # create an unsupported destination (e.g. the native email sender) from it.
+    @parameterized.expand(
+        [
+            # The session-authenticated workflow editor (and staff) must still see hidden templates;
+            # programmatic personal API key / OAuth callers (MCP, public API) must not.
+            ("session_non_staff", "session", False, True),
+            ("personal_api_key_non_staff", "pak", False, False),
+            ("personal_api_key_staff", "pak", True, True),
+        ]
+    )
+    def test_hidden_templates_visibility_on_list(self, _name, auth, is_staff, should_see_hidden):
+        if is_staff:
+            self.user.is_staff = True
+            self.user.save()
         self._create_hidden_template()
-        response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"])
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "template-hidden" not in [template["id"] for template in response.json()["results"]]
 
-    def test_hidden_templates_visible_to_staff_personal_api_key_caller(self):
-        self.user.is_staff = True
-        self.user.save()
-        self._create_hidden_template()
-        response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"])
+        if auth == "pak":
+            response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"])
+        else:
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "template-hidden" in [template["id"] for template in response.json()["results"]]
+        template_ids = [template["id"] for template in response.json()["results"]]
+        assert ("template-hidden" in template_ids) is should_see_hidden
+
+    @parameterized.expand(
+        [
+            # Gating list alone is not enough — a PAK caller who knows the id could otherwise fetch a
+            # hidden template directly via retrieve. Block that for non-staff while staff can still look it up.
+            ("non_staff", False, status.HTTP_404_NOT_FOUND),
+            ("staff", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_hidden_template_retrieve_by_id_respects_staff_for_pak_caller(self, _name, is_staff, expected_status):
+        if is_staff:
+            self.user.is_staff = True
+            self.user.save()
+        self._create_hidden_template()
+        response = self._get_with_pak("/hog_function_templates/template-hidden", ["hog_function:read"])
+        assert response.status_code == expected_status, response.json()

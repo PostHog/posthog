@@ -133,6 +133,17 @@ class PublicHogFunctionTemplateViewSet(
         return [permissions.IsAuthenticated(), APIScopePermission()]
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        # Hidden templates (e.g. template-posthog-capture, template-posthog-update-person-properties,
+        # email, twilio, webhook) are internal building blocks. The workflow editor needs them on the
+        # authenticated project mount to render action configuration; the frontend hides them from the
+        # destinations chooser separately. They must not leak to programmatic callers, though: the public
+        # catalog is anonymous, and the MCP server / public API authenticate with a personal API key or
+        # OAuth token — exposing a hidden template (whether via list or retrieve-by-id) lets an agent
+        # discover and then create an unsupported destination (e.g. the native email sender) from one.
+        # Gate both actions; only the first-party session-authenticated app and staff may see them.
+        if not self._may_see_hidden_templates():
+            queryset = queryset.exclude(status="hidden")
+
         if self.action == "list":
             types = ["destination"]
             if self.request.GET.get("type"):
@@ -145,25 +156,15 @@ class PublicHogFunctionTemplateViewSet(
             if self.request.GET.get("template_id"):
                 queryset = queryset.filter(template_id=self.request.GET["template_id"])
 
+            # Deprecated templates are dropped from list results only; retrieve-by-id still resolves them.
             queryset = queryset.exclude(status="deprecated")
-
-            # Hidden templates (e.g. template-posthog-capture, template-posthog-update-person-properties,
-            # email, twilio, webhook) are internal building blocks. The workflow editor needs them on
-            # the authenticated project mount to render action configuration; the frontend hides them
-            # from the destinations chooser separately. They must not leak to programmatic callers,
-            # though: the public catalog is anonymous, and the MCP server / public API authenticate with
-            # a personal API key or OAuth token — exposing hidden templates there lets an agent discover
-            # and then create an unsupported destination (e.g. the native email sender) from one. So strip
-            # hidden unless the caller is the first-party session-authenticated app or a staff user.
-            if (
-                self.request.path.startswith("/api/public_hog_function_templates")
-                or not self._may_see_hidden_templates()
-            ):
-                queryset = queryset.exclude(status="hidden")
 
         return queryset
 
     def _may_see_hidden_templates(self) -> bool:
+        # The anonymous public catalog never exposes hidden templates, regardless of who is calling.
+        if self.request.path.startswith("/api/public_hog_function_templates"):
+            return False
         user = self.request.user
         if isinstance(user, User) and user.is_staff:
             return True
