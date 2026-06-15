@@ -330,12 +330,8 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias.startswith("prop_")
         ]
         assert len(property_aliases) == 1
-        # Each property is read from the person's latest version via argMax(<field>, version),
-        # so the key lives inside the nested ast.Field chain — never as a raw SQL fragment.
-        prop_expr = property_aliases[0].expr
-        assert isinstance(prop_expr, ast.Call)
-        assert prop_expr.name == "argMax"
-        prop_field = prop_expr.args[0]
+        # The key lives inside an ast.Field chain — never concatenated into the SQL as a fragment.
+        prop_field = property_aliases[0].expr
         assert isinstance(prop_field, ast.Field)
         assert prop_field.chain == ["properties", malicious_property]
 
@@ -424,10 +420,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         assert property_aliases == []
 
         # The full ``properties`` JSON is selected instead, and the '%' key never appears as a field.
-        properties_aliases = [
-            expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias == "properties"
+        properties_fields = [
+            expr for expr in node.select if isinstance(expr, ast.Field) and expr.chain == ["properties"]
         ]
-        assert len(properties_aliases) == 1
+        assert len(properties_fields) == 1
 
 
 class TestCombineFilterBytecodes:
