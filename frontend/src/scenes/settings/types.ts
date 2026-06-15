@@ -107,6 +107,7 @@ export type SettingId =
     | 'changelog'
     | 'channel-type'
     | 'connected-apps'
+    | 'conversations-ai'
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-notifications'
