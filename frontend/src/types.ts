@@ -712,6 +712,7 @@ export interface ConversationsSettings {
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
