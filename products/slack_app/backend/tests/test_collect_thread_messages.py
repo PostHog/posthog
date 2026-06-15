@@ -8,7 +8,12 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.api import _collect_thread_messages, _extract_message_text, _flatten_block_text
+from products.slack_app.backend.api import (
+    _collect_thread_messages,
+    _extract_message_text,
+    _flatten_block_text,
+    resolve_user_mentions_text,
+)
 
 
 class TestFlattenBlockText:
@@ -160,6 +165,58 @@ class TestExtractMessageText:
     )
     def test_extract_cases(self, _name: str, msg: dict, expected: str) -> None:
         assert _extract_message_text(msg) == expected
+
+
+@patch("products.slack_app.backend.api._get_slack_user_info")
+class TestResolveUserMentionsText:
+    def setup_method(self) -> None:
+        self.slack = MagicMock(spec=SlackIntegration)
+        self.integration = MagicMock(spec=Integration)
+
+    def _profiles(self, mapping: dict[str, str]):
+        def _lookup(_slack, _integration, uid):
+            return {"user": {"profile": {"display_name": mapping.get(uid, "")}}}
+
+        return _lookup
+
+    def test_strips_bot_mention_keeps_and_resolves_user_mention(self, mock_get_user_info):
+        mock_get_user_info.side_effect = self._profiles({"UCLEO": "cleo"})
+
+        result = resolve_user_mentions_text(
+            self.slack,
+            self.integration,
+            "<@UBOT> can you do what <@UCLEO> asked",
+            strip_bot_user_id="UBOT",
+        )
+
+        assert result == "can you do what @cleo asked"
+
+    def test_keeps_user_mention_when_no_bot_id_given(self, mock_get_user_info):
+        mock_get_user_info.side_effect = self._profiles({"UCLEO": "cleo"})
+
+        result = resolve_user_mentions_text(self.slack, self.integration, "ping <@UCLEO>")
+
+        assert result == "ping @cleo"
+
+    def test_unresolvable_user_becomes_unknown(self, mock_get_user_info):
+        mock_get_user_info.side_effect = RuntimeError("slack down")
+
+        result = resolve_user_mentions_text(self.slack, self.integration, "hey <@UCLEO>")
+
+        assert result == "hey @Unknown"
+
+    def test_no_mentions_passes_through_unchanged(self, mock_get_user_info):
+        result = resolve_user_mentions_text(self.slack, self.integration, "just some text", strip_bot_user_id="UBOT")
+
+        assert result == "just some text"
+        mock_get_user_info.assert_not_called()
+
+    def test_collapses_gap_left_by_removed_bot_mention(self, mock_get_user_info):
+        result = resolve_user_mentions_text(
+            self.slack, self.integration, "do <@UBOT> the thing", strip_bot_user_id="UBOT"
+        )
+
+        assert result == "do the thing"
 
 
 @patch("products.slack_app.backend.api._get_slack_user_info")

@@ -127,7 +127,13 @@ def create_posthog_code_task_for_repo_activity(
     if user_message_ts:
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
+    from products.slack_app.backend.api import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
+
+    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    user_text = resolve_user_mentions_text(
+        slack, integration, event.get("text", ""), strip_bot_user_id=bot_user_id
+    ).strip()
     title = user_text[:255] if user_text else "Task from Slack"
     description = _build_posthog_code_task_description(user_text, thread_messages, user_message_ts)
 
@@ -352,7 +358,11 @@ def forward_posthog_code_followup_activity(
         )
         return True
 
-    user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
+    from products.slack_app.backend.api import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
+
+    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    user_text = resolve_user_mentions_text(slack, integration, event_text, strip_bot_user_id=bot_user_id).strip()
     if not user_text:
         return True
     if followup_user_text_prefix:
@@ -427,10 +437,14 @@ def _resume_task_with_new_run(
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.slack_app.backend.api import resolve_user_mentions_text
+    from products.slack_app.backend.services.slack_user_info import _get_cached_bot_user_id
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
-    user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
+    integration = slack.integration
+    bot_user_id = _get_cached_bot_user_id(slack, integration)
+    user_text = resolve_user_mentions_text(slack, integration, event_text, strip_bot_user_id=bot_user_id).strip()
     if not user_text:
         return True
     if user_text_prefix:

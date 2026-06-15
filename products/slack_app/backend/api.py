@@ -609,6 +609,46 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
+def resolve_user_mentions_text(
+    slack: SlackIntegration,
+    integration: Integration,
+    text: str,
+    *,
+    strip_bot_user_id: str | None = None,
+    user_cache: dict[str, str] | None = None,
+) -> str:
+    """Resolve Slack `<@U…>` mentions to readable `@display_name` text.
+
+    Keeps real user mentions — so the agent sees who was explicitly tagged —
+    while dropping the bot's own self-mention, which is just the trigger and
+    carries no information. Whitespace left where the bot mention was removed
+    is collapsed.
+    """
+    cache = user_cache if user_cache is not None else {}
+
+    def resolve_user(uid: str) -> str:
+        if uid not in cache:
+            try:
+                user_info = _get_slack_user_info(slack, integration, uid)
+                profile = user_info.get("user", {}).get("profile", {})
+                cache[uid] = profile.get("display_name") or profile.get("real_name") or "Unknown"
+            except Exception:
+                cache[uid] = "Unknown"
+        return cache[uid]
+
+    def replace_mention(match: re.Match) -> str:
+        uid = match.group(1)
+        if strip_bot_user_id and uid == strip_bot_user_id:
+            return ""
+        return f"@{resolve_user(uid)}"
+
+    resolved = re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
+    if strip_bot_user_id:
+        # Tidy the gap left where the bot's own mention was removed.
+        resolved = re.sub(r"[ \t]{2,}", " ", resolved).strip()
+    return resolved
+
+
 def _parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
@@ -878,12 +918,6 @@ def _collect_thread_messages(
                 user_cache[uid] = "Unknown"
         return user_cache[uid]
 
-    def replace_user_mentions(text: str) -> str:
-        def replace_mention(match: re.Match) -> str:
-            return f"@{resolve_user(match.group(1))}"
-
-        return re.sub(r"<@([A-Z0-9]+)>", replace_mention, text)
-
     messages = []
     for index, msg in enumerate(raw_messages):
         # Skip our own bot's posts to avoid loops where the agent ingests its own replies.
@@ -902,7 +936,7 @@ def _collect_thread_messages(
         else:
             username = "Unknown"
 
-        text = replace_user_mentions(_extract_message_text(msg))
+        text = resolve_user_mentions_text(slack, integration, _extract_message_text(msg), user_cache=user_cache)
         # `ts` lets downstream callers distinguish the initiator message from surrounding thread
         # context, since `app_mention` events surface only the initiator's ts.
         messages.append({"user": username, "text": text, "ts": msg.get("ts") or ""})
