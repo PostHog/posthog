@@ -288,16 +288,15 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         attrs = super().to_internal_value(data)
         crawl_config_keys = {"include_globs", "exclude_globs", "max_pages", "max_depth"}
         crawl_fields = {k: attrs.pop(k) for k in crawl_config_keys if k in attrs}
+        # Re-derive scope when include_globs was NOT sent (user didn't override),
+        # the URL is changing, and mode is same-origin.
+        if (
+            "include_globs" not in crawl_fields
+            and "url" in attrs
+            and attrs.get("crawl_mode", data.get("crawl_mode")) == CrawlMode.SAME_ORIGIN.value
+        ):
+            crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
         if crawl_fields:
-            # Re-derive scope when include_globs not explicitly provided and
-            # the source uses same-origin mode with a URL change.
-            if (
-                "include_globs" in crawl_fields
-                and not crawl_fields["include_globs"]
-                and attrs.get("crawl_mode", data.get("crawl_mode")) == CrawlMode.SAME_ORIGIN.value
-                and "url" in attrs
-            ):
-                crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
             attrs["crawl_config"] = crawl_fields
         return attrs
 

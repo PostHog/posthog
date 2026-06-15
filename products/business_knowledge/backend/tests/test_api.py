@@ -513,3 +513,34 @@ class TestCrawlSourceAutoScope(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         call_kwargs = mock_claim.call_args.kwargs
         assert call_kwargs["crawl_config"]["include_globs"] == []
+
+    @patch("products.business_knowledge.backend.api.views.KnowledgeSourceViewSet._start_background_ingest")
+    @patch("products.business_knowledge.backend.api.views.logic.update_url_source")
+    def test_update_url_rederives_globs_when_not_sent(self, mock_update, _bg, _url, _ff) -> None:
+        source = KnowledgeSource.objects.unscoped().create(
+            id="00000000-0000-0000-0000-000000000004",
+            team=self.team,
+            name="Old source",
+            source_type="url",
+            status="ready",
+            source_url="https://posthog.com/docs/old",
+            crawl_mode="same_origin",
+            crawl_config={
+                "include_globs": ["/docs/old", "/docs/old/*"],
+                "exclude_globs": [],
+                "max_pages": 50,
+                "max_depth": 2,
+            },
+        )
+        mock_update.return_value = source
+        response = self.client.patch(
+            f"{self.api_url}{source.id}/",
+            {
+                "url": "https://posthog.com/docs/new",
+                "crawl_mode": "same_origin",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        call_kwargs = mock_update.call_args.kwargs
+        assert call_kwargs["crawl_config"]["include_globs"] == ["/docs/new", "/docs/new/*"]
