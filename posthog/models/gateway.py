@@ -29,7 +29,7 @@ validate_gateway_slug = RegexValidator(
 validate_gateway_slug_length = MaxLengthValidator(GATEWAY_SLUG_MAX_LENGTH)
 
 
-class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):  # type: ignore[django-manager-missing]
+class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="gateways")
     slug = models.CharField(max_length=GATEWAY_SLUG_MAX_LENGTH, validators=[validate_gateway_slug])
 
