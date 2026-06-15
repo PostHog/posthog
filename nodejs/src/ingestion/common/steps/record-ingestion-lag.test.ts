@@ -5,9 +5,14 @@ import { RecordIngestionLagInput, createRecordIngestionLagStep } from './record-
 
 const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z
 
-async function flushMicrotasks(): Promise<void> {
-    await Promise.resolve()
-    await Promise.resolve()
+/**
+ * The step records metrics in fire-and-forget `.then` reactions on the ingested
+ * promises (it doesn't await them, so it can sit mid-pipeline). It registers those
+ * reactions before the test awaits the same promises, so awaiting them here
+ * guarantees the recording has run — no microtask-queue guessing.
+ */
+async function recorded(ingested: Promise<unknown>[]): Promise<void> {
+    await Promise.allSettled(ingested)
 }
 
 async function getGaugeValue(topic: string, partition: string): Promise<number | undefined> {
@@ -24,6 +29,11 @@ async function getHistogramCountAndSum(partition: string): Promise<{ count: numb
     const count = find('_count')
     const sum = find('_sum')
     return count === undefined || sum === undefined ? null : { count, sum }
+}
+
+async function expectNoSamples(partition: string): Promise<void> {
+    expect(await getGaugeValue('test-topic', partition)).toBeUndefined()
+    expect(await getHistogramCountAndSum(partition)).toBeNull()
 }
 
 describe('record-ingestion-lag', () => {
@@ -48,6 +58,7 @@ describe('record-ingestion-lag', () => {
 
     it('records gauge and histogram lag once the ingested promise resolves', async () => {
         const step = createRecordIngestionLagStep()
+        await expectNoSamples('5')
         const input: RecordIngestionLagInput = { ingested: [Promise.resolve(ingestedInfo(5432))] }
 
         const result = await step(input)
@@ -56,26 +67,27 @@ describe('record-ingestion-lag', () => {
         if (isOkResult(result)) {
             expect(result.value).toBe(input)
         }
-        await flushMicrotasks()
+        await recorded(input.ingested)
         expect(await getGaugeValue('test-topic', '5')).toBe(5432)
         expect(await getHistogramCountAndSum('5')).toEqual({ count: 1, sum: 5432 })
     })
 
     it('measures lag at ack time, not at processing time', async () => {
         const step = createRecordIngestionLagStep()
+        await expectNoSamples('5')
         let ack!: (info: IngestedEventInfo) => void
         const pending = new Promise<IngestedEventInfo>((resolve) => {
             ack = resolve
         })
 
         await step({ ingested: [pending] })
-        await flushMicrotasks()
+        // Nothing recorded until the ack resolves
         expect(await getHistogramCountAndSum('5')).toBeNull()
 
         // The ack arrives one second after processing
         jest.setSystemTime(FAKE_NOW_MS + 1000)
         ack(ingestedInfo(2000))
-        await flushMicrotasks()
+        await recorded([pending])
 
         expect(await getGaugeValue('test-topic', '5')).toBe(3000)
         expect(await getHistogramCountAndSum('5')).toEqual({ count: 1, sum: 3000 })
@@ -83,6 +95,8 @@ describe('record-ingestion-lag', () => {
 
     it('records each ingested event separately, gauge keeps the last value per partition', async () => {
         const step = createRecordIngestionLagStep()
+        await expectNoSamples('5')
+        await expectNoSamples('7')
         const input: RecordIngestionLagInput = {
             ingested: [
                 Promise.resolve(ingestedInfo(5000)),
@@ -92,7 +106,7 @@ describe('record-ingestion-lag', () => {
         }
 
         await step(input)
-        await flushMicrotasks()
+        await recorded(input.ingested)
 
         expect(await getGaugeValue('test-topic', '5')).toBe(2000)
         expect(await getGaugeValue('test-topic', '7')).toBe(3000)
@@ -109,21 +123,23 @@ describe('record-ingestion-lag', () => {
         ],
     ])('records no sample when %s', async (_name, makePromise) => {
         const step = createRecordIngestionLagStep()
+        await expectNoSamples('5')
+        const ingested = [makePromise()]
 
-        await step({ ingested: [makePromise()] })
-        await flushMicrotasks()
+        await step({ ingested })
+        await recorded(ingested)
 
-        expect(await getGaugeValue('test-topic', '5')).toBeUndefined()
-        expect(await getHistogramCountAndSum('5')).toBeNull()
+        await expectNoSamples('5')
     })
 
     it('records no sample when nothing was emitted', async () => {
         const step = createRecordIngestionLagStep()
+        await expectNoSamples('5')
 
         await step({ ingested: [] })
-        await flushMicrotasks()
+        await recorded([])
 
-        expect(await getHistogramCountAndSum('5')).toBeNull()
+        await expectNoSamples('5')
     })
 
     // A rejecting ingested promise must not surface as an unhandled rejection: the step
@@ -131,10 +147,12 @@ describe('record-ingestion-lag', () => {
     // that leaks an unhandled rejection, so exercising the reject path here is the guard.
     it('handles a rejecting ingested promise without recording a sample', async () => {
         const step = createRecordIngestionLagStep()
+        await expectNoSamples('5')
+        const ingested = [Promise.reject(new Error('produce failed'))]
 
-        await step({ ingested: [Promise.reject(new Error('produce failed'))] })
-        await flushMicrotasks()
+        await step({ ingested })
+        await recorded(ingested)
 
-        expect(await getHistogramCountAndSum('5')).toBeNull()
+        await expectNoSamples('5')
     })
 })
