@@ -2,14 +2,11 @@ from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
-from django.conf import settings as django_settings
 from django.db import connection
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate, TruncHour
 
-import requests as http_requests
 import structlog
-import posthoganalytics
 from dateutil import parser
 from drf_spectacular.utils import extend_schema, inline_serializer
 from opentelemetry import trace
@@ -30,13 +27,13 @@ from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
-from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.api import managed_warehouse
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -47,21 +44,6 @@ from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-# Managed-warehouse connection presentation. The user-chosen warehouse name is the
-# SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the database to connect to
-# is always "ducklake"; the DNS zone is selected by the deployment.
-MANAGED_WAREHOUSE_DATABASE = "ducklake"
-_MANAGED_WAREHOUSE_DOMAINS = {
-    "US": "us.postwh.com",
-    "EU": "eu.postwh.com",
-    "DEV": "dev.postwh.com",
-}
-
-
-def _managed_warehouse_domain() -> str:
-    deployment = (getattr(django_settings, "CLOUD_DEPLOYMENT", None) or "").upper()
-    return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -815,98 +797,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         first_dashboard = config.overview_dashboards.order_by("id").first()
         return Response({"dashboard_id": first_dashboard.id if first_dashboard else None})
 
-    # --- Managed warehouse provisioning (proxied to duckgres) ---
-
-    def _is_managed_warehouse_enabled(self) -> bool:
-        try:
-            return posthoganalytics.feature_enabled(
-                "provision-managed-warehouse-beta",
-                str(self.team.uuid),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.id),
-                },
-                group_properties={
-                    "organization": {
-                        "id": str(self.team.organization_id),
-                    },
-                    "project": {
-                        "id": str(self.team.id),
-                    },
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            logger.warning("Failed to evaluate managed warehouse feature flag", team_id=self.team_id)
-            return False
-
-    def _provisioning_request(
-        self, method: str, path: str, json_body: dict | None = None, params: dict | None = None, timeout: int = 30
-    ) -> Response:
-        """Proxy a request to the duckgres provisioning API."""
-        if not self._is_managed_warehouse_enabled():
-            return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
-
-        base_url = getattr(django_settings, "DUCKGRES_API_URL", None)
-        token = getattr(django_settings, "DUCKGRES_INTERNAL_SECRET", None)
-
-        if not base_url:
-            logger.warning(
-                "Provisioning request rejected: DUCKGRES_API_URL not configured",
-                org_id=str(self.team.organization_id),
-            )
-            return Response(
-                {"error": "Managed warehouse provisioning is not configured"},
-                status=status.HTTP_501_NOT_IMPLEMENTED,
-            )
-
-        # Use the PostHog organization_id as the duckgres org identifier, so a single
-        # managed warehouse is shared by every team in the organization.
-        # Paths starting with / are org-scoped, otherwise treated as absolute API paths.
-        org_id = str(self.team.organization_id)
-        if path.startswith("/"):
-            url = f"{base_url.rstrip('/')}/api/v1/orgs/{org_id}{path}"
-        else:
-            url = f"{base_url.rstrip('/')}/api/v1/{path}"
-        headers = {}
-        if token:
-            headers["X-Duckgres-Internal-Secret"] = token
-
-        try:
-            resp = _internal_requests.request(
-                method, url, json=json_body, params=params, headers=headers, timeout=timeout
-            )
-        except http_requests.Timeout:
-            logger.warning("Provisioning API timeout", method=method, path=path, org_id=org_id)
-            return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
-        except http_requests.ConnectionError:
-            logger.warning("Provisioning API connection refused", method=method, path=path, org_id=org_id)
-            return Response({"error": "Provisioning service is unreachable"}, status=status.HTTP_502_BAD_GATEWAY)
-        except Exception:
-            logger.exception("Provisioning API unexpected error", method=method, path=path, org_id=org_id)
-            return Response(
-                {"error": "An error occurred contacting the provisioning service"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        if resp.status_code >= 400:
-            logger.warning(
-                "Provisioning API returned error",
-                method=method,
-                path=path,
-                org_id=org_id,
-                status_code=resp.status_code,
-                response_body=resp.text[:500],
-            )
-        else:
-            logger.info("Provisioning API request succeeded", method=method, path=path, org_id=org_id)
-
-        try:
-            body = resp.json()
-        except ValueError:
-            body = {"error": resp.text[:500]}
-        return Response(body, status=resp.status_code)
+    # --- Managed warehouse provisioning (proxied to duckgres, see managed_warehouse.py) ---
 
     @extend_schema(
         request=inline_serializer(
@@ -932,19 +823,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def provision(self, request: Request, **kwargs) -> Response:
         """Start provisioning a managed warehouse for this organization (shared by all its teams)."""
-        database_name = request.data.get("database_name")
-        if not database_name:
-            return Response({"error": "database_name is required"}, status=status.HTTP_400_BAD_REQUEST)
-        return self._provisioning_request(
-            "POST",
-            "/provision",
-            json_body={
-                "database_name": database_name,
-                "ducklake": {"enabled": True},
-                "metadata_store": {"type": "cnpg-shard"},
-                "data_store": {"type": "s3bucket"},
-            },
-        )
+        return managed_warehouse.provision(self.team.organization_id, request.data.get("database_name"))
 
     @extend_schema(
         responses={
@@ -970,7 +849,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 {"error": "Only organization admins can deprovision the managed warehouse"},
                 status=status.HTTP_403_FORBIDDEN,
             )
-        return self._provisioning_request("POST", "/deprovision")
+        return managed_warehouse.deprovision(self.team.organization_id)
 
     @extend_schema(
         responses={
@@ -1013,18 +892,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
         """Get the current provisioning status of the managed warehouse."""
-        resp = self._provisioning_request("GET", "/warehouse/status")
-        # Present the public-facing connection: the user-chosen warehouse name (returned
-        # by duckgres as `database`) is the SNI subdomain, and the database to connect to
-        # is always "ducklake".
-        if resp.status_code == 200 and isinstance(resp.data, dict) and isinstance(resp.data.get("connection"), dict):
-            connection = resp.data["connection"]
-            subdomain = connection.get("database")
-            if subdomain:
-                connection["host"] = f"{subdomain}.dw.{_managed_warehouse_domain()}"
-            connection["port"] = getattr(django_settings, "DUCKGRES_PG_PORT", 5432)
-            connection["database"] = MANAGED_WAREHOUSE_DATABASE
-        return resp
+        return managed_warehouse.status_for(self.team.organization_id)
 
     @extend_schema(
         responses={
@@ -1040,7 +908,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["POST"], detail=False, url_path="reset-password", required_scopes=["warehouse_view:write"])
     def reset_password(self, request: Request, **kwargs) -> Response:
         """Reset the root password for the managed warehouse."""
-        return self._provisioning_request("POST", "/reset-password")
+        return managed_warehouse.reset_password(self.team.organization_id)
 
     @extend_schema(
         parameters=[
@@ -1062,8 +930,4 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False, url_path="check-database-name")
     def check_database_name(self, request: Request, **kwargs) -> Response:
         """Check if a database name is available."""
-        name = request.query_params.get("name")
-        if not name:
-            return Response({"error": "name query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        return self._provisioning_request("GET", "database-name/check", params={"name": name}, timeout=10)
+        return managed_warehouse.check_name(self.team.organization_id, request.query_params.get("name"))
