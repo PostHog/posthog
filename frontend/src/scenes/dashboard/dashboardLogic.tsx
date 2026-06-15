@@ -292,6 +292,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         addWidgetTileFinished: true,
+        /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
+        requestScrollToBottom: true,
         /** Update a single refresh status. */
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         /** Update multiple refresh statuses. */
@@ -1308,6 +1310,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 addWidgetTiles: () => true,
                 addWidgetTileFinished: () => false,
+            },
+        ],
+        // Incremented on each scroll-to-bottom request; the view effects on the change.
+        scrollToBottomSignal: [
+            0,
+            {
+                requestScrollToBottom: (state) => state + 1,
             },
         ],
         addWidgetModalOpen: [
@@ -2568,6 +2577,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
                     }
+
+                    // New tiles are stacked at the bottom (backend), so ask the view to scroll
+                    // down once they've rendered to reveal what was just added.
+                    actions.requestScrollToBottom()
                 }
 
                 if (createdTiles.length > 0) {
