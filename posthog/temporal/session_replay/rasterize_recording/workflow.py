@@ -9,6 +9,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
+
     from prometheus_client import Counter
 
     RASTERIZATION_COMPLETED_COUNTER = Counter(
