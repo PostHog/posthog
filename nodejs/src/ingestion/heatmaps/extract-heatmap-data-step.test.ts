@@ -1,4 +1,5 @@
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -371,7 +372,7 @@ describe('createExtractHeatmapDataStep', () => {
             expect(event.properties.$heatmap_data).toBeDefined()
         })
 
-        it('preserves input properties in the result', async () => {
+        it('returns only the prepared event and ingested handles', async () => {
             const event = createTestEvent()
             const input = {
                 preparedEvent: event,
@@ -383,10 +384,8 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value).toMatchObject({
-                    customField: 'test-value',
-                    anotherField: 123,
-                })
+                // The step narrows to its own contract — unrelated input fields are not carried through.
+                expect(Object.keys(result.value).sort()).toEqual(['ingested', 'preparedEvent'])
             }
         })
     })
@@ -465,6 +464,73 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('ingestion lag tracking', () => {
+        const capturedAt = new Date('2023-12-15T14:32:01.987Z')
+
+        it('resolves ingested with source event info once the produce is acked', async () => {
+            const event = createTestEvent()
+            const headers = createTestEventHeaders({ now: capturedAt })
+            const message = createTestMessage({ topic: 'heatmaps_topic', partition: 3 })
+
+            const result = await step({ preparedEvent: event, headers, message })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toHaveLength(1)
+                await expect(result.value.ingested[0]).resolves.toEqual({
+                    capturedAt,
+                    topic: 'heatmaps_topic',
+                    partition: 3,
+                })
+            }
+        })
+
+        it('records no ingested handle when there is no heatmap data', async () => {
+            const event = createTestEvent()
+            delete event.properties.$heatmap_data
+            const message = createTestMessage()
+
+            const result = await step({ preparedEvent: event, message })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toEqual([])
+            }
+        })
+
+        it('records no ingested handle when the message is absent', async () => {
+            const event = createTestEvent()
+
+            const result = await step({ preparedEvent: event, headers: createTestEventHeaders({ now: capturedAt }) })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toEqual([])
+            }
+        })
+
+        // A failed produce must resolve the lag promise to null rather than reject it, so it
+        // can never surface as an unhandled rejection (the step's then() handles both branches).
+        // jest fails any test that leaks an unhandled rejection, so this also guards that.
+        it('resolves ingested to null when the produce fails, without rejecting', async () => {
+            mockOutputs.queueMessages.mockRejectedValue(new Error('produce failed'))
+            const event = createTestEvent()
+            const message = createTestMessage()
+
+            const result = await step({
+                preparedEvent: event,
+                headers: createTestEventHeaders({ now: capturedAt }),
+                message,
+            })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.ingested).toHaveLength(1)
+                await expect(result.value.ingested[0]).resolves.toBeNull()
+            }
         })
     })
 })

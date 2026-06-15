@@ -125,4 +125,16 @@ describe('record-ingestion-lag', () => {
 
         expect(await getHistogramCountAndSum('5')).toBeNull()
     })
+
+    // A rejecting ingested promise must not surface as an unhandled rejection: the step
+    // attaches an onRejected handler when it observes each promise. jest fails any test
+    // that leaks an unhandled rejection, so exercising the reject path here is the guard.
+    it('handles a rejecting ingested promise without recording a sample', async () => {
+        const step = createRecordIngestionLagStep()
+
+        await step({ ingested: [Promise.reject(new Error('produce failed'))] })
+        await flushMicrotasks()
+
+        expect(await getHistogramCountAndSum('5')).toBeNull()
+    })
 })
