@@ -96,7 +96,7 @@ function SessionSceneWrapper(): JSX.Element {
 
     const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
         useValues(aiObservabilitySessionDataLogic)
-    const { sessionId } = useValues(aiObservabilitySessionLogic)
+    const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
     const { summarizeAllTraces, loadNextData } = useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { getSessionTitle } = useValues(llmSessionTitleLazyLoaderLogic)
@@ -120,13 +120,12 @@ function SessionSceneWrapper(): JSX.Element {
         { totalCost: 0, totalLatency: 0, traceCount: 0 }
     )
 
-    // Using same loader as sessions list page for consistency (based on session
-    // and independent of the passed date window)
+    // Same loader as the sessions list, time-bounded to the page's date range.
     const heroTitle = getSessionTitle(sessionId)
     const titleLoading = heroTitle === undefined
     useEffect(() => {
-        ensureSessionTitleLoaded(sessionId)
-    }, [sessionId, ensureSessionTitleLoaded])
+        ensureSessionTitleLoaded(sessionId, dateRange ?? undefined)
+    }, [sessionId, dateRange, ensureSessionTitleLoaded])
 
     if (responseLoading) {
         return <SpinnerOverlay />

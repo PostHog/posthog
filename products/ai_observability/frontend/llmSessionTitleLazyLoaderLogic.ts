@@ -8,6 +8,7 @@ import { escapeHogQLString } from '~/queries/utils'
 
 import type { llmSessionTitleLazyLoaderLogicType } from './llmSessionTitleLazyLoaderLogicType'
 import { resolveTitleFromInputs } from './sessionTitle'
+import type { DateRangeFilter } from './types'
 import { parsePartialJSON } from './utils'
 
 const BATCH_MAX_SIZE = 100
@@ -42,12 +43,11 @@ interface SessionPayloads {
     traceName: string | null
 }
 
-function eventsTableQuery(sessionIds: string): HogQLQuery {
+// `dateFrom` is required (not nullable): the caller only builds this query once it has a lower
+// bound, so the scan over the huge, otherwise-unbounded `events` table is never unbounded.
+function eventsTableQuery(sessionIds: string, dateFrom: string, dateTo: string | null): HogQLQuery {
     return {
         kind: NodeKind.HogQLQuery,
-        // No timerange limit in the query, since (1) the bloom-filter skip index on
-        // session_id (HogQL maps properties.$ai_session_id -> mat_$ai_session_id) prunes
-        // the scan to matching granules, and (2) argMin needs the session's true first turn
         query: `
             SELECT
                 properties.$ai_session_id AS session_id,
@@ -69,16 +69,24 @@ function eventsTableQuery(sessionIds: string): HogQLQuery {
             FROM events
             WHERE event IN ('$ai_trace', '$ai_generation')
               AND properties.$ai_session_id IN (${sessionIds})
+              AND {filters}
             GROUP BY session_id
         `,
+        filters: {
+            dateRange: {
+                date_from: dateFrom,
+                date_to: dateTo,
+            },
+        },
     }
 }
 
 function aiEventsTableQuery(sessionIds: string): HogQLQuery {
     return {
         kind: NodeKind.HogQLQuery,
-        // No time bound since (1) ai_events has a bloom-filter skip index on session_id
-        // (and a 30-day TTL), and (2) argMin needs the session's true first turn
+        // Not time-bounded: `ai_events` carries a ~30-day TTL so it is inherently bounded
+        // (unlike the shared `events` table), and the `{filters}` date placeholder targets the
+        // events table. The bloom-filter skip index on session_id prunes the scan.
         query: `
             SELECT
                 session_id,
@@ -112,13 +120,15 @@ function aiEventsTableQuery(sessionIds: string): HogQLQuery {
  * Returns the resolved titles, or `null` if every source query failed (so the
  * caller can mark the batch failed rather than cache empty titles).
  */
-async function fetchSessionTitles(batch: string[]): Promise<Map<string, string | null> | null> {
+async function fetchSessionTitles(
+    batch: string[],
+    dateRange?: DateRangeFilter
+): Promise<Map<string, string | null> | null> {
     const sessionIds = batch.map((id) => escapeHogQLString(id)).join(',')
 
-    const settled = await Promise.allSettled([
-        api.query(eventsTableQuery(sessionIds)),
-        api.query(aiEventsTableQuery(sessionIds)),
-    ])
+    const dateFrom = dateRange?.dateFrom
+    const eventsQuery = dateFrom ? [api.query(eventsTableQuery(sessionIds, dateFrom, dateRange?.dateTo ?? null))] : []
+    const settled = await Promise.allSettled([...eventsQuery, api.query(aiEventsTableQuery(sessionIds))])
 
     if (settled.every((r) => r.status === 'rejected')) {
         console.warn('Error loading session titles batch', settled)
@@ -174,14 +184,15 @@ async function fetchSessionTitles(batch: string[]): Promise<Map<string, string |
 
 /**
  * Lazily derives a human-readable title for each session, shared by the Sessions
- * list and the session detail hero. Both fetch by session id (not the page date
- * window), so the title reflects the session's opening turn
+ * list and the session detail hero. Both fetch by session id, time-bounded to the
+ * viewed date range (the events table is huge, so the bound guards performance); the
+ * title is the session's first turn within that range.
  */
 export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogicType>([
     path(['products', 'ai_observability', 'frontend', 'llmSessionTitleLazyLoaderLogic']),
 
     actions({
-        ensureSessionTitleLoaded: (sessionId: string) => ({ sessionId }),
+        ensureSessionTitleLoaded: (sessionId: string, dateRange?: DateRangeFilter) => ({ sessionId, dateRange }),
         markSessionIdsLoading: (sessionIds: string[]) => ({ sessionIds }),
         loadSessionTitlesBatchSuccess: (titles: Map<string, string | null>, requestedSessionIds: string[]) => ({
             titles,
@@ -254,7 +265,7 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
     }),
 
     listeners(({ actions, values, cache }) => ({
-        ensureSessionTitleLoaded: ({ sessionId }) => {
+        ensureSessionTitleLoaded: ({ sessionId, dateRange }) => {
             if (
                 !sessionId ||
                 sessionId.length > SESSION_ID_MAX_LENGTH ||
@@ -268,6 +279,10 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
 
             const pending = cache.pendingSessionIds as Set<string>
             pending.add(sessionId)
+            // All rows in one view share the same date range; keep the latest seen for the batch.
+            if (dateRange) {
+                cache.pendingDateRange = dateRange
+            }
 
             if (cache.batchTimer) {
                 return
@@ -275,7 +290,9 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
 
             cache.batchTimer = setTimeout(async () => {
                 const requested = Array.from(pending)
+                const dateRangeForBatch = cache.pendingDateRange as DateRangeFilter | undefined
                 pending.clear()
+                cache.pendingDateRange = undefined
                 cache.batchTimer = null
 
                 if (requested.length === 0) {
@@ -284,7 +301,7 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
 
                 await Promise.allSettled(
                     chunk(requested, BATCH_MAX_SIZE).map(async (batch) => {
-                        const titles = await fetchSessionTitles(batch)
+                        const titles = await fetchSessionTitles(batch, dateRangeForBatch)
                         if (titles) {
                             actions.loadSessionTitlesBatchSuccess(titles, batch)
                         } else {
@@ -299,6 +316,7 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
     events(({ cache }) => ({
         afterMount: () => {
             cache.pendingSessionIds = new Set<string>()
+            cache.pendingDateRange = undefined
             cache.batchTimer = null
         },
         beforeUnmount: () => {

@@ -31,9 +31,9 @@ function SessionColumn({ sessionId }: { sessionId: string }): JSX.Element {
 
     useEffect(() => {
         if (sessionId) {
-            ensureSessionTitleLoaded(sessionId)
+            ensureSessionTitleLoaded(sessionId, dateFilter)
         }
-    }, [sessionId, ensureSessionTitleLoaded])
+    }, [sessionId, dateFilter, ensureSessionTitleLoaded])
 
     const title = getSessionTitle(sessionId)
     const truncatedId = `${sessionId.slice(0, 4)}...${sessionId.slice(-4)}`

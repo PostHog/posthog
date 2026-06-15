@@ -11,6 +11,9 @@ function userInputState(text: string): string {
     return JSON.stringify({ messages: [{ role: 'user', content: text }] })
 }
 
+// A date bound is required for the loader to query the shared `events` table.
+const DATE_RANGE = { dateFrom: '-30d', dateTo: null }
+
 // Let the listener's setTimeout(0) batch timer fire, then drain the api.query +
 // merge microtask chain (allSettled → map → fetchSessionTitles → allSettled).
 async function settle(): Promise<void> {
@@ -76,14 +79,14 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
     describe('fetchSessionTitles merge', () => {
         it('resolves the title from the opening user message', async () => {
             mockSources({ events: [['s1', userInputState('plan a trip to Japan'), '', '']] })
-            logic.actions.ensureSessionTitleLoaded('s1')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBe('plan a trip to Japan')
         })
 
         it('handles a session id that collides with object prototype keys without polluting Object.prototype', async () => {
             mockSources({ events: [['__proto__', userInputState('not prototype pollution'), '', '']] })
-            logic.actions.ensureSessionTitleLoaded('__proto__')
+            logic.actions.ensureSessionTitleLoaded('__proto__', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('__proto__')).toBe('not prototype pollution')
             // The merge must not have written the parsed payload onto Object.prototype.
@@ -97,14 +100,14 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
                 events: [['s1', '', '', 'my-trace-name']],
                 aiEvents: [['s1', userInputState('what changed in the funnel?'), '', '']],
             })
-            logic.actions.ensureSessionTitleLoaded('s1')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBe('what changed in the funnel?')
         })
 
         it('falls back to the trace name from the events source when there is no user message', async () => {
             mockSources({ events: [['s1', '', '', 'switch-project']] })
-            logic.actions.ensureSessionTitleLoaded('s1')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBe('switch-project')
         })
@@ -118,7 +121,7 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
 
         it('rejects a generic framework trace name (no usable title → null)', async () => {
             mockSources({ events: [['s1', '', '', 'LangGraph']] })
-            logic.actions.ensureSessionTitleLoaded('s1')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBeNull()
         })
@@ -128,7 +131,7 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
                 events: new Error('events table query failed'),
                 aiEvents: [['s1', userInputState('still works'), '', '']],
             })
-            logic.actions.ensureSessionTitleLoaded('s1')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBe('still works')
         })
@@ -136,7 +139,7 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
         it('marks the batch failed (null) when every source query fails', async () => {
             jest.spyOn(console, 'warn').mockImplementation(() => {}) // the loader warns on total failure
             mockSources({ events: new Error('boom'), aiEvents: new Error('boom') })
-            logic.actions.ensureSessionTitleLoaded('s1')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBeNull()
         })
@@ -148,11 +151,54 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
                     ['s2', '', '', 'named-trace'],
                 ],
             })
-            logic.actions.ensureSessionTitleLoaded('s1')
-            logic.actions.ensureSessionTitleLoaded('s2')
+            logic.actions.ensureSessionTitleLoaded('s1', DATE_RANGE)
+            logic.actions.ensureSessionTitleLoaded('s2', DATE_RANGE)
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBe('first session')
             expect(logic.values.getSessionTitle('s2')).toBe('named-trace')
+        })
+    })
+
+    describe('date range bound', () => {
+        it('applies the passed date range to the events query, leaving ai_events TTL-bounded', async () => {
+            const queried: any[] = []
+            jest.spyOn(api, 'query').mockImplementation((node: any) => {
+                queried.push(node)
+                return Promise.resolve({ results: [] } as any)
+            })
+
+            logic.actions.ensureSessionTitleLoaded('s1', { dateFrom: '-7d', dateTo: null })
+            await settle()
+
+            const eventsNode = queried.find((n) => typeof n?.query === 'string' && n.query.includes('FROM events'))
+            const aiEventsNode = queried.find(
+                (n) => typeof n?.query === 'string' && n.query.includes('posthog.ai_events')
+            )
+
+            // events query is time-bounded via the shared {filters} idiom
+            expect(eventsNode?.query).toContain('{filters}')
+            expect(eventsNode?.filters?.dateRange?.date_from).toBe('-7d')
+            // ai_events is bounded by its TTL, not a date filter
+            expect(aiEventsNode?.query).not.toContain('{filters}')
+            expect(aiEventsNode?.filters).toBeUndefined()
+        })
+
+        it('does NOT query the unbounded events table when no date range is passed', async () => {
+            const queried: any[] = []
+            jest.spyOn(api, 'query').mockImplementation((node: any) => {
+                queried.push(node)
+                return Promise.resolve({ results: [] } as any)
+            })
+
+            logic.actions.ensureSessionTitleLoaded('s1')
+            await settle()
+
+            const eventsNode = queried.find((n) => typeof n?.query === 'string' && n.query.includes('FROM events'))
+            const aiEventsNode = queried.find(
+                (n) => typeof n?.query === 'string' && n.query.includes('posthog.ai_events')
+            )
+            expect(eventsNode).toBeUndefined() // conservative: events table skipped without a bound
+            expect(aiEventsNode).not.toBeUndefined() // ai_events (TTL-bounded) still runs
         })
     })
 })
