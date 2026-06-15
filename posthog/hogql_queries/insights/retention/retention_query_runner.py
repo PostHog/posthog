@@ -457,6 +457,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return self._max_lookahead_days() <= HORIZON_DAYS
 
     def _max_lookahead_days(self) -> int:
+        # month=31 over-estimates on purpose, so a borderline range errs toward raw, not past the horizon.
         interval_days = {"day": 1, "week": 7, "month": 31}.get(self.query_date_range.interval_name, 1)
         return self.query_date_range.lookahead * interval_days
 
