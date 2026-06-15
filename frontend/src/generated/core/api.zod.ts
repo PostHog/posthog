@@ -9825,6 +9825,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })
 
 /**
@@ -9910,6 +9916,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -9991,6 +10003,12 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
         ),
 })
 
@@ -10168,6 +10186,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })
 
 /**
@@ -10252,6 +10276,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
         ),
 })
 
@@ -10338,6 +10368,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -10419,6 +10455,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
         ),
 })
 
@@ -10502,6 +10544,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -10583,6 +10631,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
         ),
 })
 
@@ -10666,6 +10720,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -10747,5 +10807,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd\/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
         ),
 })

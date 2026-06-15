@@ -258,6 +258,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
     )
+    ai_chat_send_on_cmd_enter = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the PostHog AI chat composer sends on Cmd/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.",
+    )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
     ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices

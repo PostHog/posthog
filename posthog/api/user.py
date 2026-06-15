@@ -288,6 +288,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role_at_organization",
             "passkeys_enabled_for_2fa",
             "hide_mcp_hints",
+            "ai_chat_send_on_cmd_enter",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
             "onboarding_skipped_organization_id",
@@ -838,6 +839,7 @@ class UserViewSet(
         "has_seen_product_intro_for",
         "events_column_config",
         "role_at_organization",
+        "ai_chat_send_on_cmd_enter",
     ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",

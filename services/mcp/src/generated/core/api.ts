@@ -833,4 +833,10 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ai_chat_send_on_cmd_enter: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the PostHog AI chat composer sends on Cmd/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.'
+        ),
 })

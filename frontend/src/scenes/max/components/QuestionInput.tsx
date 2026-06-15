@@ -185,6 +185,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
     const showStopButton = threadLoading && !isQueueingSubmission
 
+    // When enabled (user setting), the composer sends on Cmd/Ctrl+Enter and Enter inserts a new line.
+    const sendOnCmdEnter = user?.ai_chat_send_on_cmd_enter ?? false
+    const sendKeyboardShortcut = sendOnCmdEnter ? <KeyboardShortcut command enter /> : <KeyboardShortcut enter />
+    const submitFromComposer = (): void => {
+        if (hasQuestion && !submissionDisabledReason && (!threadLoading || queueingEnabled)) {
+            onSubmit?.()
+            askMax(question)
+        }
+    }
+
     // Update autocomplete visibility when question changes
     useEffect(() => {
         const isSlashCommand = question[0] === '/'
@@ -327,16 +337,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ref={textAreaRef}
                                         value={isSharedThread ? '' : question}
                                         onChange={(value) => setQuestion(value)}
-                                        onPressEnter={() => {
-                                            if (
-                                                hasQuestion &&
-                                                !submissionDisabledReason &&
-                                                (!threadLoading || queueingEnabled)
-                                            ) {
-                                                onSubmit?.()
-                                                askMax(question)
-                                            }
-                                        }}
                                         onKeyDown={(event) => {
                                             if (
                                                 event.key === 'ArrowUp' &&
@@ -356,6 +356,19 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 }
                                                 event.preventDefault()
                                                 setEditingQueueId(nextMessageId)
+                                                return
+                                            }
+                                            // Submit on Enter, or only on Cmd/Ctrl+Enter when the user opted into that.
+                                            // Shift+Enter always inserts a new line; IME composition is left untouched.
+                                            if (
+                                                event.key === 'Enter' &&
+                                                !event.nativeEvent.isComposing &&
+                                                !event.shiftKey
+                                            ) {
+                                                if (!sendOnCmdEnter || event.metaKey || event.ctrlKey) {
+                                                    event.preventDefault()
+                                                    submitFromComposer()
+                                                }
                                             }
                                         }}
                                         disabled={inputDisabled}
@@ -452,17 +465,11 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         disabledReason ? (
                                             disabledReason
                                         ) : showStopButton ? (
-                                            <>
-                                                Let's bail <KeyboardShortcut enter />
-                                            </>
+                                            <>Let's bail {sendKeyboardShortcut}</>
                                         ) : isQueueingSubmission ? (
-                                            <>
-                                                Queue message <KeyboardShortcut enter />
-                                            </>
+                                            <>Queue message {sendKeyboardShortcut}</>
                                         ) : (
-                                            <>
-                                                Let's go! <KeyboardShortcut enter />
-                                            </>
+                                            <>Let's go! {sendKeyboardShortcut}</>
                                         )
                                     }
                                     loading={threadLoading && !dataProcessingAccepted}

@@ -149,6 +149,7 @@ import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
 import { ProjectSecretAPIKeys } from './project/ProjectSecretAPIKeys'
 import { SettingSection } from './types'
+import { AIChatSendKeySetting } from './user/AIChatSendKeySetting'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
@@ -1852,6 +1853,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <MCPHintsSetting />,
                 flag: [['MCP_HINTS', 'test']],
                 keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
+            },
+            {
+                id: 'ai-chat-send-key',
+                title: 'AI chat send shortcut',
+                description:
+                    'By default, Enter sends your message in PostHog AI and Shift+Enter adds a new line. Enable this to require Cmd+Enter (Ctrl+Enter on Windows) to send, with Enter adding a new line instead.',
+                component: <AIChatSendKeySetting />,
+                keywords: ['max', 'ai', 'chat', 'enter', 'cmd', 'send', 'keyboard', 'shortcut', 'newline'],
             },
             {
                 id: 'hedgehog-mode',

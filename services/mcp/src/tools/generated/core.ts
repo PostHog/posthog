@@ -504,6 +504,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         if (params.hide_mcp_hints !== undefined) {
             body['hide_mcp_hints'] = params.hide_mcp_hints
         }
+        if (params.ai_chat_send_on_cmd_enter !== undefined) {
+            body['ai_chat_send_on_cmd_enter'] = params.ai_chat_send_on_cmd_enter
+        }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,

@@ -482,6 +482,21 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_update_ai_chat_send_on_cmd_enter(self, _name: str, value: bool) -> None:
+        # Defaults to False so the existing Enter-to-send behavior is preserved.
+        self.assertFalse(self.user.ai_chat_send_on_cmd_enter)
+
+        response = self.client.patch("/api/users/@me/", {"ai_chat_send_on_cmd_enter": value})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ai_chat_send_on_cmd_enter"], value)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ai_chat_send_on_cmd_enter, value)
+
+        get_response = self.client.get("/api/users/@me/")
+        self.assertEqual(get_response.json()["ai_chat_send_on_cmd_enter"], value)
+
     @patch("posthoganalytics.capture")
     def test_user_can_cancel_own_email_change_request(self, _mock_capture):
         self.user.pending_email = "another@email.com"

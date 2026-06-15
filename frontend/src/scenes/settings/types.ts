@@ -180,6 +180,7 @@ export type SettingId =
     | 'logs-retention'
     | 'marketing-settings'
     | 'mcp-hints'
+    | 'ai-chat-send-key'
     | 'mcp-servers-manage'
     | 'members'
     | 'notifications'
