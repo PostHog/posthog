@@ -287,7 +287,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
     def _team_flag_funnels_compare(self) -> bool:
         return posthoganalytics.feature_enabled(
-            "funnels-compare",
+            "product-analytics-funnels-compare",
             str(self.team.uuid),
             groups={
                 "organization": str(self.team.organization_id),

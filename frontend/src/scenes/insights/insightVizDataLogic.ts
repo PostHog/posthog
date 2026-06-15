@@ -233,7 +233,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 // Funnel compare ships behind a flag, and only for the TRENDS viz mode in slice 1.
                 if (
                     isFunnelsQuery(q) &&
-                    !!featureFlags[FEATURE_FLAGS.FUNNELS_COMPARE] &&
+                    !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] &&
                     q.funnelsFilter?.funnelVizType === FunnelVizType.Trends
                 ) {
                     return true

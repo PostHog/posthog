@@ -116,7 +116,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
-    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.FUNNELS_COMPARE]
+    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&

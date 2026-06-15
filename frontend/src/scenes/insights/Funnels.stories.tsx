@@ -135,7 +135,7 @@ export const FunnelHistoricalTrendsCompare: Story = createInsightStory(
 FunnelHistoricalTrendsCompare.parameters = {
     // funnels-compare gates the Compare-to-previous toggle on funnel trends — without this the
     // dual-period chart degrades back to the single-period rendering and the snapshot is wrong.
-    featureFlags: [FEATURE_FLAGS.FUNNELS_COMPARE],
+    featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE],
     testOptions: { waitForSelector: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
 
