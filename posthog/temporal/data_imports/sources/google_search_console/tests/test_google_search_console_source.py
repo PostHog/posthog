@@ -29,7 +29,7 @@ def test_get_source_config_fields():
     assert field_names == {"google_search_console_integration_id", "site_url"}
     assert cfg.label == "Google Search Console"
     assert cfg.featureFlag == "dwh-google-search-console"
-    assert cfg.releaseStatus == "alpha"
+    assert cfg.releaseStatus == "beta"
 
 
 def test_get_schemas_returns_all_schemas_with_date_incremental():
