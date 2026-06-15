@@ -44,7 +44,7 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_HOGQL_DATA_NODE_KEY, acc
 
 ## Data & query model
 
-`accountsLogic.hogqlQuery` builds a `DataTableNode` wrapping an `AccountsQuery` (`select`, plus optional `search`, `tagNames`, role filters, `allRolesUnassigned`, `assignedToCurrentUser`, `filterExpression`, `metrics`, `orderBy`). The backend runner (`accounts_query_runner`) returns **rows as arrays** aligned to `visibleColumnNames`. `assignedToCurrentUser` is the "my accounts" shortcut — a boolean the runner expands into `csm = me OR account_executive = me`, resolving `me` from the authenticated request server-side (the client never sends a user id). Two cell shapes matter:
+`accountsLogic.hogqlQuery` builds a `DataTableNode` wrapping an `AccountsQuery` (`select`, plus optional `search`, `tagNames`, role filters, `allRolesUnassigned`, `assignedToUserIds`, `filterExpression`, `metrics`, `orderBy`). The backend runner (`accounts_query_runner`) returns **rows as arrays** aligned to `visibleColumnNames`. `assignedToUserIds` is the "assigned to" filter — a list of user ids the runner expands into `csm IN ids OR account_executive IN ids`. The "My accounts" checkbox is a client-side shortcut: `accountsLogic` resolves it to `[currentUserId]` (from `userLogic`) before the query is sent, so the backend only ever receives explicit ids and a shared URL resolves to the same accounts for every viewer. Two cell shapes matter:
 
 - **`name` column** (mandatory, `ACCOUNTS_NAME_COLUMN`) — emitted as `tuple(name, external_id, id)`, read as `{ name, external_id, id }`. This is the row's identity: `id` (the account PK) drives expansion/scroll/role updates; `external_id` is the copy-able group key. `getNameCell()` in `AccountsHogQLTable.tsx` is the canonical accessor; never assume a column index.
 - **role columns** (`csm`, `account_executive`, `account_owner`) — emitted as `tuple(id, email)`, rendered with `MemberSelect`. Sorting these uses `tupleElement(col, 2)` (email) so visual order matches.
@@ -61,7 +61,7 @@ The Usage tab renders an existing saved billing-usage insight — **point users 
 
 ## Shareable view state
 
-`accountsLogic` mirrors the full view (search, tags, roles, unassigned, my-accounts, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Only non-default values are serialized. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
+`accountsLogic` mirrors the full view (search, tags, roles, unassigned, assigned-to, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Only non-default values are serialized. The "assigned to" filter persists as concrete `assignedTo` ids (not a `mine` flag), so a link shared with a colleague resolves to the **same** accounts for them as for the sharer; the legacy `mine: true` hash is still read and resolved to the current user's id for backward compatibility. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
 
 ## Max / agent integration
 
