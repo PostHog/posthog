@@ -454,16 +454,17 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(processingOrder).toEqual(['start-a1'])
 
-            // Feed more items for group A while a1 is still processing
-            previousPipeline.feed([createOkContext({ value: 'a3', group: 'A' }, context3)])
+            // Feed more items for group A while a1 is still processing. Fed through the
+            // pipeline (not previousPipeline directly) so the wake-up reaches the parked next().
+            pipeline.feed([createOkContext({ value: 'a3', group: 'A' }, context3)])
             expect(processingOrder).toEqual(['start-a1'])
 
             // Advance to complete a1 (50ms), a2 should start
             await jest.advanceTimersByTimeAsync(50)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2'])
 
-            // Advance to complete a2 - first batch processing ends, and the
-            // parked next() eagerly routes and starts the queued a3
+            // Advance to complete a2 - the group's batch ends and the queued a3
+            // starts (per-key ordering: a3 runs after a1, a2)
             await jest.advanceTimersByTimeAsync(50)
             expect(processingOrder).toEqual(['start-a1', 'end-a1', 'start-a2', 'end-a2', 'start-a3'])
 

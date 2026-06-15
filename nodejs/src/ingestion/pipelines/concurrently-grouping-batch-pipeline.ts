@@ -1,5 +1,7 @@
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { InterleavingBatchPipeline, PullOutcome } from './interleaving-batch-pipeline'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { resettableSignal } from './resettable-signal'
 import { isOkResult } from './results'
 
 export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
@@ -14,6 +16,13 @@ export type GroupingFunction<TInput, TKey> = (input: TInput) => TKey
  *   after the current batch completes
  * - Results are returned unordered between groups - as each group completes processing,
  *   its results are made available
+ *
+ * Synchronization (pulling upstream, draining completed groups, and staying
+ * responsive to concurrent feeds so a parked drain isn't stranded) is handled by
+ * {@link InterleavingBatchPipeline}. This class supplies the grouping policy:
+ * routing into per-key queues, starting groups concurrently, and a per-group
+ * completion signal so a parked drain wakes when ANY group finishes — including
+ * a group that was started after the drain parked.
  */
 export class ConcurrentlyGroupingBatchPipeline<
     TInput,
@@ -36,65 +45,72 @@ export class ConcurrentlyGroupingBatchPipeline<
     // Completed result batches ready to be returned
     private completedResults: PipelineResultWithContext<TOutput, COutput, RPrev | RStep>[][] = []
 
-    // Resolved when feed() delivers new input while next() is parked waiting on
-    // active groups, so a long-running group doesn't stall the routing and
-    // start of later batches' groups.
-    private newInputSignal: { promise: Promise<void>; resolve: () => void } | null = null
+    // Resolved whenever any group finishes (pushing to completedResults or
+    // recording a failure), so a next() parked waiting on active groups wakes
+    // even for a group that started after it parked.
+    private groupCompleted = resettableSignal()
+
+    // First processor error seen; once set, the pipeline is poisoned and every
+    // next() that exhausts completed results rethrows it (mirroring the previous
+    // behavior where a failed group's rejected promise re-rejected each drain).
+    private failure: unknown = undefined
+
+    private inner: InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 
     constructor(
         private groupingFn: GroupingFunction<TIntermediate, TKey>,
         private processor: Pipeline<TIntermediate, TOutput, COutput, RStep>,
         private previousPipeline: BatchPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
-    ) {}
+    ) {
+        this.inner = new InterleavingBatchPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>({
+            onFeed: (elements) => this.previousPipeline.feed(elements),
+            onSourcePull: () => this.routeFromPrevious(),
+            onProcessPull: () => this.pullProcessed(),
+        })
+    }
 
     feed(elements: OkResultWithContext<TInput, CInput>[]): void {
-        this.previousPipeline.feed(elements)
-        if (this.newInputSignal) {
-            this.newInputSignal.resolve()
-            this.newInputSignal = null
-        }
+        this.inner.feed(elements)
     }
 
-    async next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+    next(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
+        return this.inner.next()
+    }
+
+    /** Pull one upstream batch, route it into per-key queues, and start available groups. */
+    private async routeFromPrevious(): Promise<PullOutcome<TOutput, COutput, RPrev | RStep>> {
+        const previousResults = await this.previousPipeline.next()
+        if (previousResults === null) {
+            return { kind: 'drained' }
+        }
+        this.routeToGroups(previousResults)
+        this.startAvailableProcessing()
+        return { kind: 'drain' }
+    }
+
+    /** Emit the next completed group's results, parking until one finishes. */
+    private async pullProcessed(): Promise<BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null> {
         while (true) {
-            // Get more elements from the previous pipeline and route them to group queues
-            const previousResults = await this.previousPipeline.next()
-            if (previousResults !== null) {
-                this.routeToGroups(previousResults)
-            }
-
-            // Start processing for any groups that have queued items and aren't currently processing
-            this.startAvailableProcessing()
-
-            // Return completed results if available
-            const completed = this.pullCompletedResults()
-            if (completed !== null) {
+            const completed = this.completedResults.shift()
+            if (completed !== undefined) {
                 return completed
             }
-
-            // If there's active processing, wait for a group to complete or for
-            // new input to arrive, then loop: re-pull, re-route, and start any
-            // newly available groups. Waking on new input keeps a long-running
-            // group from delaying the start of later batches' groups.
-            if (this.activeProcessing.size > 0) {
-                if (!this.newInputSignal) {
-                    let resolve!: () => void
-                    const promise = new Promise<void>((r) => {
-                        resolve = r
-                    })
-                    this.newInputSignal = { promise, resolve }
-                }
-                await Promise.race([...this.activeProcessing.values(), this.newInputSignal.promise])
+            // Surface a processor failure only after draining everything that did
+            // complete, so other groups' results are still returned first.
+            if (this.failure !== undefined) {
+                throw this.failure
+            }
+            if (this.activeProcessing.size === 0) {
+                return null
+            }
+            this.groupCompleted.reset()
+            // Re-check after arming: a group may have completed between the shift
+            // above and the reset, resolving the now-replaced promise.
+            if (this.completedResults.length > 0 || this.failure !== undefined) {
                 continue
             }
-
-            // Nothing left to process or return
-            return null
+            await this.groupCompleted.promise
         }
-    }
-
-    private pullCompletedResults(): BatchPipelineResultWithContext<TOutput, COutput, RPrev | RStep> | null {
-        return this.completedResults.shift() ?? null
     }
 
     private routeToGroups(results: PipelineResultWithContext<TIntermediate, COutput, RPrev>[]): void {
@@ -127,11 +143,25 @@ export class ConcurrentlyGroupingBatchPipeline<
             if (queue.length > 0 && !this.activeProcessing.has(key)) {
                 this.groupQueues.delete(key)
 
-                const processingPromise = this.processGroupSequentially(queue).then((results) => {
-                    this.completedResults.push(results)
-                    this.activeProcessing.delete(key)
-                    return results
-                })
+                const processingPromise = this.processGroupSequentially(queue).then(
+                    (results) => {
+                        this.completedResults.push(results)
+                        this.activeProcessing.delete(key)
+                        // The key is free again: start any items queued for it
+                        // while it was processing (preserves per-key ordering).
+                        this.startAvailableProcessing()
+                        this.groupCompleted.resolve()
+                        return results
+                    },
+                    (error: unknown) => {
+                        // Poison the pipeline. Keep the key in activeProcessing so
+                        // later items for it never start, and wake a parked
+                        // pullProcessed so it can rethrow.
+                        this.failure ??= error
+                        this.groupCompleted.resolve()
+                        return []
+                    }
+                )
 
                 this.activeProcessing.set(key, processingPromise)
             }
