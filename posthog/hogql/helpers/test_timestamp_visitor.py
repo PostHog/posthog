@@ -117,22 +117,40 @@ class TestTimestampVisitorTypeCast(unittest.TestCase):
         make_visitor().visit(type_cast)
         make_visitor().visit(try_cast)
 
+    @parameterized.expand(
+        [
+            (
+                "type_cast_of_timestamp_field",
+                ast.TypeCast(expr=ast.Field(chain=["timestamp"]), type_name="DateTime"),
+                True,
+            ),
+            (
+                "try_cast_of_timestamp_field",
+                ast.TryCast(expr=ast.Field(chain=["timestamp"]), type_name="DateTime"),
+                True,
+            ),
+            ("type_cast_of_constant", ast.TypeCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"), False),
+            ("try_cast_of_constant", ast.TryCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"), False),
+        ]
+    )
+    def test_cast_preserves_simple_timestamp_field_recognition(
+        self, _name: str, node: ast.Expr, expected: bool
+    ) -> None:
+        # A cast around a timestamp field is still a timestamp field expression; a cast of a constant is not.
+        self.assertEqual(is_simple_timestamp_field_expression(node, _make_hogql_context()), expected)
+
 
 class TestIsTimeOrIntervalConstant(unittest.TestCase):
-    def test_type_cast_of_constant_returns_true(self) -> None:
-        self.assertTrue(
-            is_time_or_interval_constant(ast.TypeCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"))
-        )
-
-    def test_type_cast_of_field_returns_false(self) -> None:
-        self.assertFalse(
-            is_time_or_interval_constant(ast.TypeCast(expr=ast.Field(chain=["timestamp"]), type_name="DateTime"))
-        )
-
-    def test_try_cast_of_constant_returns_true(self) -> None:
-        self.assertTrue(
-            is_time_or_interval_constant(ast.TryCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"))
-        )
+    @parameterized.expand(
+        [
+            ("type_cast_of_constant", ast.TypeCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"), True),
+            ("type_cast_of_field", ast.TypeCast(expr=ast.Field(chain=["timestamp"]), type_name="DateTime"), False),
+            ("try_cast_of_constant", ast.TryCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"), True),
+            ("try_cast_of_field", ast.TryCast(expr=ast.Field(chain=["timestamp"]), type_name="DateTime"), False),
+        ]
+    )
+    def test_cast_nodes(self, _name: str, node: ast.Expr, expected: bool) -> None:
+        self.assertEqual(is_time_or_interval_constant(node), expected)
 
     def test_constant_returns_true(self) -> None:
         self.assertTrue(is_time_or_interval_constant(ast.Constant(value="2024-01-01")))
