@@ -26,6 +26,8 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
     ItemSummaries,
 )
 
+from products.ai_observability.backend.summarization.models import SummarizationMode
+
 logger = structlog.get_logger(__name__)
 
 # ClickHouse max_execution_time for clustering queries (seconds).
@@ -42,18 +44,23 @@ def fetch_item_embeddings_for_clustering(
     analysis_level: AnalysisLevel = "trace",
     job_id: str | None = None,
 ) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
-    """Query item IDs and embeddings from document_embeddings table.
+    """Query item IDs and embeddings from the document_embeddings table.
 
     Two paths:
-    - job_id present: scope to one ClusteringJob via ``metadata.job_id``
-    - no job_id: return all embeddings for the document type (legacy/unfiltered)
 
-    The ``batch_run_id`` used to pair each embedding with its summary event now lives in the
-    embedding's ``metadata`` JSON (read via JSONExtractString); ``rendering`` is just the
-    summary mode. Transitional fallbacks keep pre-migration rows working: the job filter also
-    suffix-matches the legacy ``rendering = {team}_{ts}_{job_id}`` form, and the batch_run_id
-    falls back to ``rendering`` when ``metadata.batch_run_id`` is absent. Both fallbacks can be
-    dropped once the table's 3-month TTL has cycled out all pre-migration rows.
+    - **job_id present** — scope to one ClusteringJob via its durable summary events
+      (``$ai_clustering_job_id``), then read the shared per-item embeddings by ``document_id``.
+      The embeddings' own ``metadata.job_id`` is deliberately *not* used for scoping: the table
+      is a ReplacingMergeTree keyed on ``(team_id, toDate(timestamp), product, document_type,
+      rendering, cityHash64(document_id))``, so when two jobs summarize the same item on the same
+      day in the same mode their rows share a key and collapse on merge — only one job's
+      ``metadata.job_id`` survives, and the other job would silently lose those embeddings. The
+      summary events are written one-per-job-run and never collapse, so each job recovers its
+      own complete sample regardless of overlap.
+    - **no job_id** — return all embeddings for the document type (legacy/unfiltered), pairing
+      each embedding to its summary via ``batch_run_id`` (metadata, falling back to the
+      pre-migration ``rendering`` form). The fallback can be dropped once the table's 3-month TTL
+      has cycled out all pre-migration rows.
     """
     document_type = (
         constants.LLMA_GENERATION_DOCUMENT_TYPE
@@ -62,52 +69,43 @@ def fetch_item_embeddings_for_clustering(
     )
 
     if job_id:
-        query = parse_select(
-            """
-            SELECT document_id, embedding, rendering, JSONExtractString(metadata, 'batch_run_id') AS meta_batch_run_id
-            FROM raw_document_embeddings
-            WHERE timestamp >= {start_dt}
-                AND timestamp < {end_dt}
-                AND product = {product}
-                AND document_type = {document_type}
-                AND length(embedding) > 0
-                AND (JSONExtractString(metadata, 'job_id') = {job_id} OR endsWith(rendering, {job_id_suffix}))
-            ORDER BY rand()
-            LIMIT {max_samples}
-            """
+        return _fetch_job_scoped_embeddings(
+            team=team,
+            job_id=job_id,
+            window_start=window_start,
+            window_end=window_end,
+            max_samples=max_samples,
+            analysis_level=analysis_level,
+            document_type=document_type,
         )
-    else:
-        query = parse_select(
-            """
-            SELECT document_id, embedding, rendering, JSONExtractString(metadata, 'batch_run_id') AS meta_batch_run_id
-            FROM raw_document_embeddings
-            WHERE timestamp >= {start_dt}
-                AND timestamp < {end_dt}
-                AND product = {product}
-                AND (
-                    document_type = {document_type}
-                    OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
-                )
-                AND length(embedding) > 0
-            ORDER BY rand()
-            LIMIT {max_samples}
-            """
-        )
+
+    # Legacy/unfiltered path (no clustering job): all embeddings for the document type in-window.
+    query = parse_select(
+        """
+        SELECT document_id, embedding, rendering, JSONExtractString(metadata, 'batch_run_id') AS meta_batch_run_id
+        FROM raw_document_embeddings
+        WHERE timestamp >= {start_dt}
+            AND timestamp < {end_dt}
+            AND product = {product}
+            AND (
+                document_type = {document_type}
+                OR (document_type = {document_type_legacy} AND rendering = {rendering_legacy})
+            )
+            AND length(embedding) > 0
+        ORDER BY rand()
+        LIMIT {max_samples}
+        """
+    )
 
     placeholders: dict[str, ast.Expr] = {
         "start_dt": ast.Constant(value=window_start),
         "end_dt": ast.Constant(value=window_end),
         "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
         "document_type": ast.Constant(value=document_type),
+        "document_type_legacy": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY),
+        "rendering_legacy": ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY),
         "max_samples": ast.Constant(value=max_samples),
     }
-
-    if job_id:
-        placeholders["job_id"] = ast.Constant(value=job_id)
-        placeholders["job_id_suffix"] = ast.Constant(value=f"_{job_id}")
-    else:
-        placeholders["document_type_legacy"] = ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE_LEGACY)
-        placeholders["rendering_legacy"] = ast.Constant(value=constants.LLMA_TRACE_RENDERING_LEGACY)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
         result = execute_hogql_query(
@@ -132,15 +130,13 @@ def fetch_item_embeddings_for_clustering(
     embeddings_map: ItemEmbeddings = {}
     batch_run_ids_map: ItemBatchRunIds = {}
 
-    # `rendering` values that are NOT batch_run_ids: the current mode enum (post-migration
-    # rendering = the summary mode) plus the older legacy render modes. A row whose rendering
-    # is one of these and whose metadata lacks a batch_run_id contributes no pairing key, so
-    # fetch_item_summaries falls back to accepting any matching summary.
+    # `rendering` values that are NOT batch_run_ids: the current summary-mode enum plus the older
+    # legacy render modes. A row whose rendering is one of these and whose metadata lacks a
+    # batch_run_id contributes no pairing key, so fetch_item_summaries accepts any matching summary.
     non_batch_run_id_renderings = {
         constants.LLMA_TRACE_RENDERING_LEGACY,  # "llma_trace_detailed"
-        "llma_trace_minimal",  # Other legacy mode
-        "detailed",  # SummarizationMode.DETAILED — current rendering value
-        "minimal",  # SummarizationMode.MINIMAL — current rendering value
+        "llma_trace_minimal",  # legacy minimal rendering
+        *(mode.value for mode in SummarizationMode),  # current rendering values
     }
 
     for row in rows:
@@ -159,6 +155,139 @@ def fetch_item_embeddings_for_clustering(
             batch_run_ids_map[item_id] = rendering_value
 
     return item_ids, embeddings_map, batch_run_ids_map
+
+
+def _fetch_job_scoped_item_ids(
+    team: Team,
+    job_id: str,
+    window_start: datetime,
+    window_end: datetime,
+    max_samples: int,
+    analysis_level: AnalysisLevel,
+) -> list[ItemId]:
+    """Item ids a clustering job summarized in-window, read from its durable summary events.
+
+    ``$ai_trace_summary`` / ``$ai_generation_summary`` events carry ``$ai_clustering_job_id`` and
+    are written one-per-job-run, so they never collapse the way the embeddings ReplacingMergeTree
+    rows do — two jobs that sampled the same item each recover their own complete scope.
+    Random-sampled to ``max_samples`` to bound the downstream embedding read.
+    """
+    event_name = "$ai_generation_summary" if analysis_level == "generation" else "$ai_trace_summary"
+    id_property = "$ai_generation_id" if analysis_level == "generation" else "$ai_trace_id"
+
+    # ast.Field placeholders so HogQL resolves materialized columns instead of JSONExtract.
+    query = parse_select(
+        """
+        SELECT {id_prop} AS item_id
+        FROM events
+        WHERE event = {event_name}
+            AND timestamp >= {start_dt}
+            AND timestamp < {end_dt}
+            AND {job_id_prop} = {job_id}
+        GROUP BY item_id
+        ORDER BY rand()
+        LIMIT {max_samples}
+        """
+    )
+
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
+        result = execute_hogql_query(
+            query_type="JobScopedItemIdsForClustering",
+            query=query,
+            placeholders={
+                "id_prop": ast.Field(chain=["properties", id_property]),
+                "event_name": ast.Constant(value=event_name),
+                "start_dt": ast.Constant(value=window_start),
+                "end_dt": ast.Constant(value=window_end),
+                "job_id_prop": ast.Field(chain=["properties", "$ai_clustering_job_id"]),
+                "job_id": ast.Constant(value=job_id),
+                "max_samples": ast.Constant(value=max_samples),
+            },
+            team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
+        )
+
+    rows = result.results or []
+    return [row[0] for row in rows if row[0]]
+
+
+def _fetch_job_scoped_embeddings(
+    team: Team,
+    job_id: str,
+    window_start: datetime,
+    window_end: datetime,
+    max_samples: int,
+    analysis_level: AnalysisLevel,
+    document_type: str,
+) -> tuple[list[ItemId], ItemEmbeddings, ItemBatchRunIds]:
+    """Embeddings for the items a clustering job summarized, scoped via its summary events.
+
+    Embeddings are shared per ``(item, mode)`` and read by ``document_id``, so overlapping jobs
+    reuse the same row without collision. ``batch_run_ids`` comes back empty: pairing is by
+    ``item_id`` downstream (fetch_item_summaries accepts any matching summary when no batch_run_id
+    is supplied), since there is no per-job embedding row to match against.
+    """
+    item_ids = _fetch_job_scoped_item_ids(
+        team=team,
+        job_id=job_id,
+        window_start=window_start,
+        window_end=window_end,
+        max_samples=max_samples,
+        analysis_level=analysis_level,
+    )
+    if not item_ids:
+        logger.info(
+            "fetch_item_embeddings_for_clustering_result",
+            num_rows=0,
+            num_items=0,
+            analysis_level=analysis_level,
+            job_id=job_id,
+        )
+        return [], {}, {}
+
+    query = parse_select(
+        """
+        SELECT document_id, embedding
+        FROM raw_document_embeddings
+        WHERE timestamp >= {start_dt}
+            AND timestamp < {end_dt}
+            AND product = {product}
+            AND document_type = {document_type}
+            AND document_id IN {item_ids}
+            AND length(embedding) > 0
+        """
+    )
+    item_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=iid) for iid in item_ids])
+
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
+        result = execute_hogql_query(
+            query_type="ItemEmbeddingsForClustering",
+            query=query,
+            placeholders={
+                "start_dt": ast.Constant(value=window_start),
+                "end_dt": ast.Constant(value=window_end),
+                "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
+                "document_type": ast.Constant(value=document_type),
+                "item_ids": item_ids_tuple,
+            },
+            team=team,
+            settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
+        )
+
+    rows = result.results or []
+    # Dedupe on document_id: pre-merge the table can briefly hold one row per job for the same
+    # item, but the embedding content is identical, so either row is fine.
+    embeddings_map: ItemEmbeddings = {row[0]: row[1] for row in rows}
+    scoped_item_ids: list[ItemId] = list(embeddings_map.keys())
+
+    logger.info(
+        "fetch_item_embeddings_for_clustering_result",
+        num_rows=len(rows),
+        num_items=len(scoped_item_ids),
+        analysis_level=analysis_level,
+        job_id=job_id,
+    )
+    return scoped_item_ids, embeddings_map, {}
 
 
 def fetch_item_summaries(

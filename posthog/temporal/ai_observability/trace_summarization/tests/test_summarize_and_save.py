@@ -143,7 +143,7 @@ class TestSummarizeAndSaveActivity:
             ) as mock_create_event,
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.LLMTracesSummarizerEmbedder"
-            ),
+            ) as mock_embedder_class,
         ):
             mock_load.return_value = "generation text repr"
             mock_summarize.return_value = mock_summary
@@ -158,6 +158,14 @@ class TestSummarizeAndSaveActivity:
             assert call_kwargs["properties"]["$ai_generation_id"] == generation_id
             assert call_kwargs["properties"]["$ai_clustering_job_id"] == input_data.job_id
             assert call_kwargs["properties"]["$ai_clustering_job_name"] == input_data.job_name
+
+            # rendering stays the low-cardinality mode enum; batch_run_id + job_id live in metadata
+            embed_kwargs = mock_embedder_class.return_value.embed_document.call_args.kwargs
+            assert embed_kwargs["rendering"] == input_data.mode
+            assert embed_kwargs["metadata"] == {
+                "batch_run_id": input_data.batch_run_id,
+                "job_id": input_data.job_id,
+            }
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio

@@ -114,14 +114,20 @@ class TestFetchItemEmbeddingsForClustering:
         assert "job_id_suffix" not in call_kwargs["placeholders"]
 
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
-    def test_job_id_filters_by_metadata_with_rendering_fallback(self, mock_execute, mock_team):
-        mock_result = MagicMock()
-        mock_result.results = [
-            ("trace_1", [0.1, 0.2], "detailed", "2_abc-123"),
+    def test_job_id_scopes_via_summary_events_then_fetches_shared_embeddings(self, mock_execute, mock_team):
+        # The job path scopes its sample from the durable summary events ($ai_clustering_job_id),
+        # then reads the shared per-item embeddings by document_id — NOT by the embeddings'
+        # metadata.job_id, which a ReplacingMergeTree merge can drop for overlapping jobs.
+        items_result = MagicMock()
+        items_result.results = [("trace_1",), ("trace_2",)]
+        embeddings_result = MagicMock()
+        embeddings_result.results = [
+            ("trace_1", [0.1, 0.2]),
+            ("trace_2", [0.3, 0.4]),
         ]
-        mock_execute.return_value = mock_result
+        mock_execute.side_effect = [items_result, embeddings_result]
 
-        fetch_item_embeddings_for_clustering(
+        trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
@@ -129,35 +135,65 @@ class TestFetchItemEmbeddingsForClustering:
             job_id="abc-123",
         )
 
-        call_kwargs = mock_execute.call_args.kwargs
-        # job scoping reads metadata.job_id, with a transitional suffix match on legacy rendering
-        assert call_kwargs["placeholders"]["job_id"].value == "abc-123"
-        assert call_kwargs["placeholders"]["job_id_suffix"].value == "_abc-123"
-        # job_id path should not include legacy fallback placeholders
-        assert "document_type_legacy" not in call_kwargs["placeholders"]
-        assert "rendering_legacy" not in call_kwargs["placeholders"]
+        assert trace_ids == ["trace_1", "trace_2"]
+        assert embeddings_map == {"trace_1": [0.1, 0.2], "trace_2": [0.3, 0.4]}
+        # No per-job embedding row to pair against — summaries pair by item_id downstream.
+        assert batch_run_ids == {}
+
+        assert mock_execute.call_count == 2
+        scope_call, embeddings_call = mock_execute.call_args_list
+        # First query scopes by the clustering job's summary events.
+        assert scope_call.kwargs["query_type"] == "JobScopedItemIdsForClustering"
+        assert scope_call.kwargs["placeholders"]["job_id"].value == "abc-123"
+        assert scope_call.kwargs["placeholders"]["event_name"].value == "$ai_trace_summary"
+        # Second query fetches embeddings by document_id, never by metadata.job_id.
+        assert embeddings_call.kwargs["query_type"] == "ItemEmbeddingsForClustering"
+        assert "item_ids" in embeddings_call.kwargs["placeholders"]
+        assert "job_id" not in embeddings_call.kwargs["placeholders"]
 
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
-    def test_returns_empty_when_no_results(self, mock_execute, mock_team):
-        mock_result = MagicMock()
-        mock_result.results = []
-        mock_execute.return_value = mock_result
+    def test_job_id_generation_level_scopes_by_generation_summary_events(self, mock_execute, mock_team):
+        items_result = MagicMock()
+        items_result.results = [("gen_1",)]
+        embeddings_result = MagicMock()
+        embeddings_result.results = [("gen_1", [0.1, 0.2])]
+        mock_execute.side_effect = [items_result, embeddings_result]
+
+        item_ids, embeddings_map, _batch_run_ids = fetch_item_embeddings_for_clustering(
+            team=mock_team,
+            window_start=datetime(2025, 1, 1, tzinfo=UTC),
+            window_end=datetime(2025, 1, 8, tzinfo=UTC),
+            max_samples=100,
+            analysis_level="generation",
+            job_id="abc-123",
+        )
+
+        assert item_ids == ["gen_1"]
+        assert embeddings_map == {"gen_1": [0.1, 0.2]}
+        scope_call = mock_execute.call_args_list[0]
+        assert scope_call.kwargs["placeholders"]["event_name"].value == "$ai_generation_summary"
+
+    @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
+    def test_job_id_returns_empty_without_a_second_query_when_no_summary_events(self, mock_execute, mock_team):
+        # No summary events for the job → no embedding read at all (early return).
+        items_result = MagicMock()
+        items_result.results = []
+        mock_execute.return_value = items_result
 
         trace_ids, embeddings_map, batch_run_ids = fetch_item_embeddings_for_clustering(
             team=mock_team,
             window_start=datetime(2025, 1, 1, tzinfo=UTC),
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
             max_samples=100,
-            job_id="some-job",
+            job_id="abc-123",
         )
 
-        assert trace_ids == []
-        assert embeddings_map == {}
-        assert batch_run_ids == {}
+        assert (trace_ids, embeddings_map, batch_run_ids) == ([], {}, {})
+        assert mock_execute.call_count == 1
 
     @patch("posthog.temporal.ai_observability.trace_clustering.data.execute_hogql_query")
-    def test_single_query_for_all_cases(self, mock_execute, mock_team):
-        """Both job_id and no-job_id paths use a single execute_hogql_query call."""
+    def test_no_job_path_uses_single_query(self, mock_execute, mock_team):
+        """The unfiltered (no job_id) path reads embeddings in a single query."""
         mock_result = MagicMock()
         mock_result.results = [("id_1", [0.1], "detailed", "batch_1")]
         mock_execute.return_value = mock_result
@@ -168,7 +204,6 @@ class TestFetchItemEmbeddingsForClustering:
             window_end=datetime(2025, 1, 8, tzinfo=UTC),
             max_samples=100,
             analysis_level="generation",
-            job_id="test-job",
         )
 
         assert mock_execute.call_count == 1
