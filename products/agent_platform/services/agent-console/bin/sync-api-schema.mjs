@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const CONSOLE_ROOT = path.resolve(HERE, '..')
-const REPO_ROOT = path.resolve(CONSOLE_ROOT, '../..')
+const REPO_ROOT = path.resolve(CONSOLE_ROOT, '../../../..')
 
 const SOURCES = [
     {
