@@ -117,7 +117,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                         </Link>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
                         {filteredItems.map((item) => (
                             <SourceTile
                                 key={item.name}
