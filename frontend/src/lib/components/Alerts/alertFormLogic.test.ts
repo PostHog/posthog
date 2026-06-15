@@ -312,7 +312,11 @@ describe('alertFormLogic', () => {
                 insightAlertKind: 'hogql',
             })
             logic.mount()
-            logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig', ...configOverrides })
+            logic.actions.setAlertFormValue('config', {
+                type: 'HogQLAlertConfig',
+                evaluation: 'last_row',
+                ...configOverrides,
+            })
             return logic
         }
 
@@ -420,7 +424,7 @@ describe('alertFormLogic', () => {
                 insightAlertKind: 'hogql',
             })
             logic.mount()
-            logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig' })
+            logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig', evaluation: 'last_row' })
             insightDataLogic(insightLogicProps).actions.setInsightData(insightData)
             return logic
         }

@@ -13,7 +13,12 @@ from posthog.schema import (
 
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, evaluate_threshold
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.hogql import ANY_ROW_MAX_ROWS, HogQLExtractor, _resolve_value_column_index
+from products.alerts.backend.evaluation.hogql import (
+    ANY_ROW_MAX_ROWS,
+    LAST_ROW_MAX_ROWS,
+    HogQLExtractor,
+    _resolve_value_column_index,
+)
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
 
@@ -23,7 +28,9 @@ ABSOLUTE = AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE)
 def _alert(condition_type=AlertConditionType.ABSOLUTE_VALUE, config: dict | None = None):
     alert = MagicMock()
     alert.condition = {"type": condition_type}
-    alert.config = config or {"type": "HogQLAlertConfig"}
+    # ``evaluation`` is required on the schema; default it to last_row unless a case overrides it,
+    # so individual tests only specify it when the mode is what's under test.
+    alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row", **(config or {})}
     return alert
 
 
@@ -175,6 +182,39 @@ def test_absolute_alert_breaches_on_last_row():
 def test_relative_alert_needs_two_rows():
     with pytest.raises(AlertExtractionError, match="at least two rows"):
         _extract([[5]], condition_type=AlertConditionType.RELATIVE_INCREASE)
+
+
+def test_last_row_fails_loud_when_result_hits_the_cap():
+    # A result at the hard cap may be truncated, so the "last row" can't be trusted — fail loud.
+    rows = [[float(i)] for i in range(LAST_ROW_MAX_ROWS)]
+    with pytest.raises(AlertExtractionError, match="may be truncated"):
+        _extract(rows)
+
+
+def test_first_row_evaluates_the_head_newest_first():
+    # first_row reads the head: row 0 is the current (newest) value.
+    result = _extract([[200], [10]], config={"evaluation": "first_row"})
+    assert result.series[0].current_index == len(result.series[0].points) - 1
+    evaluation = evaluate_threshold(result, ABSOLUTE, _threshold(upper=100))
+    assert evaluation.value == 200.0  # the head row, not the tail
+
+
+def test_first_row_relative_compares_the_first_two_rows():
+    # Newest-first: row 0 is current, row 1 is previous → 200 vs 100 = +100%.
+    result = _extract(
+        [[200], [100]], condition_type=AlertConditionType.RELATIVE_INCREASE, config={"evaluation": "first_row"}
+    )
+    evaluation = evaluate_threshold(
+        result, AlertCondition(type=AlertConditionType.RELATIVE_INCREASE), _threshold(upper=50)
+    )
+    assert evaluation.value == 100.0  # (200 - 100) / 100 = +100%
+
+
+def test_first_row_has_no_cap():
+    # The head is unaffected by truncation, so first_row accepts a result past the last_row cap.
+    rows = [[float(i)] for i in range(LAST_ROW_MAX_ROWS)]
+    result = _extract(rows, config={"evaluation": "first_row"})
+    assert result.series[0].points[result.series[0].current_index].value == 0.0  # row 0
 
 
 def test_any_row_breaches_on_any_value_with_row_label():

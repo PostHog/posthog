@@ -26,7 +26,7 @@ def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, 
 
 
 def _hogql_config() -> dict[str, Any]:
-    return {"type": "HogQLAlertConfig"}
+    return {"type": "HogQLAlertConfig", "evaluation": "last_row"}
 
 
 def _hogql_query() -> dict[str, Any]:
@@ -343,6 +343,27 @@ class TestValidateAlertConfig:
                 _base_threshold(),
                 "daily",
             )
+
+    def test_hogql_config_without_evaluation_rejected(self) -> None:
+        # ``evaluation`` is required — no silent default.
+        with pytest.raises(ValueError, match="invalid HogQLAlertConfig"):
+            validate_alert_config(
+                _hogql_query(),
+                _base_condition(),
+                {"type": "HogQLAlertConfig"},
+                _base_threshold(),
+                "daily",
+            )
+
+    def test_first_row_hogql_alert_accepts_relative_conditions(self) -> None:
+        # Unlike any_row, first_row is a time axis (newest first), so relative is valid.
+        validate_alert_config(
+            _hogql_query(),
+            _base_condition("relative_increase"),
+            {"type": "HogQLAlertConfig", "evaluation": "first_row"},
+            _base_threshold(type="percentage"),
+            "daily",
+        )
 
     def test_detector_config_rejected_for_non_trends_insight(self) -> None:
         with pytest.raises(ValueError, match="Anomaly detection alerts are only supported for trends insights"):

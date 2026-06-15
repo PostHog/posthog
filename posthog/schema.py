@@ -5270,8 +5270,9 @@ class HogQLAlertConfig(BaseModel):
             " column is used (an error if the result has more than one numeric column)."
         ),
     )
-    evaluation: HogQLAlertEvaluation | None = Field(
-        default=None, description="How to read the result rows. Defaults to `last_row`."
+    evaluation: HogQLAlertEvaluation = Field(
+        ...,
+        description=("How to read the result rows — an explicit choice, no implicit default."),
     )
     label_column: str | None = Field(
         default=None,

@@ -104,7 +104,7 @@ export type HogQLAlertPreview =
     | { status: 'not-numeric'; value: string }
     | {
           status: 'ok'
-          mode: 'last_row' | 'any_row'
+          mode: 'last_row' | 'first_row' | 'any_row'
           /** Resolved evaluated column name; null when the result has no column metadata. */
           columnName: string | null
           /** Resolved label column name; null when rows are labeled by row number. */
@@ -159,13 +159,15 @@ export function deriveHogQLAlertPreview(
     if (rows.length === 0) {
         return { status: 'no-rows' }
     }
-    const lastRow = rows[rows.length - 1]
-    if (!Array.isArray(lastRow)) {
-        return { status: 'bad-shape' }
-    }
-
     const hogqlConfig = isHogQLAlertConfig(config) ? config : null
     const mode = hogqlConfig?.evaluation ?? 'last_row'
+    // first_row reads the head (newest first), last_row/any_row the tail; the anchor row is what
+    // last_row/first_row evaluate and what the shape check applies to.
+    const anchorRow = mode === 'first_row' ? rows[0] : rows[rows.length - 1]
+    if (!Array.isArray(anchorRow)) {
+        return { status: 'bad-shape' }
+    }
+    const lastRow = anchorRow
     if (mode === 'any_row' && rows.length > HOGQL_ANY_ROW_MAX_ROWS) {
         return { status: 'too-many-rows', rowCount: rows.length }
     }
@@ -224,7 +226,9 @@ export function deriveHogQLAlertPreview(
         }
     })
 
-    const previousValue = rows.length > 1 ? _cellValue(rows[rows.length - 2], valueIndex) : null
+    // Previous row is the second from the anchor end: tail for last_row, head for first_row.
+    const previousRow = mode === 'first_row' ? rows[1] : rows[rows.length - 2]
+    const previousValue = rows.length > 1 ? _cellValue(previousRow, valueIndex) : null
     return {
         status: 'ok',
         mode,
@@ -250,7 +254,8 @@ export interface AlertFormLogicProps {
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
     if (kind === 'hogql') {
-        return { type: 'HogQLAlertConfig' }
+        // last_row is the default — the most common SQL alert shape is a chronological series.
+        return { type: 'HogQLAlertConfig', evaluation: 'last_row' }
     }
     if (kind === 'funnels') {
         return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }

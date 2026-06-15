@@ -4784,9 +4784,11 @@ export interface TrendsAlertConfig {
 }
 
 /** How a SQL alert reads the query result.
- * `last_row` = the query is chronologically ordered and the last row is the current value;
+ * `last_row` = the query is ordered oldest→newest and the last row is the current value;
+ * `first_row` = the query is ordered newest→oldest and the first row is the current value
+ * (this mode bounds the fetch with a LIMIT since only the head is read);
  * `any_row` = every row is checked and the alert fires if any value breaches (absolute conditions only). */
-export type HogQLAlertEvaluation = 'last_row' | 'any_row'
+export type HogQLAlertEvaluation = 'last_row' | 'first_row' | 'any_row'
 
 /** Alert config for HogQL/SQL-backed insights. The query owns its own time window. */
 export interface HogQLAlertConfig {
@@ -4794,8 +4796,8 @@ export interface HogQLAlertConfig {
     /** Name of the result column to evaluate. When unset, the single numeric column is used
      * (an error if the result has more than one numeric column). */
     column?: string | null
-    /** How to read the result rows. Defaults to `last_row`. */
-    evaluation?: HogQLAlertEvaluation
+    /** How to read the result rows — an explicit choice, no implicit default. */
+    evaluation: HogQLAlertEvaluation
     /** In `any_row` mode, the column whose value labels each row in breach messages.
      * When unset, the first non-evaluated column is used, falling back to the row number. */
     label_column?: string | null

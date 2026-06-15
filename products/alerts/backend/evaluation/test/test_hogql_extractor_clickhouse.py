@@ -22,7 +22,7 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
             insight=insight,
             name="filters placeholder alert",
             condition={"type": "absolute_value"},
-            config={"type": "HogQLAlertConfig"},
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
             calculation_interval="daily",
         )
         result = HogQLExtractor().extract(alert, insight, hogql_source)

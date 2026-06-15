@@ -4,6 +4,8 @@ from typing import Any
 
 from posthog.schema import AlertCondition, AlertConditionType, HogQLAlertConfig, HogQLAlertEvaluation
 
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import EventSource
@@ -25,15 +27,24 @@ _HOGQL_SUBJECT = "The SQL insight value"
 # frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (frontend/src/lib/components/Alerts/alertFormLogic.ts);
 # keep the two in sync.
 ANY_ROW_MAX_ROWS = 50
+# last_row reads the tail, so a result truncated at HogQL's hard cap can't be trusted (the real
+# last row may have been dropped). Fail loud rather than alert on a truncated tail. first_row reads
+# the head, which truncation never touches, so it has no such limit — use it (with a DESC ORDER BY)
+# for queries that would otherwise return too many rows.
+LAST_ROW_MAX_ROWS = MAX_SELECT_RETURNED_ROWS
 
 
 class HogQLExtractor:
     """Normalize a HogQL/SQL-backed insight into ``ComparableSeries``.
 
     The config picks which result column to evaluate (defaulting to the single numeric column)
-    and how to read the rows: ``last_row`` trusts the query's ORDER BY and treats the last row
-    as the current value; ``any_row`` checks every row and fires if any value breaches, labeling
-    each row for the breach message. The shared comparator interprets the series either way.
+    and how to read the rows:
+      - ``last_row``: the query is ordered oldest->newest; the last row is the current value.
+      - ``first_row``: the query is ordered newest->oldest; the first row is the current value.
+        The head is unaffected by result truncation and pairs with a user ``LIMIT``, so this is
+        the mode for queries that would otherwise return very many rows.
+      - ``any_row``: every row is checked and fires if any value breaches, labeling each row.
+    The shared comparator interprets the resulting series either way.
 
     PREVIEW MIRROR CONTRACT: the configure-time preview re-implements this extractor's decision
     rules in TypeScript (``deriveHogQLAlertPreview`` in
@@ -46,13 +57,14 @@ class HogQLExtractor:
       4. label-column resolution: explicit -> first non-evaluated column -> row number
       5. empty result evaluates as 0 (zero sentinel)
       6. any-row cap: ``ANY_ROW_MAX_ROWS`` (mirrored as ``HOGQL_ANY_ROW_MAX_ROWS``)
+      7. anchor row: ``last_row`` reads the tail, ``first_row`` the head; both yield (previous, current)
     """
 
     def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
         # ``query`` is unused (Protocol signature): the extractor recomputes via the insight.
         condition = AlertCondition.model_validate(alert.condition)
-        config = HogQLAlertConfig.model_validate(alert.config or {"type": "HogQLAlertConfig"})
-        evaluation = config.evaluation or HogQLAlertEvaluation.LAST_ROW
+        config = HogQLAlertConfig.model_validate(alert.config or {"type": "HogQLAlertConfig", "evaluation": "last_row"})
+        evaluation = config.evaluation
 
         calculation_result = calculate_for_query_based_insight(
             insight,
@@ -79,12 +91,20 @@ class HogQLExtractor:
                 empty_query_result=True,
             )
 
-        # The row cap is checked before column resolution so an oversized result gets the clearer
-        # "add a LIMIT" error rather than a column-resolution one.
+        # Row caps are checked before column resolution so an oversized result gets the clearer
+        # "too many rows" error rather than a column-resolution one. last_row reads the tail, which
+        # a truncated result destroys, so fail loud at the hard cap; first_row reads the head and is
+        # unaffected, so it has no cap.
         if evaluation == HogQLAlertEvaluation.ANY_ROW and len(rows) > ANY_ROW_MAX_ROWS:
             raise AlertExtractionError(
                 f"Any-row SQL alerts evaluate at most {ANY_ROW_MAX_ROWS} rows, but the query returned "
                 f"{len(rows)} — add a LIMIT or aggregate the query."
+            )
+        if evaluation == HogQLAlertEvaluation.LAST_ROW and len(rows) >= LAST_ROW_MAX_ROWS:
+            raise AlertExtractionError(
+                f"Last-row SQL alerts can't trust a result of {len(rows)}+ rows — it may be truncated, so "
+                "the last row might not be the real one. Add ORDER BY ... LIMIT, aggregate, or use first-row "
+                "evaluation with a newest-first ordering."
             )
 
         columns = calculation_result.columns if isinstance(calculation_result.columns, list) else None
@@ -112,13 +132,11 @@ class HogQLExtractor:
                 series=series, is_breakdown=True, subject=_HOGQL_SUBJECT, framed=False, aggregate_breaches=True
             )
 
-        values = _trailing_column_values(rows, value_index)
+        # last_row / first_row: read the (previous, current) pair from the tail or head respectively.
+        values = _anchor_values(rows, value_index, from_head=evaluation == HogQLAlertEvaluation.FIRST_ROW)
         is_relative = condition.type in (AlertConditionType.RELATIVE_INCREASE, AlertConditionType.RELATIVE_DECREASE)
         if is_relative and len(values) < 2:
-            raise AlertExtractionError(
-                "Relative alerts on SQL insights need at least two rows (current and previous), "
-                "ordered chronologically."
-            )
+            raise AlertExtractionError("Relative alerts on SQL insights need at least two rows (current and previous).")
 
         points = [SeriesPoint(date=None, value=v) for v in values]
         series_label = column_names[value_index] if column_names and value_index < len(column_names) else "result"
@@ -206,12 +224,20 @@ def _column_is_numeric(rows: list, index: int) -> bool:
     return False
 
 
-def _trailing_column_values(rows: list, value_index: int) -> list[float]:
-    """Extract the chosen column from the last two rows as floats.
+def _anchor_values(rows: list, value_index: int, *, from_head: bool) -> list[float]:
+    """Extract the (previous, current) values for last_row/first_row, current last.
 
-    Only the tail is inspected — last-row evaluation never reads further back than the
-    second-to-last row, so validating earlier rows would waste work on data we won't use.
+    Only the head or tail is inspected — these modes never read past the second row in from
+    the anchor end, so validating the rest would waste work on data we won't use. ``last_row``
+    takes the tail ``[..previous, current]``; ``first_row`` takes the head ``[current, previous..]``
+    (newest first) and reverses it to the same ``[..previous, current]`` shape, so the caller can
+    treat the last element as the anchor either way.
     """
+    if from_head:
+        head = rows[:2]
+        positions = ["first row", "second row"][: len(head)]
+        cells = [_numeric_cell(row, value_index, position=position) for position, row in zip(positions, head)]
+        return list(reversed(cells))
     tail = rows[-2:]
     positions = ["second-to-last row", "last row"] if len(tail) == 2 else ["last row"]
     return [_numeric_cell(row, value_index, position=position) for position, row in zip(positions, tail)]
