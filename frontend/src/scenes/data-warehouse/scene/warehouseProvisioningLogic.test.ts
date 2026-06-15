@@ -1,9 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
+
+import * as dwApi from 'products/data_warehouse/frontend/generated/api'
 
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
 
@@ -12,7 +13,11 @@ describe('warehouseProvisioningLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.dataWarehouse, 'warehouseStatus').mockResolvedValue(null as any)
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(null as any)
+        jest.spyOn(dwApi, 'dataWarehouseCheckDatabaseNameRetrieve').mockResolvedValue({
+            name: '',
+            available: true,
+        } as any)
     })
 
     afterEach(() => {
@@ -25,11 +30,11 @@ describe('warehouseProvisioningLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadWarehouseStatus', 'loadWarehouseStatusSuccess'])
-        expect(api.dataWarehouse.warehouseStatus).toHaveBeenCalled()
+        expect(dwApi.dataWarehouseWarehouseStatusRetrieve).toHaveBeenCalled()
     })
 
     it('treats a 404 status as no warehouse', async () => {
-        jest.spyOn(api.dataWarehouse, 'warehouseStatus').mockRejectedValueOnce({ status: 404 })
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockRejectedValueOnce({ status: 404 })
 
         logic = warehouseProvisioningLogic()
         logic.mount()
@@ -46,6 +51,11 @@ describe('warehouseProvisioningLogic', () => {
             logic.actions.setDatabaseName('Bad Name')
         }).toMatchValues({ isValidDatabaseName: false, canProvision: false })
 
+        // Underscores are not valid in a DNS subdomain
+        await expectLogic(logic, () => {
+            logic.actions.setDatabaseName('bad_name')
+        }).toMatchValues({ isValidDatabaseName: false })
+
         await expectLogic(logic, () => {
             logic.actions.setDatabaseName('valid-name')
             logic.actions.setDatabaseNameAvailable(true)
@@ -53,7 +63,7 @@ describe('warehouseProvisioningLogic', () => {
     })
 
     it('surfaces an info message instead of an error when a sibling project already provisioned (409)', async () => {
-        jest.spyOn(api.dataWarehouse, 'provisionWarehouse').mockRejectedValueOnce({ status: 409 })
+        jest.spyOn(dwApi, 'dataWarehouseProvisionCreate').mockRejectedValueOnce({ status: 409 })
         const infoToast = jest.spyOn(lemonToast, 'info').mockReturnValue(undefined as any)
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
 
