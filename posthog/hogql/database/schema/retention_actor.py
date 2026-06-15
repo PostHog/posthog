@@ -7,6 +7,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
     UnknownDatabaseField,
+    UUIDDatabaseField,
 )
 
 from posthog.clickhouse.preaggregation.retention_actor_sql import DISTRIBUTED_RETENTION_ACTOR_TABLE
@@ -21,7 +22,7 @@ class RetentionActorTable(Table):
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),
         "kind": StringDatabaseField(name="kind"),
-        "actor_id": StringDatabaseField(name="actor_id"),
+        "actor_id": UUIDDatabaseField(name="actor_id"),
         # AggregateFunction state columns — opaque to HogQL; read via minMerge / groupUniqArrayMerge.
         "first_seen": UnknownDatabaseField(name="first_seen"),
         "active_days": UnknownDatabaseField(name="active_days"),
