@@ -51,7 +51,7 @@ jobs:
                       --error \
                       --metrics=off \
                       --verbose \
-                      --jobs auto \
+                      --jobs 4 \
                       bin/ common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
