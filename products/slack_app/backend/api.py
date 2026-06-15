@@ -1588,11 +1588,6 @@ def resolve_posthog_user_from_event(
         slack_email = get_slack_email_for_user(probe_integration, slack_user_id)
     if not slack_email:
         return None
-
-    if settings.DEBUG:
-        # When running locally - match the local user
-        slack_email = "test@posthog.com"
-
     org_ids = {c.team.organization_id for c in candidate_integrations}
     if not org_ids:
         return None
