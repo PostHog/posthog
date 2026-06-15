@@ -4890,6 +4890,10 @@ snapshots:
         hash: v1.k794b7964.f63eec588ee7cf4aae7394caaf42ef000fe6ee9e4c92611f70a1de609de258ad.k8PvcZvu-w75qhYEx0dNXUbh5SoT-9pObguvhGzTRrg
     scenes-app-data-warehouse-settings-schemas--default--light:
         hash: v1.k794b7964.18626812d4b56d76787437924e1bc585c0d290b2d3d5a82acef06ad862687d31.T90_pbE7tLkoXwZml5VYlGjFqOKnGtCJsNfB3J76Xio
+    scenes-app-data-warehouse-settings-schemas--multi-schema--dark:
+        hash: v1.k794b7964.b255a3c1197cc622c87d3d303f9383b1383ef2757909ec2a8226eaafad21e3ba.jKeujVd-NHbkQU7l7h42HpO-bFuzisnnokpXKTJPg48
+    scenes-app-data-warehouse-settings-schemas--multi-schema--light:
+        hash: v1.k794b7964.58438be90ae39f31b85e0960ef8d68faa19d5012d36974f54144705370476233.WpCHH6hiYT3C4TYv4rV4-m_rcQwwF3VlU4G8M_WbVXg
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.0574501d1036cac7563c61590dfb8b3d64192e239cbad126d754b9905b4f3ee1._MDyv82QyHN-dApRaQoppTvESKRRZP_p6MB5PKLrjeg
     scenes-app-error-project-unavailable--access-revoked--light:
