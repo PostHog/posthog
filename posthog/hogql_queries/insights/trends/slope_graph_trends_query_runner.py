@@ -111,7 +111,8 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
 
     @staticmethod
     def _series_key(result: dict) -> tuple:
-        order = (result.get("action") or {}).get("order", 0)
+        action_order = (result.get("action") or {}).get("order")
+        order = action_order if action_order is not None else result.get("order", 0)
         return (order, str(result.get("breakdown_value")))
 
     def _zip_windows(self, first: list[dict], second: list[dict], labels: list[str], days: list[str]) -> list[dict]:

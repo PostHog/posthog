@@ -46,9 +46,11 @@ describe('slopeChartTransforms', () => {
             expect(slopeLabels(['Mon', 'Tue', 'Wed', 'Thu'])).toEqual(['Mon', 'Thu'])
         })
 
-        it('passes through when there are fewer than two labels', () => {
-            expect(slopeLabels(['Mon'])).toEqual(['Mon'])
-            expect(slopeLabels([])).toEqual([])
+        it.each([
+            [['Mon'], ['Mon']],
+            [[], []],
+        ])('passes through when there are fewer than two labels: %p', (input, expected) => {
+            expect(slopeLabels(input)).toEqual(expected)
         })
     })
 })

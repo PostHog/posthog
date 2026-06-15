@@ -124,3 +124,14 @@ class TestSlopeGraphTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self._run("2024-01-11", "2024-01-20", include_incomplete_period=include_incomplete_period)
 
         assert response.results[0]["count"] == expected_count
+
+    @parameterized.expand(
+        [
+            ("action_series", {"action": {"order": 2}, "breakdown_value": None}, (2, "None")),
+            ("formula_series_uses_top_level_order", {"action": None, "order": 1, "breakdown_value": None}, (1, "None")),
+            ("formula_series_defaults_to_zero", {"action": None, "breakdown_value": None}, (0, "None")),
+            ("breakdown_included_in_key", {"action": {"order": 0}, "breakdown_value": "paid"}, (0, "paid")),
+        ]
+    )
+    def test_series_key(self, _name, result, expected_key):
+        assert SlopeGraphTrendsQueryRunner._series_key(result) == expected_key
