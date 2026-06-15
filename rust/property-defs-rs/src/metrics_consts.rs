@@ -36,6 +36,9 @@ pub const ISOLATED_PROPDEFS_DB_SELECTED: &str = "isolated_propdefs_db_selected";
 
 pub const PERSONHOG_RESOLVE_ERRORS: &str = "prop_defs_personhog_resolve_errors";
 pub const PERSONHOG_RESOLVE_DURATION: &str = "prop_defs_personhog_resolve_duration_ms";
+pub const PERSONHOG_ERRORS_TOTAL: &str = "personhog_errors_total";
+pub const PERSONHOG_RETRIES_TOTAL: &str = "personhog_retries_total";
+pub const PERSONHOG_TERMINAL_ERRORS_TOTAL: &str = "personhog_terminal_errors_total";
 
 //
 // property-defs-rs "v2" batch write path metric keys below

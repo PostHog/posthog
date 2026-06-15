@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     AggregatedSpanRow,
+    AttributeBreakdownRow,
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansTreeQueryResponse,
     DateRange,
@@ -35,6 +36,7 @@ from posthog.schema import (
     SpanTreeNode,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQuery,
     TraceSpansTreeQuery,
     TraceSpansTreeQueryResponse,
 )
@@ -53,7 +55,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import translate_span_filter
+from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -78,7 +80,7 @@ class _SpanAggregationMixin:
     # with the narrower concrete type; the runtime attribute values come from `QueryRunner`
     # initialization on the concrete class, not from this mixin.
     if TYPE_CHECKING:
-        query: TraceSpansAggregationQuery | TraceSpansTreeQuery
+        query: TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery
         team: "Team"
         modifiers: HogQLQueryModifiers
         timings: HogQLTimings
@@ -254,7 +256,7 @@ class _SpanAggregationMixin:
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         raise NotImplementedError
 
-    def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow | SpanTreeNode:
+    def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow | SpanTreeNode | AttributeBreakdownRow:
         raise NotImplementedError
 
 
@@ -287,8 +289,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
             WHERE {where}
-              AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-              AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+              AND """
+            + TIME_BUCKET_DATE_RANGE_WHERE
+            + """
               AND timestamp >= {date_from}
               AND timestamp < {date_to}
             GROUP BY service_name, name
@@ -322,6 +325,28 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return response
 
 
+def _annotate_calls_per_parent_invocation(rows: list[SpanTreeNode]) -> None:
+    """Set each edge's child-calls-per-parent-invocation ratio, in place.
+
+    A parent's invocation count is the sum of edge counts where it appears as the child
+    (it may appear under several grandparents). Root edges have no parent invocation to
+    ratio against, so they stay None.
+
+    The denominator is reconstructed from the returned rows, so when the tree hits the
+    `_ROW_LIMIT` cap a parent's child edges can be split across the cut, understating the
+    denominator and overstating the ratio. That only happens with very high span-name
+    cardinality in one service; the prompt doc flags the ratio as approximate at the cap.
+    """
+    invocations: dict[tuple[str, str], int] = {}
+    for node in rows:
+        key = (node.service_name, node.name)
+        invocations[key] = invocations.get(key, 0) + node.count
+    for node in rows:
+        parent_total = invocations.get((node.parent_service, node.parent_name))
+        if parent_total:
+            node.calls_per_parent_invocation = node.count / parent_total
+
+
 class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[TraceSpansTreeQueryResponse]):
     query: TraceSpansTreeQuery
     cached_response: CachedTraceSpansTreeQueryResponse
@@ -334,6 +359,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
 
     def _calculate(self) -> TraceSpansTreeQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
+        _annotate_calls_per_parent_invocation(current_rows)
+        if previous_rows is not None:
+            _annotate_calls_per_parent_invocation(previous_rows)
         return TraceSpansTreeQueryResponse(results=current_rows, compare=previous_rows)
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
@@ -350,8 +378,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 WHERE {where}
                   AND name = {span_name}
                   AND service_name = {service_name}
-                  AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-                  AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+                  AND """
+            + TIME_BUCKET_DATE_RANGE_WHERE
+            + """
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
             ),
@@ -362,8 +391,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 FROM posthog.trace_spans
                 WHERE trace_id IN (SELECT trace_id FROM matched_traces)
                   AND service_name = {service_name}
-                  AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-                  AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+                  AND """
+            + TIME_BUCKET_DATE_RANGE_WHERE
+            + """
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
             )
@@ -382,7 +412,10 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                     if(
                         empty(s.parent_span_id) OR isNull(p.timestamp),
                         toFloat(0),
-                        toFloat(s.timestamp) - toFloat(p.timestamp)
+                        -- microsecond diff * 1000 → nanoseconds, mirroring how duration_nano is
+                        -- materialized on this table. toFloat(s.timestamp) - toFloat(p.timestamp)
+                        -- would give Unix *seconds* (the column is DateTime64), not nanos.
+                        toFloat(dateDiff('microsecond', p.timestamp, s.timestamp) * 1000)
                     )
                 ) AS avg_start_offset_nano
             FROM spans AS s

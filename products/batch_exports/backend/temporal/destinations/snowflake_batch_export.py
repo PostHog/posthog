@@ -585,6 +585,11 @@ class SnowflakeClient:
                     role=f'"{self.role}"' if self.role is not None else None,
                     private_key=self.private_key,
                     login_timeout=5,
+                    # Pin Snowflake's per-session statement count to 1 to block
+                    # multi-statement execution. This is already the connector default,
+                    # but setting it explicitly means an account-level override cannot
+                    # accidentally enable multi-statement execution.
+                    session_parameters={"MULTI_STATEMENT_COUNT": 1},
                 )
             connection.telemetry_enabled = False
 
@@ -895,7 +900,7 @@ class SnowflakeClient:
         exists_ok: bool = True,
         delete: bool = True,
         not_found_ok: bool = True,
-    ) -> collections.abc.AsyncGenerator[SnowflakeTable, None]:
+    ) -> collections.abc.AsyncGenerator[SnowflakeTable]:
         """Manage a table in Snowflake by ensure it exists while in context."""
         if create is True:
             await self.create_table(table)
@@ -1013,8 +1018,9 @@ class SnowflakeClient:
             max_attempts=max_attempts,
             retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
             # 608 = Warehouse suspended error
-            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
-            and (e.errno == 608 or e.errno == 90073),
+            is_exception_retryable=lambda e: (
+                isinstance(e, snowflake.connector.errors.ProgrammingError) and (e.errno == 608 or e.errno == 90073)
+            ),
         )
 
         # We need to explicitly catch exceptions here because otherwise they seem to be swallowed

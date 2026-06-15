@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
@@ -13,16 +12,16 @@ import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/t
 import { DEFAULT_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getCupedSelection, resolveCupedEnabled } from './cuped'
+import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
+import { resolveSequentialEnabled } from './sequential'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
-    const { experiment, statsMethod } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { experiment, statsMethod, variants } = useValues(experimentLogic)
+    const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
-    const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
 
@@ -31,9 +30,20 @@ export function SettingsTab(): JSX.Element {
         : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
 
     const teamDefaultCupedEnabled = experimentsConfig?.default_cuped_enabled ?? false
+    const teamDefaultCupedLookbackDays = experimentsConfig?.default_cuped_lookback_days ?? null
     const cupedExplicitlySet = getCupedSelection(experiment.stats_config?.cuped) !== 'default'
     const cupedEnabled = resolveCupedEnabled(experiment.stats_config?.cuped, teamDefaultCupedEnabled)
-    const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
+    const cupedLookbackDays = resolveCupedLookbackDays(
+        experiment.stats_config?.cuped,
+        teamDefaultCupedLookbackDays,
+        DEFAULT_LOOKBACK_DAYS
+    )
+
+    const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
+    const sequentialEnabled = resolveSequentialEnabled(
+        experiment.stats_config?.frequentist,
+        teamDefaultSequentialEnabled
+    )
 
     const returnTo = urls.experiment(experiment.id)
 
@@ -47,42 +57,52 @@ export function SettingsTab(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span>
                         {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
+                        {!isBayesian && sequentialEnabled && ' · Sequential testing'}
                     </span>
                     <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
                 </div>
                 <StatsMethodModal />
             </div>
-            {showCupedOption && (
-                <div>
-                    <h2 className="font-semibold text-lg">CUPED</h2>
-                    <div className="flex items-center gap-2">
-                        <LemonTag type={cupedEnabled ? 'success' : 'default'}>
-                            {cupedEnabled ? 'Enabled' : 'Disabled'}
-                        </LemonTag>
-                        {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
-                        <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
-                    </div>
-                    <p className="text-muted text-xs mt-1">
-                        Use pre-experiment data to detect significant effects faster. Currently supported for mean and
-                        funnel metrics.{' '}
-                        {!cupedExplicitlySet && (
-                            <>
-                                Default is set in{' '}
-                                <Link
-                                    to={urls.settings(
-                                        'environment-experiments',
-                                        'environment-experiment-cuped-enabled'
-                                    )}
-                                >
-                                    environment settings
-                                </Link>
-                                .
-                            </>
-                        )}
-                    </p>
-                    <CupedModal />
+            <div>
+                <h2 className="font-semibold text-lg">CUPED</h2>
+                <div className="flex items-center gap-2">
+                    <LemonTag type={cupedEnabled ? 'success' : 'default'}>
+                        {cupedEnabled ? 'Enabled' : 'Disabled'}
+                    </LemonTag>
+                    {cupedEnabled && <span>{cupedLookbackDays}-day lookback</span>}
+                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
                 </div>
-            )}
+                <p className="text-muted text-xs mt-1">
+                    Use pre-experiment data to detect significant effects faster. Currently supported for mean and
+                    funnel metrics.{' '}
+                    {!cupedExplicitlySet && (
+                        <>
+                            Default is set in{' '}
+                            <Link to={urls.settings('environment-experiments', 'environment-experiment-cuped-enabled')}>
+                                environment settings
+                            </Link>
+                            .
+                        </>
+                    )}
+                </p>
+                <CupedModal />
+            </div>
+            <div>
+                <h2 className="font-semibold text-lg">Baseline variant</h2>
+                <LemonSelect
+                    value={experiment.stats_config?.baseline_variant_key ?? 'control'}
+                    options={variants.map((v) => ({
+                        value: v.key,
+                        label: v.key,
+                    }))}
+                    onChange={(value) => {
+                        updateExperimentSettings({
+                            stats_config: { ...experiment.stats_config, baseline_variant_key: value },
+                        })
+                    }}
+                />
+                <p className="text-muted text-xs mt-1">The variant all others are compared against.</p>
+            </div>
             <div>
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">
@@ -90,7 +110,7 @@ export function SettingsTab(): JSX.Element {
                         label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
-                            updateExperiment({ only_count_matured_users: checked })
+                            updateExperimentSettings({ only_count_matured_users: checked })
                         }}
                     />
                 </div>

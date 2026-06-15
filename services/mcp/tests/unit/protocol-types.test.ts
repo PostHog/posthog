@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { resolveMode } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { resolveModeAndVersion } from '@/hono/request-state-resolver'
 
-describe('resolveModeAndVersion', () => {
+describe('resolveMode', () => {
     function profile(overrides: Partial<ConstructorParameters<typeof MCPClientProfile>[0]> = {}): MCPClientProfile {
         return new MCPClientProfile({ clientName: 'generic-client', ...overrides })
     }
@@ -11,23 +11,19 @@ describe('resolveModeAndVersion', () => {
     const base = {
         mode: undefined as undefined,
         clientProfile: profile(),
-        flagVersion: undefined as number | undefined,
-        clientVersion: undefined as number | undefined,
+        renderUiFlagEnabled: false,
     }
 
-    it('defaults to version 1, no single exec', () => {
-        expect(resolveModeAndVersion(base)).toEqual({ useSingleExec: false, version: 1 })
+    it('defaults to tools mode, no single exec', () => {
+        expect(resolveMode(base)).toEqual({ mode: 'tools', useSingleExec: false })
     })
 
-    it('explicit mode=cli forces single exec and version 2', () => {
-        expect(resolveModeAndVersion({ ...base, mode: 'cli' })).toEqual({
-            useSingleExec: true,
-            version: 2,
-        })
+    it('explicit mode=cli forces single exec', () => {
+        expect(resolveMode({ ...base, mode: 'cli' })).toEqual({ mode: 'cli', useSingleExec: true })
     })
 
     it('explicit mode=tools disables single exec even for a coding agent', () => {
-        const result = resolveModeAndVersion({
+        const result = resolveMode({
             ...base,
             mode: 'tools',
             clientProfile: profile({ clientName: 'claude-code' }),
@@ -36,15 +32,23 @@ describe('resolveModeAndVersion', () => {
     })
 
     it('coding agent activates single exec', () => {
-        const result = resolveModeAndVersion({
+        const result = resolveMode({
             ...base,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true })
+    })
+
+    it('LibreChat activates single exec', () => {
+        const result = resolveMode({
+            ...base,
+            clientProfile: profile({ clientName: 'LibreChat' }),
+        })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true })
     })
 
     it('non-coding agent does NOT activate single exec', () => {
-        const result = resolveModeAndVersion({
+        const result = resolveMode({
             ...base,
             clientProfile: profile({ clientName: 'some-dashboard-client' }),
         })
@@ -52,30 +56,50 @@ describe('resolveModeAndVersion', () => {
     })
 
     it('PostHog code consumer activates single exec', () => {
-        const result = resolveModeAndVersion({
+        const result = resolveMode({
             ...base,
             clientProfile: profile({ consumer: 'posthog-code' }),
         })
         expect(result.useSingleExec).toBe(true)
     })
 
-    it('uses flagVersion when not in single exec mode', () => {
-        const result = resolveModeAndVersion({ ...base, flagVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
+    it('Claude web/desktop activates single exec when render-ui is enabled', () => {
+        const result = resolveMode({
+            ...base,
+            clientProfile: profile({ vendorClient: 'ClaudeAI' }),
+            renderUiFlagEnabled: true,
+        })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true })
     })
 
-    it('clientVersion overrides default when no flagVersion', () => {
-        const result = resolveModeAndVersion({ ...base, clientVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
+    it('Claude web/desktop detected via User-Agent activates single exec when render-ui is enabled', () => {
+        const result = resolveMode({
+            ...base,
+            clientProfile: profile({ userAgent: 'Claude-User' }),
+            renderUiFlagEnabled: true,
+        })
+        expect(result.useSingleExec).toBe(true)
     })
 
-    it('flagVersion takes precedence over clientVersion', () => {
-        const result = resolveModeAndVersion({ ...base, flagVersion: 2, clientVersion: 1 })
-        expect(result.version).toBe(2)
+    it('Claude web/desktop detected via User-Agent stays in tools mode when render-ui is disabled', () => {
+        // A `ClaudeAI` vendor header is unconditionally single-exec, so the render-ui
+        // gate only observably matters on the User-Agent-only path, where the client
+        // isn't otherwise a CLI-mode client.
+        const result = resolveMode({
+            ...base,
+            clientProfile: profile({ userAgent: 'Claude-User' }),
+            renderUiFlagEnabled: false,
+        })
+        expect(result.useSingleExec).toBe(false)
     })
 
-    it('single exec always forces version 2 regardless of flagVersion', () => {
-        const result = resolveModeAndVersion({ ...base, mode: 'cli', flagVersion: 1 })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
+    it('explicit mode=tools wins over Claude UI host even with render-ui enabled', () => {
+        const result = resolveMode({
+            ...base,
+            mode: 'tools',
+            clientProfile: profile({ vendorClient: 'ClaudeAI' }),
+            renderUiFlagEnabled: true,
+        })
+        expect(result.useSingleExec).toBe(false)
     })
 })

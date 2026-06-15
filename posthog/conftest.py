@@ -1,5 +1,7 @@
 import os
 import subprocess
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -13,6 +15,7 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.test import flush_lock_guard
 
 
 def create_clickhouse_tables():
@@ -80,7 +83,6 @@ def reset_clickhouse_tables():
     from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
     from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
@@ -96,6 +98,7 @@ def reset_clickhouse_tables():
     from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
 
+    from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
     from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
     from products.error_tracking.backend.sql import (
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
@@ -332,9 +335,31 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
+    # Drain rather than iterate: products/conftest.py star-imports this hook, so it can
+    # be invoked once per registering conftest.
+    while flush_lock_guard.reports:
+        terminalreporter.write_line(f"[flush-lock-guard] {flush_lock_guard.reports.pop(0)}", yellow=True)
+
+
+def _truncate_persons_db_tables(database: str) -> None:
+    conn = connections[database]
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT tablename FROM pg_tables
+            WHERE schemaname = 'public'
+            AND tablename NOT LIKE 'pg_%'
+            AND tablename NOT LIKE '_sqlx_%'
+            AND tablename NOT LIKE '_persons_migrations'
+        """)
+        tables = [row[0] for row in cursor.fetchall()]
+        if tables:
+            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+
+
 def _patched_flush_handle(self, **options: Any) -> None:
     """
-    Patched Django flush command for two reasons:
+    Patched Django flush command for three reasons:
 
     1. Persons database doesn't have Django's built-in tables (contenttypes,
        permissions), so we skip post_migrate signals by truncating manually.
@@ -343,28 +368,24 @@ def _patched_flush_handle(self, **options: Any) -> None:
        Django doesn't know about. CASCADE lets TRUNCATE succeed even when
        unknown FK constraints reference a table being flushed.
 
+    3. TRUNCATE waits on an ACCESS EXCLUSIVE lock, so one leaked idle-in-transaction
+       session (e.g. from a background worker thread) hangs teardown until the CI job
+       timeout. flush_lock_guard turns that silent hang into a loud, self-healing
+       terminate-and-retry.
+
     Applied at module level (not via monkeypatch) so it stays active during
     pytest-django's _post_teardown, which runs flush AFTER function-scoped
     fixture teardown.
     """
-    database = options.get("database")
+    database = options["database"]
 
     if database in ("persons_db_writer", "persons_db_reader"):
-        conn = connections[database]
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT tablename FROM pg_tables
-                WHERE schemaname = 'public'
-                AND tablename NOT LIKE 'pg_%'
-                AND tablename NOT LIKE '_sqlx_%'
-                AND tablename NOT LIKE '_persons_migrations'
-            """)
-            tables = [row[0] for row in cursor.fetchall()]
-            if tables:
-                cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+        flush: Callable[[], None] = partial(_truncate_persons_db_tables, database)
     else:
         options["allow_cascade"] = True
-        return _original_flush_handle(self, **options)
+        flush = partial(_original_flush_handle, self, **options)
+
+    flush_lock_guard.flush_with_lock_guard(database, flush)
 
 
 _original_flush_handle = FlushCommand.handle

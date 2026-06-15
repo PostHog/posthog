@@ -7,117 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface ExplainRequestApi {
-    /** UUID of the log entry to explain */
-    uuid: string
-    /** Timestamp of the log entry (used for efficient lookup) */
-    timestamp: string
-    /** Force regenerate explanation, bypassing cache */
-    force_refresh?: boolean
-}
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-/**
- * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
- */
-export type LogsViewApiFilters = { [key: string]: unknown }
-
-export interface LogsViewApi {
-    readonly id: string
-    readonly short_id: string
-    /** @maxLength 400 */
-    name: string
-    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
-    filters?: LogsViewApiFilters
-    pinned?: boolean
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedLogsViewListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: LogsViewApi[]
-}
-
-/**
- * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
- */
-export type PatchedLogsViewApiFilters = { [key: string]: unknown }
-
-export interface PatchedLogsViewApi {
-    readonly id?: string
-    readonly short_id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
-    filters?: PatchedLogsViewApiFilters
-    pinned?: boolean
-    readonly created_at?: string
-    readonly created_by?: UserBasicApi
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
 export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
 
 export const FilterLogicalOperatorApi = {
@@ -416,7 +305,7 @@ export interface LogsAlertFiltersApi {
 
 /**
  * * `above` - Above
- * `below` - Below
+ * * `below` - Below
  */
 export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
 
@@ -427,11 +316,11 @@ export const ThresholdOperatorEnumApi = {
 
 /**
  * * `not_firing` - Not firing
- * `firing` - Firing
- * `pending_resolve` - Pending resolve
- * `errored` - Errored
- * `snoozed` - Snoozed
- * `broken` - Broken
+ * * `firing` - Firing
+ * * `pending_resolve` - Pending resolve
+ * * `errored` - Errored
+ * * `snoozed` - Snoozed
+ * * `broken` - Broken
  */
 export type LogsAlertConfigurationStateEnumApi =
     (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
@@ -451,13 +340,13 @@ export interface LogsAlertStateIntervalApi {
     /** Interval end (UTC, exclusive). */
     end: string
     /** Alert state during this interval.
-
-  * `not_firing` - Not firing
-  * `firing` - Firing
-  * `pending_resolve` - Pending resolve
-  * `errored` - Errored
-  * `snoozed` - Snoozed
-  * `broken` - Broken */
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
     state: LogsAlertConfigurationStateEnumApi
     /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
     enabled: boolean
@@ -465,7 +354,8 @@ export interface LogsAlertStateIntervalApi {
 
 /**
  * * `slack` - slack
- * `webhook` - webhook
+ * * `webhook` - webhook
+ * * `teams` - teams
  */
 export type NotificationDestinationTypeEnumApi =
     (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
@@ -473,7 +363,63 @@ export type NotificationDestinationTypeEnumApi =
 export const NotificationDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
+    Teams: 'teams',
 } as const
+
+/**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
 
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
@@ -488,27 +434,27 @@ export interface LogsAlertConfigurationApi {
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: LogsAlertFiltersApi
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-     * @minimum 1
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
-
-  * `above` - Above
-  * `below` - Below */
+     *
+     * * `above` - Above
+     * * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes: number
     /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
-
-  * `not_firing` - Not firing
-  * `firing` - Firing
-  * `pending_resolve` - Pending resolve
-  * `errored` - Errored
-  * `snoozed` - Snoozed
-  * `broken` - Broken */
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
     readonly state: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -595,27 +541,27 @@ export interface PatchedLogsAlertConfigurationApi {
     /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
     filters?: LogsAlertFiltersApi
     /**
-     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.
-     * @minimum 1
+     * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+     * @minimum 0
      */
     threshold_count?: number
     /** Whether the alert fires when the count is above or below the threshold.
-
-  * `above` - Above
-  * `below` - Below */
+     *
+     * * `above` - Above
+     * * `below` - Below */
     threshold_operator?: ThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
     readonly check_interval_minutes?: number
     /** Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.
-
-  * `not_firing` - Not firing
-  * `firing` - Firing
-  * `pending_resolve` - Pending resolve
-  * `errored` - Errored
-  * `snoozed` - Snoozed
-  * `broken` - Broken */
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `pending_resolve` - Pending resolve
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
     readonly state?: LogsAlertConfigurationStateEnumApi
     /**
      * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
@@ -681,10 +627,11 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack or webhook.
-
-  * `slack` - slack
-  * `webhook` - webhook */
+    /** Destination type — slack, webhook, or teams.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams */
     type: NotificationDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -692,7 +639,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook. */
+    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
     webhook_url?: string
 }
 
@@ -710,13 +657,13 @@ export interface LogsAlertDeleteDestinationApi {
 
 /**
  * * `check` - Check
- * `reset` - Reset
- * `enable` - Enable
- * `disable` - Disable
- * `snooze` - Snooze
- * `unsnooze` - Unsnooze
- * `threshold_change` - Threshold change
- * `broken_config` - Broken config
+ * * `reset` - Reset
+ * * `enable` - Enable
+ * * `disable` - Disable
+ * * `snooze` - Snooze
+ * * `unsnooze` - Unsnooze
+ * * `threshold_change` - Threshold change
+ * * `broken_config` - Broken config
  */
 export type LogsAlertEventKindEnumApi = (typeof LogsAlertEventKindEnumApi)[keyof typeof LogsAlertEventKindEnumApi]
 
@@ -760,13 +707,13 @@ export interface LogsAlertSimulateRequestApi {
     filters: LogsAlertFiltersApi
     /**
      * Threshold count to evaluate against.
-     * @minimum 1
+     * @minimum 0
      */
     threshold_count: number
     /** Whether the alert fires when the count is above or below the threshold.
-
-  * `above` - Above
-  * `below` - Below */
+     *
+     * * `above` - Above
+     * * `below` - Below */
     threshold_operator: ThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
@@ -842,8 +789,8 @@ export interface _DateRangeApi {
 
 /**
  * * `log` - log
- * `log_attribute` - log_attribute
- * `log_resource_attribute` - log_resource_attribute
+ * * `log_attribute` - log_attribute
+ * * `log_resource_attribute` - log_resource_attribute
  */
 export type _LogPropertyFilterTypeEnumApi =
     (typeof _LogPropertyFilterTypeEnumApi)[keyof typeof _LogPropertyFilterTypeEnumApi]
@@ -856,18 +803,18 @@ export const _LogPropertyFilterTypeEnumApi = {
 
 /**
  * * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- * `regex` - regex
- * `not_regex` - not_regex
- * `gt` - gt
- * `lt` - lt
- * `is_date_exact` - is_date_exact
- * `is_date_before` - is_date_before
- * `is_date_after` - is_date_after
- * `is_set` - is_set
- * `is_not_set` - is_not_set
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `lt` - lt
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_before` - is_date_before
+ * * `is_date_after` - is_date_after
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
  */
 export type _LogPropertyFilterOperatorEnumApi =
     (typeof _LogPropertyFilterOperatorEnumApi)[keyof typeof _LogPropertyFilterOperatorEnumApi]
@@ -892,26 +839,26 @@ export interface _LogPropertyFilterApi {
     /** Attribute key. For type "log", use "message". For "log_attribute"/"log_resource_attribute", use the attribute key (e.g. "k8s.container.name"). */
     key: string
     /** "log" filters the log body/message. "log_attribute" filters log-level attributes. "log_resource_attribute" filters resource-level attributes.
-
-  * `log` - log
-  * `log_attribute` - log_attribute
-  * `log_resource_attribute` - log_resource_attribute */
+     *
+     * * `log` - log
+     * * `log_attribute` - log_attribute
+     * * `log_resource_attribute` - log_resource_attribute */
     type: _LogPropertyFilterTypeEnumApi
     /** Comparison operator.
-
-  * `exact` - exact
-  * `is_not` - is_not
-  * `icontains` - icontains
-  * `not_icontains` - not_icontains
-  * `regex` - regex
-  * `not_regex` - not_regex
-  * `gt` - gt
-  * `lt` - lt
-  * `is_date_exact` - is_date_exact
-  * `is_date_before` - is_date_before
-  * `is_date_after` - is_date_after
-  * `is_set` - is_set
-  * `is_not_set` - is_not_set */
+     *
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `lt` - lt
+     * * `is_date_exact` - is_date_exact
+     * * `is_date_before` - is_date_before
+     * * `is_date_after` - is_date_after
+     * * `is_set` - is_set
+     * * `is_not_set` - is_not_set */
     operator: _LogPropertyFilterOperatorEnumApi
     /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
     value?: unknown
@@ -919,7 +866,7 @@ export interface _LogPropertyFilterApi {
 
 /**
  * * `key` - key
- * `value` - value
+ * * `value` - value
  */
 export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
 
@@ -933,9 +880,9 @@ export interface _LogAttributeEntryApi {
     /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
     propertyFilterType: string
     /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
-
-  * `key` - key
-  * `value` - value */
+     *
+     * * `key` - key
+     * * `value` - value */
     matchedOn: MatchedOnEnumApi
     /**
      * Sample matching value — only set when matchedOn is "value".
@@ -953,11 +900,11 @@ export interface _LogsAttributesResponseApi {
 
 /**
  * * `trace` - trace
- * `debug` - debug
- * `info` - info
- * `warn` - warn
- * `error` - error
- * `fatal` - fatal
+ * * `debug` - debug
+ * * `info` - info
+ * * `warn` - warn
+ * * `error` - error
+ * * `fatal` - fatal
  */
 export type SeverityLevelsEnumApi = (typeof SeverityLevelsEnumApi)[keyof typeof SeverityLevelsEnumApi]
 
@@ -1033,9 +980,18 @@ export interface _LogsCountRangesResponseApi {
     interval: string
 }
 
+export interface ExplainRequestApi {
+    /** UUID of the log entry to explain */
+    uuid: string
+    /** Timestamp of the log entry (used for efficient lookup) */
+    timestamp: string
+    /** Force regenerate explanation, bypassing cache */
+    force_refresh?: boolean
+}
+
 /**
  * * `latest` - latest
- * `earliest` - earliest
+ * * `earliest` - earliest
  */
 export type OrderByEnumApi = (typeof OrderByEnumApi)[keyof typeof OrderByEnumApi]
 
@@ -1052,9 +1008,9 @@ export interface _LogsQueryBodyApi {
     /** Filter by service names. */
     serviceNames?: string[]
     /** Order results by timestamp.
-
-  * `latest` - latest
-  * `earliest` - earliest */
+     *
+     * * `latest` - latest
+     * * `earliest` - earliest */
     orderBy?: OrderByEnumApi
     /** Full-text search term to filter log bodies. */
     searchTerm?: string
@@ -1064,6 +1020,8 @@ export interface _LogsQueryBodyApi {
     limit?: number
     /** Pagination cursor from previous response. */
     after?: string
+    /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
+    excludeAttributes?: boolean
 }
 
 export interface _LogsQueryRequestApi {
@@ -1131,8 +1089,8 @@ export interface _LogsQueryResponseApi {
 
 /**
  * * `severity_sampling` - Severity-based reduction
- * `path_drop` - Path exclusion
- * `rate_limit` - Rate limit
+ * * `path_drop` - Path exclusion
+ * * `rate_limit` - Rate limit
  */
 export type RuleTypeEnumApi = (typeof RuleTypeEnumApi)[keyof typeof RuleTypeEnumApi]
 
@@ -1161,10 +1119,10 @@ export interface LogsSamplingRuleApi {
      */
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
-
-  * `severity_sampling` - Severity-based reduction
-  * `path_drop` - Path exclusion
-  * `rate_limit` - Rate limit */
+     *
+     * * `severity_sampling` - Severity-based reduction
+     * * `path_drop` - Path exclusion
+     * * `rate_limit` - Rate limit */
     rule_type: RuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
@@ -1218,10 +1176,10 @@ export interface PatchedLogsSamplingRuleApi {
      */
     priority?: number | null
     /** Rule kind: severity_sampling, path_drop, or rate_limit (caps matching log volume at ingestion).
-
-  * `severity_sampling` - Severity-based reduction
-  * `path_drop` - Path exclusion
-  * `rate_limit` - Rate limit */
+     *
+     * * `severity_sampling` - Severity-based reduction
+     * * `path_drop` - Path exclusion
+     * * `rate_limit` - Rate limit */
     rule_type?: RuleTypeEnumApi
     /**
      * Optional legacy service-name scope; new rules use `config.filter_group` for matching instead.
@@ -1332,7 +1290,7 @@ export interface _LogsServicesResponseApi {
 
 /**
  * * `severity` - severity
- * `service` - service
+ * * `service` - service
  */
 export type SparklineBreakdownByEnumApi = (typeof SparklineBreakdownByEnumApi)[keyof typeof SparklineBreakdownByEnumApi]
 
@@ -1353,9 +1311,9 @@ export interface _LogsSparklineBodyApi {
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
     /** Break down sparkline by "severity" (default) or "service".
-
-  * `severity` - severity
-  * `service` - service */
+     *
+     * * `severity` - severity
+     * * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
 }
 
@@ -1396,65 +1354,50 @@ export interface _LogsValuesResponseApi {
 }
 
 /**
- * * `SYSTEM` - SYSTEM
- * `PLUGIN` - PLUGIN
- * `CONSOLE` - CONSOLE
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
-export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
+export type LogsViewApiFilters = { [key: string]: unknown }
 
-export const PluginLogEntrySourceEnumApi = {
-    System: 'SYSTEM',
-    Plugin: 'PLUGIN',
-    Console: 'CONSOLE',
-} as const
-
-/**
- * * `DEBUG` - DEBUG
- * `LOG` - LOG
- * `INFO` - INFO
- * `WARN` - WARN
- * `ERROR` - ERROR
- */
-export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
-
-export const PluginLogEntryTypeEnumApi = {
-    Debug: 'DEBUG',
-    Log: 'LOG',
-    Info: 'INFO',
-    Warn: 'WARN',
-    Error: 'ERROR',
-} as const
-
-export interface PluginLogEntryApi {
-    id: string
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
-    timestamp: string
-    source: PluginLogEntrySourceEnumApi
-    type: PluginLogEntryTypeEnumApi
-    message: string
-    instance_id: string
+export interface LogsViewApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: LogsViewApiFilters
+    pinned?: boolean
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
 }
 
-export interface PaginatedPluginLogEntryListApi {
+export interface PaginatedLogsViewListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: PluginLogEntryApi[]
+    results: LogsViewApi[]
 }
 
-export type LogsViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+/**
+ * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
+ */
+export type PatchedLogsViewApiFilters = { [key: string]: unknown }
+
+export interface PatchedLogsViewApi {
+    readonly id?: string
+    readonly short_id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
+    filters?: PatchedLogsViewApiFilters
+    pinned?: boolean
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 export type LogsAlertsListParams = {
@@ -1481,12 +1424,12 @@ export type LogsAlertsEventsListParams = {
 
 export type LogsAttributesRetrieveParams = {
     /**
- * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
-
-* `log` - log
-* `resource` - resource
- * @minLength 1
- */
+     * Type of attributes: "log" for log attributes, "resource" for resource attributes. Defaults to "log".
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * @minLength 1
+     */
     attribute_type?: LogsAttributesRetrieveAttributeType
     /**
      * Date range to search within. Defaults to last hour.
@@ -1558,12 +1501,12 @@ export type LogsSamplingRulesReorderCreateParams = {
 
 export type LogsValuesRetrieveParams = {
     /**
- * Type of attribute: "log" or "resource". Defaults to "log".
-
-* `log` - log
-* `resource` - resource
- * @minLength 1
- */
+     * Type of attribute: "log" or "resource". Defaults to "log".
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * @minLength 1
+     */
     attribute_type?: LogsValuesRetrieveAttributeType
     /**
      * Date range to search within. Defaults to last hour.
@@ -1597,7 +1540,7 @@ export const LogsValuesRetrieveAttributeType = {
     Resource: 'resource',
 } as const
 
-export type PluginConfigsLogsListParams = {
+export type LogsViewsListParams = {
     /**
      * Number of results to return per page.
      */

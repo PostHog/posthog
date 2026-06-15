@@ -65,6 +65,80 @@ tools:
     data-warehouse-running-activity-retrieve:
         operation: data_warehouse_running_activity_retrieve
         enabled: false
+    data-warehouse-source-connect-link:
+        operation: external_data_sources_connect_link_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a secure connect link for a source
+        description: >
+            Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the
+            chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via
+            OAuth or enters credentials there, whichever the source offers — and the page stores the connection details
+            encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect
+            credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find
+            the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and
+            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are
+            single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth
+            tokens into the chat.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+    data-warehouse-source-setup:
+        operation: external_data_sources_setup_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Set up a data warehouse source (one step)
+        description: >
+            Connect an external data source and start importing it into queryable warehouse tables in a single call.
+            Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental
+            where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For
+            webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key
+            in the response — on success webhook-capable tables sync in real time (including webhook-only tables like
+            Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and
+            webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values
+            and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM
+            (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres,
+            MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with
+            'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id':
+            '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link'
+            page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the
+            source is created. For an already-connected OAuth integration you can instead pass its integration id key
+            (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use
+            'external-data-sources-create' instead.
+        exclude_params:
+            - client_secret
+            - account_id
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+    data-warehouse-stored-credentials-list:
+        operation: external_data_sources_stored_credentials_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List stored source credentials awaiting setup
+        description: >
+            List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been
+            consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets
+            themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page,
+            take the newest credential_id for the source type and call 'data-warehouse-source-setup' with
+            {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as
+            setup consumes them — and expire after 24 hours if never used.
     data-warehouse-total-rows-stats-retrieve:
         operation: data_warehouse_total_rows_stats_retrieve
         enabled: false
@@ -129,7 +203,7 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        title: List data import schemas
+        title: List data warehouse table schemas (imported tables)
         description: >
             List all table schemas across all data warehouse sources. Each schema represents one table being synced from
             an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
@@ -143,7 +217,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Update data import schema
+        title: Update data warehouse table schema sync config
         description: >
             Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
             key columns, CDC table mode, and enable/disable the schema.
@@ -183,7 +257,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get data import schema
+        title: Get data warehouse table schema
         description: >
             Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental
             field, latest error, and the associated source and table metadata.
@@ -192,6 +266,9 @@ tools:
         enabled: false
     external-data-sources-bulk-update-schemas-partial-update:
         operation: external_data_sources_bulk_update_schemas_partial_update
+        enabled: false
+    external-data-sources-cdc-status-retrieve:
+        operation: external_data_sources_cdc_status_retrieve
         enabled: false
     external-data-sources-check-cdc-prerequisites-create:
         operation: external_data_sources_check_cdc_prerequisites_create
@@ -211,9 +288,25 @@ tools:
         param_overrides:
             source_type:
                 input_schema: ExternalDataSourceTypeSchema
+    external-data-sources-check-cdc-prerequisites-for-source-create:
+        operation: external_data_sources_check_cdc_prerequisites_for_source_create
+        enabled: false
     external-data-sources-connections-list:
         operation: external_data_sources_connections_list
-        enabled: false
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List direct-query connections
+        description: >
+            List external data sources that can be used as a connectionId when running execute-sql against an external
+            source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike
+            external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to
+            discover valid connectionId values.
     external-data-sources-create:
         operation: external_data_sources_create
         enabled: true
@@ -223,15 +316,16 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        title: Create data warehouse source
+        title: Create data warehouse source (advanced; prefer source setup)
         description: >
-            Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to
-            discover source types and 'external-data-sources-db-schema' to validate credentials and discover available
-            tables. Present the db-schema results to the user showing each table's available sync methods, incremental
-            fields, detected primary keys, and columns so they can configure before creation. The payload must include a
-            'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append),
-            and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema
-            response.
+            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
+            most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
+            sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
+            control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool),
+            sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
+            primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard'
+            (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM
+            (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
             - account_id
@@ -297,6 +391,12 @@ tools:
             Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
             delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
             resume syncing.
+    external-data-sources-disable-cdc-create:
+        operation: external_data_sources_disable_cdc_create
+        enabled: false
+    external-data-sources-enable-cdc-create:
+        operation: external_data_sources_enable_cdc_create
+        enabled: false
     external-data-sources-jobs:
         operation: external_data_sources_jobs_retrieve
         enabled: false
@@ -326,8 +426,10 @@ tools:
             idempotent: true
         title: Update data warehouse source
         description: >
-            Update an existing data warehouse source. Can change the prefix (table name prefix in HogQL), description,
-            or connection credentials via job_inputs. Cannot change the source_type or access_method after creation.
+            Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change
+            the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
+            rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
+            securely in their browser rather than pasting secrets into the chat.
     external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create
         enabled: true
@@ -386,8 +488,14 @@ tools:
     external-data-sources-source-prefix-create:
         operation: external_data_sources_source_prefix_create
         enabled: false
+    external-data-sources-store-credentials-create:
+        operation: external_data_sources_store_credentials_create
+        enabled: false
     external-data-sources-update:
         operation: external_data_sources_update
+        enabled: false
+    external-data-sources-update-cdc-settings-create:
+        operation: external_data_sources_update_cdc_settings_create
         enabled: false
     external-data-sources-update-webhook-inputs-create:
         operation: external_data_sources_update_webhook_inputs_create
@@ -429,11 +537,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get source type configurations
+        title: List data warehouse source types you can import
         description: >
-            Return the configuration metadata for all supported data warehouse source types. Each entry describes the
-            required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to
-            discover what source types are available and what parameters are needed to create a new source.
+            Return the configuration metadata for all supported data warehouse source types you can import data from —
+            revenue/payments (Stripe, Chargebee), CRM (Hubspot, Salesforce), support tickets (Zendesk), product
+            databases (Postgres, MySQL, BigQuery, Snowflake), ads, and more. Each entry describes the required fields
+            (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what external
+            data can be imported into queryable warehouse tables and what parameters a source needs. To actually connect
+            a source, prefer 'data-warehouse-source-setup'.
         response:
             include:
                 - '*.name'
@@ -445,8 +556,20 @@ tools:
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
+    fix-hogql-destroy:
+        operation: fix_hogql_destroy
+        enabled: false
     fix-hogql-list:
         operation: fix_hogql_list
+        enabled: false
+    fix-hogql-partial-update:
+        operation: fix_hogql_partial_update
+        enabled: false
+    fix-hogql-retrieve:
+        operation: fix_hogql_retrieve
+        enabled: false
+    fix-hogql-update:
+        operation: fix_hogql_update
         enabled: false
     insight-variables-list:
         operation: insight_variables_list
@@ -710,6 +833,9 @@ tools:
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
         enabled: false
+    warehouse-model-paths-retrieve:
+        operation: warehouse_model_paths_retrieve
+        enabled: false
     warehouse-saved-queries-activity-retrieve:
         operation: warehouse_saved_queries_activity_retrieve
         enabled: false
@@ -767,17 +893,47 @@ tools:
     warehouse-tables-create:
         operation: warehouse_tables_create
         enabled: false
+    warehouse-tables-destroy:
+        operation: warehouse_tables_destroy
+        enabled: false
     warehouse-tables-file-create:
         operation: warehouse_tables_file_create
         enabled: false
     warehouse-tables-list:
         operation: warehouse_tables_list
         enabled: false
+    warehouse-tables-partial-update:
+        operation: warehouse_tables_partial_update
+        enabled: false
+    warehouse-tables-refresh-schema-create:
+        operation: warehouse_tables_refresh_schema_create
+        enabled: false
+    warehouse-tables-retrieve:
+        operation: warehouse_tables_retrieve
+        enabled: false
+    warehouse-tables-update:
+        operation: warehouse_tables_update
+        enabled: false
+    warehouse-tables-update-schema-create:
+        operation: warehouse_tables_update_schema_create
+        enabled: false
     warehouse-view-link-create:
         operation: warehouse_view_link_create
         enabled: false
+    warehouse-view-link-destroy:
+        operation: warehouse_view_link_destroy
+        enabled: false
     warehouse-view-link-list:
         operation: warehouse_view_link_list
+        enabled: false
+    warehouse-view-link-partial-update:
+        operation: warehouse_view_link_partial_update
+        enabled: false
+    warehouse-view-link-retrieve:
+        operation: warehouse_view_link_retrieve
+        enabled: false
+    warehouse-view-link-update:
+        operation: warehouse_view_link_update
         enabled: false
     warehouse-view-link-validate-create:
         operation: warehouse_view_link_validate_create
@@ -785,8 +941,20 @@ tools:
     warehouse-view-links-create:
         operation: warehouse_view_links_create
         enabled: false
+    warehouse-view-links-destroy:
+        operation: warehouse_view_links_destroy
+        enabled: false
     warehouse-view-links-list:
         operation: warehouse_view_links_list
+        enabled: false
+    warehouse-view-links-partial-update:
+        operation: warehouse_view_links_partial_update
+        enabled: false
+    warehouse-view-links-retrieve:
+        operation: warehouse_view_links_retrieve
+        enabled: false
+    warehouse-view-links-update:
+        operation: warehouse_view_links_update
         enabled: false
     warehouse-view-links-validate-create:
         operation: warehouse_view_links_validate_create

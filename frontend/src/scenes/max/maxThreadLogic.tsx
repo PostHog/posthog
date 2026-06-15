@@ -68,14 +68,14 @@ import { LogEntry, parseLogEvent } from 'products/tasks/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'
 import { summariseAssistantThread } from './handsFreeUtils'
-import { MODE_DEFINITIONS, ToolRegistration } from './max-constants'
+import { EnhancedToolCall, MODE_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { maxLogic } from './maxLogic'
+import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
-import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
+import { getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
 import {
     getAgentModeForScene,
     isAssistantMessage,
@@ -102,17 +102,18 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
 }
 
 export interface MaxThreadLogicProps {
-    tabId: string // used to refer back to MaxLogic
+    panelId?: string // identifies the MaxLogic instance backing this panel (scene tab id or side panel)
     conversationId: string
     conversation?: ConversationDetail | null
+    skipInitialLoad?: boolean
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
     key((props) => {
-        if (!props.tabId) {
-            throw new Error('Max thread logic must have a tabId prop')
+        if (!props.panelId) {
+            throw new Error('Max thread logic must have a panelId prop')
         }
-        return `${props.conversationId}-${props.tabId}`
+        return `${props.conversationId}-${props.panelId}`
     }),
 
     path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
@@ -140,11 +141,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
     }),
 
-    connect(({ tabId }: MaxThreadLogicProps) => ({
+    connect(({ panelId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
             ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'question',
                 'autoRun',
@@ -162,7 +163,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ['sceneId'],
         ],
         actions: [
-            maxLogic({ tabId }),
+            maxLogic({ panelId }),
             [
                 'askMax',
                 'setQuestion',
@@ -417,7 +418,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     const newMap = new Map(value)
                     let newValue: string
                     if (isSubagentUpdateEvent(update)) {
-                        const [description, _] = getToolCallDescriptionAndWidget(
+                        const [description, _] = getToolCallDescriptionAndWidgetDef(
                             update.content as unknown as EnhancedToolCall,
                             toolMap
                         )
@@ -1006,7 +1007,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // not just when active. Otherwise a typed turn following a spoken one inherits
             // the earlier <voice_mode> system instruction from conversation history and
             // keeps formatting for speech (no markdown, spelled-out numbers).
-            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
             const mergedUiContext =
                 uiContext || voiceMode
@@ -1036,7 +1037,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     agentMode: values.agentMode,
                 })
                 actions.setQuestion('')
-                if (props.tabId === 'sidepanel' && sidePanelStateLogic.isMounted()) {
+                if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
                     sidePanelStateLogic.actions.setSidePanelOptions(null)
                 }
                 return
@@ -1087,7 +1088,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Clear the question
             actions.setQuestion('')
             // Drop #panel=max:… options so reload doesn't re-run auto-send from the hash
-            if (props.tabId === 'sidepanel' && sidePanelStateLogic.isMounted()) {
+            if (props.panelId === SIDE_PANEL_PANEL_ID && sidePanelStateLogic.isMounted()) {
                 sidePanelStateLogic.actions.setSidePanelOptions(null)
             }
             // For a new conversations, set the frontend conversation ID
@@ -1173,7 +1174,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
 
         completeThreadGeneration: () => {
-            const handsFree = handsFreeLogic.findMounted({ tabId: props.tabId })
+            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
             if (handsFree?.values.isActive) {
                 handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
             }
@@ -1223,7 +1224,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // payload is an object with doNotUpdateCurrentThread for loadConversationHistory,
             // but it's a string (conversationId) for loadConversation
             const doNotUpdate = typeof payload === 'object' && payload?.doNotUpdateCurrentThread
-            if (doNotUpdate || values.autoRun || values.streamingActive) {
+            if (props.skipInitialLoad || doNotUpdate || values.autoRun || values.streamingActive) {
                 return
             }
             // Don't auto-reconnect if there's a pending form
@@ -1744,7 +1745,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         cache.lastConversationId = props.conversationId
         for (const l of maxThreadLogic.findAllMounted()) {
             if (l !== logic && l.props.conversationId === props.conversationId) {
-                // We found a logic with the same conversationId, but a different tabId
+                // We found a logic with the same conversationId, but a different panelId
                 if (l.values.conversation) {
                     actions.setConversation(l.values.conversation)
                 }
@@ -1764,7 +1765,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         // Check for URL-based mode from side panel options (e.g., #panel=max:mode=research:question)
         // This must be done in maxThreadLogic's afterMount to ensure the correct instance sets the mode
         if (
-            props.tabId === 'sidepanel' &&
+            props.panelId === SIDE_PANEL_PANEL_ID &&
             !values.agentMode &&
             sidePanelStateLogic.isMounted() &&
             sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
@@ -1808,6 +1809,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         if (values.autoRun && values.question) {
             actions.askMax(values.question)
             actions.setAutoRun(false)
+            return
+        }
+
+        if (props.skipInitialLoad) {
             return
         }
 

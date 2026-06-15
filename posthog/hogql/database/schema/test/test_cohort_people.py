@@ -3,7 +3,9 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Cohort, Person
+from posthog.models import Person
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):

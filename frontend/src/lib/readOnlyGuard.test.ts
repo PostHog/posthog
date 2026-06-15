@@ -1,3 +1,4 @@
+import { ApiError } from 'lib/api-error'
 import {
     assertNotReadOnly,
     isReadOnly,
@@ -99,6 +100,9 @@ describe('readOnlyGuard', () => {
                 ['AI conversation queue clear', 'POST', '/api/environments/2/conversations/abc-123/queue/clear'],
                 ['AI conversation append message', 'POST', '/api/environments/2/conversations/abc-123/append_message'],
                 ['AI conversation cancel', 'PATCH', '/api/environments/2/conversations/abc-123/cancel/'],
+                ['session replay export create', 'POST', '/api/environments/2/exports/'],
+                ['session replay export create (projects)', 'POST', '/api/projects/2/exports/'],
+                ['export create with query string', 'POST', '/api/environments/2/exports/?export_format=video/mp4'],
             ] as const)('lets %s through (%s %s)', (_label, method, url) => {
                 const notifier = jest.fn()
                 setReadOnlyNotifier(notifier)
@@ -129,6 +133,8 @@ describe('readOnlyGuard', () => {
                     '/api/environments/2/conversations/tickets/',
                 ],
                 ['conversations-like prefix blocked', 'POST', '/api/environments/2/conversationsfoo/'],
+                ['export detail write blocked', 'DELETE', '/api/environments/2/exports/123/'],
+                ['exports-like prefix blocked', 'POST', '/api/environments/2/exportsfoo/'],
             ] as const)('still blocks %s (%s %s) — only allowlisted paths pass', (_l, method, url) => {
                 expect(() => assertNotReadOnly(method, url)).toThrow(ReadOnlyModeError)
             })
@@ -136,15 +142,29 @@ describe('readOnlyGuard', () => {
     })
 
     describe('ReadOnlyModeError', () => {
-        it('has a sensible default detail message so caller error-fallback patterns produce truthful toasts', () => {
-            const err = new ReadOnlyModeError()
-            expect(err.detail).toBe('Read-only mode is on — change blocked. Use Max or the MCP to make this change.')
+        it('is an ApiError so existing catch blocks surface its detail', () => {
+            const err = new ReadOnlyModeError('POST')
+            expect(err).toBeInstanceOf(ApiError)
+            expect(err.status).toBe(403)
+            expect(err.code).toBe('read_only_blocked')
             expect(err.name).toBe('ReadOnlyModeError')
         })
 
-        it('accepts a custom message', () => {
-            const err = new ReadOnlyModeError('custom message')
-            expect(err.message).toBe('custom message')
+        it.each([
+            ['POST', 'create'],
+            ['PUT', 'edit'],
+            ['PATCH', 'edit'],
+            ['DELETE', 'delete'],
+        ] as const)('personalises the detail for %s (verb: %s)', (method, verb) => {
+            const err = new ReadOnlyModeError(method)
+            expect(err.detail).toBe(
+                `Read-only mode is on — that ${verb} was blocked. Ask Max or the MCP to make the change for you.`
+            )
+        })
+
+        it('falls back to a generic detail when constructed without a method', () => {
+            const err = new ReadOnlyModeError()
+            expect(err.detail).toContain('that change was blocked')
         })
     })
 

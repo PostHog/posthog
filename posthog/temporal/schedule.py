@@ -23,6 +23,22 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
+from posthog.temporal.ai_observability.eval_reports.schedule import (
+    create_count_trigger_schedule,
+    create_eval_reports_schedule,
+)
+from posthog.temporal.ai_observability.evaluation_clustering.schedule import (
+    create_evaluation_clustering_schedule,
+    create_evaluation_sampler_schedule,
+)
+from posthog.temporal.ai_observability.trace_clustering.schedule import (
+    create_generation_clustering_coordinator_schedule,
+    create_trace_clustering_coordinator_schedule,
+)
+from posthog.temporal.ai_observability.trace_summarization.schedule import (
+    create_batch_generation_summarization_schedule,
+    create_batch_trace_summarization_schedule,
+)
 from posthog.temporal.alerts.schedule import (
     create_cleanup_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
@@ -40,25 +56,8 @@ from posthog.temporal.experiments.schedule import (
 )
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
-from posthog.temporal.llm_analytics.eval_reports.schedule import (
-    create_count_trigger_schedule,
-    create_eval_reports_schedule,
-)
-from posthog.temporal.llm_analytics.evaluation_clustering.schedule import (
-    create_evaluation_clustering_schedule,
-    create_evaluation_sampler_schedule,
-)
-from posthog.temporal.llm_analytics.trace_clustering.schedule import (
-    create_generation_clustering_coordinator_schedule,
-    create_trace_clustering_coordinator_schedule,
-)
-from posthog.temporal.llm_analytics.trace_summarization.schedule import (
-    create_batch_generation_summarization_schedule,
-    create_batch_trace_summarization_schedule,
-)
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
-from posthog.temporal.mcp_analytics.backfill_sessions.types import BackfillMCPSessionsInput
-from posthog.temporal.mcp_analytics.summarize_session_intents.types import SummarizeMCPSessionIntentsInput
+from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -72,13 +71,29 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
-from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.error_tracking.backend.temporal.recommendations_refresh.types import RecommendationsRefreshInputs
+from products.error_tracking.backend.temporal.spike_event_cleanup.schedule import (
+    create_error_tracking_spike_event_cleanup_schedule,
+)
+from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import (
+    create_error_tracking_symbol_set_cleanup_schedule,
+)
+from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
+from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
+    create_replay_vision_gemini_cleanup_sweep_schedule,
+)
+from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
+from products.tasks.backend.temporal.code_workstreams.schedule import create_evaluate_code_workstreams_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -489,74 +504,6 @@ async def create_replay_count_metrics_schedule(client: Client):
         )
 
 
-async def create_mcp_sessions_backfill_schedule(client: Client):
-    """Create or update the schedule that backfills the MCPSession Postgres table.
-
-    Runs every 5 minutes; each run aggregates mcp_tool_call events seen in the last
-    24 hours and upserts one row per (team, session_id) into Postgres so the
-    sessions list endpoint can read from Postgres instead of ClickHouse.
-    """
-    mcp_sessions_backfill_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "backfill-mcp-sessions",
-            BackfillMCPSessionsInput(),
-            id="backfill-mcp-sessions-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=3,
-            ),
-        ),
-        spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
-        ),
-    )
-
-    if await a_schedule_exists(client, "backfill-mcp-sessions-schedule"):
-        await a_update_schedule(client, "backfill-mcp-sessions-schedule", mcp_sessions_backfill_schedule)
-    else:
-        await a_create_schedule(
-            client,
-            "backfill-mcp-sessions-schedule",
-            mcp_sessions_backfill_schedule,
-            trigger_immediately=False,
-        )
-
-
-async def create_mcp_session_intent_summary_schedule(client: Client):
-    """Create or update the schedule that backfills MCPSession.intent with an LLM summary.
-
-    Runs every 5 minutes (matches the backfill cadence so new sessions become
-    'complete' quickly). Each run picks up to 100 MCPSession rows whose intent is
-    unset and whose last event is older than 30 minutes (so we don't summarise
-    sessions that may still be receiving tool calls), then dispatches the LLM
-    calls in parallel inside the activity.
-    """
-    summary_schedule = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "summarize-mcp-session-intents",
-            SummarizeMCPSessionIntentsInput(),
-            id="summarize-mcp-session-intents-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-            ),
-        ),
-        spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=5))],
-        ),
-    )
-
-    if await a_schedule_exists(client, "summarize-mcp-session-intents-schedule"):
-        await a_update_schedule(client, "summarize-mcp-session-intents-schedule", summary_schedule)
-    else:
-        await a_create_schedule(
-            client,
-            "summarize-mcp-session-intents-schedule",
-            summary_schedule,
-            trigger_immediately=False,
-        )
-
-
 async def cleanup_legacy_session_summarization_schedules(client: Client):
     """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
     legacy_schedule_ids = [
@@ -646,11 +593,47 @@ async def create_count_all_playlists_schedule(client: Client):
         )
 
 
+async def create_error_tracking_recommendations_refresh_schedule(client: Client):
+    """Hourly background refresh of error tracking recommendations.
+
+    Sweeps every team that ingested an exception in the last 7 days and re-kicks each
+    team's stale recommendations. Each recommendation self-throttles via its own
+    ``refresh_interval`` (e.g. source_maps every 6h), so the hourly sweep only recomputes
+    what has actually gone stale. SKIP overlap means a slow run never stacks on the next.
+    """
+    error_tracking_recommendations_refresh_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "error-tracking-recommendations-refresh",
+            RecommendationsRefreshInputs(),
+            id="error-tracking-recommendations-refresh-schedule",
+            task_queue=settings.ERROR_TRACKING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "error-tracking-recommendations-refresh-schedule"):
+        await a_update_schedule(
+            client,
+            "error-tracking-recommendations-refresh-schedule",
+            error_tracking_recommendations_refresh_schedule,
+        )
+    else:
+        await a_create_schedule(
+            client,
+            "error-tracking-recommendations-refresh-schedule",
+            error_tracking_recommendations_refresh_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
     create_upgrade_queries_schedule,
     create_count_all_playlists_schedule,
+    create_error_tracking_recommendations_refresh_schedule,
     create_enforce_max_replay_retention_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
@@ -658,6 +641,7 @@ schedules = [
     create_batch_generation_summarization_schedule,
     create_trace_clustering_coordinator_schedule,
     create_generation_clustering_coordinator_schedule,
+    create_intent_clustering_coordinator_schedule,
     create_eval_reports_schedule,
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
@@ -668,22 +652,31 @@ schedules = [
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
+    create_experiment_precompute_canary_schedule,
     create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
+    create_business_knowledge_refresh_coordinator_schedule,
+    create_error_tracking_symbol_set_cleanup_schedule,
+    create_error_tracking_spike_event_cleanup_schedule,
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
+    create_signals_scout_coordinator_schedule,
+    create_replay_vision_reconciler_schedule,
+    create_replay_vision_estimates_schedule,
+    create_evaluate_code_workstreams_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
-    # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
-    # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
+    # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
+    # deployment's own Redis index, so per-deployment scoping is inherent.
     schedules.append(create_gemini_cleanup_sweep_schedule)
+    schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:

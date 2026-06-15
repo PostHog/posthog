@@ -19,20 +19,25 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
-from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
+from products.cdp.backend.api.hog_function import HogFunctionSerializer
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
-from products.logs.backend.alert_destinations import EVENT_KINDS, EventKind, build_slack_config, build_webhook_config
+from products.logs.backend.alert_destinations import (
+    EVENT_KINDS,
+    EventKind,
+    build_slack_config,
+    build_teams_config,
+    build_webhook_config,
+)
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertSnapshot,
@@ -79,6 +84,7 @@ def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, f
 class DestinationType(models.TextChoices):
     SLACK = "slack"
     WEBHOOK = "webhook"
+    TEAMS = "teams"
 
 
 class LogsAlertStateIntervalSerializer(serializers.Serializer):
@@ -154,9 +160,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         default=100,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.",
+        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
     )
     first_enabled_at = serializers.DateTimeField(
         read_only=True,
@@ -350,13 +356,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             HogFunction.objects.filter(
                 team_id=team_id,
                 deleted=False,
-                template_id__in=["template-slack", "template-webhook"],
+                template_id__in=["template-slack", "template-webhook", "template-microsoft-teams"],
                 filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
             )
             .values_list("template_id", flat=True)
             .distinct()
         )
-        type_map = {"template-slack": "slack", "template-webhook": "webhook"}
+        type_map = {"template-slack": "slack", "template-webhook": "webhook", "template-microsoft-teams": "teams"}
         return sorted(type_map[tid] for tid in template_ids if tid in type_map)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -580,7 +586,7 @@ class LogsAlertSimulateBucketSerializer(serializers.Serializer):
 class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     filters = LogsAlertFiltersField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
     threshold_count = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         help_text="Threshold count to evaluate against.",
     )
     threshold_operator = serializers.ChoiceField(
@@ -658,7 +664,9 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
-    type = serializers.ChoiceField(choices=list(DestinationType), help_text="Destination type — slack or webhook.")
+    type = serializers.ChoiceField(
+        choices=list(DestinationType), help_text="Destination type — slack, webhook, or teams."
+    )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
     )
@@ -667,7 +675,8 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         required=False, allow_blank=True, help_text="Human-readable channel name for display."
     )
     webhook_url = serializers.URLField(
-        required=False, help_text="HTTPS endpoint to POST to. Required when type=webhook."
+        required=False,
+        help_text="HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams.",
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -675,9 +684,9 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
         if destination_type == "slack":
             if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
                 raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
-        elif destination_type == "webhook":
+        elif destination_type in ("webhook", "teams"):
             if not attrs.get("webhook_url"):
-                raise ValidationError("webhook_url is required for webhook destinations.")
+                raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
         return attrs
 
 
@@ -786,7 +795,6 @@ def _fill_empty_buckets(
     return result
 
 
-@extend_schema(tags=["logs"])
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
@@ -915,6 +923,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 slack_channel_id=data["slack_channel_id"],
                 slack_channel_name=data.get("slack_channel_name"),
             )
+        elif data["type"] == "teams":
+            config = build_teams_config(alert, kind, webhook_url=data["webhook_url"])
         else:
             config = build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
 
@@ -1184,30 +1194,3 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         self._track("logs alert deleted", instance)
         super().perform_destroy(instance)
-
-
-@mutable_receiver(model_activity_signal, sender=LogsAlertConfiguration)
-def handle_logs_alert_activity(
-    sender,
-    scope,
-    before_update,
-    after_update,
-    activity,
-    user,
-    was_impersonated=False,
-    **kwargs,
-):
-    instance = after_update or before_update
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=instance.name,
-        ),
-    )

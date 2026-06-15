@@ -3,12 +3,11 @@ import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import {
@@ -164,20 +163,7 @@ export function IssuesList(): JSX.Element {
             <div data-attr="error-tracking-issue-row">
                 <Query query={query} context={context} />
             </div>
-            <IssuesListMCPHint />
         </BindLogic>
-    )
-}
-
-const IssuesListMCPHint = (): JSX.Element | null => {
-    const { results, responseLoading } = useValues(issuesDataNodeLogic)
-    if (responseLoading || results.length > 0) {
-        return null
-    }
-    return (
-        <div className="mt-4 flex justify-center">
-            <MCPUseCaseCard surfaceKey="error_tracking.assign" className="max-w-140" />
-        </div>
     )
 }
 

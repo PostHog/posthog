@@ -24,17 +24,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
-from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -58,6 +53,9 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSerializer,
     ShipVariantSerializer,
 )
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -187,6 +185,16 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 required=False,
             ),
             OpenApiParameter(
+                name="event",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description=(
+                    "Filter to experiments whose metrics reference this event name. Matches events used "
+                    "directly in metric queries as well as events behind any actions those metrics reference."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
                 name="order",
                 location=OpenApiParameter.QUERY,
                 type=str,
@@ -201,7 +209,6 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
     # DELETE /experiments/{id}/
     # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
 )
-@extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by
     # FeatureFlagSerializer in ship_variant) into 409 HTTP responses. The
@@ -591,6 +598,7 @@ class EnterpriseExperimentsViewSet(
     )
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy an experiment into another project in the same organization as a new draft."""
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):
@@ -791,27 +799,3 @@ class EnterpriseExperimentsViewSet(
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
-
-
-@mutable_receiver(model_activity_signal, sender=Experiment)
-def handle_experiment_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    if before_update and after_update:
-        before_deleted = getattr(before_update, "deleted", None)
-        after_deleted = getattr(after_update, "deleted", None)
-        if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
-            activity = "restored" if after_deleted is False else "deleted"
-
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
-        ),
-    )

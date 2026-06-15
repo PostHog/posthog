@@ -1,9 +1,11 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { TooltipConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import type { TooltipConfig } from '@posthog/quill-charts'
 
-import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
+import { ciRanges } from 'lib/statistics'
 
+import type { GoalLine as SchemaGoalLine, TrendsFilter as SchemaTrendsFilter } from '~/queries/schema/schema-general'
+
+import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 import {
     buildDerivedConfigs,
     buildMainTrendsSeries,
@@ -12,6 +14,13 @@ import {
     computeDashedFromIndex,
     type TrendsResultLike,
 } from './trendsChartTransforms'
+
+// The neutral structural types in trendsChartDisplayOptions.ts exist so the shared chart code stays
+// free of `~/` schema imports (the MCP Vite bundle can't resolve them). These helpers' return types
+// enforce that the real schema types stay assignable to the neutral ones — if a schema field ever
+// changes shape, the returns fail to compile and flag the drift here rather than at a distant call site.
+const asNeutralGoalLine = (g: SchemaGoalLine): GoalLineLike => g
+const asNeutralYFormatterFields = (f: NonNullable<SchemaTrendsFilter>): YFormatterFields => f
 
 const RED = '#ff0000'
 
@@ -23,6 +32,15 @@ const makeResult = (overrides: Partial<TrendsResultLike> = {}): TrendsResultLike
 })
 
 describe('trendsChartTransforms', () => {
+    describe('schema type firewall', () => {
+        it('keeps the schema GoalLine / TrendsFilter assignable to the neutral structural types', () => {
+            // Assignment is checked at compile time by the return types above; the runtime assertions
+            // just keep the helpers referenced so they participate in the typecheck.
+            expect(asNeutralGoalLine({ label: 'goal', value: 10 })).toMatchObject({ label: 'goal', value: 10 })
+            expect(asNeutralYFormatterFields({ decimalPlaces: 2 })).toMatchObject({ decimalPlaces: 2 })
+        })
+    })
+
     describe('buildMainTrendsSeries', () => {
         it('builds a single main series with no compare and no in-progress tail', () => {
             const series = buildMainTrendsSeries(makeResult(), 0, { getColor: () => RED })
@@ -71,10 +89,10 @@ describe('trendsChartTransforms', () => {
             expect(series.stroke).toBeUndefined()
         })
 
-        it('attaches an empty fill object for ActionsAreaGraph display', () => {
+        it('attaches an empty fill object when isArea is set', () => {
             const series = buildMainTrendsSeries(makeResult(), 0, {
                 getColor: () => RED,
-                display: ChartDisplayType.ActionsAreaGraph,
+                isArea: true,
             })
             expect(series.fill).toEqual({})
         })
@@ -175,6 +193,7 @@ describe('trendsChartTransforms', () => {
                 const out = buildDerivedConfigs([makeResult({ id: 'a' }), makeResult({ id: 'b' })], {
                     showConfidenceIntervals: true,
                     confidenceLevel: 95,
+                    ciRanges,
                 })
                 expect(out.confidenceIntervals).toHaveLength(2)
                 expect(out.confidenceIntervals?.[0].seriesKey).toBe('a')
@@ -186,9 +205,16 @@ describe('trendsChartTransforms', () => {
                 const explicit = buildDerivedConfigs([makeResult()], {
                     showConfidenceIntervals: true,
                     confidenceLevel: 95,
+                    ciRanges,
                 })
-                const defaulted = buildDerivedConfigs([makeResult()], { showConfidenceIntervals: true })
+                const defaulted = buildDerivedConfigs([makeResult()], { showConfidenceIntervals: true, ciRanges })
                 expect(defaulted.confidenceIntervals?.[0].lower).toEqual(explicit.confidenceIntervals?.[0].lower)
+            })
+
+            it('omits confidenceIntervals when ciRanges is not provided', () => {
+                expect(
+                    buildDerivedConfigs([makeResult()], { showConfidenceIntervals: true }).confidenceIntervals
+                ).toBeUndefined()
             })
 
             it('omits confidenceIntervals when showConfidenceIntervals is false', () => {
@@ -330,12 +356,18 @@ describe('trendsChartTransforms', () => {
                 goalLines: [{ label: 'goal', value: 10 }] satisfies SchemaGoalLine[],
                 showConfidenceIntervals: true,
                 confidenceLevel: 95,
+                ciRanges,
                 valueLabels: false,
                 showCrosshair: true,
                 tooltip: TOOLTIP,
             })
 
-            expect(config.xAxis).toEqual({ timezone: 'UTC', interval: 'day', allDays: ['2024-01-01', '2024-01-02'] })
+            expect(config.xAxis).toEqual({
+                label: undefined,
+                timezone: 'UTC',
+                interval: 'day',
+                allDays: ['2024-01-01', '2024-01-02'],
+            })
             expect(config.yAxis).not.toBeUndefined()
             expect(config.valueLabels).toBe(false)
             expect(config.goalLines).toHaveLength(1)
@@ -354,14 +386,27 @@ describe('trendsChartTransforms', () => {
                     results,
                     showConfidenceIntervals: true,
                     confidenceLevel,
+                    ciRanges,
                 })
                 const direct = buildDerivedConfigs(results, {
                     showConfidenceIntervals: true,
                     confidenceLevel,
+                    ciRanges,
                 })
                 expect(config.confidenceIntervals).toEqual(direct.confidenceIntervals)
             }
         )
+
+        it('passes xAxisTickFormatter through to the x-axis', () => {
+            const tickFormatter = (value: string): string => `tick:${value}`
+            const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts, xAxisTickFormatter: tickFormatter })
+            expect(config.xAxis?.tickFormatter).toBe(tickFormatter)
+        })
+
+        it('leaves the x-axis tick formatter unset when xAxisTickFormatter is omitted', () => {
+            const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts })
+            expect(config.xAxis?.tickFormatter).toBeUndefined()
+        })
 
         describe('valueLabels', () => {
             it('passes through valueLabels: false unchanged', () => {
@@ -400,6 +445,16 @@ describe('trendsChartTransforms', () => {
             expect(config.xAxis?.interval).toBe('day')
         })
 
+        it('passes custom axis labels into the chart config', () => {
+            const config = buildTrendsLineTimeSeriesConfig({
+                ...baseOpts,
+                xAxisLabel: 'Signup date',
+                yAxisLabel: 'Unique users',
+            })
+            expect(config.xAxis?.label).toBe('Signup date')
+            expect(config.yAxis?.label).toBe('Unique users')
+        })
+
         it('derives yAxis from buildTrendsYAxisConfig when isPercentStackView is true and passes through tooltip / showCrosshair', () => {
             const config = buildTrendsLineTimeSeriesConfig({
                 ...baseOpts,
@@ -407,7 +462,7 @@ describe('trendsChartTransforms', () => {
                 tooltip: TOOLTIP,
                 showCrosshair: false,
             })
-            expect(config.yAxis).toMatchObject({ format: 'percentage', scale: 'linear', showGrid: true })
+            expect(config.yAxis).toMatchObject({ format: 'percentage_scaled', scale: 'linear', showGrid: true })
             expect(config.percentStackView).toBe(true)
             expect(config.tooltip).toBe(TOOLTIP)
             expect(config.showCrosshair).toBe(false)

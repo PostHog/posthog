@@ -22,10 +22,11 @@ tools:
         description: >
             Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For
             threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold
-            configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad,
-            iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold
-            (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
-            logic. Requires an insight ID and at least one subscribed user.
+            configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly
+            detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos,
+            isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and
+            window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at
+            least one subscribed user.
 
             Note: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe
             on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
@@ -96,8 +97,9 @@ tools:
         description: >
             Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed
             users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly
-            detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a
-            relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
+            detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower
+            or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string
+            (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
 
             Note: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create
             for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list
@@ -122,9 +124,10 @@ tools:
         title: List alerts
         description: >
             List all insight alerts in the project. Returns alerts with their current state, threshold or detector
-            configuration, timing information, and firing check history. Supports filtering by insight ID via query
-            parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase,
-            relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
+            configuration, timing information, and firing check history. Supports filtering by insight ID
+            (`insight_id`), fuzzy name search (`search`), and creator (`created_by` user UUID). Alerts can use either
+            threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via
+            detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
     alerts-simulate-create:
         operation: alerts_simulate_create
         enabled: false
@@ -134,36 +137,6 @@ tools:
     insights-thresholds-list:
         operation: insights_thresholds_list
         enabled: false
-    logs-alerts-create:
-        operation: logs_alerts_create
-        enabled: false
-    logs-alerts-destinations-create:
-        operation: logs_alerts_destinations_create
-        enabled: false
-    logs-alerts-destinations-delete-create:
-        operation: logs_alerts_destinations_delete_create
-        enabled: false
-    logs-alerts-destroy:
-        operation: logs_alerts_destroy
-        enabled: false
-    logs-alerts-events-list:
-        operation: logs_alerts_events_list
-        enabled: false
-    logs-alerts-list:
-        operation: logs_alerts_list
-        enabled: false
-    logs-alerts-partial-update:
-        operation: logs_alerts_partial_update
-        enabled: false
-    logs-alerts-reset-create:
-        operation: logs_alerts_reset_create
-        enabled: false
-    logs-alerts-retrieve:
-        operation: logs_alerts_retrieve
-        enabled: false
-    logs-alerts-simulate-create:
-        operation: logs_alerts_simulate_create
-        enabled: false
-    logs-alerts-update:
-        operation: logs_alerts_update
+    insights-thresholds-retrieve:
+        operation: insights_thresholds_retrieve
         enabled: false

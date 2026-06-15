@@ -41,7 +41,12 @@ import { NativeDestinationExecutorService } from './services/native-destination-
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
+import {
+    convertToHogFunctionInvocationGlobals,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+    sanitizeLogMessage,
+} from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
@@ -91,6 +96,7 @@ export class CdpApi {
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
+    private groupsManager: GroupsManagerService
 
     constructor(
         private config: PluginsServerConfig,
@@ -125,10 +131,11 @@ export class CdpApi {
             services.hogFunctionMonitoringService,
             services.recipientsManager
         )
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
-            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.groupsManager,
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -405,10 +412,16 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
+                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                        invocation.hogFunction,
+                        invocation.state.globals.inputs ?? {}
+                    )
                     const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
                         mock_async_functions,
-                        logs
+                        logs,
+                        sensitiveValues
                     )
+                    options.sendEmailsInline = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -528,6 +541,17 @@ export class CdpApi {
                 team_id: team.id,
             }
 
+            // Mirror real execution: resolve groups server-side from the event's $groups so test-run
+            // conditionals branch on group properties. Only resolve when the caller didn't supply
+            // groups, so hand-edited test payloads are respected.
+            if (!globals.groups || Object.keys(globals.groups).length === 0) {
+                globals.groups = await this.groupsManager.getGroupsForEvent(
+                    team.id,
+                    globals.event.properties,
+                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
+                )
+            }
+
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
@@ -555,6 +579,7 @@ export class CdpApi {
 
             const logs: MinimalLogEntry[] = []
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
@@ -930,7 +955,8 @@ export class CdpApi {
 
 const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
-    logs: MinimalLogEntry[]
+    logs: MinimalLogEntry[],
+    sensitiveValues?: string[]
 ): HogExecutorExecuteAsyncOptions => {
     let mockFunctions: Record<string, (...args: any[]) => any> | undefined
 
@@ -938,7 +964,19 @@ const buildHogExecutorAsyncOptions = (
         mockFunctions = {}
         for (const name of getRegisteredAsyncFunctionNames()) {
             const handler = getAsyncFunctionHandler(name)!
-            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+            mockFunctions[name] = (...args: any[]) => {
+                const startIndex = logs.length
+                const result = handler.mock(args, logs)
+                if (sensitiveValues?.length) {
+                    for (let i = startIndex; i < logs.length; i++) {
+                        logs[i] = {
+                            ...logs[i],
+                            message: sanitizeLogMessage([logs[i].message], sensitiveValues),
+                        }
+                    }
+                }
+                return result
+            }
         }
     }
 

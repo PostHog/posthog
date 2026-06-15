@@ -35,7 +35,7 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.RESEND,
             label="Resend",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Resend API key to pull your Resend data into the PostHog Data warehouse.
 
 You can create an API key in your [Resend API keys settings](https://resend.com/api-keys).

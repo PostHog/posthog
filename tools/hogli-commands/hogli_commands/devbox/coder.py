@@ -14,6 +14,7 @@ import json
 import shlex
 import shutil
 import socket
+import functools
 import itertools
 import threading
 import subprocess
@@ -44,6 +45,40 @@ GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
 DOTFILES_BRANCH_PARAMETER = "dotfiles_branch"
 JETBRAINS_IDES_PARAMETER = "jetbrains_ides"
+
+# Opt-in: bring the PostHog app (the `hogli up` dev stack) up in the
+# background on every workspace start. Mutable and sticky on the workspace, so
+# it stays in effect for future starts until explicitly flipped off. On
+# template versions that don't define it yet, the retry shim drops it with a
+# visible warning.
+AUTO_START_APP_PARAMETER = "auto_start_app"
+
+# Create-time region selector. The template defines `workspace_region` with a
+# us-east-1 default; eu-central-1 became a valid option when the EU
+# infrastructure went live. The value is immutable after creation, so it is
+# forwarded on `coder create` only -- never on `coder update` or the pre-start
+# parameter sync. Coder carries an immutable parameter's value forward on its
+# own during an update and *rejects* any explicit `--parameter
+# workspace_region=` with "parameter is immutable and cannot be updated". The
+# option-change re-prompt that no flag can bypass only applies to *mutable*
+# parameters, so forwarding the region here breaks every resume instead of
+# suppressing a picker. Valid values match the template contract exactly.
+WORKSPACE_REGION_PARAMETER = "workspace_region"
+REGIONS = ("us-east-1", "eu-central-1")
+DEFAULT_REGION = REGIONS[0]
+# Key of the workspace metadata item the template publishes the region back as.
+REGION_METADATA_KEY = "region"
+# Workspace-name suffix per region. us-east-1 is the historical default and
+# carries no suffix, so existing workspace names stay unchanged. Non-default
+# regions append `-{suffix}` at the end of the name so that a single user can
+# own one default workspace per region (`devbox-rauln` + `devbox-rauln-eu`)
+# without collision. Labels that conflict with a region suffix are rejected up
+# front -- see `_RESERVED_LABEL_SUFFIXES`.
+REGION_NAME_SUFFIXES: dict[str, str] = {
+    "us-east-1": "",
+    "eu-central-1": "eu",
+}
+_RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXES.values() if s)
 
 # Per-user Coder secret holding the SSH public key used to sign commits inside
 # workspaces. Injected as the POSTHOG_GIT_SIGNING_KEY env var on every workspace
@@ -922,8 +957,14 @@ def get_default_git_identity() -> tuple[str | None, str | None]:
     return git_name, git_email
 
 
+@functools.cache
 def get_username() -> str:
-    """Get current Coder username."""
+    """Get current Coder username (cached -- it cannot change within one invocation).
+
+    Every helper that builds or parses workspace names calls this, and each
+    uncached call is a `coder` subprocess. Failures raise instead of caching,
+    so an auth retry within the same process still re-probes.
+    """
     user_info = get_coder_user_info()
     username = _first_non_empty_string(user_info.get("username"))
     if username:
@@ -935,18 +976,35 @@ def get_username() -> str:
     )
 
 
-def get_workspace_name(label: str | None = None) -> str:
-    """Derive workspace name from Coder username and optional label.
+def _validate_label(label: str) -> None:
+    """Reject labels that don't match the format or collide with a region suffix.
 
-    Returns ``devbox-{username}`` for the default workspace, or
-    ``devbox-{username}-{label}`` for a named workspace.
+    Region suffixes encode the workspace's region at the end of the name
+    (`devbox-rauln-eu`), so a label like `eu` or `foo-eu` would be
+    indistinguishable from a region-suffixed workspace once written to disk.
+    Rejecting at construction time is cheaper than parsing ambiguity later.
     """
-    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
-    if label is None:
-        return base
     if not _LABEL_RE.match(label):
         _fail(f"Invalid workspace label '{label}'. Use lowercase alphanumeric and hyphens.")
-    return f"{base}-{label}"
+    for reserved in _RESERVED_LABEL_SUFFIXES:
+        if label == reserved or label.endswith(f"-{reserved}"):
+            _fail(f"Label '{label}' conflicts with the '-{reserved}' region suffix. Pick a different label.")
+
+
+def get_workspace_name(label: str | None = None, *, region: str = DEFAULT_REGION) -> str:
+    """Derive workspace name from Coder username, optional label, and region.
+
+    The default region is suffix-free for backward compatibility:
+    ``devbox-{username}`` (default) or ``devbox-{username}-{label}`` (labeled).
+    Non-default regions append a region suffix at the end: ``devbox-{username}-eu``
+    or ``devbox-{username}-{label}-eu``.
+    """
+    base = f"{_WORKSPACE_PREFIX}-{get_username()}"
+    suffix = REGION_NAME_SUFFIXES.get(region, "")
+    if label is None:
+        return f"{base}-{suffix}" if suffix else base
+    _validate_label(label)
+    return f"{base}-{label}-{suffix}" if suffix else f"{base}-{label}"
 
 
 def get_default_workspace_prefix() -> str:
@@ -969,16 +1027,41 @@ def _list_workspaces() -> list[dict[str, Any]]:
 
 
 def extract_workspace_label(workspace_name: str) -> str | None:
-    """Extract the label suffix from a full workspace name.
+    """Extract the label portion of a full workspace name, stripping any region suffix.
 
-    Returns ``None`` for the default workspace (no label).
+    Returns ``None`` for the default workspace in any region (``devbox-{user}``
+    or ``devbox-{user}-eu``). A trailing region suffix is stripped before the
+    label is read so ``devbox-{user}-api-eu`` -> ``api`` and ``devbox-{user}-eu``
+    -> ``None``. Labels that collide with a region suffix are rejected at
+    construction time (see ``_validate_label``), so parsing is unambiguous.
     """
     prefix = get_default_workspace_prefix()
     if workspace_name == prefix:
         return None
-    if workspace_name.startswith(f"{prefix}-"):
-        return workspace_name[len(prefix) + 1 :]
-    return None
+    if not workspace_name.startswith(f"{prefix}-"):
+        return None
+    rest = workspace_name[len(prefix) + 1 :]
+    for reserved in _RESERVED_LABEL_SUFFIXES:
+        if rest == reserved:
+            return None
+        if rest.endswith(f"-{reserved}"):
+            rest = rest[: -len(reserved) - 1]
+            break
+    return rest or None
+
+
+def region_from_workspace_name(workspace_name: str) -> str:
+    """Return the region a workspace name encodes via its suffix.
+
+    The name is authoritative -- non-default regions carry a `-{suffix}` and
+    the suffix-free form is the default region (see ``REGION_NAME_SUFFIXES``).
+    Unlike ``get_workspace_region`` this needs no live ``coder`` metadata, so it
+    is correct even for boxes created before the region metadata item existed.
+    """
+    for region, suffix in REGION_NAME_SUFFIXES.items():
+        if suffix and workspace_name.endswith(f"-{suffix}"):
+            return region
+    return DEFAULT_REGION
 
 
 def list_user_workspaces() -> list[dict[str, Any]]:
@@ -999,6 +1082,24 @@ def get_workspace(name: str, workspaces: list[dict[str, Any]] | None = None) -> 
 def get_workspace_status(workspace: dict[str, Any]) -> str:
     """Extract status string from a workspace payload."""
     return workspace.get("latest_build", {}).get("status", "unknown")
+
+
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
+    in the ``coder list`` payload. Returns ``None`` for boxes created before
+    the metadata item existed so callers can render their own placeholder.
+    """
+    resources = workspace.get("latest_build", {}).get("resources", [])
+    for resource in resources:
+        for item in resource.get("metadata", []):
+            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+                value = item.get("value")
+                if isinstance(value, str) and value:
+                    return value
+    return None
 
 
 def _list_template_presets(template: str) -> list[str]:
@@ -1053,6 +1154,19 @@ def resolve_template_preset(template: str, requested: str) -> str:
     return NO_PRESET
 
 
+def _start_app_param(start_app: bool | None) -> dict[str, str]:
+    """Map the tri-state --start-app flag to a parameter dict (empty = leave as-is).
+
+    ``None`` (flag omitted) returns ``{}`` so the value stays sticky on an
+    existing workspace and falls back to the template default on creation.
+    ``True``/``False`` are written explicitly so the choice survives even if the
+    template default changes.
+    """
+    if start_app is None:
+        return {}
+    return {AUTO_START_APP_PARAMETER: "true" if start_app else "false"}
+
+
 def create_workspace(
     name: str,
     disk_size: int,
@@ -1061,8 +1175,10 @@ def create_workspace(
     dotfiles_uri: str | None = None,
     repo: str = "https://github.com/PostHog/posthog",
     *,
+    region: str = DEFAULT_REGION,
     template: str = DEFAULT_TEMPLATE,
     preset: str = DEFAULT_PRESET,
+    start_app: bool | None = None,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -1073,12 +1189,21 @@ def create_workspace(
     forwarded parameter does not exist on the chosen template, coder errors
     pre-provisioning and the retry loop drops the offending key.
 
+    ``region`` is forwarded as ``workspace_region``. On a template that does
+    not yet declare it, the retry loop drops it and the box lands in the
+    template default (us-east-1) -- so shipping this before the template
+    update is harmless. On a template that declares it but does not offer the
+    requested value yet (eu-central-1 before the EU infra is live), coder
+    rejects it as an invalid option, which is *not* the "parameter not
+    present" error, so the failure surfaces instead of silently falling back.
+
     ``preset`` is resolved against the template's actual presets via
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
         "disk_size": str(disk_size),
         "repo": repo,
+        WORKSPACE_REGION_PARAMETER: region,
     }
     if git_name:
         parameters[GIT_NAME_PARAMETER] = git_name
@@ -1086,6 +1211,7 @@ def create_workspace(
         parameters[GIT_EMAIL_PARAMETER] = git_email
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
+    parameters.update(_start_app_param(start_app))
 
     resolved_preset = resolve_template_preset(template, preset)
     base_args = [
@@ -1233,6 +1359,49 @@ def ssh_replace(name: str) -> None:
     os.execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
+def exec_replace(name: str, command: list[str]) -> None:
+    """Run a single command in the workspace over the ssh host alias, replacing the process.
+
+    Goes through ``ssh coder.<name>`` rather than ``coder ssh <name> -- cmd``
+    for two reasons:
+
+    1. ``coder ssh`` does not propagate the remote command's exit code -- it
+       prints ``Process exited with status N`` to stderr but exits 0 itself,
+       so callers and agents can't tell success from failure. Real ssh
+       forwards the exit code faithfully.
+    2. The ``Host coder.*`` block applies the user's ssh config (IdentityAgent
+       forwarding), same as :func:`ssh_replace`.
+
+    ``command`` tokens are shell-quoted into one string so the remote login
+    shell preserves argument boundaries -- ssh otherwise space-joins argv,
+    which would split a token like ``"uname -sm"`` back into two.
+    """
+    os.execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+
+
+def coder_ssh_alias_configured(name: str) -> bool:
+    """Return whether ssh resolves a Coder ``ProxyCommand`` for the workspace host alias.
+
+    :func:`exec_replace` and :func:`ssh_replace` connect through the
+    ``Host coder.*`` block that ``coder config-ssh`` writes during
+    ``devbox:setup``. When that block is absent, ``ssh coder.<name>`` fails with
+    an opaque ``Could not resolve hostname``; callers check this first so they
+    can point at setup instead. The block is a wildcard, so any ``name`` probes
+    it. Returns ``False`` if ``ssh`` is missing or errors.
+    """
+    try:
+        result = subprocess.run(["ssh", "-G", _ssh_host_alias(name)], capture_output=True, text=True)
+    except OSError:
+        return False
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        if line.startswith("proxycommand "):
+            value = line[len("proxycommand ") :].strip()
+            return bool(value) and value.lower() != "none"
+    return False
+
+
 def port_forward_replace(name: str, local_port: int, remote_port: int) -> None:
     """Port-forward to a workspace and replace the current process."""
     _run_or_exit(["coder", "port-forward", name, f"--tcp={local_port}:{remote_port}"])
@@ -1271,19 +1440,6 @@ def create_task(
     else:
         args.append(prompt)
     _run_or_exit(args)
-
-
-def run_in_workspace(
-    name: str, command: list[str], *, capture_output: bool = False
-) -> subprocess.CompletedProcess[str]:
-    """Run a command in the workspace via `coder ssh`."""
-    args = ["coder", "ssh", name, "--", *command]
-    return _run(args, capture_output=capture_output)
-
-
-def replace_with_workspace_command(name: str, command: list[str]) -> None:
-    """Run a workspace command and replace the current process."""
-    _run_or_exit(["coder", "ssh", name, "--", *command])
 
 
 def open_in_browser(name: str) -> None:
@@ -1361,8 +1517,13 @@ def delete_user_secret(name: str) -> subprocess.CompletedProcess[str]:
 def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
     """Build a workspace name for another user's workspace.
 
-    Returns ``devbox-{user}`` for the default workspace, or
-    ``devbox-{user}-{label}`` for a labeled workspace.
+    Mirrors the default-region form of :func:`get_workspace_name`:
+    ``devbox-{user}`` for the default workspace, ``devbox-{user}-{label}``
+    for a labeled one. The caller's own region preference is intentionally
+    NOT applied -- the remote workspace's region is determined by its owner,
+    not the accessor, so a region suffix here would just guess wrong.
+    Callers needing a shared workspace in a non-default region should pass
+    the full workspace name via ``--name``.
     """
     base = f"{_WORKSPACE_PREFIX}-{user}"
     if label is None:
@@ -1370,13 +1531,17 @@ def resolve_shared_workspace_name(user: str, label: str | None = None) -> str:
     return f"{base}-{label}"
 
 
-def parse_workspace_target(target: str) -> str:
+def parse_workspace_target(target: str, *, region: str = DEFAULT_REGION) -> str:
     """Parse a workspace target string into a full workspace name.
 
     Supports:
     - ``@user`` -> another user's default workspace
     - ``@user/label`` -> another user's labeled workspace
     - ``label`` -> current user's labeled workspace
+
+    ``region`` controls the region suffix applied to OWN labels only.
+    Shared targets (``@user[/label]``) ignore it -- see
+    :func:`resolve_shared_workspace_name`.
     """
     if target.startswith("@"):
         rest = target[1:]
@@ -1388,7 +1553,7 @@ def parse_workspace_target(target: str) -> str:
         if not rest:
             raise click.UsageError("Expected @user but got bare '@'.")
         return resolve_shared_workspace_name(rest)
-    return get_workspace_name(target)
+    return get_workspace_name(target, region=region)
 
 
 def share_workspace(name: str, users: list[str], role: str = "use") -> None:

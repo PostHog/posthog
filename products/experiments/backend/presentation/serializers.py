@@ -8,7 +8,6 @@ ViewSet remains in experiments.py.
 
 from typing import Any
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
@@ -18,18 +17,19 @@ from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, E
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models.feature_flag import FeatureFlag
-from posthog.models.llm_prompt import LLMPrompt
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_utils import refresh_action_names_in_metric
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -100,7 +100,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         source="get_feature_flag_key",
         help_text=(
             "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
-            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            "Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
         ),
     )
     created_by = UserBasicSerializer(read_only=True)
@@ -148,11 +148,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         required=False,
         allow_null=True,
         help_text=(
-            "Variant definitions and rollout configuration. "
-            "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
-            "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
-            "Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. "
-            "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            "Experiment parameters JSON. Supported keys include "
+            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, "
+            "`custom_exposure_filter`, and `excluded_variants` "
+            "(list of variant keys to drop from statistical analysis; "
+            "the baseline variant and holdout pseudo-variants cannot be excluded)."
         ),
     )
     metrics = ExperimentMetricsField(
@@ -164,7 +165,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
             "'retention' (set start_event and completion_event). "
-            "Use the event-definitions-list tool to find available events in the project."
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
         ),
     )
     metrics_secondary = ExperimentMetricsField(
@@ -288,10 +289,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             fields["holdout_id"].queryset = ExperimentHoldout.objects.none()  # type: ignore[attr-defined]
         return fields
 
-    @extend_schema_field(OpenApiTypes.OBJECT)
+    @extend_schema_field(MinimalFeatureFlagSerializer)
     def get_feature_flag(self, obj):
-        from posthog.api.feature_flag import MinimalFeatureFlagSerializer
-
         return MinimalFeatureFlagSerializer(obj.feature_flag).data if obj.feature_flag else None
 
     def to_representation(self, instance):
@@ -305,7 +304,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary)
-        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+        # The columns are nullable, so the keys can be present with a None value
+        for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
@@ -335,6 +335,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     get_experiment_stats_method(instance),
                     instance.exposure_criteria,
                     only_count_matured_users=instance.only_count_matured_users,
+                    excluded_variants=(instance.parameters or {}).get("excluded_variants"),
                 )
 
         return data
@@ -599,3 +600,29 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
+    """Serializer for metrics recalculation status responses."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this recalculation job")
+    experiment_id = serializers.IntegerField(read_only=True, help_text="ID of the experiment being recalculated")
+    status = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Status.choices,
+        read_only=True,
+        help_text="Current status of the recalculation job",
+    )
+    total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
+    metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
+    trigger = serializers.ChoiceField(
+        choices=ExperimentMetricsRecalculation.Trigger.choices,
+        read_only=True,
+        help_text="What triggered this recalculation",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the job was created")
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing started")
+    completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
+    is_existing = serializers.BooleanField(
+        read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )

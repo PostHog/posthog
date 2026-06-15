@@ -11,8 +11,9 @@ Scope:
 - SSRF on a URL that appears in a sitemap but points at a blocked host.
 
 Design notes:
-- We patch `discover._http_get_text` for discover tests — exercising real
-  XML parsing without needing HTTP. For fetch tests we patch
+- We patch `discover._http_get_text` for sitemap/robots fetches and
+  `discover.fetch_url` for BFS page fetches — exercising real XML/link
+  parsing without needing HTTP. For fetch tests we patch
   `url_fetch.fetch_url` so the crawl module's parallel ThreadPoolExecutor
   is exercised end-to-end but with deterministic content.
 - `requests.Session.get` is intentionally NOT patched globally — each
@@ -63,7 +64,7 @@ class TestDiscoverSitemap(BaseTest):
                 "sitemap",
                 "https://example.com/sitemap.xml",
                 discover.CrawlConfig(max_pages=10),
-            )
+            ).urls
         assert urls == ["https://example.com/a", "https://example.com/b", "https://example.com/c"]
 
     def test_unfurls_sitemap_index(self) -> None:
@@ -85,7 +86,7 @@ class TestDiscoverSitemap(BaseTest):
                 "sitemap",
                 "https://example.com/sitemap.xml",
                 discover.CrawlConfig(max_pages=10),
-            )
+            ).urls
         assert urls == [
             "https://example.com/1",
             "https://example.com/2",
@@ -110,7 +111,7 @@ class TestDiscoverSitemap(BaseTest):
                     exclude_globs=("/docs/private/*",),
                     max_pages=10,
                 ),
-            )
+            ).urls
         assert urls == ["https://example.com/docs/one", "https://example.com/docs/two"]
 
     def test_max_pages_caps_output(self) -> None:
@@ -120,7 +121,7 @@ class TestDiscoverSitemap(BaseTest):
                 "sitemap",
                 "https://example.com/sitemap.xml",
                 discover.CrawlConfig(max_pages=5),
-            )
+            ).urls
         assert len(urls) == 5
 
     def test_rejects_malformed_xml(self) -> None:
@@ -137,6 +138,27 @@ class TestDiscoverSitemap(BaseTest):
                 raise AssertionError("expected DiscoverError")
 
 
+def _page_fetcher(pages: Mapping[str, str]):
+    """Stand-in for `discover.fetch_url` (BFS page fetches), driven by url -> html."""
+
+    def _fake(url: str, *, etag: str | None = None) -> url_fetch.FetchResult:
+        return url_fetch.FetchResult(
+            status=200,
+            body=pages.get(url, "").encode(),
+            content_type="text/html",
+            etag=None,
+            final_url=url,
+        )
+
+    return _fake
+
+
+def _no_robots(url: str, max_bytes: int = 0) -> str:
+    if url.endswith("/robots.txt"):
+        raise discover.DiscoverError("not found")
+    raise AssertionError(f"unexpected metadata fetch: {url}")
+
+
 class TestDiscoverSameOrigin(BaseTest):
     def test_stays_on_origin_and_respects_depth(self) -> None:
         pages = {
@@ -145,18 +167,79 @@ class TestDiscoverSameOrigin(BaseTest):
             "https://ex.com/c": "",
         }
 
-        def _fake(url: str, max_bytes: int = 0) -> str:
-            if url == "https://ex.com/robots.txt":
-                raise discover.DiscoverError("not found")
-            return pages.get(url, "")
-
-        with patch.object(discover, "_http_get_text", side_effect=_fake):
-            urls = discover.discover(
+        with (
+            patch.object(discover, "_http_get_text", side_effect=_no_robots),
+            patch.object(discover, "fetch_url", side_effect=_page_fetcher(pages)),
+        ):
+            result = discover.discover(
                 "same_origin",
                 "https://ex.com/a",
                 discover.CrawlConfig(max_depth=1, max_pages=10),
             )
-        assert urls == ["https://ex.com/a", "https://ex.com/b"]
+        assert result.urls == ["https://ex.com/a", "https://ex.com/b"]
+        # Traversed pages (those we fetched for links) are carried over for reuse.
+        assert "https://ex.com/a" in result.prefetched
+
+    def test_include_glob_collects_matching_pages_not_just_entry_links(self) -> None:
+        # Mirrors the reported bug: crawl `/` for `/handbook/*`. The cap must
+        # count handbook pages (reached at depth 2), not be spent on the
+        # homepage's many non-handbook links.
+        pages = {
+            "https://ex.com/": '<a href="/handbook">hb</a><a href="/pricing">p</a><a href="/docs">d</a>',
+            "https://ex.com/handbook": (
+                '<a href="/handbook/a">a</a><a href="/handbook/b">b</a><a href="/handbook/c">c</a>'
+            ),
+            "https://ex.com/handbook/a": "",
+            "https://ex.com/handbook/b": "",
+            "https://ex.com/handbook/c": "",
+            "https://ex.com/pricing": '<a href="/pricing/x">x</a>',
+            "https://ex.com/docs": '<a href="/docs/y">y</a>',
+        }
+        fetched: list[str] = []
+        page_fetch = _page_fetcher(pages)
+
+        def _fake(url: str, *, etag: str | None = None) -> url_fetch.FetchResult:
+            fetched.append(url)
+            return page_fetch(url, etag=etag)
+
+        with (
+            patch.object(discover, "_http_get_text", side_effect=_no_robots),
+            patch.object(discover, "fetch_url", side_effect=_fake),
+        ):
+            urls = discover.discover(
+                "same_origin",
+                "https://ex.com/",
+                discover.CrawlConfig(include_globs=("/handbook/*",), max_depth=3, max_pages=50),
+            ).urls
+
+        assert set(urls) == {
+            "https://ex.com/handbook/a",
+            "https://ex.com/handbook/b",
+            "https://ex.com/handbook/c",
+        }
+        # Focused traversal: never fetched the unrelated subtrees.
+        assert "https://ex.com/pricing" not in fetched
+        assert "https://ex.com/docs" not in fetched
+
+    def test_include_glob_caps_on_matching_pages(self) -> None:
+        # 5 handbook pages exist but max_pages=3 → exactly 3 matching collected.
+        links = "".join(f'<a href="/handbook/{i}">{i}</a>' for i in range(5))
+        pages = {
+            "https://ex.com/handbook": links,
+            **{f"https://ex.com/handbook/{i}": "" for i in range(5)},
+        }
+
+        with (
+            patch.object(discover, "_http_get_text", side_effect=_no_robots),
+            patch.object(discover, "fetch_url", side_effect=_page_fetcher(pages)),
+        ):
+            urls = discover.discover(
+                "same_origin",
+                "https://ex.com/handbook",
+                discover.CrawlConfig(include_globs=("/handbook/*",), max_depth=2, max_pages=3),
+            ).urls
+        assert len(urls) == 3
+        assert all(u.startswith("https://ex.com/handbook/") for u in urls)
 
 
 class _FakeFetch:

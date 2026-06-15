@@ -7,9 +7,8 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery, ProductKey
+from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
 
-from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -17,7 +16,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, resolve_fingerprints_for_issues
 
 from .query_serializers import (
     ErrorTrackingIssueDetailSerializer,
@@ -33,10 +32,10 @@ from .query_utils import (
     ISSUE_FIELDS,
     LIST_ISSUE_FIELDS,
     build_date_range,
-    build_event_where,
+    build_fingerprint_event_where,
+    build_fingerprint_where,
     build_impact,
     build_issue_filters,
-    build_issue_where,
     build_property_group,
     build_search_query,
     build_sparkline,
@@ -52,7 +51,19 @@ from .query_utils import (
 logger = structlog.get_logger(__name__)
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
+def normalize_volume_resolution(volume_resolution: int) -> int:
+    return max(volume_resolution, 1)
+
+
+def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]:
+    filter_group = build_property_group(
+        [{"type": "event", "key": "$exception_fingerprint", "operator": "exact", "value": fingerprints}]
+    )
+    if filter_group is None:
+        raise ValueError("build_property_group unexpectedly returned None for a non-empty filter list")
+    return filter_group
+
+
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
@@ -71,6 +82,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         offset = cast(int, params.get("offset", 0))
         assignee = params.get("assignee")
         person_id = params.get("personId")
+        volume_resolution = cast(int, params.get("volumeResolution", 0))
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             dateRange=DateRange(**build_date_range(params.get("dateRange"))),
@@ -83,7 +95,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             orderDirection=cast(Literal["ASC", "DESC"], params.get("orderDirection", "DESC")),
             limit=limit,
             offset=offset,
-            volumeResolution=cast(int, params.get("volumeResolution", 0)),
+            volumeResolution=normalize_volume_resolution(volume_resolution),
             personId=str(person_id) if person_id is not None else None,
             withAggregations=True,
             withFirstEvent=False,
@@ -123,12 +135,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_model = ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).first()
         if issue_model is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id])
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
             dateRange=DateRange(**date_range),
+            filterGroup=build_fingerprint_filter_group(fingerprints) if fingerprints else None,
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-            volumeResolution=volume_resolution,
+            volumeResolution=normalize_volume_resolution(volume_resolution),
             limit=1,
             orderBy="last_seen",
             orderDirection="DESC",
@@ -156,39 +170,40 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
         event_properties: dict[str, object] = {}
-        try:
-            context_event_query = EventsQuery(
-                kind="EventsQuery",
-                event="$exception",
-                select=CONTEXT_EVENT_SELECTS,
-                where=build_issue_where(issue_id),
-                filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-                after=date_range.get("date_from"),
-                before=date_range.get("date_to"),
-                orderBy=["timestamp DESC"],
-                limit=1,
-                tags={"productKey": "error_tracking"},
-            )
-            with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-                event_data = (
-                    EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+        if fingerprints:
+            try:
+                context_event_query = EventsQuery(
+                    kind="EventsQuery",
+                    event="$exception",
+                    select=CONTEXT_EVENT_SELECTS,
+                    where=build_fingerprint_where(fingerprints),
+                    filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+                    after=date_range.get("date_from"),
+                    before=date_range.get("date_to"),
+                    orderBy=["timestamp DESC"],
+                    limit=1,
+                    tags={"productKey": "error_tracking"},
                 )
-            if event_data.get("error"):
+                with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+                    event_data = (
+                        EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+                    )
+                if event_data.get("error"):
+                    logger.warning(
+                        "error_tracking_issue_context_query_failed",
+                        issue_id=issue_id,
+                        team_id=self.team.pk,
+                        error=event_data.get("error"),
+                    )
+                else:
+                    event_properties = map_context_event_properties(event_data)
+            except Exception:
                 logger.warning(
                     "error_tracking_issue_context_query_failed",
                     issue_id=issue_id,
                     team_id=self.team.pk,
-                    error=event_data.get("error"),
+                    exc_info=True,
                 )
-            else:
-                event_properties = map_context_event_properties(event_data)
-        except Exception:
-            logger.warning(
-                "error_tracking_issue_context_query_failed",
-                issue_id=issue_id,
-                team_id=self.team.pk,
-                exc_info=True,
-            )
         payload = compact_dict(
             {
                 **pick_fields(issue, ISSUE_FIELDS),
@@ -219,11 +234,14 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
+        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id])
+        if not fingerprints:
+            return Response({"results": [], "hasMore": False, "limit": limit, "offset": offset})
         query = EventsQuery(
             kind="EventsQuery",
             event="$exception",
             select=EVENT_SELECTS,
-            where=build_event_where(issue_id, cast(str | None, params.get("searchQuery"))),
+            where=build_fingerprint_event_where(fingerprints, cast(str | None, params.get("searchQuery"))),
             properties=cast(list[dict[str, object]], params.get("filterGroup", [])),
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             after=date_range.get("date_from"),

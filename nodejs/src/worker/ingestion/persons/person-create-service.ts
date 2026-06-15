@@ -6,7 +6,7 @@ import { emitIngestionWarning } from '../../../ingestion/common/ingestion-warnin
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { uuidFromDistinctId } from '../person-uuid'
 import { PersonContext } from './person-context'
-import { PersonsStoreTransaction } from './persons-store-transaction'
+import { PersonsStoreTransactionForBatch } from './persons-store-for-batch'
 import { PersonPropertiesSizeViolationError } from './repositories/person-repository'
 
 export class PersonCreateService {
@@ -25,7 +25,7 @@ export class PersonCreateService {
         creatorEventUuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
-        tx?: PersonsStoreTransaction
+        tx?: PersonsStoreTransactionForBatch
     ): Promise<[InternalPerson, boolean]> {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 

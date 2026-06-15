@@ -6,7 +6,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { parseEmailTrackingCode } from './tracking-code'
+import { TRACKING_CODE_HEADER_NAME, parseEmailTrackingCode, trackingCodeFormatCounter } from './tracking-code'
 
 /**
  * ---------- SNS envelope types ----------
@@ -326,8 +326,12 @@ export class SesWebhookHandler {
 
         logger.info('[SesWebhookHandler] parsed', { parsed })
 
-        // If SNS envelope present and verification requested, verify signature
-        if ('envelope' in parsed && opts.verifySignature) {
+        // When verification is required the message must be a signed SNS envelope. Raw deliveries
+        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
+        if (opts.verifySignature) {
+            if (!('envelope' in parsed)) {
+                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
+            }
             logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
             const ok = await this.verifySnsSignature(parsed.envelope)
             logger.info('[SesWebhookHandler] signature verified', { ok })
@@ -377,9 +381,18 @@ export class SesWebhookHandler {
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
-            const tags = rec.mail.tags
-            const { functionId, invocationId, teamId, actionId, parentRunId } =
-                parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+            // Prefer the custom MIME header (carries the signed code, unbounded). Fall back to the
+            // SES EmailTag for messages sent before the header carrier was added, or where the
+            // configuration set hasn't enabled `IncludeOriginalHeaders`.
+            const headerValue = rec.mail.headers?.find(
+                (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
+            )?.value
+            const tagValue = rec.mail.tags?.ph_id?.[0]
+            const parsedCode = parseEmailTrackingCode(headerValue ?? tagValue ?? '')
+            if (parsedCode) {
+                trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
+            }
+            const { functionId, invocationId, teamId, actionId, parentRunId } = parsedCode || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })

@@ -1,8 +1,6 @@
 // TODO: Move the below scss to somewhere more common
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
-import 'chartjs-adapter-dayjs-3'
-
 import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
@@ -13,6 +11,7 @@ import { useEffect, useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonTable, lemonToast } from '@posthog/lemon-ui'
+import { createXAxisTickCallback } from '@posthog/quill-charts'
 
 import {
     ActiveElement,
@@ -31,7 +30,6 @@ import {
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { createXAxisTickCallback } from 'lib/hog-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { hexToRGBA, uuid } from 'lib/utils'

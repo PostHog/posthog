@@ -29,7 +29,7 @@ class TestLogsExportEndpoint(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["export_format"] == "text/csv"
 
-        from posthog.models.exported_asset import ExportedAsset
+        from products.exports.backend.models.exported_asset import ExportedAsset
 
         asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert asset.export_context is not None
@@ -80,7 +80,7 @@ class TestLogsExportEndpoint(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-        from posthog.models.exported_asset import ExportedAsset
+        from products.exports.backend.models.exported_asset import ExportedAsset
 
         asset = ExportedAsset.objects.get(id=response.json()["id"])
         assert asset.export_context is not None

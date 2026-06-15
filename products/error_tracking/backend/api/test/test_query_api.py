@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -11,15 +13,17 @@ from dateutil.relativedelta import relativedelta
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
 from products.error_tracking.backend.api.query_utils import (
-    build_event_where,
+    build_fingerprint_event_where,
     build_issue_filters,
     build_search_query,
     build_sparkline,
 )
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
 )
 
 
@@ -32,7 +36,7 @@ class FakeQueryResponse:
 
 
 def test_issue_event_search_escapes_like_wildcards_and_quotes() -> None:
-    where = build_event_where("issue-id", r"a%_'\\")[1]
+    where = build_fingerprint_event_where(["fingerprint"], r"a%_'\\")[1]
 
     assert r"\%" in where
     assert r"\_" in where
@@ -81,6 +85,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(
             team=self.team, issue=issue, fingerprint=fingerprint or self.fingerprint
         )
+        # the query always uses the denormalized ClickHouse table, so mirror the issue state there
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
     def create_exception_event(
@@ -88,21 +94,24 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         *,
         issue_id: str | None = None,
         fingerprint: str | None = None,
+        include_issue_id: bool = True,
         properties: dict[str, object] | None = None,
     ) -> None:
         resolved_issue_id = issue_id or self.issue_id
         resolved_fingerprint = fingerprint or self.fingerprint
+        event_properties = {
+            "$exception_fingerprint": resolved_fingerprint,
+            "$exception_types": ["TypeError"],
+            "$exception_values": ["Cannot read properties of undefined"],
+            **(properties or {}),
+        }
+        if include_issue_id:
+            event_properties["$exception_issue_id"] = resolved_issue_id
         _create_event(
             distinct_id="user-1",
             event="$exception",
             team=self.team,
-            properties={
-                "$exception_issue_id": resolved_issue_id,
-                "$exception_fingerprint": resolved_fingerprint,
-                "$exception_types": ["TypeError"],
-                "$exception_values": ["Cannot read properties of undefined"],
-                **(properties or {}),
-            },
+            properties=event_properties,
             timestamp=now() - relativedelta(hours=1),
         )
 
@@ -195,6 +204,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.create_issue()
         self.create_exception_event()
         ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id, user=self.user, team=self.team)
+        # re-sync with a strictly newer version so the assignment wins argMax over the create-time row
+        with freeze_time(now() + timedelta(seconds=1)):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id], team_id=self.team.pk)
         flush_persons_and_events()
 
         response = self.client.post(
@@ -228,6 +240,23 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
+    def test_issues_list_normalizes_volume_resolution(self) -> None:
+        observed_volume_resolutions: list[int] = []
+
+        def calculate(runner: ErrorTrackingQueryRunner) -> FakeQueryResponse:
+            observed_volume_resolutions.append(runner.query.volumeResolution)
+            return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
+
+        with patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issues",
+                data={"volumeResolution": 0},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert observed_volume_resolutions == [1]
+
     def test_issue_detail_tags_clickhouse_queries(self) -> None:
         self.create_issue()
         observed_tags: list[tuple[object, object]] = []
@@ -260,6 +289,75 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY), (Product.ERROR_TRACKING, Feature.QUERY)]
+
+    def test_issue_detail_filters_by_fingerprint(self) -> None:
+        self.create_issue()
+        observed_volume_resolutions: list[int] = []
+        observed_filter_groups: list[dict[str, object] | None] = []
+
+        def calculate_issue(runner: ErrorTrackingQueryRunner) -> FakeQueryResponse:
+            observed_volume_resolutions.append(runner.query.volumeResolution)
+            observed_filter_groups.append(
+                runner.query.filterGroup.model_dump(mode="json") if runner.query.filterGroup else None
+            )
+            return FakeQueryResponse(
+                {
+                    "results": [
+                        {"id": self.issue_id, "name": "TypeError", "description": "Cannot read", "status": "active"}
+                    ]
+                }
+            )
+
+        def calculate_event(_runner: object) -> FakeQueryResponse:
+            return FakeQueryResponse({"columns": [], "results": []})
+
+        with (
+            patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate_issue),
+            patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate_event),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id, "volumeResolution": 0},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert observed_volume_resolutions == [1]
+        assert observed_filter_groups[0] is not None
+        assert "$exception_fingerprint" in str(observed_filter_groups[0])
+        assert self.fingerprint in str(observed_filter_groups[0])
+
+    def test_issue_detail_without_fingerprints_has_no_filter_group(self) -> None:
+        ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
+        observed_filter_groups: list[dict[str, object] | None] = []
+
+        def calculate_issue(runner: ErrorTrackingQueryRunner) -> FakeQueryResponse:
+            observed_filter_groups.append(
+                runner.query.filterGroup.model_dump(mode="json") if runner.query.filterGroup else None
+            )
+            return FakeQueryResponse(
+                {
+                    "results": [
+                        {"id": self.issue_id, "name": "TypeError", "description": "Cannot read", "status": "active"}
+                    ]
+                }
+            )
+
+        def calculate_event(_runner: object) -> FakeQueryResponse:
+            return FakeQueryResponse({"columns": [], "results": []})
+
+        with (
+            patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate_issue),
+            patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate_event),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert observed_filter_groups == [None]
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_detail_returns_impact_top_frame_and_latest_release(self) -> None:
@@ -394,6 +492,52 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_events_matches_by_fingerprint(self) -> None:
+        self.create_issue()
+        self.create_exception_event(
+            issue_id="01936e80-45e5-70bd-baa1-bf2f2ca4c532",
+            properties={"$session_id": "session-id-1"},
+        )
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_events_matches_events_without_issue_id(self) -> None:
+        self.create_issue()
+        self.create_exception_event(include_issue_id=False, properties={"$session_id": "session-id-1"})
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["properties"]["$session_id"] == "session-id-1"
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_events_without_fingerprints_returns_empty(self) -> None:
+        ErrorTrackingIssue.objects.create(id=self.issue_id, team=self.team, name="TypeError")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"results": [], "hasMore": False, "limit": 1, "offset": 0}
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

@@ -27,7 +27,7 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
-    "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
@@ -41,9 +41,9 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,  # 30 days
     ),
     "posthog_code": UserCostLimit(
-        burst_limit_usd=200.0,
+        burst_limit_usd=500.0,
         burst_window_seconds=86400,
-        sustained_limit_usd=1000.0,
+        sustained_limit_usd=3000.0,
         sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(
@@ -61,9 +61,9 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 }
 
 FREE_PLAN_COST_LIMIT = UserCostLimit(
-    burst_limit_usd=50.0,
+    burst_limit_usd=75.0,
     burst_window_seconds=86400,
-    sustained_limit_usd=50.0,
+    sustained_limit_usd=75.0,
     sustained_window_seconds=2592000,
 )
 
@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
 
+    # Optional secondary capture target. When set, every $ai_generation event
+    # is mirrored to this PostHog instance after the primary capture, so the
+    # EU deployment can land EU customer events on EU PostHog (team_id=1)
+    # for the regional billing usage_report to attribute them.
+    posthog_secondary_project_token: str | None = None
+    posthog_secondary_host: str | None = None
+
     metrics_enabled: bool = True
 
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
@@ -150,6 +157,11 @@ class Settings(BaseSettings):
     auth_cache_ttl_oauth: int = 300  # 5 minutes — OAuth tokens can be revoked on refresh, keep short
 
     team_rate_limit_multipliers: dict[int, int] = {}
+
+    # Additional elevated cap for PostHog staff, keyed on the authenticated
+    # user's is_staff flag rather than team id, so it survives impersonation.
+    # Combined with the team multiplier by taking the larger of the two.
+    staff_rate_limit_multiplier: int = 10
 
     product_cost_limits: dict[str, ProductCostLimit] = DEFAULT_PRODUCT_COST_LIMITS
 
@@ -160,6 +172,10 @@ class Settings(BaseSettings):
 
     posthog_api_base_url: str = "https://us.posthog.com"
     plan_cache_ttl: int = 900  # 15 minutes
+    # Billing recomputes quota state on at most an hourly cadence, so we are
+    # comfortable letting a team go slightly over their limit in exchange for
+    # avoiding a Django roundtrip on every billable request.
+    quota_cache_ttl: int = 300  # 5 minutes
     billing_period_days: int = 30
 
     # Anthropic -> Bedrock circuit breaker. When the trailing failure rate of the Anthropic
@@ -182,6 +198,13 @@ class Settings(BaseSettings):
     @classmethod
     def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
         return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
+
+    @field_validator("staff_rate_limit_multiplier")
+    @classmethod
+    def validate_staff_rate_limit_multiplier(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError(f"staff_rate_limit_multiplier must be >= 1, got {v}")
+        return v
 
     @field_validator("team_rate_limit_multipliers", mode="before")
     @classmethod
