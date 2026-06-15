@@ -140,7 +140,6 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
-                              |Gateway
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -389,7 +388,6 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
-                        |Gateway
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
