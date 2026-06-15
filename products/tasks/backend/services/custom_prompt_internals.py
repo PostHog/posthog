@@ -129,8 +129,17 @@ async def poll_for_turn(
     verbose: bool = False,
     output_fn: OutputFn = None,
     workflow_handle: WorkflowHandle | None = None,
+    max_poll_seconds: int | None = None,
 ) -> tuple[str, str | None, int, int]:
-    """Poll S3 logs until the agent finishes a turn."""
+    """Poll S3 logs until the agent finishes a turn.
+
+    `max_poll_seconds` overrides the default poll budget for callers whose activity
+    timeout is shorter than `MAX_POLL_SECONDS` — the dropped-finalization salvage only
+    runs once this budget is exhausted, so a caller must keep it below its own activity
+    `start_to_close_timeout` or the salvage never gets a chance to fire (the Signals
+    scout passes its 15-minute per-run budget for exactly this reason).
+    """
+    poll_budget = MAX_POLL_SECONDS if max_poll_seconds is None else max_poll_seconds
     # Track the timing/errors
     elapsed = 0
     consecutive_storage_errors = 0
@@ -142,7 +151,7 @@ async def poll_for_turn(
     # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
     # boundary (which would return a stale previous-turn response in multi-turn sessions).
     original_skip_lines = skip_lines
-    while elapsed < MAX_POLL_SECONDS:
+    while elapsed < poll_budget:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
         # Send heartbeat signals to the ProcessTaskWorkflow on each poll cycle to prevent

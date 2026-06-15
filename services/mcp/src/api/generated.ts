@@ -6248,6 +6248,8 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
+      useQueryV2?: boolean | null;
+      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
@@ -20321,6 +20323,8 @@ export namespace Schemas {
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
       commit_to_github?: boolean;
+      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+      add_images_to_comment_on_pr?: boolean;
     }
 
     export interface FlagValueItem {
@@ -45813,6 +45817,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsConversationsViewsListParams = {
     /**
      * Number of results to return per page.
@@ -45825,6 +45840,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsCoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -48777,6 +48803,62 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsMaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMcpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsMcpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -49269,6 +49351,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsPropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type EnvironmentsPropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type EnvironmentsQueryLogRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsQueryCheckAuthForAsyncCreate200 = { [key: string]: unknown };
@@ -49410,6 +49514,27 @@ export namespace Schemas {
     export const EnvironmentsSubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+    } as const;
+
+    export type EnvironmentsSubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: EnvironmentsSubscriptionsDeliveriesListStatus;
+    };
+
+    export type EnvironmentsSubscriptionsDeliveriesListStatus = typeof EnvironmentsSubscriptionsDeliveriesListStatus[keyof typeof EnvironmentsSubscriptionsDeliveriesListStatus];
+
+
+    export const EnvironmentsSubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
     } as const;
 
     export type EnvironmentsSubscriptionsSummaryQuotaRetrieve200 = {
@@ -49811,127 +49936,6 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
-
-    export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
-
-    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
-
-    export type McpAnalyticsFeedbackListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsMissingCapabilitiesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpAnalyticsSessionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
-     */
-    order_by?: string;
-    /**
-     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
-     */
-    search?: string;
-    };
-
-    export type McpAnalyticsSessionsToolCallsParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type PropertyAccessControlsRetrieveParams = {
-    /**
-     * The property definition ID to fetch access control rules for.
-     */
-    property_definition_id: string;
-    };
-
-    export type PropertyAccessControlsDestroyParams = {
-    /**
-     * The organization member UUID whose override should be deleted.
-     */
-    organization_member?: string;
-    /**
-     * The property definition ID the rule applies to.
-     */
-    property_definition_id: string;
-    /**
-     * The role UUID whose override should be deleted.
-     */
-    role?: string;
-    };
-
-    export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus;
-    };
-
-    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
-
-
-    export const SubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
-    } as const;
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
@@ -51334,6 +51338,17 @@ export namespace Schemas {
       Task: 'task',
     } as const;
 
+    export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ConversationsTicketsListParams = {
     /**
      * Filter by assignee. Use `unassigned` for tickets with no assignee, `user:<user_id>` for a specific user, or `role:<role_uuid>` for a role.
@@ -51458,6 +51473,17 @@ export namespace Schemas {
     };
 
     export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */
@@ -54971,6 +54997,62 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
+
+    export type MaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
+
+    export type McpAnalyticsFeedbackListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsMissingCapabilitiesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpAnalyticsSessionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
+     */
+    order_by?: string;
+    /**
+     * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
+     */
+    search?: string;
+    };
+
+    export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
@@ -55522,6 +55604,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type PropertyAccessControlsRetrieveParams = {
+    /**
+     * The property definition ID to fetch access control rules for.
+     */
+    property_definition_id: string;
+    };
+
+    export type PropertyAccessControlsDestroyParams = {
+    /**
+     * The organization member UUID whose override should be deleted.
+     */
+    organization_member?: string;
+    /**
+     * The property definition ID the rule applies to.
+     */
+    property_definition_id: string;
+    /**
+     * The role UUID whose override should be deleted.
+     */
+    role?: string;
+    };
+
     export type PropertyDefinitionsListParams = {
     /**
      * If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded
@@ -55998,6 +56102,27 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+    } as const;
+
+    export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus;
+    };
+
+    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
+
+
+    export const SubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
     } as const;
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
