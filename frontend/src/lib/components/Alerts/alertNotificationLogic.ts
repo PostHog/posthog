@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
+    ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
@@ -21,6 +22,7 @@ import type { alertNotificationLogicType } from './alertNotificationLogicType'
 
 export const ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: ALERT_NOTIFICATION_TYPE_SLACK },
+    { label: 'Microsoft Teams', value: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS },
     { label: 'Webhook', value: ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
 

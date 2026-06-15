@@ -993,6 +993,17 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on insight alert firing',
+            description: 'Post to a Microsoft Teams channel when this insight alert fires',
+            inputs: {
+                text: {
+                    value: "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n\n{event.properties.breaches}\n\n[View alert]({project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id})",
+                },
+            },
+        },
     ],
     'logs-alert-firing': [
         {

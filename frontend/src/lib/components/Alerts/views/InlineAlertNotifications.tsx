@@ -7,6 +7,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import {
+    ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingAlertNotification,
@@ -33,6 +34,10 @@ function getHogFunctionDestination(
     }
     if (channelValue) {
         return { type: 'Slack', detail: null }
+    }
+    if (hf.template_id === 'template-microsoft-teams') {
+        const webhookUrl = hf.inputs?.webhookUrl?.value
+        return { type: 'Microsoft Teams', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
     }
     const urlValue = hf.inputs?.url?.value
     if (urlValue && typeof urlValue === 'string') {
@@ -92,6 +97,12 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             }
             addPendingNotification(notification)
             setSlackChannelValue(null)
+        } else if (selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
+            if (!webhookUrl) {
+                return
+            }
+            addPendingNotification({ type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS, webhookUrl })
+            setWebhookUrl('')
         } else {
             if (!webhookUrl) {
                 return
@@ -104,6 +115,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const getNotificationLabel = (notification: PendingAlertNotification): string => {
         if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
             return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        }
+        if (notification.type === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS) {
+            return `Microsoft Teams: ${notification.webhookUrl}`
         }
         return `Webhook: ${notification.webhookUrl}`
     }
@@ -208,6 +222,15 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 {selectedType === ALERT_NOTIFICATION_TYPE_WEBHOOK && (
                     <LemonInput
                         placeholder="https://example.com/webhook"
+                        value={webhookUrl}
+                        onChange={setWebhookUrl}
+                        fullWidth
+                    />
+                )}
+
+                {selectedType === ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS && (
+                    <LemonInput
+                        placeholder="Microsoft Teams workflow / webhook URL"
                         value={webhookUrl}
                         onChange={setWebhookUrl}
                         fullWidth
