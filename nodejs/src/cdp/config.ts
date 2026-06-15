@@ -65,6 +65,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
     CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
+    // Envelope codec used when CDP_CYCLOTRON_COMPRESS_KAFKA_DATA is on. WarpStream bills on
+    // uncompressed bytes, so we compress the payload itself rather than relying on the Kafka
+    // broker codec. 'snappy' is the legacy format; 'lz4' is tagged with a content-encoding header.
+    CDP_CYCLOTRON_KAFKA_COMPRESSION_CODEC: 'snappy' | 'lz4'
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -180,6 +184,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
+        CDP_CYCLOTRON_KAFKA_COMPRESSION_CODEC: 'lz4',
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
         CDP_REDIS_PASSWORD: '',

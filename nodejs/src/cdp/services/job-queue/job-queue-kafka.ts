@@ -3,7 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
-import { Message } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
 import { KafkaConsumerInterface, createKafkaConsumer } from '../../../kafka/consumer'
@@ -16,6 +16,45 @@ import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueue
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
+const lz4: {
+    encodeBound(size: number): number
+    encodeBlock(input: Buffer, output: Buffer): number
+    decodeBlock(input: Buffer, output: Buffer): number
+} = require('lz4')
+
+// LZ4 block payloads carry no length, so we prefix the 4-byte little-endian uncompressed size,
+// matching the session replay envelope format. The 'content-encoding: lz4' header is what tells
+// the consumer to use this path.
+export function lz4CompressEnvelope(jsonString: string): Buffer {
+    const input = Buffer.from(jsonString, 'utf8')
+    const output = Buffer.allocUnsafe(lz4.encodeBound(input.length))
+    const compressedSize = lz4.encodeBlock(input, output)
+    const envelope = Buffer.allocUnsafe(4 + compressedSize)
+    envelope.writeUInt32LE(input.length, 0)
+    output.copy(envelope, 4, 0, compressedSize)
+    return envelope
+}
+
+export function lz4DecompressEnvelope(buffer: Buffer): Buffer {
+    const uncompressedSize = buffer.readUInt32LE(0)
+    const output = Buffer.allocUnsafe(uncompressedSize)
+    lz4.decodeBlock(buffer.subarray(4), output)
+    return output
+}
+
+function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
+    if (!headers) {
+        return null
+    }
+    for (const header of headers) {
+        const value = header['content-encoding']
+        if (value !== undefined) {
+            return typeof value === 'string' ? value : value.toString()
+        }
+    }
+    return null
+}
+
 export class CyclotronJobQueueKafka implements JobQueue {
     private kafkaConsumer?: KafkaConsumerInterface
     private kafkaProducer?: KafkaProducerWrapper
@@ -27,7 +66,9 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private kafkaClientRack: string | undefined,
         private config: Pick<
             CdpConfig,
-            'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
+            | 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'
+            | 'CDP_CYCLOTRON_KAFKA_COMPRESSION_CODEC'
+            | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
         >,
         private consumerBatchSize: number
     ) {
@@ -103,20 +144,30 @@ export class CyclotronJobQueueKafka implements JobQueue {
             }
         })
 
+        const useLz4 =
+            this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA &&
+            this.config.CDP_CYCLOTRON_KAFKA_COMPRESSION_CODEC === 'lz4'
+
         await Promise.all(
             messages.map(async (msg) => {
-                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
-                    ? await compress(msg.jsonString)
-                    : msg.jsonString
-
-                cdpJobSizeCompressedKb.labels('kafka').observe(value.length / 1024)
-
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used
                     hogFunctionId: msg.functionId,
                     functionId: msg.functionId,
                     teamId: msg.teamId.toString(),
                 }
+
+                let value: Buffer | string
+                if (!this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA) {
+                    value = msg.jsonString
+                } else if (useLz4) {
+                    value = lz4CompressEnvelope(msg.jsonString)
+                    headers['content-encoding'] = 'lz4'
+                } else {
+                    value = await compress(msg.jsonString)
+                }
+
+                cdpJobSizeCompressedKb.labels('kafka').observe(value.length / 1024)
 
                 await producer
                     .produce({
@@ -181,8 +232,12 @@ export class CyclotronJobQueueKafka implements JobQueue {
                 throw new Error('Bad message: ' + JSON.stringify(message))
             }
 
-            // Try to decompress, otherwise just use the value as is
-            const decompressedValue = await uncompress(rawValue).catch(() => rawValue)
+            // LZ4 payloads are tagged with a content-encoding header; everything else is either
+            // snappy-compressed or raw JSON, so fall back to snappy-or-raw for those.
+            const decompressedValue =
+                getContentEncoding(message.headers) === 'lz4'
+                    ? lz4DecompressEnvelope(rawValue)
+                    : await uncompress(rawValue).catch(() => rawValue)
             const invocation: CyclotronJobInvocation = migrateKafkaCyclotronInvocation(
                 parseJSON(decompressedValue.toString())
             )

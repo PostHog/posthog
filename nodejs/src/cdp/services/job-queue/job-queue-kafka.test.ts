@@ -1,6 +1,23 @@
-import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { lz4CompressEnvelope, lz4DecompressEnvelope, migrateKafkaCyclotronInvocation } from './job-queue-kafka'
 
 describe('CyclotronJobQueueKafka', () => {
+    describe('lz4 envelope', () => {
+        it.each([
+            '{}',
+            '{"id":"abc","teamId":1,"queue":"hog"}',
+            JSON.stringify({ id: 'x'.repeat(10_000), nested: { values: Array.from({ length: 500 }, (_, i) => i) } }),
+        ])('round-trips payload %#', (jsonString) => {
+            const envelope = lz4CompressEnvelope(jsonString)
+            expect(lz4DecompressEnvelope(envelope).toString()).toBe(jsonString)
+        })
+
+        it('prefixes the uncompressed size as little-endian uint32', () => {
+            const jsonString = '{"id":"abc","teamId":1,"queue":"hog"}'
+            const envelope = lz4CompressEnvelope(jsonString)
+            expect(envelope.readUInt32LE(0)).toBe(Buffer.byteLength(jsonString, 'utf8'))
+        })
+    })
+
     describe('migrateKafkaCyclotronInvocation', () => {
         // Pulled from a real job in kafka
         const legacyFormat = {
