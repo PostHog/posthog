@@ -159,14 +159,16 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
     ) -> SessionSummaryPage:
         """Get multiple session summaries with pagination"""
         queryset = self.filter(team_id=team_id, session_id__in=session_ids)
-        # Filter by context presence at DB level
+        # Match the exact context at the DB level, so `distinct` picks the latest *matching* summary
+        # per session. Filtering only by context presence and post-filtering in Python lets a newer
+        # summary with a different context win the `distinct` and silently drops a session that does
+        # have a matching summary — which then aborts the group-summary patterns step downstream.
         if extra_summary_context is not None:
-            # Should have context
-            queryset = queryset.filter(extra_summary_context__isnull=False)
+            queryset = queryset.filter(extra_summary_context=_normalize_context(extra_summary_context))
         else:
             # No context to match
             queryset = queryset.filter(extra_summary_context__isnull=True)
-        # Get the latest summary per session_id with limit+1 to check for more records
+        # Get the latest matching summary per session_id with limit+1 to check for more records
         queryset = queryset.order_by("session_id", "-created_at").distinct("session_id")
         # Use Django slicing to SQL LIMIT/OFFSET at the database level
         db_results = list(queryset[offset : offset + limit + 1])
@@ -174,16 +176,8 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         has_next = len(db_results) > limit
         # Trim to actual limit
         db_results = db_results[:limit]
-        # Filter by the context in Python to ensure the proper match
-        if extra_summary_context is not None:
-            # Post-filtering could return 0 summaries (if context not matched),
-            # but has_next is calculated on DB-level-results, so the pagination would work properly
-            extra_summary_context_dict = _normalize_context(extra_summary_context)
-            filtered_summaries = [s for s in db_results if s.extra_summary_context == extra_summary_context_dict]
-        else:
-            filtered_summaries = db_results
         return SessionSummaryPage(
-            results=filtered_summaries,
+            results=db_results,
             limit=limit,
             has_next=has_next,
         )

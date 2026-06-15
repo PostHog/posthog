@@ -119,9 +119,20 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
         session_ids=session_ids,
         extra_summary_context=inputs.extra_summary_context,
     )
-    # Ensure we got all the summaries, as it's crucial to keep the order of sessions to match them with ids
+    # The re-read can return fewer summaries than the inputs (e.g. a session whose latest summary was
+    # overwritten with a different context, or a transient read-after-write lag). Degrade gracefully:
+    # chunk whatever summaries we have and drop the rest — as the workflow already does for failed
+    # sessions — instead of aborting the whole group report on a strict count mismatch.
     if len(ready_summaries) != len(inputs.single_session_summaries_inputs):
-        msg = f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(ready_summaries)}, when splitting into chunks for patterns extraction"
+        temporalio.activity.logger.warning(
+            f"Expected {len(inputs.single_session_summaries_inputs)} session summaries, got {len(ready_summaries)}, "
+            f"when splitting into chunks for patterns extraction. Proceeding with the summaries available.",
+            extra={"signals_type": "session-summaries"},
+        )
+    if not ready_summaries:
+        # Nothing to chunk at all - retry in case the read raced the write. If it persists, the workflow
+        # surfaces a clear "nothing to combine" error downstream rather than producing an empty report.
+        msg = "No session summaries available when splitting into chunks for patterns extraction"
         temporalio.activity.logger.error(msg, extra={"signals_type": "session-summaries"})
         raise ValueError(msg)
     # Calculate tokens for each session summary, mapped by session_id to preserve input order
@@ -139,11 +150,13 @@ async def split_session_summaries_into_chunks_for_patterns_extraction_activity(
         session_id = summary_input.session_id
         summary_tokens = tokens_per_session.get(session_id)
         if summary_tokens is None:
-            msg = (
-                f"Missing token estimation for session {session_id} when splitting into chunks for patterns extraction"
+            # No summary was re-read for this session; skip it rather than aborting the whole group.
+            temporalio.activity.logger.warning(
+                f"Missing token estimation for session {session_id} when splitting into chunks for patterns "
+                f"extraction. Skipping this session.",
+                extra={"session_id": session_id, "signals_type": "session-summaries"},
             )
-            temporalio.activity.logger.error(msg, extra={"session_id": session_id, "signals_type": "session-summaries"})
-            raise ValueError(msg)
+            continue
         # Check if single session exceeds the limit
         if base_template_tokens + summary_tokens > PATTERNS_EXTRACTION_MAX_TOKENS:
             # Check if it fits within the single entity max tokens limit

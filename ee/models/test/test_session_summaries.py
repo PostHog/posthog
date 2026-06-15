@@ -311,10 +311,13 @@ class TestSingleSessionSummaryBulk(BaseTest):
             extra_summary_context=self.extra_context,
         )
 
-        self.assertEqual(len(result.results), 4)
+        # Session 7 has an auth-context summary plus a newer checkout-context one. It must still be
+        # returned: matching context at the DB level means `distinct` picks its latest *auth* summary
+        # rather than letting the newer checkout summary mask it and silently drop the session.
+        self.assertEqual(len(result.results), 5)
 
         result_session_ids: set[str] = {s.session_id for s in result.results}
-        expected_session_ids: set[str] = {self.session_ids[i] for i in [3, 4, 5, 6]}
+        expected_session_ids: set[str] = {self.session_ids[i] for i in [3, 4, 5, 6, 7]}
         self.assertEqual(result_session_ids, expected_session_ids)
 
         for summary in result.results:
@@ -395,6 +398,33 @@ class TestSingleSessionSummaryBulk(BaseTest):
         self.assertEqual(len(result.results), 1)
         # Should get the latest one (version 2)
         self.assertEqual(result.results[0].summary["session_outcome"]["description"], "Newer summary - version 2")
+
+    def test_get_bulk_summaries_returns_matching_context_when_latest_differs(self) -> None:
+        # Regression: a session summarised with context A and later re-summarised with a different
+        # context B must still be returned when querying for A. Otherwise the group-summary patterns
+        # re-read drops the session, the count parity check fails, and the whole workflow aborts.
+        session_id = "session-context-regression"
+        context_a = ExtraSummaryContext(focus_area="authentication")
+        context_b = ExtraSummaryContext(focus_area="checkout")
+        for context in (context_a, context_b):
+            summary_data = get_mock_enriched_llm_json_response(session_id)
+            summary_serializer = SessionSummarySerializer(data=summary_data)
+            summary_serializer.is_valid(raise_exception=True)
+            SingleSessionSummary.objects.add_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                summary=summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=context,
+                created_by=self.user,
+            )
+        result: SessionSummaryPage = SingleSessionSummary.objects.get_bulk_summaries(
+            team_id=self.team.id,
+            session_ids=[session_id],
+            extra_summary_context=context_a,
+        )
+        self.assertEqual(len(result.results), 1)
+        self.assertEqual(result.results[0].extra_summary_context, {"focus_area": "authentication"})
 
     def test_get_bulk_summaries_mixed_sessions(self) -> None:
         mixed_ids: list[str] = [self.session_ids[0], "nonexistent", self.session_ids[1]]

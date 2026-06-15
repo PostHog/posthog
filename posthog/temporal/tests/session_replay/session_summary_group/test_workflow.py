@@ -1532,6 +1532,65 @@ class TestPatternExtractionChunking:
         assert "session-2" in error_call
         assert "SINGLE_ENTITY_MAX_TOKENS" in error_call
 
+    async def test_missing_summary_is_skipped_not_fatal(
+        self,
+        auser: User,
+        ateam: Team,
+        mock_intermediate_session_summary_serializer: SessionSummarySerializer,
+        mock_single_session_summary_inputs: Callable,
+    ):
+        """A session whose summary can't be re-read is skipped, not aborting the whole group."""
+        # Two sessions in the inputs, but only one has a persisted summary to re-read.
+        session_ids = ["session-present", "session-missing"]
+        await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+            team_id=ateam.id,
+            session_id="session-present",
+            summary=mock_intermediate_session_summary_serializer,
+            exception_event_ids=[],
+            extra_summary_context=None,
+            created_by=auser,
+        )
+        single_session_inputs = [
+            mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+        ]
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=single_session_inputs,
+            user_id=auser.id,
+            team_id=ateam.id,
+            model_to_use=SESSION_SUMMARIES_MODEL,
+            extra_summary_context=None,
+            redis_key_base="test",
+            summary_title="Test summary",
+        )
+        with patch(
+            "posthog.temporal.session_replay.session_summary_group.activities.group_patterns.estimate_tokens_from_strings"
+        ) as mock_estimate:
+            # base template=1000, the single re-read summary=500
+            mock_estimate.side_effect = [1000, 500]
+            chunks = await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+        # The missing session is dropped; the present one still produces a chunk.
+        assert chunks == [["session-present"]]
+
+    async def test_no_summaries_available_raises(
+        self,
+        auser: User,
+        ateam: Team,
+        mock_single_session_summary_inputs: Callable,
+    ):
+        """When no summary can be re-read at all, the activity raises (retryable), not silently empty."""
+        single_session_inputs = [mock_single_session_summary_inputs("session-1", ateam.id, auser.id)]
+        inputs = SessionGroupSummaryOfSummariesInputs(
+            single_session_summaries_inputs=single_session_inputs,
+            user_id=auser.id,
+            team_id=ateam.id,
+            model_to_use=SESSION_SUMMARIES_MODEL,
+            extra_summary_context=None,
+            redis_key_base="test",
+            summary_title="Test summary",
+        )
+        with pytest.raises(ValueError):
+            await split_session_summaries_into_chunks_for_patterns_extraction_activity(inputs)
+
 
 @pytest.mark.asyncio
 async def test_combine_patterns_from_chunks_activity(
