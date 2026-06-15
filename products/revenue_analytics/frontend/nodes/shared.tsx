@@ -21,7 +21,7 @@ import { GraphDataset } from '~/types'
 
 import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/insights/trends/shared/goalLinesAdapter'
 
-import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { RevenueAnalyticsChart, RevenueAnalyticsChartKind } from './RevenueAnalyticsChart'
 
 // Simple interface for the tile props, letting us create tiles with a consistent interface
@@ -131,7 +131,7 @@ export const TileWrapper = ({ title, tooltip, extra, children, context }: TileWr
     )
 }
 
-const DISPLAY_MODE_TO_CHART_KIND: Record<string, RevenueAnalyticsChartKind> = {
+const DISPLAY_MODE_TO_CHART_KIND: Record<DisplayMode, RevenueAnalyticsChartKind> = {
     line: 'line',
     area: 'area',
     bar: 'bar',

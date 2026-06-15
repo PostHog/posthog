@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { getBarColorFromStatus } from 'lib/colors'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
@@ -19,6 +20,11 @@ export function MRRBreakdownChart(): JSX.Element {
     const { data, newDatasets, expansionDatasets, contractionDatasets, churnDatasets } =
         useValues(mrrBreakdownModalLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
+
+    const getColor = useCallback(
+        (dataset: GraphDataset) => getBarColorFromStatus(dataset.status as RevenueAnalyticsStatus),
+        []
+    )
 
     if (!data || data.length === 0) {
         return <div>No data available</div>
@@ -57,9 +63,9 @@ export function MRRBreakdownChart(): JSX.Element {
                         labels={labels}
                         kind="bar"
                         divergingStack
-                        // The modal renders its own descriptive MRRLegend above the chart, so we
-                        // don't show the chart's built-in legend (it would duplicate it).
-                        getColor={(dataset) => getBarColorFromStatus(dataset.status as RevenueAnalyticsStatus)}
+                        getColor={getColor}
+                        // No `legend` prop: the modal renders its own descriptive MRRLegend above the
+                        // chart, so the chart's built-in legend would duplicate it.
                         trendsFilter={trendsFilter}
                     />
                 </div>

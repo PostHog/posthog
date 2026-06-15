@@ -94,14 +94,30 @@ describe('buildRevenueAnalyticsSeries', () => {
     })
 
     it('applies the color override when provided and leaves color unset otherwise', () => {
+        const colorByIndex: (string | undefined)[] = ['#abcdef', undefined]
         const withColor = buildRevenueAnalyticsSeries([dataset(), dataset({ id: 1 })], {
             kind: 'bar',
-            getColor: (_, index) => (index === 0 ? '#abcdef' : undefined),
+            getColor: (_, index) => colorByIndex[index],
         })
         expect(withColor[0].color).toBe('#abcdef')
         expect(withColor[1].color).toBeUndefined()
 
         expect(buildRevenueAnalyticsSeries([dataset()], { kind: 'line' })[0].color).toBeUndefined()
+    })
+
+    it('forwards action and breakdown_value onto series meta', () => {
+        const action = { order: 2, id: 42 } as GraphDataset['action']
+        const [series] = buildRevenueAnalyticsSeries([dataset({ action, breakdown_value: 'stripe.saas' })], {
+            kind: 'line',
+        })
+
+        expect(series.meta?.action).toBe(action)
+        expect(series.meta?.breakdown_value).toBe('stripe.saas')
+    })
+
+    it('keeps a falsy-but-valid id as the key rather than the index', () => {
+        const series = buildRevenueAnalyticsSeries([dataset({ id: 0 }), dataset({ id: 0 })], { kind: 'line' })
+        expect(series.map((s) => s.key)).toEqual(['0', '0'])
     })
 
     it('tolerates a missing data array', () => {

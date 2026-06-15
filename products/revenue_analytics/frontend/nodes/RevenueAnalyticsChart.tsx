@@ -14,6 +14,7 @@ import type {
 import { buildTheme } from 'lib/charts/utils/theme'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import type { GraphDataset } from '~/types'
 
@@ -67,8 +68,9 @@ export function RevenueAnalyticsChart({
 }: RevenueAnalyticsChartProps): JSX.Element {
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { dateFilter } = useValues(revenueAnalyticsLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const series = useMemo(
         () => buildRevenueAnalyticsSeries(datasets, { kind, isInProgress, getColor }),
