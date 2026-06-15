@@ -1,10 +1,17 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'
 import { STATIC_TOOLS, maxGlobalLogic } from './maxGlobalLogic'
@@ -108,5 +115,76 @@ describe('maxGlobalLogic', () => {
                 editInsightToolRegistered: true,
             })
         })
+    })
+})
+
+describe('maxGlobalLogic conversation history loading', () => {
+    let logic: ReturnType<typeof maxGlobalLogic.build>
+    let listSpy: jest.SpyInstance
+
+    afterEach(() => {
+        logic?.unmount()
+        listSpy?.mockRestore()
+        jest.restoreAllMocks()
+        // Tests here set `current_user: null`; clear so the next test gets a fresh `initKeaTests` bootstrap.
+        delete window.POSTHOG_APP_CONTEXT
+    })
+
+    function mountUnauthenticated(): void {
+        window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
+        initKeaTests()
+        listSpy = jest.spyOn(api.conversations, 'list')
+        logic = maxGlobalLogic()
+        logic.mount()
+    }
+
+    it('does not fetch conversation history when the user is unauthenticated', async () => {
+        useMocks(maxMocks)
+        mountUnauthenticated()
+
+        await expectLogic(logic).delay(0)
+
+        expect(userLogic.values.user).toBeNull()
+        expect(listSpy).not.toHaveBeenCalled()
+        expect(logic.values.conversationHistory).toEqual([])
+    })
+
+    it('fetches conversation history once the user becomes authenticated', async () => {
+        useMocks(maxMocks)
+        mountUnauthenticated()
+        await expectLogic(logic).delay(0)
+        expect(listSpy).not.toHaveBeenCalled()
+
+        await expectLogic(logic, () => {
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        }).toDispatchActions(['loadConversationHistory', 'loadConversationHistorySuccess'])
+
+        expect(listSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([401, 403])('stays silent when conversation history fails with %s', async (status) => {
+        useMocks(maxMocks)
+        initKeaTests()
+        const toastSpy = jest.spyOn(lemonToast, 'error')
+        listSpy = jest.spyOn(api.conversations, 'list').mockRejectedValue(new ApiError('Nope', status))
+        logic = maxGlobalLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistory', 'loadConversationHistoryFailure'])
+
+        expect(toastSpy).not.toHaveBeenCalled()
+    })
+
+    it('shows a toast when conversation history fails with a non-auth error', async () => {
+        useMocks(maxMocks)
+        initKeaTests()
+        const toastSpy = jest.spyOn(lemonToast, 'error')
+        listSpy = jest.spyOn(api.conversations, 'list').mockRejectedValue(new ApiError('Boom', 500))
+        logic = maxGlobalLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistory', 'loadConversationHistoryFailure'])
+
+        expect(toastSpy).toHaveBeenCalled()
     })
 })

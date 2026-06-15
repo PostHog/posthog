@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -13,6 +14,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
@@ -92,6 +94,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             ['sidePanelOpen', 'selectedTab'],
             preflightLogic,
             ['preflight', 'isCloudOrDev'],
+            userLogic,
+            ['user'],
         ],
         actions: [router, ['locationChanged'], sidePanelStateLogic, ['openSidePanel']],
     })),
@@ -118,6 +122,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
+                    // maxGlobalLogic is mounted globally, so this loader can fire before the session is
+                    // resolved (or for an expired/unauthenticated session). Skip the fetch in that case —
+                    // an unauthenticated GET /conversations only produces a 401, a misleading toast, and
+                    // error-tracking noise. The `user` subscription re-runs this once the session resolves.
+                    if (!values.user || !values.isMaxAvailable) {
+                        return values.conversationHistory
+                    }
                     const response = await api.conversations.list()
                     return response.results.map((conversation) =>
                         mergeConversations(
@@ -202,6 +213,11 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             }
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
+            // Unauthenticated/expired sessions can still reach here (e.g. session expires mid-request);
+            // stay silent rather than showing a confusing toast and generating error-tracking noise.
+            if (errorObject?.status === 401 || errorObject?.status === 403) {
+                return
+            }
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')
         },
         deleteConversation: async ({ id }) => {
@@ -221,8 +237,22 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadConversationHistory()
+    subscriptions(({ actions, values, cache }) => ({
+        // Load conversation history once the user is authenticated. maxGlobalLogic is mounted globally,
+        // so the session may resolve after mount (or never, for an expired session) — reacting to `user`
+        // avoids the unauthenticated fetch while still loading history as soon as auth is available.
+        user: (user) => {
+            if (user && values.isMaxAvailable && !cache.conversationHistoryLoaded) {
+                cache.conversationHistoryLoaded = true
+                actions.loadConversationHistory()
+            }
+        },
+    })),
+    afterMount(({ actions, values, cache }) => {
+        if (values.user && values.isMaxAvailable && !cache.conversationHistoryLoaded) {
+            cache.conversationHistoryLoaded = true
+            actions.loadConversationHistory()
+        }
     }),
 
     selectors({
