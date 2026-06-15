@@ -121,7 +121,10 @@ def materialize_retention_actor(team: Team, kind: str) -> None:
     sync_execute(
         sql,
         {"team_id": team.pk, "kind": kind, "horizon": HORIZON_DAYS, "tz": team.timezone},
-        settings={"max_execution_time": _INSERT_MAX_EXECUTION_TIME_SECONDS},
+        # Wait for the write to land on the AUX shard before marking fresh — otherwise a reader can
+        # see the freshness marker and query a partially-populated table. Safe here because we
+        # insert the small per-actor aggregate, not the raw event scan.
+        settings={"max_execution_time": _INSERT_MAX_EXECUTION_TIME_SECONDS, "insert_distributed_sync": 1},
     )
     get_client().set(
         _FRESHNESS_KEY.format(team_id=team.pk, kind=kind),
