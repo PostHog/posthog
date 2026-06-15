@@ -78,6 +78,7 @@ import { ExperimentRecalculationTime } from './environment/ExperimentRecalculati
 import {
     DefaultEvaluationContexts,
     DefaultReleaseConditions,
+    EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -660,6 +661,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Automatically apply default release conditions to newly created feature flags. Users can still modify them during flag creation.',
                 component: <DefaultReleaseConditions />,
                 keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
+            },
+            {
+                id: 'feature-flag-evaluation-context-suggestions',
+                title: 'Evaluation context suggestions',
+                description:
+                    'Manage which evaluation context names are suggested when scoping a feature flag. Hide stale or mistyped names from the suggestion list without affecting flags that already use them.',
+                docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
+                flag: 'FLAG_EVALUATION_TAGS',
+                component: <EvaluationContextSuggestions />,
+                keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
             },
             {
                 id: 'feature-flag-secure-api-key',
