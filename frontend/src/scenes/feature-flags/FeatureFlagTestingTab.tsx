@@ -67,6 +67,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         testFlagEvaluation({ flagId: featureFlag.id!, formData })
     }
 
+    const hasConditions = !!result?.conditions?.length
+
     return (
         <div className="space-y-6">
             <div>
@@ -318,11 +320,11 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                             {/* Two Column Layout: Conditions and Properties */}
                             <div className="grid grid-cols-1 xl:grid-cols-5 gap-6 flex-1 min-h-0">
                                 {/* Left Column - Condition Analysis */}
-                                {result.conditions && result.conditions.length > 0 && (
+                                {hasConditions && (
                                     <div className="space-y-3 xl:col-span-2 flex flex-col min-h-0">
                                         <LemonLabel>Condition analysis</LemonLabel>
 
-                                        <div className="flex-1 space-y-3">
+                                        <div className="flex-1 space-y-3 overflow-auto">
                                             {enrichedConditions.map((condition) => {
                                                 const styles = CONDITION_DISPLAY_STYLES[condition.display.tone]
 
@@ -380,9 +382,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 {/* Right Column - Person Properties */}
                                 <div
                                     className={`space-y-3 ${
-                                        result.conditions && result.conditions.length > 0
-                                            ? 'xl:col-span-3'
-                                            : 'xl:col-span-5'
+                                        hasConditions ? 'xl:col-span-3' : 'xl:col-span-5'
                                     } flex flex-col min-h-0`}
                                 >
                                     <div>
@@ -391,7 +391,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         </LemonLabel>
                                     </div>
 
-                                    <div className="flex-1">
+                                    <div className="flex-1 overflow-auto">
                                         <PropertiesTable
                                             properties={result.person_properties}
                                             type={PropertyDefinitionType.Person}
