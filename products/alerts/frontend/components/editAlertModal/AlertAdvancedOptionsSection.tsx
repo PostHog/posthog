@@ -63,7 +63,6 @@ export function AlertAdvancedOptionsSection({
                                                 <LemonCheckbox
                                                     checked={
                                                         can_check_ongoing_interval &&
-                                                        isTrendsAlertConfig(alertForm?.config) &&
                                                         alertForm.config.check_ongoing_interval
                                                     }
                                                     data-attr="alertForm-check-ongoing-interval"

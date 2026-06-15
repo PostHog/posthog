@@ -61,7 +61,7 @@ export function AlertIntervalRow({
                     // SQL queries own their time window — there is no insight interval to echo here,
                     // so state what is actually evaluated instead of a trends-style "check last day".
                     <div>
-                        {alertForm?.config?.evaluation === 'any_row'
+                        {alertForm.config.evaluation === 'any_row'
                             ? 'and check every row of the result'
                             : "and evaluate the query's latest row"}
                     </div>

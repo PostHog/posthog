@@ -51,8 +51,10 @@ export interface AlertDefinitionSectionProps {
     hogqlPreview: HogQLAlertPreview | null
     /** Result column names of the SQL insight, for the column pickers. */
     hogqlColumns: string[] | null
-    /** The subset of result columns with numeric cells — the valid evaluated-column picks. */
-    hogqlNumericColumns: string[] | null
+    /** Options for the evaluated-column picker (numeric columns, with fallbacks). */
+    hogqlValueColumnOptions: { label: string; value: string }[]
+    /** Options for the label-column picker (every column except the evaluated one). */
+    hogqlLabelColumnOptions: { label: string; value: string }[]
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -87,12 +89,7 @@ function HogQLAlertPreviewRowsTable({
             {hiddenCount > 0 && (
                 // The note sits above the table in both modes: in last-row mode the trimmed rows
                 // are older ones (below would read as newer data), and any-row matches for consistency.
-                <div className="text-muted text-xs">
-                    +
-                    {isAnyRow
-                        ? pluralize(hiddenCount, 'more row', 'more rows')
-                        : pluralize(hiddenCount, 'older row', 'older rows')}
-                </div>
+                <div className="text-muted text-xs">+{pluralize(hiddenCount, isAnyRow ? 'more row' : 'older row')}</div>
             )}
             <LemonTable
                 size="small"
@@ -266,7 +263,8 @@ export function AlertDefinitionSection({
     funnelStepCount,
     hogqlPreview,
     hogqlColumns,
-    hogqlNumericColumns,
+    hogqlValueColumnOptions,
+    hogqlLabelColumnOptions,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -286,25 +284,6 @@ export function AlertDefinitionSection({
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     const hogqlHasMultipleColumns = (hogqlColumns?.length ?? 0) > 1
-    // Only numeric columns are valid evaluated-column picks, and the label can be any other
-    // column. Fall back to all columns when numericness is undetectable (result not loaded),
-    // and keep a stored pick visible even when it's no longer a valid option so the user can
-    // see what's wrong and change it.
-    const storedHogqlColumn = isHogQLAlertConfig(alertForm.config) ? (alertForm.config.column ?? null) : null
-    const storedHogqlLabelColumn = isHogQLAlertConfig(alertForm.config) ? (alertForm.config.label_column ?? null) : null
-    const withStored = (columns: string[], stored: string | null): string[] =>
-        stored && !columns.includes(stored) ? [...columns, stored] : columns
-    const toOptions = (columns: string[]): { label: string; value: string }[] =>
-        columns.map((column) => ({ label: column, value: column }))
-    const hogqlValueColumnOptions = toOptions(
-        withStored(hogqlNumericColumns?.length ? hogqlNumericColumns : (hogqlColumns ?? []), storedHogqlColumn)
-    )
-    const hogqlLabelColumnOptions = toOptions(
-        withStored(
-            (hogqlColumns ?? []).filter((column) => column !== storedHogqlColumn),
-            storedHogqlLabelColumn
-        )
-    )
     return (
         <>
             {isBreakdownValid && (

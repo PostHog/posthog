@@ -107,7 +107,8 @@ export function EditAlertModal({
         thresholdBoundsFormError,
         hogqlAlertPreview,
         hogqlResultColumns,
-        hogqlNumericColumns,
+        hogqlValueColumnOptions,
+        hogqlLabelColumnOptions,
     } = useValues(formLogic)
     const {
         deleteAlert,
@@ -272,7 +273,8 @@ export function EditAlertModal({
                                         funnelStepCount={funnelSource?.series?.length ?? 0}
                                         hogqlPreview={hogqlAlertPreview}
                                         hogqlColumns={hogqlResultColumns}
-                                        hogqlNumericColumns={hogqlNumericColumns}
+                                        hogqlValueColumnOptions={hogqlValueColumnOptions}
+                                        hogqlLabelColumnOptions={hogqlLabelColumnOptions}
                                         anomalyDetectionEnabled={
                                             anomalyDetectionEnabled && insightAlertKind === 'trends'
                                         }

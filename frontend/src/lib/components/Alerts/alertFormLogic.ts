@@ -15,6 +15,7 @@ import {
     AlertCalculationInterval,
     AlertConditionType,
     GoalLine,
+    HogQLAlertConfig,
     InsightThresholdType,
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
@@ -589,16 +590,61 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ? numericColumns[numericColumns.length - 1]
                     : null,
         ],
-        /** Default label column for any-row alerts: the first column that isn't being evaluated,
-         * matching the backend fallback. Waits for the evaluated column to be resolved so the
-         * suggestion can't collide with it. */
-        hogqlSuggestedLabelColumn: [
-            (s) => [s.hogqlResultColumns, (state, logicProps) => s.alertForm(state, logicProps)?.config],
-            (resultColumns: string[] | null, config: AlertConfig | null | undefined): string | null => {
-                if (!isHogQLAlertConfig(config) || config.evaluation !== 'any_row' || config.column == null) {
+        /** Unset SQL config fields to materialize: the evaluated column (last numeric) and, in
+         * any-row mode, the label (first column that isn't evaluated — the backend fallback).
+         * Computed together so prefilling lands in a single form write with no ordering
+         * between the fields. Null when there's nothing to fill. */
+        hogqlConfigPrefill: [
+            (s) => [
+                s.hogqlResultColumns,
+                s.hogqlSuggestedColumn,
+                (state, logicProps) => s.alertForm(state, logicProps)?.config,
+            ],
+            (
+                resultColumns: string[] | null,
+                suggestedColumn: string | null,
+                config: AlertConfig | null | undefined
+            ): Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null => {
+                if (!isHogQLAlertConfig(config)) {
                     return null
                 }
-                return resultColumns?.find((column) => column !== config.column) ?? null
+                const patch: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> = {}
+                if (config.column == null && suggestedColumn != null) {
+                    patch.column = suggestedColumn
+                }
+                const evaluated = config.column ?? suggestedColumn
+                if (config.evaluation === 'any_row' && config.label_column == null && evaluated != null) {
+                    const label = resultColumns?.find((column) => column !== evaluated)
+                    if (label != null) {
+                        patch.label_column = label
+                    }
+                }
+                return Object.keys(patch).length > 0 ? patch : null
+            },
+        ],
+        /** Options for the evaluated-column picker: the numeric columns. Falls back to every
+         * column when the result isn't loaded or nothing numeric was detected — an empty
+         * picker would be a dead end. A stored pick missing from the options still renders
+         * on the select button, but can't be re-picked. */
+        hogqlValueColumnOptions: [
+            (s) => [s.hogqlResultColumns, s.hogqlNumericColumns],
+            (resultColumns: string[] | null, numericColumns: string[] | null): { label: string; value: string }[] => {
+                const columns =
+                    numericColumns === null || numericColumns.length === 0 ? (resultColumns ?? []) : numericColumns
+                return columns.map((column) => ({ label: column, value: column }))
+            },
+        ],
+        /** Options for the label-column picker: every column except the evaluated one. */
+        hogqlLabelColumnOptions: [
+            (s) => [s.hogqlResultColumns, (state, logicProps) => s.alertForm(state, logicProps)?.config],
+            (
+                resultColumns: string[] | null,
+                config: AlertConfig | null | undefined
+            ): { label: string; value: string }[] => {
+                const evaluated = isHogQLAlertConfig(config) ? (config.column ?? null) : null
+                return (resultColumns ?? [])
+                    .filter((column) => column !== evaluated)
+                    .map((column) => ({ label: column, value: column }))
             },
         ],
     })),
@@ -738,23 +784,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
         }
     }),
 
-    subscriptions(({ values, actions }) => ({
-        // Materialize the suggested evaluated column into the form, so the picker shows the
-        // actual choice and the saved config is explicit. A subscription (not a listener)
-        // because the suggestion derives from another logic's loader — there is no single
-        // action to listen to. Never fires for single-column results (picker hidden there);
-        // those stay implicit so they keep working if the column is renamed.
-        hogqlSuggestedColumn: (suggested: string | null) => {
-            const config = values.alertForm?.config
-            if (suggested != null && isHogQLAlertConfig(config) && config.column == null) {
-                actions.setAlertFormValue('config', { ...config, column: suggested })
-            }
-        },
-        hogqlSuggestedLabelColumn: (suggested: string | null) => {
-            const config = values.alertForm?.config
-            if (suggested != null && isHogQLAlertConfig(config) && config.label_column == null) {
-                actions.setAlertFormValue('config', { ...config, label_column: suggested })
-            }
-        },
-    })),
+    subscriptions(({ props, values, actions }) =>
+        props.insightAlertKind !== 'hogql'
+            ? {}
+            : {
+                  // Materialize the suggested picks into the form, so the pickers show the actual
+                  // choice and the saved config is explicit. A subscription (not a listener)
+                  // because the suggestion derives from another logic's loader — there is no
+                  // single action to listen to. Never fires for single-column results (picker
+                  // hidden there); those stay implicit so they keep working on column renames.
+                  hogqlConfigPrefill: (patch: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null) => {
+                      const config = values.alertForm?.config
+                      if (patch != null && isHogQLAlertConfig(config)) {
+                          actions.setAlertFormValue('config', { ...config, ...patch })
+                      }
+                  },
+              }
+    ),
 ])

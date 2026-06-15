@@ -14,6 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AlertCalculationInterval,
     AlertConditionType,
+    HogQLAlertConfig,
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -295,7 +296,7 @@ describe('alertFormLogic', () => {
     })
 
     describe('hogql column prefill', () => {
-        function mountHogqlForm(configOverrides: Record<string, any> = {}): ReturnType<typeof alertFormLogic.build> {
+        function mountHogqlForm(configOverrides: Record<string, any>): ReturnType<typeof alertFormLogic.build> {
             const logic = alertFormLogic({
                 alert: null,
                 insightId: 42,
@@ -305,73 +306,80 @@ describe('alertFormLogic', () => {
                 insightAlertKind: 'hogql',
             })
             logic.mount()
-            if (Object.keys(configOverrides).length > 0) {
-                logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig', ...configOverrides })
-            }
+            logic.actions.setAlertFormValue('config', { type: 'HogQLAlertConfig', ...configOverrides })
             return logic
         }
 
         it.each([
-            [
-                'prefills the single numeric column when none is picked (no label in last-row mode)',
-                {},
-                {
+            {
+                name: 'prefills the single numeric column when none is picked (no label in last-row mode)',
+                config: {},
+                insightData: {
                     columns: ['day', 'count'],
                     results: [
                         ['2026-06-01', 1],
                         ['2026-06-02', 2],
                     ],
                 },
-                { column: 'count', labelColumn: undefined },
-            ],
-            [
-                'keeps an explicit pick',
-                { column: 'a' },
-                { columns: ['a', 'b'], results: [[1, 2]] },
-                { column: 'a', labelColumn: undefined },
-            ],
-            [
-                'prefills the last numeric column when several are numeric',
-                {},
-                { columns: ['a', 'b'], results: [[1, 2]] },
-                { column: 'b', labelColumn: undefined },
-            ],
-            [
-                'skips a trailing non-numeric column when picking the last numeric one',
-                {},
-                { columns: ['value', 'day'], results: [[5, '2026-06-01']] },
-                { column: 'value', labelColumn: undefined },
-            ],
-            [
-                'does not prefill when no column is numeric',
-                {},
-                { columns: ['a', 'b'], results: [['x', 'y']] },
-                { column: undefined, labelColumn: undefined },
-            ],
-            [
-                'does not prefill single-column results (picker hidden, auto keeps working on rename)',
-                {},
-                { columns: ['count'], results: [[5]] },
-                { column: undefined, labelColumn: undefined },
-            ],
-            [
-                'prefills the first non-evaluated column as the label in any-row mode',
-                { evaluation: 'any_row' },
-                { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
-                { column: 'count', labelColumn: 'day' },
-            ],
-            [
-                'keeps an explicit label pick',
-                { evaluation: 'any_row', label_column: 'a' },
-                { columns: ['day', 'a', 'b'], results: [['2026-06-01', 1, 2]] },
-                { column: 'b', labelColumn: 'a' },
-            ],
-        ])('%s', async (_name, configOverrides, insightData, expected) => {
-            const logic = mountHogqlForm(configOverrides)
+                expectedColumn: 'count',
+                expectedLabelColumn: undefined,
+            },
+            {
+                name: 'keeps an explicit pick',
+                config: { column: 'a' },
+                insightData: { columns: ['a', 'b'], results: [[1, 2]] },
+                expectedColumn: 'a',
+                expectedLabelColumn: undefined,
+            },
+            {
+                name: 'prefills the last numeric column when several are numeric',
+                config: {},
+                insightData: { columns: ['a', 'b'], results: [[1, 2]] },
+                expectedColumn: 'b',
+                expectedLabelColumn: undefined,
+            },
+            {
+                name: 'skips a trailing non-numeric column when picking the last numeric one',
+                config: {},
+                insightData: { columns: ['value', 'day'], results: [[5, '2026-06-01']] },
+                expectedColumn: 'value',
+                expectedLabelColumn: undefined,
+            },
+            {
+                name: 'does not prefill when no column is numeric',
+                config: {},
+                insightData: { columns: ['a', 'b'], results: [['x', 'y']] },
+                expectedColumn: undefined,
+                expectedLabelColumn: undefined,
+            },
+            {
+                name: 'does not prefill single-column results (picker hidden, auto keeps working on rename)',
+                config: {},
+                insightData: { columns: ['count'], results: [[5]] },
+                expectedColumn: undefined,
+                expectedLabelColumn: undefined,
+            },
+            {
+                name: 'prefills the first non-evaluated column as the label in any-row mode',
+                config: { evaluation: 'any_row' },
+                insightData: { columns: ['day', 'count'], results: [['2026-06-01', 1]] },
+                expectedColumn: 'count',
+                expectedLabelColumn: 'day',
+            },
+            {
+                name: 'keeps an explicit label pick',
+                config: { evaluation: 'any_row', label_column: 'a' },
+                insightData: { columns: ['day', 'a', 'b'], results: [['2026-06-01', 1, 2]] },
+                expectedColumn: 'b',
+                expectedLabelColumn: 'a',
+            },
+        ])('$name', async ({ config, insightData, expectedColumn, expectedLabelColumn }) => {
+            const logic = mountHogqlForm(config)
             insightDataLogic(insightLogicProps).actions.setInsightData(insightData)
             await expectLogic(logic).toFinishAllListeners()
-            expect((logic.values.alertForm.config as any).column).toEqual(expected.column)
-            expect((logic.values.alertForm.config as any).label_column).toEqual(expected.labelColumn)
+            const formConfig = logic.values.alertForm.config as HogQLAlertConfig
+            expect(formConfig.column).toEqual(expectedColumn)
+            expect(formConfig.label_column).toEqual(expectedLabelColumn)
         })
     })
 
