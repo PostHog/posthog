@@ -38,7 +38,7 @@ MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
 
 def build_person_properties_select_exprs(
     person_properties: list[str],
-) -> tuple[list[ast.Expr], dict[str, str]]:
+) -> tuple[list[ast.Alias], dict[str, str]]:
     """Build HogQL SELECT expressions for the requested person properties.
 
     Property names come from cohort filters, so they must never be substring-concatenated
@@ -46,7 +46,7 @@ def build_person_properties_select_exprs(
     SQL: HogQL either rewrites to a materialized column or routes the key through context
     parameters when emitting ``JSONExtract``.
     """
-    selects: list[ast.Expr] = []
+    selects: list[ast.Alias] = []
     alias_mapping: dict[str, str] = {}
 
     for i, prop in enumerate(person_properties):
@@ -60,6 +60,18 @@ def build_person_properties_select_exprs(
         alias_mapping[alias] = prop
 
     return selects, alias_mapping
+
+
+def _latest_version(expr: ast.Expr) -> ast.Expr:
+    """Pick a column's value from a person's latest version — the HogQL-AST equivalent of ``person FINAL``.
+
+    Selecting from the ``raw_persons`` table exposes every row version, so we dedup explicitly with
+    ``argMax(<column>, version)`` grouped by ``id``. We use ``raw_persons`` rather than the HogQL
+    ``persons`` table on purpose: the latter injects an implicit ``argMax(created_at) < now() + 1 day``
+    clamp that the old raw-SQL ``person FINAL`` query did not have, which would silently drop
+    future-dated persons (clock skew / backdated imports) from the backfill.
+    """
+    return ast.Call(name="argMax", args=[expr, ast.Field(chain=["version"])])
 
 
 def format_cohort_ids_for_logging(cohort_ids: list[int]) -> str:
@@ -487,19 +499,33 @@ async def backfill_precalculated_person_properties_activity(
 
         # Build the HogQL SELECT list — either targeted property accessors (so HogQL can use
         # materialized columns when present) or the full ``properties`` JSON as a fallback.
+        # ``id`` is the GROUP BY key; every other column is read from the person's latest version
+        # via ``_latest_version`` to reproduce the old ``person FINAL`` dedup (see its docstring).
         property_alias_mapping: dict[str, str] = {}
         select_exprs: list[ast.Expr] = [ast.Alias(alias="person_id", expr=ast.Field(chain=["id"]))]
 
-        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
+        # A '%' in a property key makes the HogQL printer raise (it can resolve the accessor to a
+        # column identifier, and '%' is banned there). Such keys are rare but valid person-property
+        # names, so when any appear we fall back to fetching the full ``properties`` JSON: the
+        # consumer evaluates filters against the full dict regardless, which keeps these keys working.
+        has_identifier_unsafe_key = any("%" in prop for prop in person_properties)
+
+        if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES and not has_identifier_unsafe_key:
             property_exprs, property_alias_mapping = build_person_properties_select_exprs(person_properties)
+            for alias_expr in property_exprs:
+                alias_expr.expr = _latest_version(alias_expr.expr)
             select_exprs.extend(property_exprs)
 
             logger.info(f"Optimized query: fetching {len(person_properties)} specific properties via HogQL")
         else:
-            select_exprs.append(ast.Field(chain=["properties"]))
+            select_exprs.append(ast.Alias(alias="properties", expr=_latest_version(ast.Field(chain=["properties"]))))
             if person_properties and len(person_properties) > MAX_OPTIMIZED_PROPERTIES:
                 logger.warning(
                     f"Too many properties ({len(person_properties)} > {MAX_OPTIMIZED_PROPERTIES}) - falling back to fetching all properties for performance"
+                )
+            elif has_identifier_unsafe_key:
+                logger.warning(
+                    "Property key contains '%' (not a valid HogQL identifier) - falling back to fetching all properties"
                 )
             else:
                 logger.warning(
@@ -529,8 +555,19 @@ async def backfill_precalculated_person_properties_activity(
 
         persons_query_ast = ast.SelectQuery(
             select=select_exprs,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            # ``raw_persons`` (not the HogQL ``persons`` table) so dedup stays under our control and
+            # matches the old ``person FINAL`` query exactly — see ``_latest_version``. ``team_id``
+            # scoping is still injected automatically by the printer.
+            select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
             where=ast.And(exprs=where_exprs),
+            group_by=[ast.Field(chain=["id"])],
+            # Equivalent of ``person FINAL WHERE is_deleted = 0``: keep persons whose latest version
+            # is not soft-deleted.
+            having=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=_latest_version(ast.Field(chain=["is_deleted"])),
+                right=ast.Constant(value=0),
+            ),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
             # No explicit limit: compile_hogql_for_streaming uses LimitContext.COHORT_CALCULATION,
             # which injects LIMIT 1_000_000_000. ID ranges are bounded by batch_size (default
