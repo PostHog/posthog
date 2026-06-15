@@ -11,7 +11,9 @@ registerActionNodeCategory({
             name: 'Get account',
             description: 'Fetch a Customer analytics account into a workflow variable.',
             config: { template_id: 'template-posthog-get-account', inputs: {} },
-            output_variable: { key: 'account', result_path: null, spread: true },
+            // No `spread`: the editor's spread helper (hogFlowEditorLogic) hardcodes ticket field
+            // names, so it can't flatten an account. Store the whole object in one variable instead.
+            output_variable: { key: 'account', result_path: null },
         },
     ],
 })
