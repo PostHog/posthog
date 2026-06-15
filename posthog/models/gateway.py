@@ -7,7 +7,7 @@ gateway. Slugs are validated lowercase/URL-safe on write — the gateway validat
 none of it and the slug flows straight onto the billing ledger (ai-gateway #79/#80).
 """
 
-from django.core.validators import RegexValidator
+from django.core.validators import MaxLengthValidator, RegexValidator
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -20,16 +20,18 @@ DEFAULT_GATEWAY_SLUG = "default"
 
 # Lowercase, URL-safe, no leading/trailing separator (posthog_code, slack_app, wizard).
 GATEWAY_SLUG_PATTERN = r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$"
+GATEWAY_SLUG_MAX_LENGTH = 64
 
 validate_gateway_slug = RegexValidator(
     regex=GATEWAY_SLUG_PATTERN,
     message="Gateway slug must be lowercase and URL-safe (letters, digits, '-' or '_', no leading/trailing separator).",
 )
+validate_gateway_slug_length = MaxLengthValidator(GATEWAY_SLUG_MAX_LENGTH)
 
 
 class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):  # type: ignore[django-manager-missing]
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="gateways")
-    slug = models.CharField(max_length=64, validators=[validate_gateway_slug])
+    slug = models.CharField(max_length=GATEWAY_SLUG_MAX_LENGTH, validators=[validate_gateway_slug])
 
     # `objects` (from TeamScopedRootMixin) is fail-closed and what app code uses.
     # Framework internals (admin widgets, reverse FK accessors, DRF) read
@@ -54,4 +56,5 @@ class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
         # no malformed slug reaches the DB (and the billing ledger).
         self.slug = (self.slug or "").strip()
         validate_gateway_slug(self.slug)
+        validate_gateway_slug_length(self.slug)
         super().save(*args, **kwargs)

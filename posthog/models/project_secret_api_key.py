@@ -1,6 +1,7 @@
 from typing import Optional
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.utils import timezone
 
@@ -70,8 +71,12 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
         # key in a child environment may bind its project's gateway, but a key
         # must never route through another team's gateway and misattribute spend.
         if self.gateway_id is not None:
+            try:
+                gateway_team_id = self.gateway.team_id
+            except ObjectDoesNotExist:
+                raise ValueError(f"Gateway {self.gateway_id} does not exist.")
             key_canonical_team_id = self.team.parent_team_id or self.team_id
-            if self.gateway.team_id != key_canonical_team_id:
+            if gateway_team_id != key_canonical_team_id:
                 raise ValueError("A project secret key and its gateway must belong to the same team.")
         super().save(*args, **kwargs)
 

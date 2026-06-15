@@ -63,6 +63,12 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
         with self.assertRaises(ValidationError):
             Gateway.objects.create(team=self.team, slug=slug)
 
+    def test_rejects_slug_over_max_length(self):
+        # The pattern alone doesn't bound length; save() also rejects an over-long
+        # slug with a clean error rather than letting it hit the varchar(64) wall.
+        with self.assertRaises(ValidationError):
+            Gateway.objects.create(team=self.team, slug="a" * 65)
+
     def test_check_constraint_rejects_malformed_slug_bypassing_save(self):
         # bulk_create skips save()'s validator, so the DB CheckConstraint is the
         # last line of defence keeping a malformed slug off the billing ledger.
@@ -121,6 +127,14 @@ class TestGatewayModel(_TeamScopedTestMixin, BaseTest):
         # Binding a team-A key to team B's gateway would misattribute team A's spend.
         with self.assertRaises(ValueError):
             ProjectSecretAPIKey.objects.create(team=self.team, label="cross", gateway=other_gateway)
+
+    def test_key_bound_to_missing_gateway_raises(self):
+        # gateway_id pointing at a non-existent row surfaces a clear ValueError
+        # rather than a bare Gateway.DoesNotExist from the team-match guard.
+        with self.assertRaises(ValueError):
+            ProjectSecretAPIKey.objects.create(
+                team=self.team, label="missing", gateway_id="00000000-0000-0000-0000-000000000000"
+            )
 
     def test_child_env_key_can_bind_parent_gateway(self):
         child = Team.objects.create(organization=self.organization, name="child", parent_team=self.team)
