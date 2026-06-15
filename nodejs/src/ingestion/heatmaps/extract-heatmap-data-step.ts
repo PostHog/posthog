@@ -5,7 +5,7 @@ import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFo
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
-import { IngestedEventInfo } from '../event-processing/emit-event-step'
+import { EmitEventStepOutput, IngestedEventInfo } from '../event-processing/emit-event-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
@@ -18,25 +18,22 @@ export interface ExtractHeatmapDataStepInput {
     message?: Message
 }
 
-export interface ExtractHeatmapDataStepResult {
-    preparedEvent: PreIngestionEvent
-    // One promise per heatmap produce, resolving with the source event info once
-    // acked by Kafka — consumed by the ingestion lag step. Empty when nothing was
-    // produced. See EmitEventStepOutput for the analogous events-pipeline shape.
-    ingested: Promise<IngestedEventInfo | null>[]
-}
-
+/**
+ * Terminal step of the heatmaps pipeline: extracts heatmap data and produces it to
+ * Kafka. The event itself is not emitted onwards, so only the `ingested` handles
+ * (for the lag step) are returned — see EmitEventStepOutput.
+ */
 export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(
     outputs: IngestionOutputs<HeatmapsOutput>
-): ProcessingStep<TInput, ExtractHeatmapDataStepResult> {
-    return async function extractHeatmapDataStep(input: TInput): Promise<PipelineResult<ExtractHeatmapDataStepResult>> {
+): ProcessingStep<TInput, EmitEventStepOutput> {
+    return async function extractHeatmapDataStep(input: TInput): Promise<PipelineResult<EmitEventStepOutput>> {
         const { preparedEvent, headers, message } = input
         const { eventUuid } = preparedEvent
 
         // When capture has already redirected heatmap data to the heatmaps topic,
         // skip extraction here — capture strips $heatmap_data before publishing.
         if (headers?.skip_heatmap_processing) {
-            return Promise.resolve(ok({ preparedEvent, ingested: [] }))
+            return Promise.resolve(ok({ ingested: [] }))
         }
 
         const acks: Promise<void>[] = []
@@ -89,14 +86,7 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
             })
         }
 
-        // Create a copy without the $heatmap_data property (we don't want to ingest this to the events table)
-        const { $heatmap_data, ...propertiesWithoutHeatmapData } = preparedEvent.properties
-        const preparedEventWithoutHeatmapData: PreIngestionEvent = {
-            ...preparedEvent,
-            properties: propertiesWithoutHeatmapData,
-        }
-
-        return Promise.resolve(ok({ preparedEvent: preparedEventWithoutHeatmapData, ingested }, acks, warnings))
+        return Promise.resolve(ok({ ingested }, acks, warnings))
     }
 }
 

@@ -63,7 +63,6 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent).toEqual(event)
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
@@ -101,13 +100,6 @@ describe('createExtractHeatmapDataStep', () => {
             if (result.type === PipelineResultType.OK) {
                 // Original event should not be mutated
                 expect(event.properties.$heatmap_data).toBeDefined()
-
-                // Result should have heatmap data removed
-                expect(result.value.preparedEvent.properties.$heatmap_data).toBeUndefined()
-
-                // Should preserve other properties
-                expect(result.value.preparedEvent.properties.$current_url).toBe('http://localhost:3000/')
-                expect(result.value.preparedEvent.properties.$session_id).toBe('018eebf3-79cd-70da-895f-b6cf352bd688')
 
                 expect(result.sideEffects).toHaveLength(1)
                 expect(result.warnings).toEqual([])
@@ -236,7 +228,6 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent.properties.$heatmap_data).toBeUndefined()
                 expect(result.sideEffects).toEqual([])
             }
             expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
@@ -372,7 +363,7 @@ describe('createExtractHeatmapDataStep', () => {
             expect(event.properties.$heatmap_data).toBeDefined()
         })
 
-        it('returns only the prepared event and ingested handles', async () => {
+        it('returns only the ingested handles', async () => {
             const event = createTestEvent()
             const input = {
                 preparedEvent: event,
@@ -384,8 +375,8 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                // The step narrows to its own contract — unrelated input fields are not carried through.
-                expect(Object.keys(result.value).sort()).toEqual(['ingested', 'preparedEvent'])
+                // The event is not emitted onwards — the step returns only the lag handles.
+                expect(Object.keys(result.value)).toEqual(['ingested'])
             }
         })
     })
@@ -440,7 +431,7 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.preparedEvent).toBe(event)
+                expect(result.value.ingested).toEqual([])
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
