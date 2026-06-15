@@ -1,3 +1,6 @@
+# Moved verbatim from posthog/temporal/session_replay/count_playlist_items/counting_logic.py so the
+# converters are reusable from the web request path without importing temporalio. The only behavioural
+# addition is the `persist_legacy_conversion` flag on convert_playlist_to_recordings_query (see below).
 from typing import Any, Optional
 
 from prometheus_client import Counter
