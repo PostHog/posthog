@@ -1630,5 +1630,7 @@ class TestSharingResourceEditChecks(APIBaseTest):
         request.user = self.user
         view = Mock(team=self.team)
 
-        with self.assertRaises(PermissionDenied):
+        with self.assertRaises(PermissionDenied) as caught:
             check_can_edit_sharing_configuration(view, request, sharing)
+
+        assert "cannot be shared through this endpoint" in str(caught.exception)

@@ -4,6 +4,7 @@ import hmac
 import json
 import hashlib
 import datetime
+from types import SimpleNamespace
 from typing import Any
 
 import unittest
@@ -17,7 +18,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 
+from posthog.api.sharing import check_can_edit_sharing_configuration
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.models.sharing_configuration import SharingConfiguration
 
@@ -1384,3 +1387,27 @@ class TestSharingConfigurationCanAccess(APIBaseTest):
         )
         share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
         self.assertTrue(share.can_access_object(ic))
+
+    def test_interviewee_context_config_fails_closed_through_sharing_gate(self):
+        topic = UserInterviewTopic.objects.create(
+            team=self.team,
+            created_by=self.user,
+            interviewee_emails=["alex@example.com"],
+            topic="t",
+        )
+        ic = IntervieweeContext.objects.create(
+            team=self.team,
+            topic=topic,
+            interviewee_identifier="alex@example.com",
+            agent_context="",
+            created_by=self.user,
+        )
+        share = SharingConfiguration.objects.create(team=self.team, interviewee_context=ic, enabled=True)
+
+        request = SimpleNamespace(method="PATCH", data={"enabled": True}, user=self.user)
+        view = SimpleNamespace(team=self.team)
+
+        with self.assertRaises(PermissionDenied) as caught:
+            check_can_edit_sharing_configuration(view, request, share)
+
+        assert "cannot be shared through this endpoint" in str(caught.exception)
