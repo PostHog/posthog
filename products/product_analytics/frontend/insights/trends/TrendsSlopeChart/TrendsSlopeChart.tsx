@@ -39,10 +39,10 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     } = useValues(trendsDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
 
-    // The backend already shapes each series to its two points (first and last interval bucket) and
-    // the two bucket labels — so here we only map to quill series: resolve the theme colour, drop
-    // legend-hidden series, and flag the incomplete end (which dashes the connector). A series with
-    // fewer than two points (a single-bucket range) is dropped — there's no slope to draw.
+    // The backend returns each series as its two points (first and last interval bucket) with two
+    // matching labels, so we just map to quill series: resolve the theme colour, drop legend-hidden
+    // series, and flag the incomplete end (which dashes the connector). A single-bucket range comes
+    // back as one point and is dropped — there's no slope to draw.
     const labels = currentPeriodResult?.labels ?? []
     const series = useMemo<Series<SlopeSeriesMeta>[]>(() => {
         const lastBucketInProgress = incompletenessOffsetFromEnd !== undefined && incompletenessOffsetFromEnd < 0
