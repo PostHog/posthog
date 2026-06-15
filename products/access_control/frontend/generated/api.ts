@@ -31,8 +31,8 @@ export const getPropertyAccessControlsRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/property_access_controls/?${stringifiedParams}`
-        : `/api/projects/${projectId}/property_access_controls/`
+        ? `/api/environments/${projectId}/property_access_controls/?${stringifiedParams}`
+        : `/api/environments/${projectId}/property_access_controls/`
 }
 
 /**
@@ -50,7 +50,7 @@ export const propertyAccessControlsRetrieve = async (
 }
 
 export const getPropertyAccessControlsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/property_access_controls/`
+    return `/api/environments/${projectId}/property_access_controls/`
 }
 
 /**
@@ -81,8 +81,8 @@ export const getPropertyAccessControlsDestroyUrl = (projectId: string, params: P
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/property_access_controls/?${stringifiedParams}`
-        : `/api/projects/${projectId}/property_access_controls/`
+        ? `/api/environments/${projectId}/property_access_controls/?${stringifiedParams}`
+        : `/api/environments/${projectId}/property_access_controls/`
 }
 
 /**
