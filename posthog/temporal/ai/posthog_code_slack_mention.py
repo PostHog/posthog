@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Any
 
 import structlog
-from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -19,6 +18,7 @@ from posthog.temporal.ai.slack_app import (
     SlackRepoSelectionOutcome,
     classify_untagged_followup_activity,
 )
+from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -36,55 +36,6 @@ from products.tasks.backend.services.connection_token import create_sandbox_conn
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
 logger = structlog.get_logger(__name__)
-
-
-def _block_if_team_over_quota(
-    *,
-    integration: Any,
-    slack: Any,
-    channel: str,
-    thread_ts: str,
-    slack_user_id: str,
-    context: str,
-) -> bool:
-    """Refuse a Slack-bot turn when the team is over its AI credits quota.
-
-    Tach blocks ``products.slack_app`` from importing ``ee.billing``, so the
-    quota lookup lives here (where the temporal layer can freely import ee)
-    while the user-facing denial message lives in ``slack_app.backend.api``
-    (where the Slack-posting helpers live). Returns True when the team was
-    blocked and a denial was posted.
-    """
-    from products.slack_app.backend.api import post_quota_exhausted_denial
-
-    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-
-    if not is_team_limited(
-        integration.team.api_token,
-        QuotaResource.AI_CREDITS,
-        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
-    ):
-        return False
-
-    post_quota_exhausted_denial(
-        integration=integration,
-        slack=slack,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        context=context,
-    )
-    return True
-
-
-def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
-    try:
-        client.reactions_add(channel=channel, timestamp=timestamp, name=name)
-    except SlackApiError as e:
-        if e.response.get("error") == "already_reacted":
-            pass
-        else:
-            raise
 
 
 POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
@@ -627,7 +578,7 @@ async def discover_posthog_code_repository_via_agent_activity(
     if user_message_ts:
         try:
             slack = SlackIntegration(integration)
-            await asyncio.to_thread(_safe_react, slack.client, channel, user_message_ts, "mag")
+            await asyncio.to_thread(safe_react, slack.client, channel, user_message_ts, "mag")
         except Exception:
             logger.warning("posthog_code_search_reaction_failed", channel=channel)
 
@@ -743,7 +694,7 @@ def enforce_posthog_code_billing_quota_activity(
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
-    return _block_if_team_over_quota(
+    return block_if_team_over_quota(
         integration=integration,
         slack=slack,
         channel=channel,
@@ -928,7 +879,7 @@ def create_posthog_code_task_for_repo_activity(
 
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
-    if _block_if_team_over_quota(
+    if block_if_team_over_quota(
         integration=integration,
         slack=slack,
         channel=channel,
@@ -940,7 +891,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "eyes")
+        safe_react(slack.client, channel, user_message_ts, "eyes")
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1177,7 +1128,7 @@ def forward_posthog_code_followup_activity(
             actor_user_id=resolved.user.id,
         )
 
-    if _block_if_team_over_quota(
+    if block_if_team_over_quota(
         integration=integration,
         slack=slack,
         channel=channel,
@@ -1224,7 +1175,7 @@ def forward_posthog_code_followup_activity(
         user_text = followup_user_text_prefix + user_text
 
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "eyes")
+        safe_react(slack.client, channel, user_message_ts, "eyes")
 
     auth_token = None
     created_by = mapping.task.created_by
@@ -1396,7 +1347,7 @@ def _resume_task_with_new_run(
     mapping.save(update_fields=["task_run", "updated_at"])
 
     if user_message_ts:
-        _safe_react(slack.client, channel, user_message_ts, "eyes")
+        safe_react(slack.client, channel, user_message_ts, "eyes")
 
     logger.info(
         "posthog_code_task_resumed",
@@ -1439,7 +1390,7 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     except Exception:
         pass
 
-    _safe_react(slack.client, channel, user_message_ts, done_emoji)
+    safe_react(slack.client, channel, user_message_ts, done_emoji)
 
 
 @activity.defn
