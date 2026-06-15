@@ -681,7 +681,7 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
-        archiveExperiment: true,
+        archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
@@ -1518,10 +1518,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to resume experiment')
             }
         },
-        archiveExperiment: async () => {
+        archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                    { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))

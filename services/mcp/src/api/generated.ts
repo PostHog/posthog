@@ -7800,6 +7800,11 @@ export namespace Schemas {
       snapshots: ApproveSnapshotInput[];
     }
 
+    export interface ArchiveExperiment {
+      /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
+      disable_feature_flag?: boolean;
+    }
+
     export interface Artifact {
       id: string;
       content_hash: string;

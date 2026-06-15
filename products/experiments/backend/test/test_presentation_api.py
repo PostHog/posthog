@@ -4239,6 +4239,40 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.json()["archived"])
 
+    def test_archive_experiment_endpoint_disables_feature_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Archive And Disable Flag",
+                "feature_flag_key": "archive-disable-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertFalse(feature_flag.active)
+        self.assertTrue(feature_flag.archived)
+
     def test_archive_experiment_endpoint_not_ended(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",

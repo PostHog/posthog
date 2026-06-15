@@ -691,6 +691,11 @@ export interface PatchedExperimentApi {
     readonly user_access_level?: string | null
 }
 
+export interface ArchiveExperimentApi {
+    /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
+    disable_feature_flag?: boolean
+}
+
 export interface CopyExperimentToProjectApi {
     /** The team ID to copy the experiment to. */
     target_team_id: number

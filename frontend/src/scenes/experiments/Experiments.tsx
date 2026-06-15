@@ -427,8 +427,11 @@ const ExperimentsTable = ({
                                     >
                                         <LemonButton
                                             onClick={() =>
-                                                confirmArchiveExperiment(() =>
-                                                    archiveExperiment(experiment.id as number)
+                                                confirmArchiveExperiment(experiment, (disableFlag) =>
+                                                    archiveExperiment({
+                                                        id: experiment.id as number,
+                                                        disableFeatureFlag: disableFlag,
+                                                    })
                                                 )
                                             }
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}

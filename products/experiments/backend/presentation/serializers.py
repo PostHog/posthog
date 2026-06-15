@@ -483,6 +483,16 @@ class EndExperimentSerializer(serializers.Serializer):
     )
 
 
+class ArchiveExperimentSerializer(serializers.Serializer):
+    disable_feature_flag = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "When the linked feature flag is still enabled, also disable and archive it along with "
+            "the experiment. Has no effect if the flag is already disabled (it is archived either way)."
+        ),
+    )
+
+
 class ShipVariantSerializer(EndExperimentSerializer):
     variant_key = serializers.CharField(help_text="The key of the variant to ship.")
     release_to_everyone = serializers.BooleanField(

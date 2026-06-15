@@ -98,7 +98,8 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
     const showRunningState = isExperimentRunning && !isExperimentStopped && !!experiment.feature_flag
     const paused = isExperimentPaused(experiment)
 
-    const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
+    const handleArchive = (): void =>
+        confirmArchiveExperiment(experiment, (disableFlag) => archiveExperiment(disableFlag))
     const handleDelete = (): void =>
         confirmDeleteExperiment({
             projectId: currentProjectId,

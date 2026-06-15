@@ -47,6 +47,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.serializers import (
+    ArchiveExperimentSerializer,
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
@@ -280,7 +281,7 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
-        request=None,
+        request=ArchiveExperimentSerializer,
         responses=ExperimentSerializer,
     )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
@@ -289,12 +290,20 @@ class EnterpriseExperimentsViewSet(
         Archive an ended experiment.
 
         Hides the experiment from the default list view. The experiment can be
-        restored at any time by updating archived=false. Returns 400 if the
-        experiment is already archived or has not ended yet.
+        restored at any time by updating archived=false. When the linked feature
+        flag is still enabled, pass disable_feature_flag=true to also disable and
+        archive it. Returns 400 if the experiment is already archived or has not
+        ended yet.
         """
         experiment: Experiment = self.get_object()
+        request_serializer = ArchiveExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
         service = ExperimentService(team=self.team, user=request.user)
-        archived_experiment = service.archive_experiment(experiment, request=request)
+        archived_experiment = service.archive_experiment(
+            experiment,
+            disable_feature_flag=request_serializer.validated_data["disable_feature_flag"],
+            request=request,
+        )
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(

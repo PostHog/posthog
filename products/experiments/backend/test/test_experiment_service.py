@@ -2136,6 +2136,17 @@ class TestExperimentService(APIBaseTest):
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.archived is False
 
+    def test_archive_experiment_disables_and_archives_enabled_flag_when_opted_in(self):
+        experiment = self._create_ended_experiment(name="Disable On Archive", feature_flag_key="disable-on-archive")
+        assert experiment.feature_flag.active is True
+
+        self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is False
+        assert experiment.feature_flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
     def test_archive_experiment_keeps_flag_shared_with_live_experiment(self):
         experiment = self._create_ended_experiment(name="Shared Flag", feature_flag_key="shared-flag")
         experiment.feature_flag.active = False
@@ -2151,6 +2162,38 @@ class TestExperimentService(APIBaseTest):
 
         experiment.feature_flag.refresh_from_db()
         assert experiment.feature_flag.archived is False
+
+    def test_archive_experiment_keeps_shared_flag_even_when_opted_in(self):
+        # Opting in to disable the flag must still never touch a flag a live experiment relies on.
+        experiment = self._create_ended_experiment(name="Shared Opt In", feature_flag_key="shared-opt-in-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Other experiment on same flag",
+            feature_flag=experiment.feature_flag,
+        )
+
+        self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is True
+        assert experiment.feature_flag.archived is False
+
+    def test_unarchive_experiment_keeps_opted_in_flag_disabled(self):
+        # When archiving disabled an enabled flag, unarchiving un-archives it but leaves it
+        # disabled — re-enabling stays an explicit user decision.
+        experiment = self._create_ended_experiment(name="Unarchive Opt In", feature_flag_key="unarchive-opt-in-flag")
+        service = self._service()
+        service.archive_experiment(experiment, disable_feature_flag=True)
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+        service.unarchive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+        assert experiment.feature_flag.active is False
+        assert experiment.feature_flag_auto_archived is False
 
     def test_unarchive_experiment_unarchives_flag(self):
         experiment = self._create_ended_experiment(name="Unarchive Flag", feature_flag_key="unarchive-linked-flag")

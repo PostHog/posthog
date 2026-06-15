@@ -1266,8 +1266,16 @@ class ExperimentService:
     # ------------------------------------------------------------------
 
     @transaction.atomic
-    def archive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
-        """Archive an ended experiment: validate it has ended, set archived=True."""
+    def archive_experiment(
+        self, experiment: Experiment, *, disable_feature_flag: bool = False, request: Any | None = None
+    ) -> Experiment:
+        """Archive an ended experiment: validate it has ended, set archived=True.
+
+        When the linked flag is still enabled, it is only disabled and archived if
+        ``disable_feature_flag`` is set — an enabled flag may still be serving traffic
+        (e.g. rolling out the winning variant), so archiving it is an explicit choice.
+        An already-disabled flag is archived regardless.
+        """
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
         if not experiment.is_stopped:
@@ -1276,28 +1284,35 @@ class ExperimentService:
         experiment.archived = True
         experiment.save()
 
-        self._archive_linked_feature_flag(experiment)
+        self._archive_linked_feature_flag(experiment, disable_if_active=disable_feature_flag)
 
         self._report_experiment_archived(experiment, request=request)
 
         return experiment
 
-    def _archive_linked_feature_flag(self, experiment: Experiment) -> None:
+    def _archive_linked_feature_flag(self, experiment: Experiment, *, disable_if_active: bool = False) -> None:
         """Archive the experiment's flag along with it, so it stops cluttering the flag list.
 
-        Only safe when the flag is already disabled (an enabled flag may still be serving
-        traffic, e.g. rolling out the winning variant) and no other live experiment uses it.
+        An already-disabled flag is archived. An enabled flag is left untouched unless
+        ``disable_if_active`` is set, in which case it is disabled and archived together —
+        an enabled flag may still be serving traffic (e.g. rolling out the winning variant).
+        Never touches a flag still used by another live experiment.
         """
         # Lock the row so a concurrent enable can't slip in between the check and the save,
         # which would produce an archived flag that is still active.
         feature_flag = FeatureFlag.objects.select_for_update().filter(pk=experiment.feature_flag_id).first()
-        if feature_flag is None or feature_flag.deleted or feature_flag.archived or feature_flag.active:
+        if feature_flag is None or feature_flag.deleted or feature_flag.archived:
             return
         if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
             return
 
+        if feature_flag.active:
+            if not disable_if_active:
+                return
+            feature_flag.active = False
+
         feature_flag.archived = True
-        feature_flag.save(update_fields=["archived"])
+        feature_flag.save(update_fields=["archived", "active"])
 
         # Remember that this experiment archived the flag, so unarchiving the experiment
         # only undoes its own archive — never one the user performed manually.

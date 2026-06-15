@@ -336,7 +336,7 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
     })),
     actions({
         // Experiment mutations
-        archiveExperiment: true,
+        archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         endExperiment: true,
         endExperimentWithoutShipping: true,
         finishExperiment: ({ selectedVariantKey }: { selectedVariantKey: string }) => ({ selectedVariantKey }),
@@ -451,10 +451,11 @@ export const legacyExperimentLogic = kea<legacyExperimentLogicType>([
                 return
             }
         },
-        archiveExperiment: async () => {
+        archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                    { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
