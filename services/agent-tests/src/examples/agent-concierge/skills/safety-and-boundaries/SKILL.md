@@ -92,8 +92,9 @@ called `sessions-list` or `sessions-retrieve`.
 
 ### 5. `public` auth is opt-in, noisy, and rare
 
-`spec.auth.modes` is the most security-sensitive field in the spec.
-Adding `{ type: "public", acknowledge_public_exposure: true }` to
+The per-trigger `auth.modes` (`spec.triggers[].auth.modes`) is the most
+security-sensitive field in the spec. Adding
+`{ type: "public", acknowledge_public_exposure: true }` to a trigger's
 `modes[]` opens the agent's chat / run endpoints to **anyone on the
 internet** — every request resolves to an anonymous principal. The
 schema requires the explicit `acknowledge_public_exposure: true`
@@ -110,12 +111,12 @@ You **never** add public auth without:
    **no**:
    - The user only wants Slack / webhook triggers to fire the
      agent — those verify shared secrets / signing headers
-     independently of `spec.auth.modes` and **do not need
-     public auth** to work.
+     independently of the per-trigger `auth.modes` and **do not
+     need public auth** to work.
    - The user wants console + MCP access — that's
-     `posthog_internal` + `pat`, not public.
+     `posthog_internal` + `posthog`, not public.
    - The user wants the chat trigger to work from inside the
-     PostHog app — `pat` covers it.
+     PostHog app — `posthog` covers it.
 3. Only proceed once the user has confirmed in **this turn**
    (no inheriting consent from earlier in the conversation —
    public exposure is a hard pause every time, same as promote).
@@ -127,13 +128,13 @@ You **never** add public auth without:
 Public is the right answer for some agents (a docs-site embed, a
 marketing chatbot). It is the wrong answer for **every** alert-
 triggered / Slack-resident / internal-tooling agent. When in
-doubt, default to `posthog_internal` + `pat` and add other modes
+doubt, default to `posthog_internal` + `posthog` and add other modes
 only when a concrete external client demands them.
 
 ### 6. Confirm before destructive bundle edits
 
-`bundle-update` in `replace` mode wipes files not in the new
-manifest. `skills-destroy` / `tools-destroy` delete content with no undo.
+`skills-destroy` / `tools-destroy` delete bundle content with no undo,
+and `archive` clears a live revision.
 
 Before either:
 
@@ -181,8 +182,7 @@ caution. Things you can do without confirmation:
   promote)
 - Validate a draft
 - Set up a test run (test sessions don't affect production)
-- Use `@posthog/ui/focus` / `@posthog/ui/toast` — these are
-  visual side effects only
+- Use `focus_*` / `toast` — these are visual side effects only
 
 Caution is for the inflection points, not for the journey.
 

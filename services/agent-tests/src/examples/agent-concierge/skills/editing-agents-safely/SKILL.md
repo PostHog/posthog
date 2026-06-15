@@ -46,7 +46,7 @@ NOT this:
 - ❌ Create an empty draft and rebuild. You'll drift from live.
 - ❌ Branch from an archived revision. You'd be regressing.
 
-In the console, `@posthog/ui/focus` to the new draft so the user
+In the console, `focus_revision` to the new draft so the user
 sees it.
 
 ## Step 3 — edit
@@ -74,21 +74,18 @@ For each edit, surface to the user:
 - The before/after diff if it's small (< 20 lines), else just the
   summary
 
-In the console, `@posthog/ui/focus` to each file as you touch it.
+In the console, `focus_file` to each file as you touch it.
 
 ## Step 4 — validate
 
 `agent-applications-revisions-validate-create` against the draft.
-Returns `{ ok, errors[], warnings[] }`.
+Returns `{ ok, revision_id, revision_state, errors, resolved_natives }`.
 
 - **Errors block freeze.** Fix every one before proceeding.
-- **Warnings don't block.** Read them; if they're about your
-  change, address. If they're pre-existing (skills declared but
-  unused before your edit), leave them alone — not your scope.
 
 Common errors:
 
-- `unknown_tool_id` — you wrote `@posthog/queries` instead of
+- `unknown_native_tool` — you wrote `@posthog/queries` instead of
   `@posthog/query`. Cross-check against `@posthog/agent-applications-native-tools-list`.
 - `unresolved_skill_path` — `spec.skills[].path` points at a file
   that isn't in the bundle. Either add the file or remove the spec
@@ -151,7 +148,7 @@ Then call `agent-applications-revisions-promote-create`.
 ## Step 8 — observe
 
 After promoting, **watch the first real session(s)**. In the
-console, `@posthog/ui/focus` to `@posthog/agent-applications-sessions-list`
+console, `focus_session` for `@posthog/agent-applications-sessions-list`
 and tell the user you're watching for the next fire. If something
 looks wrong in the first 1-3 sessions, you have a quick rollback:
 

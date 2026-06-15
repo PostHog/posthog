@@ -373,7 +373,7 @@
         {
             "id": "using-the-console-ui",
             "path": "skills/using-the-console-ui/SKILL.md",
-            "description": "How to drive the agent console as the user works with you \u2014 @posthog/ui/focus etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `agent-console`."
+            "description": "How to drive the agent console as the user works with you \u2014 focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `agent-console`."
         },
         {
             "id": "working-outside-the-console",
@@ -393,7 +393,7 @@
         {
             "id": "auditing-the-fleet",
             "path": "skills/auditing-the-fleet/SKILL.md",
-            "description": "The unattended nightly fleet audit \u2014 sweep every agent in the team, mine each one's recent sessions for failures / anomalies / degraded behaviour, classify root causes, branch a DRAFT proposal revision per fix (never freeze or promote), and write the structured report to memory + post the Slack digest. Load AT THE START of the `nightly-fleet-audit` cron run, or whenever the user asks for a fleet-wide health sweep / 'audit all my agents' / 'what's underperforming?'. Builds on debugging-sessions (per-session triage) and editing-agents-safely (the draft-proposal mechanics)."
+            "description": "The fleet-wide audit \u2014 sweep every agent in the team, mine each one's recent sessions for failures / anomalies / degraded behaviour, classify root causes, branch a DRAFT proposal revision per fix (never freeze or promote), and write the structured report to memory (optionally post a Slack digest). Load whenever the user asks for a fleet-wide health sweep / 'audit all my agents' / 'what's underperforming?'. Builds on debugging-sessions (per-session triage) and editing-agents-safely (the draft-proposal mechanics)."
         },
         {
             "id": "safety-and-boundaries",

@@ -62,7 +62,7 @@ A **session** is one invocation of one revision — one trigger
 firing, one principal, one conversation, one finite lifetime.
 Sessions hold the conversation log, the tool-call log, the events
 emitted, the cost / token usage, and a `state` (`queued`, `running`,
-`waiting_for_input`, `completed`, `failed`, `closed`).
+`completed`, `closed`, `cancelled`, `failed`).
 
 A **principal** is the identity acting through the session. For a
 chat session opened by a human via OAuth, that's the human's user
@@ -124,7 +124,7 @@ This is the most common source of confusion. Be precise.
 | **Native**            | `{ kind: "native", id: "@posthog/foo" }`           | In the runner process    | `@posthog/query`, `@posthog/web-fetch`, `@posthog/slack-post-message` |
 | **Custom**            | `{ kind: "custom", id, path: "tools/x/" }`         | In a per-session sandbox | Anything the team writes themselves                                   |
 | **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.            |
-| **Client**            | `{ kind: "client", from_native \| id }`            | In the connecting client | `@posthog/ui/focus`, `@posthog/ui/toast`                              |
+| **Client**            | `{ kind: "client", id, description, args_schema }` | In the connecting client | `focus_revision`, `focus_session`, `focus_file`, `toast`              |
 
 Native tools are catalogued via `@posthog/agent-applications-native-tools-list`. MCP
 tools are discoverable per server via the MCP `tools/list` call

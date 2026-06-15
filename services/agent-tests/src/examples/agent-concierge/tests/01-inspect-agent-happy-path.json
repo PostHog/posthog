@@ -68,7 +68,7 @@
         ],
         "tool_calls_exclude": [
             "posthog__agent-applications-revisions-promote-create",
-            "posthog__agent-applications-revisions-bundle-update"
+            "posthog__agent-applications-revisions-agent-md-update"
         ],
         "load_skill_includes": ["reading-an-agent"],
         "assistant_text_matches_any": [
