@@ -166,6 +166,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
             dateRange: { date_from: '-24h' },
         }),
         defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'insight',
         titleHref: urls.activity(ActivityTab.ExploreEvents),
         sharedPlaceholder: {
             title: 'Recent events',

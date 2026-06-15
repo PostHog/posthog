@@ -755,6 +755,36 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertIsNone(body["results"][0]["result"])
         self.assertEqual(body["results"][0]["error"], "You do not have access to error tracking.")
 
+    def test_run_widgets_activity_denies_without_insight_access(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type=ACTIVITY_EVENTS_LIST_WIDGET_TYPE, config={"limit": 10}
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_insight_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "insight":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_insight_only,
+        ):
+            body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(body["results"][0]["widget_type"], ACTIVITY_EVENTS_LIST_WIDGET_TYPE)
+        self.assertIsNone(body["results"][0]["result"])
+        self.assertEqual(body["results"][0]["error"], "You do not have access to product analytics.")
+
     def test_run_widgets_rejects_too_many_tile_ids(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         tile_ids = list(range(1, MAX_WIDGETS_BATCH_SIZE + 2))
