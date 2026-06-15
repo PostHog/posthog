@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
     # cleanly and re-runs idempotently via ignore_conflicts.
 
     dependencies = [
-        ("posthog", "1221_gateway_credential_bindings"),
+        ("posthog", "1220_gateway"),
     ]
 
     operations = [
