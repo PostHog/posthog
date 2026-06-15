@@ -163,9 +163,10 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         )
         return SamplerActivityResult(team_id=team.id, job_id=inputs.job_id, sampled=0, embedded=0)
 
-    # Keep the rendering format identical to trace/generation clustering so Stage B can
-    # read eval embeddings with the same endsWith(rendering, '_{job_id}') pattern.
-    rendering = f"{team.id}_{inputs.run_ts}_{inputs.job_id}"
+    # `rendering` is LowCardinality and in the sorting key, so keep it low cardinality:
+    # one stable value per job, not a fresh one per run. Stage B scopes by the
+    # '_{job_id}' suffix, which also matches rows written in the older format.
+    rendering = f"eval_{inputs.job_id}"
     # Use the small (1536-dim) model — see AI_OBSERVABILITY_EVALUATION_EMBEDDING_MODEL in constants.py.
     # The lazy import keeps EmbeddingModelName out of the module top-level (avoids pulling
     # posthog.schema into the workflow-side graph via the activity module).
