@@ -142,7 +142,11 @@ class HogFlowEdgeSerializer(serializers.Serializer):
     )
     index = serializers.IntegerField(
         required=False,
-        help_text="Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition.",
+        help_text=(
+            "Required for type='branch'. conditional_branch: index into config.conditions[index]. "
+            "wait_until_condition: use index:0 — it advances via the index:0 branch edge when it "
+            "resolves (a condition match or an events entry firing)."
+        ),
     )
 
     def get_fields(self):
@@ -270,7 +274,9 @@ class HogFlowActionSerializer(serializers.Serializer):
             "wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, "
             "type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as "
             "delay). Continues when condition.filters match OR any events entry fires; each events entry "
-            "must target at least one event or action. "
+            "must target at least one event or action. On resolution (a condition match or any events "
+            "entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout "
+            "falls through the 'continue' edge. "
             "exit: {reason}."
         ),
     )
@@ -425,6 +431,13 @@ class HogFlowActionSerializer(serializers.Serializer):
                             condition["filters"] = serializer.validated_data
 
         if data.get("type") == "wait_until_condition":
+            config = data.get("config")
+            if isinstance(config, dict) and config.get("condition") is None:
+                # The visual editor seeds every wait node with a condition object ({filters: null}) and
+                # StepWaitUntilCondition assumes it's present. MCP/API callers can author an events-only
+                # wait with no condition; default it so the stored shape matches what the editor renders.
+                # An empty condition is ignored at runtime (isEvaluableCondition), so this is behaviour-neutral.
+                config["condition"] = {"filters": None}
             wait_events = data.get("config", {}).get("events") or []
             # Drop "events to wait for" entries that target neither events nor actions. An empty
             # event filter compiles to always-true bytecode, which would wake the job on every

@@ -469,6 +469,37 @@ class TestHogFlowAPI(APIBaseTest):
         assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
+    def test_hog_flow_wait_until_condition_defaults_missing_condition(self):
+        # An events-only wait omits 'condition'; the FE always seeds it and StepWaitUntilCondition
+        # assumes it, so the serializer defaults it to {filters: None} to keep one canonical shape.
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "events": [
+                    {"filters": {"events": [{"id": "purchase", "name": "purchase", "type": "events", "order": 0}]}}
+                ],
+                "max_wait_duration": "1h",
+            },
+        }
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        hog_flow = {"name": "Test Flow", "actions": [trigger_action, wait_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        assert wait["config"]["condition"] == {"filters": None}, wait["config"]
+
     def test_hog_flow_single_condition_field(self):
         trigger_action = {
             "id": "trigger_node",
