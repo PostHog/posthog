@@ -7614,6 +7614,60 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
         assert "Could not connect to source" in response.json()["message"]
 
 
+class TestCheckCDCPrerequisitesWizard(APIBaseTest):
+    """The detail=False wizard endpoint validates a client-supplied Postgres config before the
+    source exists. Connecting to a user's database is expected to fail on bad creds/host/tunnel,
+    so those connection errors should surface as a 400 without being captured to error tracking."""
+
+    BASE_PAYLOAD = {
+        "source_type": "Postgres",
+        "host": "db.example.com",
+        "port": 5432,
+        "database": "postgres",
+        "user": "postgres",
+        "password": "password",
+        "cdc_management_mode": "posthog",
+        "tables": ["public.users"],
+    }
+
+    def _post(self, **overrides):
+        return self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/check_cdc_prerequisites/",
+            data={**self.BASE_PAYLOAD, **overrides},
+            format="json",
+        )
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(
+        PostgresSource,
+        "check_cdc_prerequisites",
+        side_effect=psycopg.OperationalError(
+            'connection failed: connection to server at "127.0.0.1", port 46377 failed: '
+            "server closed the connection unexpectedly"
+        ),
+    )
+    def test_connection_failure_returns_400_without_capture(
+        self, _mock_prereqs, _mock_ssh, _mock_host, mock_capture
+    ) -> None:
+        response = self._post()
+        assert response.status_code == 400, response.content
+        assert "Could not connect to Postgres to check prerequisites" in response.json()["message"]
+        # User/upstream connection failures must not pollute error tracking.
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch.object(PostgresSource, "is_database_host_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "ssh_tunnel_is_valid", return_value=(True, None))
+    @patch.object(PostgresSource, "check_cdc_prerequisites", side_effect=ValueError("unexpected bug"))
+    def test_unexpected_error_is_still_captured(self, _mock_prereqs, _mock_ssh, _mock_host, mock_capture) -> None:
+        response = self._post()
+        assert response.status_code == 400, response.content
+        # Genuine bugs (not connection failures) should still be captured.
+        mock_capture.assert_called_once()
+
+
 class TestEnableCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     def test_enable_cdc_rejects_source_type_without_cdc_support(self, _flag) -> None:
