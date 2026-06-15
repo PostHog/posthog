@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import structlog
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
 

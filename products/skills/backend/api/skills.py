@@ -28,8 +28,9 @@ from posthog.permissions import AccessControlPermission, get_organization_from_v
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.ai_observability.backend.api.metrics import llma_track_latency
+
 from ..models.skills import LLMSkill, LLMSkillFile
-from .metrics import llma_track_latency
 from .skill_serializers import (
     LLMSkillCreateSerializer,
     LLMSkillDuplicateSerializer,
