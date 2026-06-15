@@ -10,7 +10,7 @@ import {
     CyclotronV2WorkerConfig,
 } from './types'
 
-interface RawJobRow {
+export interface RawJobRow {
     id: string
     team_id: number
     function_id: string | null
@@ -27,23 +27,22 @@ interface RawJobRow {
     lock_id: string
 }
 
-function sleep(ms: number): Promise<void> {
+export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export class CyclotronV2Worker {
-    private pool: Pool
-    private isConsuming = false
-    private lastPollTime = new Date()
+    protected pool: Pool
+    protected isConsuming = false
+    protected lastPollTime = new Date()
     private consumerLoopPromise: Promise<void> | null = null
 
-    private readonly batchMaxSize: number
-    private readonly pollDelayMs: number
+    protected readonly batchMaxSize: number
+    protected readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
-    private readonly includeEmptyBatches: boolean
-    private readonly getBatchLimit?: CyclotronV2WorkerConfig['getBatchLimit']
+    protected readonly includeEmptyBatches: boolean
 
-    constructor(private config: CyclotronV2WorkerConfig) {
+    constructor(protected config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
@@ -53,7 +52,6 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
-        this.getBatchLimit = config.getBatchLimit
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -64,19 +62,11 @@ export class CyclotronV2Worker {
         this.consumerLoopPromise = this.runConsumerLoop(processBatch)
     }
 
-    private async runConsumerLoop(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
+    protected async runConsumerLoop(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
         while (this.isConsuming) {
             try {
                 this.lastPollTime = new Date()
-
-                const decision = await this.getBatchLimit?.()
-                if (decision && decision.limit <= 0) {
-                    await sleep(decision.sleepMs ?? this.pollDelayMs)
-                    continue
-                }
-                const effectiveLimit = decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize
-
-                const rows = await this.dequeueJobs(effectiveLimit)
+                const rows = await this.dequeueJobs()
 
                 if (rows.length === 0) {
                     if (this.includeEmptyBatches) {
@@ -95,7 +85,7 @@ export class CyclotronV2Worker {
         }
     }
 
-    private async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
+    protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
@@ -141,7 +131,7 @@ export class CyclotronV2Worker {
         )
     }
 
-    private wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
+    protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
         const lockId = row.lock_id
         let released = false

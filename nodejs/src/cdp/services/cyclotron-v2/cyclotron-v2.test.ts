@@ -3,8 +3,9 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { CyclotronV2Janitor } from './janitor'
 import { CyclotronV2Manager } from './manager'
-import { CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
+import { CyclotronV2BatchLimit, CyclotronV2DequeuedJob, CyclotronV2JobInit } from './types'
 import { CyclotronV2Worker } from './worker'
+import { CyclotronV2RateLimitedWorker } from './worker-rate-limited'
 
 const DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 const QUEUE = 'test-queue'
@@ -488,20 +489,33 @@ describe('Cyclotron V2', () => {
             expect(jobs[0].queueName).toBe(QUEUE)
         })
 
-        describe('getBatchLimit (rate-limit hook)', () => {
+        describe('CyclotronV2RateLimitedWorker', () => {
             // The hook is consulted on every poll. Returning a positive limit
             // clamps the SQL LIMIT to min(limit, batchMaxSize); 0 skips the
             // dequeue and sleeps; undefined falls back to batchMaxSize.
+            const createRateLimitedWorker = (
+                getBatchLimit: () => Promise<CyclotronV2BatchLimit | undefined>,
+                overrides?: Record<string, unknown>
+            ): CyclotronV2RateLimitedWorker =>
+                new CyclotronV2RateLimitedWorker(
+                    {
+                        pool: { dbUrl: DB_URL },
+                        queueName: QUEUE,
+                        batchMaxSize: 100,
+                        pollDelayMs: 10,
+                        includeEmptyBatches: true,
+                        ...overrides,
+                    },
+                    getBatchLimit
+                )
+
             it('clamps the batch to the granted limit', async () => {
                 for (let i = 0; i < 10; i++) {
                     await manager.createJob({ teamId: 1, queueName: QUEUE })
                 }
 
-                const worker = createWorker(QUEUE, {
-                    batchMaxSize: 100,
-                    // eslint-disable-next-line @typescript-eslint/require-await
-                    getBatchLimit: async () => ({ limit: 3 }),
-                })
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 3 }))
                 const jobs = await dequeueOneBatch(worker)
 
                 expect(jobs).toHaveLength(3)
@@ -512,11 +526,9 @@ describe('Cyclotron V2', () => {
                 await manager.createJob({ teamId: 1, queueName: QUEUE })
                 await manager.createJob({ teamId: 1, queueName: QUEUE })
 
-                const worker = createWorker(QUEUE, {
-                    batchMaxSize: 100,
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => ({ limit: 0, sleepMs: 5 }), {
                     includeEmptyBatches: false,
-                    // eslint-disable-next-line @typescript-eslint/require-await
-                    getBatchLimit: async () => ({ limit: 0, sleepMs: 5 }),
                 })
                 const jobs = await dequeueOneBatch(worker, 200)
 
@@ -531,11 +543,8 @@ describe('Cyclotron V2', () => {
                     await manager.createJob({ teamId: 1, queueName: QUEUE })
                 }
 
-                const worker = createWorker(QUEUE, {
-                    batchMaxSize: 100,
-                    // eslint-disable-next-line @typescript-eslint/require-await
-                    getBatchLimit: async () => undefined,
-                })
+                // eslint-disable-next-line @typescript-eslint/require-await
+                const worker = createRateLimitedWorker(async () => undefined)
                 const jobs = await dequeueOneBatch(worker)
 
                 expect(jobs).toHaveLength(5)

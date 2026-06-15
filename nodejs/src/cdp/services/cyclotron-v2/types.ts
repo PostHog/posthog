@@ -70,6 +70,12 @@ export type CyclotronV2ManagerConfig = {
     depthCheckIntervalMs?: number
 }
 
+/**
+ * Per-poll decision returned by a rate-limited worker's hook.
+ *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
+ *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.
+ *   `undefined`             → fall back to the static `batchMaxSize`.
+ */
 export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
 
 export type CyclotronV2WorkerConfig = {
@@ -79,14 +85,6 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
-    /**
-     * Optional per-poll hook that decides how many rows to dequeue this iteration.
-     * Returning `{ limit: 0, sleepMs }` skips the dequeue and sleeps; returning
-     * `{ limit: N }` clamps the SQL LIMIT to `min(N, batchMaxSize)`; returning
-     * undefined falls back to the static `batchMaxSize`. Resolved once per loop
-     * iteration before the SQL runs.
-     */
-    getBatchLimit?: () => Promise<CyclotronV2BatchLimit | undefined>
 }
 
 export type CyclotronV2JanitorConfig = {

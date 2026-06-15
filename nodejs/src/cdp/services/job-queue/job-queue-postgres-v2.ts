@@ -8,13 +8,8 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import {
-    CyclotronV2BatchLimit,
-    CyclotronV2DequeuedJob,
-    CyclotronV2JobInit,
-    CyclotronV2Manager,
-    CyclotronV2Worker,
-} from '../cyclotron-v2'
+import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
+import { CyclotronV2WorkerConfig } from '../cyclotron-v2/types'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -35,14 +30,13 @@ type SerializedJobState = {
 
 export class CyclotronJobQueuePostgresV2 implements JobQueue {
     private manager?: CyclotronV2Manager
-    private worker?: CyclotronV2Worker
+    protected worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
     private sanitizer: ReturnType<typeof createInvocationSanitizer>
-    private dynamicBatchLimit?: () => Promise<CyclotronV2BatchLimit | undefined>
 
     constructor(
-        private consumerBatchSize: number,
-        private config: Pick<
+        protected consumerBatchSize: number,
+        protected config: Pick<
             CdpConfig,
             | 'CYCLOTRON_NODE_DATABASE_URL'
             | 'CYCLOTRON_SHARD_DEPTH_LIMIT'
@@ -71,12 +65,12 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
     }
 
     /**
-     * Register a per-poll hook that clamps the dequeue batch size. Postgres-V2
-     * only — used by the email worker to gate dequeue behind the SES rate
-     * limiter. Must be called before `startAsConsumer` to take effect.
+     * Factory hook for the worker. Subclasses override this to plug in a
+     * different worker class (e.g. CyclotronV2RateLimitedWorker) without
+     * having to reimplement `startAsConsumer`.
      */
-    public setDynamicBatchLimit(fn: () => Promise<CyclotronV2BatchLimit | undefined>): void {
-        this.dynamicBatchLimit = fn
+    protected createWorker(workerConfig: CyclotronV2WorkerConfig): CyclotronV2Worker {
+        return new CyclotronV2Worker(workerConfig)
     }
 
     public async startAsConsumer(
@@ -89,13 +83,12 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         await this.startAsProducer()
 
-        this.worker = new CyclotronV2Worker({
+        this.worker = this.createWorker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
-            getBatchLimit: this.dynamicBatchLimit,
         })
 
         await this.worker.connect(async (jobs) => {
