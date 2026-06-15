@@ -1251,6 +1251,85 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # Every DB playlist appears exactly once across all pages — no skips, no duplicates.
         assert sorted(seen_db_names) == sorted(db_names)
 
+    def test_pagination_with_name_ties_across_page_boundary(self) -> None:
+        # Duplicate names (including one colliding with a synthetic, "Expiring soon")
+        # force ties that straddle page boundaries. The unique id tiebreaker must keep
+        # every DB row appearing exactly once — without it the slice skips/repeats rows.
+        created_ids: set[str] = set()
+        for name in ["dup-a", "dup-a", "dup-a", "Expiring soon", "Expiring soon", "dup-z", "dup-z", "dup-z"]:
+            playlist = SessionRecordingPlaylist.objects.create(
+                team=self.team, name=name, created_by=self.user, type="collection"
+            )
+            created_ids.add(playlist.short_id)
+
+        page_size = 3
+        seen: list[str] = []
+        offset = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?order=name&limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            seen.extend(r["short_id"] for r in data["results"] if not r.get("is_synthetic"))
+            offset += page_size
+            if offset >= data["count"]:
+                break
+
+        assert sorted(seen) == sorted(created_ids)
+        assert len(seen) == len(set(seen))
+
+    def test_pagination_synthetics_only_when_no_db_collections(self) -> None:
+        # No DB rows: the response is exactly the synthetics, and paging across a small
+        # limit returns each once — pins the rank range() branch with zero DB rows.
+        page_size = 3
+        seen: list[str] = []
+        offset = 0
+        total = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            total = data["count"]
+            assert all(r.get("is_synthetic") for r in data["results"])
+            seen.extend(r["short_id"] for r in data["results"])
+            offset += page_size
+            if offset >= total:
+                break
+
+        assert total > 0
+        assert len(seen) == total
+        assert len(set(seen)) == total
+
+    def test_pagination_with_zero_synthetics(self) -> None:
+        # collection_type=custom filters out all synthetics, exercising the empty-ranks
+        # early return; pure-DB pagination must still return each row exactly once.
+        db_names = [f"custom-{i:02d}" for i in range(8)]
+        for name in db_names:
+            SessionRecordingPlaylist.objects.create(team=self.team, name=name, created_by=self.user, type="collection")
+
+        page_size = 3
+        seen: list[str] = []
+        offset = 0
+        total = 0
+        while True:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recording_playlists?collection_type=custom&limit={page_size}&offset={offset}"
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            total = data["count"]
+            assert not any(r.get("is_synthetic") for r in data["results"])
+            seen.extend(r["name"] for r in data["results"])
+            offset += page_size
+            if offset >= total:
+                break
+
+        assert total == len(db_names)
+        assert sorted(seen) == sorted(db_names)
+
 
 class TestSessionRecordingPlaylistPersonalAPIKey(APIBaseTest):
     def _create_personal_api_key(self, scopes: list[str], scoped_teams: list[int] | None = None) -> str:
