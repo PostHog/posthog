@@ -1,4 +1,6 @@
-from posthog.schema import ChartDisplayType, TrendsFilter, TrendsQueryResponse
+from datetime import datetime
+
+from posthog.schema import ChartDisplayType, HogQLPropertyFilter, TrendsFilter, TrendsQueryResponse
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
@@ -15,13 +17,13 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
     """Renders the change between the first and last interval bucket of the selected range.
 
     A slope shows two points: the value of the first group and the value of the last group, at the
-    chosen interval (day/week/month). It runs the ordinary trends time series once — the interval
-    already returns one value per bucket in a single query, with every math type, breakdown and
-    filter handled — then keeps only the first and last bucket of each series. A range spanning a
-    single bucket yields a one-point series, which the frontend drops (there's no slope to draw).
-    The last bucket is shown as-is even when it is the current, still-accumulating period; the
-    frontend dashes that endpoint, mirroring the line chart. Because it has its own display type it
-    caches under its own key rather than sharing the line graph's result.
+    chosen interval (day/week/month). It runs the ordinary trends time series once — reusing every
+    math type, breakdown and filter — but restricts the scan to the first and last bucket's date
+    windows, so ClickHouse only reads those two buckets instead of the whole range. The series still
+    zero-fills the buckets in between; we slice them off. A range spanning a single bucket yields a
+    one-point series, which the frontend drops (there's no slope to draw). The last bucket is shown
+    as-is even when it is the current, still-accumulating period; the frontend dashes that endpoint,
+    mirroring the line chart. Because it has its own display type it caches under its own key.
     """
 
     def _calculate(self) -> TrendsQueryResponse:
@@ -30,8 +32,14 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
         series_query.compareFilter = None
         if series_query.trendsFilter is None:
             series_query.trendsFilter = TrendsFilter()
-        # Compute the full interval series in one query; we slice it to its ends below.
+        # Compute the interval series in one query; we slice it to its ends below.
         series_query.trendsFilter.display = ChartDisplayType.ACTIONS_LINE_GRAPH
+        # Read only the two end buckets, not everything between them.
+        end_buckets_filter = self._end_buckets_filter()
+        if isinstance(series_query.properties, list):
+            series_query.properties.append(end_buckets_filter)
+        else:
+            series_query.properties = [end_buckets_filter]
 
         response = TrendsQueryRunner(
             query=series_query,
@@ -45,3 +53,22 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
         for result in response.results or []:
             _collapse_to_endpoints(result)
         return response
+
+    def _end_buckets_filter(self) -> HogQLPropertyFilter:
+        """Restrict the scan to the first and last interval bucket, aligned to the runner's own
+        bucketing so the kept events land in exactly the first and last GROUP BY bucket."""
+        date_from = self.query_date_range.date_from()
+        date_to = self.query_date_range.date_to()
+        first_start = self.query_date_range.align_with_interval(date_from)
+        last_start = self.query_date_range.align_with_interval(date_to)
+        first_end = first_start + self.query_date_range.interval_relativedelta()
+        tz = self.team.timezone
+
+        def lit(value: datetime) -> str:
+            return f"toDateTime('{value.strftime('%Y-%m-%d %H:%M:%S')}', '{tz}')"
+
+        expr = (
+            f"(timestamp >= {lit(first_start)} and timestamp < {lit(first_end)}) "
+            f"or (timestamp >= {lit(last_start)} and timestamp <= {lit(date_to)})"
+        )
+        return HogQLPropertyFilter(key=expr)
