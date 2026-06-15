@@ -65,6 +65,7 @@ from products.data_warehouse.backend.api.external_data_schema import (
     RowFiltersField,
     SimpleExternalDataSchemaSerializer,
     source_supports_column_selection,
+    unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
@@ -1553,6 +1554,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             if row_filters is not None:
+                if reason := unsupported_row_filter_reason(
+                    is_direct_postgres=new_source_model.is_direct_postgres, is_cdc=sync_type == "cdc"
+                ):
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
+                    )
                 try:
                     validate_and_coerce_row_filters(row_filters, schema_metadata)
                 except RowFilterValidationError as e:

@@ -159,6 +159,24 @@ class RowFiltersField(serializers.JSONField):
     """Typed JSON field for the list of `{column, operator, value}` row-filter predicates."""
 
 
+def unsupported_row_filter_reason(*, is_direct_postgres: bool, is_cdc: bool) -> str | None:
+    """Row filters are only enforced on snapshot-style syncs, which apply them as a `WHERE`
+    clause. Direct Postgres queries tables live and CDC streams WAL changes — both bypass that
+    query, so a saved filter would silently leave excluded rows visible. Reject those up front.
+    """
+    if is_direct_postgres:
+        return (
+            "Row filters are not supported for direct Postgres sources — "
+            "tables are queried live and filters cannot be enforced at the source."
+        )
+    if is_cdc:
+        return (
+            "Row filters are not supported for CDC schemas — change-stream rows are "
+            "replicated without these predicates, so filtered rows would still sync."
+        )
+    return None
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -448,11 +466,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
-            if instance.source.is_direct_postgres:
-                raise ValidationError(
-                    "Row filters are not supported for direct Postgres sources — "
-                    "tables are queried live and filters cannot be enforced at the source."
-                )
+            incoming_sync_type = data.get("sync_type")
+            target_is_cdc = (
+                incoming_sync_type == ExternalDataSchema.SyncType.CDC if "sync_type" in data else instance.is_cdc
+            )
+            if reason := unsupported_row_filter_reason(
+                is_direct_postgres=instance.source.is_direct_postgres, is_cdc=target_is_cdc
+            ):
+                raise ValidationError(reason)
             try:
                 validate_and_coerce_row_filters(validated_data["row_filters"], instance.schema_metadata)
             except RowFilterValidationError as e:

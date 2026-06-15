@@ -649,31 +649,33 @@ export default function SchemaForm(): JSX.Element {
                             }}
                         />
                     </div>
-                    <div className="flex flex-col gap-2">
-                        <h4 className="font-semibold mb-0">Row filters</h4>
-                        <RowFilterEditor
-                            hideActions
-                            schema={
-                                columnSelectionSchema
-                                    ? {
-                                          id: columnSelectionSchema.table,
-                                          name: columnSelectionSchema.table,
-                                          row_filters: columnSelectionSchema.row_filters,
-                                          available_columns: columnSelectionSchema.available_columns.map((c) => ({
-                                              name: c.field,
-                                              data_type: c.type,
-                                              is_nullable: c.nullable,
-                                          })),
-                                      }
-                                    : null
-                            }
-                            onChange={(rowFilters) => {
-                                if (columnSelectionSchema) {
-                                    setSchemaRowFilters(columnSelectionSchema, rowFilters)
+                    {columnSelectionSchema?.sync_type !== 'cdc' && (
+                        <div className="flex flex-col gap-2">
+                            <h4 className="font-semibold mb-0">Row filters</h4>
+                            <RowFilterEditor
+                                hideActions
+                                schema={
+                                    columnSelectionSchema
+                                        ? {
+                                              id: columnSelectionSchema.table,
+                                              name: columnSelectionSchema.table,
+                                              row_filters: columnSelectionSchema.row_filters,
+                                              available_columns: columnSelectionSchema.available_columns.map((c) => ({
+                                                  name: c.field,
+                                                  data_type: c.type,
+                                                  is_nullable: c.nullable,
+                                              })),
+                                          }
+                                        : null
                                 }
-                            }}
-                        />
-                    </div>
+                                onChange={(rowFilters) => {
+                                    if (columnSelectionSchema) {
+                                        setSchemaRowFilters(columnSelectionSchema, rowFilters)
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
             </LemonModal>
         </>

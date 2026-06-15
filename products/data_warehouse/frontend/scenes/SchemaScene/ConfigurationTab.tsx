@@ -581,7 +581,7 @@ function ColumnsAndRowFiltersSection({
                 </div>
             </div>
 
-            {source?.access_method !== 'direct' && (
+            {source?.access_method !== 'direct' && schema.sync_type !== 'cdc' && (
                 <div>
                     <SectionHeader
                         title="Row filters"
