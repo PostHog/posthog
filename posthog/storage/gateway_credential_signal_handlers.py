@@ -89,6 +89,19 @@ def _snapshot_user(sender: type[User], instance: User, **kwargs: Any) -> None:
         instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
 
 
+def _capture_old_user_is_active_if_deferred(sender: type[User], instance: User, **kwargs: Any) -> None:
+    # Fallback for a user loaded with is_active deferred (.only()/.defer()): re-read the
+    # old value so a deferred-load deactivation still clears the blob. No query on the
+    # common full-load path, where post_init already snapshotted.
+    if not settings.AI_GATEWAY_REDIS_URL or _LOADED_IS_ACTIVE_ATTR in instance.__dict__:
+        return
+    if not instance.pk or instance._state.adding:
+        return
+    row = User.objects.filter(pk=instance.pk).values("is_active").first()
+    if row is not None:
+        instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = row["is_active"]
+
+
 def _capture_old_secret_key_if_deferred(
     sender: type[ProjectSecretAPIKey], instance: ProjectSecretAPIKey, **kwargs: Any
 ) -> None:
@@ -151,6 +164,10 @@ def _on_credential_save(
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace=_NAMESPACE, operation="enqueue", result="failure").inc()
             logger.exception("Failed to enqueue gateway credential cache update", kind=kind, error=str(e))
+            # A sync clear/enqueue failed (e.g. transient Redis) — queue the task so a
+            # revoke self-heals in queue-time instead of waiting out the blob TTL. The
+            # task re-projects the current credential: writes if eligible, clears if not.
+            update_gateway_credential_cache_task.delay(kind, str(instance.pk))
 
     transaction.on_commit(enqueue)
 
@@ -204,7 +221,9 @@ def _reproject_user_sync_then_async(user_id: int) -> None:
             reproject_user_gateway_credentials_task(user_id)
         except Exception as e:
             logger.exception("Synchronous gateway credential reprojection failed", user_id=user_id, error=str(e))
-        reproject_user_gateway_credentials_task.delay(user_id)
+            # Sync clear failed (e.g. transient Redis) — queue an async retry so the
+            # blob can't outlive the TTL. No retry needed when the sync run succeeded.
+            reproject_user_gateway_credentials_task.delay(user_id)
 
     transaction.on_commit(_invalidate)
 
@@ -232,14 +251,9 @@ def _reproject_on_membership_delete(
     _reproject_user_sync_then_async(instance.user_id)
 
 
-def _snapshot_team(sender: type[Team], instance: Team, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL:
-        return
-    if "api_token" not in instance.get_deferred_fields():
-        instance.__dict__[_LOADED_TEAM_API_TOKEN_ATTR] = instance.api_token
-
-
 def _capture_old_team_token_if_deferred(sender: type[Team], instance: Team, **kwargs: Any) -> None:
+    # Sole snapshot source for Team: no post_init handler, since these rows are loaded
+    # far more often than saved — one query per save beats a snapshot on every load.
     if not settings.AI_GATEWAY_REDIS_URL or _LOADED_TEAM_API_TOKEN_ATTR in instance.__dict__:
         return
     if not instance.pk or instance._state.adding:
@@ -265,16 +279,12 @@ def _reproject_team_on_api_token_change(sender: type[Team], instance: Team, crea
     transaction.on_commit(lambda: reproject_team_gateway_credentials_task.delay(team_id))
 
 
-def _snapshot_membership(sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any) -> None:
-    if not settings.AI_GATEWAY_REDIS_URL:
-        return
-    if "level" not in instance.get_deferred_fields():
-        instance.__dict__[_LOADED_MEMBERSHIP_LEVEL_ATTR] = instance.level
-
-
 def _capture_old_membership_level_if_deferred(
     sender: type[OrganizationMembership], instance: OrganizationMembership, **kwargs: Any
 ) -> None:
+    # Sole snapshot source for OrganizationMembership: no post_init handler, since these
+    # rows are loaded far more often than saved — one query per save beats a snapshot on
+    # every load.
     if not settings.AI_GATEWAY_REDIS_URL or _LOADED_MEMBERSHIP_LEVEL_ATTR in instance.__dict__:
         return
     if not instance.pk or instance._state.adding:
@@ -333,14 +343,16 @@ def connect_signal_handlers() -> None:
     post_save.connect(_update_oauth_on_save, sender=OAuthAccessToken)
     pre_delete.connect(_clear_oauth_on_delete, sender=OAuthAccessToken)
 
-    post_init.connect(_snapshot_team, sender=Team)
+    # Team / OrganizationMembership: pre_save fallback only (no post_init). These rows
+    # are read far more than written, so paying one query per save beats snapshotting
+    # every load.
     pre_save.connect(_capture_old_team_token_if_deferred, sender=Team)
     post_save.connect(_reproject_team_on_api_token_change, sender=Team)
 
     post_init.connect(_snapshot_user, sender=User)
+    pre_save.connect(_capture_old_user_is_active_if_deferred, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
 
-    post_init.connect(_snapshot_membership, sender=OrganizationMembership)
     pre_save.connect(_capture_old_membership_level_if_deferred, sender=OrganizationMembership)
     post_save.connect(_reproject_on_membership_save, sender=OrganizationMembership)
     post_delete.connect(_reproject_on_membership_delete, sender=OrganizationMembership)
