@@ -54,7 +54,7 @@ def reset_scorer_singleton() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _scorer_singleton_clean_slate() -> Generator[None, None, None]:
+def _scorer_singleton_clean_slate() -> Generator[None]:
     """Every test in this directory starts and ends with a fresh scorer singleton."""
     reset_scorer_singleton()
     yield
