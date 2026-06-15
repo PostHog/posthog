@@ -152,7 +152,8 @@ def test_nested_to_config_with_nested_dict():
     assert cfg.d is True
 
 
-def test_nested_to_config_with_scalar_value_for_nested_key():
+@pytest.mark.parametrize("scalar_value", ["oauth", "api_key", None])
+def test_nested_to_config_with_scalar_value_for_nested_key(scalar_value):
     """Test `config.to_config` when a nested-config field's key holds a scalar.
 
     Mirrors the auth-method payload shape where the selection field is sent flat
@@ -173,7 +174,7 @@ def test_nested_to_config_with_scalar_value_for_nested_key():
         account_id: str | None = None
 
     config_dict = {
-        "auth_method": "api_key",
+        "auth_method": scalar_value,
         "secret_key": "rk_live_x",
         "account_id": "acct_xxx",
     }
