@@ -646,6 +646,18 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["report"]["source_products"] == ["zendesk"]
 
+    def test_source_products_resilient_to_clickhouse_failure_on_retrieve(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_products"] == []
+
     # --- legacy choice removal ---
 
     def test_actionability_null_for_legacy_choice_artefact(self):
@@ -762,6 +774,26 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["source_products"] == ["zendesk"]
+
+    def test_state_transition_resilient_to_clickhouse_failure(self):
+        # A ClickHouse hiccup during best-effort enrichment must not 500 an already-committed
+        # state change — the transition is persisted and the response degrades to empty.
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["source_products"] == []
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
 
     @parameterized.expand(
         [
