@@ -182,8 +182,13 @@ describe('insightSceneLogic', () => {
         logic.values.insightDataLogicRef?.logic.actions.setQuery(defaultQuery)
         await expectLogic(logic).delay(1)
 
-        // The drill-down query must still be in the hash, not the default Trends query
-        expect(router.values.hashParams.q).toEqual(JSON.stringify(dataTableQuery))
+        // The drill-down query must still be in the hash, not the default Trends query.
+        // kea-router may hold the hash param as a JSON string (URL-decoded) or an object, so normalize.
+        const hashQuery =
+            typeof router.values.hashParams.q === 'string'
+                ? JSON.parse(router.values.hashParams.q)
+                : router.values.hashParams.q
+        expect(hashQuery).toEqual(dataTableQuery)
     })
 
     it('tags a DataTableNode drill-down query on cold load via the upgrade path', async () => {
@@ -250,6 +255,26 @@ describe('insightSceneLogic', () => {
 
         const query = logic.values.insightLogicRef?.logic.values.insight.query as any
         expect(query.source?.tags?.productKey).toEqual(ProductKey.WEB_ANALYTICS)
+    })
+
+    it('does not inject tags into a DataTableNode with an EventsNode source', async () => {
+        // EventsNode forbids extra keys in its schema, so tagging it would produce an invalid query.
+        // The source must be left untouched (no tags field added).
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source.kind).toEqual(NodeKind.EventsNode)
+        expect(query.source.tags).toBeUndefined()
     })
 
     it('persists edit mode in the url', async () => {

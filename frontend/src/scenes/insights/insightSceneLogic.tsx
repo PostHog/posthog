@@ -28,6 +28,7 @@ import {
     FileSystemIconType,
     HogQLVariable,
     Node,
+    NodeKind,
     QueryLogTags,
     TileFilters,
 } from '~/queries/schema/schema-general'
@@ -85,7 +86,9 @@ function withDefaultProductAnalyticsTags(query: Node): Node {
             source: { ...query.source, tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
         }
     }
-    if (isDataTableNode(query)) {
+    // EventsNode is the only DataTableNode source kind without a `tags` field; its schema forbids extra
+    // keys, so injecting tags there would make the query payload invalid. Skip it.
+    if (isDataTableNode(query) && query.source.kind !== NodeKind.EventsNode) {
         const source = query.source as { tags?: QueryLogTags | null }
         if (!source.tags?.productKey) {
             return {
