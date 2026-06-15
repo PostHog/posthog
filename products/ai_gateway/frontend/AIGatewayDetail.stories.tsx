@@ -11,18 +11,6 @@ const GATEWAY = {
     created_at: '2024-07-01T10:00:00Z',
     updated_at: null,
     created_by: { id: 1, first_name: 'Bob', email: 'bob@posthog.com' },
-    bound_credentials_count: 1,
-}
-
-const BOUND_CREDENTIALS = {
-    project_secret_api_keys: [
-        {
-            id: 'k1',
-            label: 'Reports bot',
-            last_used_at: '2024-07-08T09:00:00Z',
-        },
-    ],
-    oauth_applications: [],
 }
 
 const meta: Meta = {
@@ -37,14 +25,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                // Literal path before :id/ so it isn't shadowed by the gateway-detail handler.
-                'api/projects/:team_id/gateways/assignable_credentials/': () => [
-                    200,
-                    [{ id: 'pak_unassigned', label: 'local dev key', last_used_at: null }],
-                ],
                 'api/projects/:team_id/gateways/': () => [200, { count: 1, results: [GATEWAY] }],
                 'api/projects/:team_id/gateways/:id/': () => [200, GATEWAY],
-                'api/projects/:team_id/gateways/:id/credentials/': () => [200, BOUND_CREDENTIALS],
             },
             post: {
                 'api/environments/:team_id/query/': () => [

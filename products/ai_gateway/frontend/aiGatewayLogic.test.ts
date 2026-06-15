@@ -3,23 +3,11 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { aiGatewayLogic } from './aiGatewayLogic'
-import {
-    gatewaysCreate,
-    gatewaysCredentialsRetrieve,
-    gatewaysDestroy,
-    gatewaysList,
-    gatewaysPartialUpdate,
-} from './generated/api'
+import { gatewaysList, gatewaysPartialUpdate } from './generated/api'
 
 jest.mock('./generated/api', () => ({
     gatewaysList: jest.fn(),
-    gatewaysCreate: jest.fn(),
     gatewaysPartialUpdate: jest.fn(),
-    gatewaysDestroy: jest.fn(),
-    gatewaysCredentialsRetrieve: jest.fn(),
-    gatewaysAssignableCredentialsList: jest.fn().mockResolvedValue([]),
-    gatewaysAssignCredentialCreate: jest.fn(),
-    gatewaysUnassignCredentialCreate: jest.fn(),
 }))
 
 jest.mock('./gatewayUsage', () => ({
@@ -27,10 +15,7 @@ jest.mock('./gatewayUsage', () => ({
 }))
 
 const mockList = gatewaysList as jest.MockedFunction<typeof gatewaysList>
-const mockCreate = gatewaysCreate as jest.MockedFunction<typeof gatewaysCreate>
 const mockUpdate = gatewaysPartialUpdate as jest.MockedFunction<typeof gatewaysPartialUpdate>
-const mockDestroy = gatewaysDestroy as jest.MockedFunction<typeof gatewaysDestroy>
-const mockCredentials = gatewaysCredentialsRetrieve as jest.MockedFunction<typeof gatewaysCredentialsRetrieve>
 
 const gateway = (id: string, slug: string): any => ({
     id,
@@ -38,7 +23,6 @@ const gateway = (id: string, slug: string): any => ({
     created_at: '',
     updated_at: null,
     created_by: {},
-    bound_credentials_count: 0,
 })
 
 describe('aiGatewayLogic', () => {
@@ -62,52 +46,25 @@ describe('aiGatewayLogic', () => {
     })
 
     it('rejects an empty slug without making a request', async () => {
-        logic.actions.openNewGateway()
+        logic.actions.openEditGateway(gateway('g1', 'default'))
         logic.actions.setEditingGatewayValue('slug', '')
         await expectLogic(logic, () => logic.actions.submitEditingGateway()).toFinishAllListeners()
-        expect(mockCreate).not.toHaveBeenCalled()
+        expect(mockUpdate).not.toHaveBeenCalled()
     })
 
     it('rejects a malformed slug without making a request', async () => {
-        logic.actions.openNewGateway()
+        logic.actions.openEditGateway(gateway('g1', 'default'))
         logic.actions.setEditingGatewayValue('slug', 'Not Valid')
         await expectLogic(logic, () => logic.actions.submitEditingGateway()).toFinishAllListeners()
-        expect(mockCreate).not.toHaveBeenCalled()
+        expect(mockUpdate).not.toHaveBeenCalled()
     })
 
-    it('creates a gateway and closes the modal on submit', async () => {
-        mockCreate.mockResolvedValue(gateway('g2', 'wizard'))
-        logic.actions.openNewGateway()
-        logic.actions.setEditingGatewayValue('slug', 'wizard')
-        await expectLogic(logic, () => logic.actions.submitEditingGateway()).toFinishAllListeners()
-        expect(mockCreate).toHaveBeenCalledWith(expect.any(String), { slug: 'wizard' })
-        expect(logic.values.editingGatewayId).toBeNull()
-    })
-
-    it('renames an existing gateway via partial update', async () => {
+    it('renames a gateway via partial update and closes the modal', async () => {
         mockUpdate.mockResolvedValue(gateway('g1', 'renamed'))
         logic.actions.openEditGateway(gateway('g1', 'default'))
         logic.actions.setEditingGatewayValue('slug', 'renamed')
         await expectLogic(logic, () => logic.actions.submitEditingGateway()).toFinishAllListeners()
         expect(mockUpdate).toHaveBeenCalledWith(expect.any(String), 'g1', { slug: 'renamed' })
         expect(logic.values.editingGatewayId).toBeNull()
-    })
-
-    it('deletes a gateway', async () => {
-        mockDestroy.mockResolvedValue(undefined as any)
-        await expectLogic(logic, () => logic.actions.deleteGateway(gateway('g1', 'default'))).toFinishAllListeners()
-        expect(mockDestroy).toHaveBeenCalledWith(expect.any(String), 'g1')
-    })
-
-    it('loads a gateway’s bound credentials keyed by id', async () => {
-        mockCredentials.mockResolvedValue({
-            project_secret_api_keys: [{ id: 'k1', label: 'bot', last_used_at: null }],
-            oauth_applications: [],
-        } as any)
-        await expectLogic(logic, () => logic.actions.loadCredentials({ gatewayId: 'g1' })).toDispatchActions([
-            'loadCredentialsSuccess',
-        ])
-        expect(mockCredentials).toHaveBeenCalledWith(expect.any(String), 'g1')
-        expect(logic.values.credentialsByGateway['g1'].project_secret_api_keys[0].id).toEqual('k1')
     })
 })

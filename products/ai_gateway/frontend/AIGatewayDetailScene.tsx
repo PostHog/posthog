@@ -20,7 +20,6 @@ import { Query } from '~/queries/Query/Query'
 import { DataTableNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import { aiGatewayDetailLogic, AIGatewayDetailLogicProps, EndpointProvider, EndpointTab } from './aiGatewayDetailLogic'
-import { GatewayCredentials } from './GatewayCredentials'
 import { UsageTiles } from './gatewayUsage'
 import { GatewayApi } from './generated/api.schemas'
 
@@ -64,7 +63,7 @@ export function AIGatewayDetailScene(): JSX.Element {
             </LemonButton>
             <SceneTitleSection
                 name={gateway.slug}
-                description="Monitor this gateway's usage, see how to connect to it, and manage the keys that attribute to it."
+                description="Monitor this gateway's usage and see how to connect to it."
                 resourceType={{ type: 'ai_gateway' }}
             />
 
@@ -74,7 +73,6 @@ export function AIGatewayDetailScene(): JSX.Element {
                 tabs={[
                     { key: 'usage', label: 'Usage', content: <UsageTab gateway={gateway} /> },
                     { key: 'connect', label: 'Connect', content: <GatewayEndpoint gateway={gateway} /> },
-                    { key: 'keys', label: 'Keys', content: <KeysTab gateway={gateway} /> },
                 ]}
             />
         </SceneContent>
@@ -91,20 +89,6 @@ function UsageTab({ gateway }: { gateway: GatewayApi }): JSX.Element {
                 <h3 className="m-0">By model · last 30 days</h3>
                 <Query query={byModelQuery(gateway)} readOnly />
             </section>
-        </div>
-    )
-}
-
-function KeysTab({ gateway }: { gateway: GatewayApi }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2">
-            <p className="text-secondary m-0">
-                Keys assigned to this gateway. A key belongs to exactly one gateway — add a second to rotate, then
-                remove the old one.
-            </p>
-            <div className="border rounded">
-                <GatewayCredentials gateway={gateway} />
-            </div>
         </div>
     )
 }
@@ -127,7 +111,7 @@ function GatewayEndpoint({ gateway }: { gateway: GatewayApi }): JSX.Element {
     // Dispatch is namespaced by slug as a path prefix: <host>/g/<slug>/v1/<shape> (ai-gateway #80).
     // The slug rides the path, so stock SDKs reach it with only a base-URL change.
     const gatewayBase = `${preflight.ai_gateway_url.replace(/\/$/, '')}/g/${gateway.slug}`
-    const key = '<phs_ project secret key assigned to this gateway>'
+    const key = '<phs_ project secret key with the llm_gateway:read scope>'
 
     // provider → language → snippet. The OpenAI SDK appends "chat/completions" to base + "/v1";
     // the Anthropic SDK appends "/v1/messages" to the gateway base.

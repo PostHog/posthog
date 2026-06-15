@@ -7813,23 +7813,6 @@ export namespace Schemas {
       download_url: string | null;
     }
 
-    export interface AssignCredential {
-      /** Id of one of the team's unassigned project secret keys to assign to this gateway. */
-      credential_id: string;
-    }
-
-    export interface AssignableCredential {
-      /** Project secret API key id. */
-      readonly id: string;
-      /** The key's human-readable label. */
-      readonly label: string;
-      /**
-         * When the key was last used, if ever.
-         * @nullable
-         */
-      readonly last_used_at: string | null;
-    }
-
     /**
      * * `user` - user
      * * `role` - role
@@ -9926,27 +9909,6 @@ export namespace Schemas {
       true_label?: string;
       /** Optional label for a false value. */
       false_label?: string;
-    }
-
-    export interface BoundOAuthApplication {
-      /** OAuth application id. */
-      readonly id: string;
-      /** The application's name. */
-      readonly name: string;
-      /** The application's OAuth client id. */
-      readonly client_id: string;
-    }
-
-    export interface BoundProjectSecretAPIKey {
-      /** Project secret API key id. */
-      readonly id: string;
-      /** The key's human-readable label. */
-      readonly label: string;
-      /**
-         * When the key was last used, if ever.
-         * @nullable
-         */
-      readonly last_used_at: string | null;
     }
 
     export interface BreakdownItem {
@@ -12431,18 +12393,6 @@ export namespace Schemas {
       /** @maxLength 500 */
       access_secret: string;
     }
-
-    /**
-     * * `project_secret_api_key` - project_secret_api_key
-     * * `oauth_application` - oauth_application
-     */
-    export type CredentialTypeEnum = typeof CredentialTypeEnum[keyof typeof CredentialTypeEnum];
-
-
-    export const CredentialTypeEnum = {
-      ProjectSecretApiKey: 'project_secret_api_key',
-      OauthApplication: 'oauth_application',
-    } as const;
 
     export interface CurrentMapping {
       /** A utm_source value already mapped to an integration */
@@ -19414,7 +19364,7 @@ export namespace Schemas {
     export interface Gateway {
       readonly id: string;
       /**
-         * Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a bound credential makes.
+         * Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a credential with the llm_gateway:read scope makes.
          * @maxLength 64
          */
       slug: string;
@@ -19422,15 +19372,6 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       readonly created_by: UserBasic | null;
-      /** Number of project secret keys and OAuth applications that attribute usage to this gateway. */
-      readonly bound_credentials_count: number;
-    }
-
-    export interface GatewayBoundCredentials {
-      /** Project secret keys bound to this gateway. */
-      readonly project_secret_api_keys: readonly BoundProjectSecretAPIKey[];
-      /** OAuth applications bound to this gateway. */
-      readonly oauth_applications: readonly BoundOAuthApplication[];
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -31065,7 +31006,7 @@ export namespace Schemas {
     export interface PatchedGateway {
       readonly id?: string;
       /**
-         * Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a bound credential makes.
+         * Lowercase, URL-safe identifier (letters, digits, '-' or '_', no leading/trailing separator). This is the $ai_gateway_slug billing-attribution value the LLM gateway records for every request a credential with the llm_gateway:read scope makes.
          * @maxLength 64
          */
       slug?: string;
@@ -31073,8 +31014,6 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at?: string | null;
       readonly created_by?: UserBasic | null;
-      /** Number of project secret keys and OAuth applications that attribute usage to this gateway. */
-      readonly bound_credentials_count?: number;
     }
 
     export interface PatchedGroupType {
@@ -43083,16 +43022,6 @@ export namespace Schemas {
          * @maxLength 10
          */
       target_language?: string;
-    }
-
-    export interface UnassignCredential {
-      /** Which kind of credential to unassign.
-       *
-       * * `project_secret_api_key` - project_secret_api_key
-       * * `oauth_application` - oauth_application */
-      credential_type: CredentialTypeEnum;
-      /** Id of the credential to unassign from this gateway. */
-      credential_id: string;
     }
 
     export interface UpdateTextTileRequest {

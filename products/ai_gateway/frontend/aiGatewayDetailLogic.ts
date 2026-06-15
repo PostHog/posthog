@@ -15,7 +15,7 @@ export interface AIGatewayDetailLogicProps {
 
 export type EndpointTab = 'typescript' | 'python' | 'curl'
 export type EndpointProvider = 'openai' | 'anthropic'
-export type DetailTab = 'usage' | 'connect' | 'keys'
+export type DetailTab = 'usage' | 'connect'
 
 export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
     path((key) => ['products', 'ai_gateway', 'frontend', 'aiGatewayDetailLogic', key]),
@@ -23,7 +23,7 @@ export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
     key((props) => props.slug),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], aiGatewayLogic, ['gateways']],
-        actions: [aiGatewayLogic, ['loadCredentials', 'loadGateways']],
+        actions: [aiGatewayLogic, ['loadGateways']],
     })),
     actions({
         loadUsage: true,
@@ -54,14 +54,10 @@ export const aiGatewayDetailLogic = kea<aiGatewayDetailLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ actions }) => ({
         loadGatewaySuccess: () => {
-            // The move-credential menu needs the team's other gateways; credentials
-            // are keyed by the resolved gateway's id.
+            // Keep the team's gateway list warm for the scene header.
             actions.loadGateways()
-            if (values.gateway) {
-                actions.loadCredentials({ gatewayId: values.gateway.id })
-            }
             actions.loadUsage()
         },
     })),

@@ -5,22 +5,14 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import { aiGatewayDetailLogic } from './aiGatewayDetailLogic'
-import { gatewaysCredentialsRetrieve, gatewaysList } from './generated/api'
+import { gatewaysList } from './generated/api'
 
 jest.mock('./generated/api', () => ({
-    gatewaysRetrieve: jest.fn(),
     gatewaysList: jest.fn(),
-    gatewaysCredentialsRetrieve: jest.fn(),
-    gatewaysCreate: jest.fn(),
     gatewaysPartialUpdate: jest.fn(),
-    gatewaysDestroy: jest.fn(),
-    gatewaysAssignableCredentialsList: jest.fn().mockResolvedValue([]),
-    gatewaysAssignCredentialCreate: jest.fn(),
-    gatewaysUnassignCredentialCreate: jest.fn(),
 }))
 
 const mockList = gatewaysList as jest.MockedFunction<typeof gatewaysList>
-const mockCredentials = gatewaysCredentialsRetrieve as jest.MockedFunction<typeof gatewaysCredentialsRetrieve>
 
 describe('aiGatewayDetailLogic', () => {
     let logic: ReturnType<typeof aiGatewayDetailLogic.build>
@@ -28,7 +20,6 @@ describe('aiGatewayDetailLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         mockList.mockResolvedValue({ results: [{ id: 'g1', slug: 'default' }] } as any)
-        mockCredentials.mockResolvedValue({ project_secret_api_keys: [], oauth_applications: [] } as any)
         jest.spyOn(api, 'query').mockResolvedValue({ results: [[10, 100, 200, 1.5]] } as any)
         initKeaTests()
         logic = aiGatewayDetailLogic({ slug: 'default' })

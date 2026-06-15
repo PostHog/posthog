@@ -8,16 +8,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type {
-    AssignCredentialApi,
-    AssignableCredentialApi,
-    GatewayApi,
-    GatewayBoundCredentialsApi,
-    GatewaysListParams,
-    PaginatedGatewayListApi,
-    PatchedGatewayApi,
-    UnassignCredentialApi,
-} from './api.schemas'
+import type { GatewayApi, GatewaysListParams, PaginatedGatewayListApi, PatchedGatewayApi } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -63,23 +54,6 @@ export const gatewaysList = async (
     })
 }
 
-export const getGatewaysCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/gateways/`
-}
-
-export const gatewaysCreate = async (
-    projectId: string,
-    gatewayApi: NonReadonly<GatewayApi>,
-    options?: RequestInit
-): Promise<GatewayApi> => {
-    return apiMutator<GatewayApi>(getGatewaysCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(gatewayApi),
-    })
-}
-
 export const getGatewaysRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/gateways/${id}/`
 }
@@ -88,24 +62,6 @@ export const gatewaysRetrieve = async (projectId: string, id: string, options?: 
     return apiMutator<GatewayApi>(getGatewaysRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getGatewaysUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/gateways/${id}/`
-}
-
-export const gatewaysUpdate = async (
-    projectId: string,
-    id: string,
-    gatewayApi: NonReadonly<GatewayApi>,
-    options?: RequestInit
-): Promise<GatewayApi> => {
-    return apiMutator<GatewayApi>(getGatewaysUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(gatewayApi),
     })
 }
 
@@ -124,96 +80,5 @@ export const gatewaysPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedGatewayApi),
-    })
-}
-
-export const getGatewaysDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/gateways/${id}/`
-}
-
-export const gatewaysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getGatewaysDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getGatewaysAssignCredentialCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/gateways/${id}/assign_credential/`
-}
-
-/**
- * Assign one of the team's unassigned project secret keys to this gateway (admin-only).
- *
- * The key must belong to the gateway's canonical team, so a key from another
- * project can't be attributed here.
- */
-export const gatewaysAssignCredentialCreate = async (
-    projectId: string,
-    id: string,
-    assignCredentialApi: AssignCredentialApi,
-    options?: RequestInit
-): Promise<GatewayApi> => {
-    return apiMutator<GatewayApi>(getGatewaysAssignCredentialCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(assignCredentialApi),
-    })
-}
-
-export const getGatewaysCredentialsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/gateways/${id}/credentials/`
-}
-
-/**
- * List the project secret keys and OAuth applications that attribute usage to this gateway.
- */
-export const gatewaysCredentialsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<GatewayBoundCredentialsApi> => {
-    return apiMutator<GatewayBoundCredentialsApi>(getGatewaysCredentialsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getGatewaysUnassignCredentialCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/gateways/${id}/unassign_credential/`
-}
-
-/**
- * Remove a credential from this gateway, leaving it unassigned (admin-only).
- */
-export const gatewaysUnassignCredentialCreate = async (
-    projectId: string,
-    id: string,
-    unassignCredentialApi: UnassignCredentialApi,
-    options?: RequestInit
-): Promise<GatewayApi> => {
-    return apiMutator<GatewayApi>(getGatewaysUnassignCredentialCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(unassignCredentialApi),
-    })
-}
-
-export const getGatewaysAssignableCredentialsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/gateways/assignable_credentials/`
-}
-
-/**
- * The team's project secret keys that carry the llm_gateway:read scope but aren't assigned to a gateway yet.
- */
-export const gatewaysAssignableCredentialsList = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<AssignableCredentialApi[]> => {
-    return apiMutator<AssignableCredentialApi[]>(getGatewaysAssignableCredentialsListUrl(projectId), {
-        ...options,
-        method: 'GET',
     })
 }
