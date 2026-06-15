@@ -5,6 +5,8 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from posthog.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
@@ -15,6 +17,7 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     _next_smaller_limit,
     _override_limit,
     _strip_access_token,
+    get_integration,
 )
 from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 
@@ -680,6 +683,34 @@ class TestMidChunkLimitFallback:
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
         assert mock_get.return_value.get.call_count == 2
+
+
+class TestGetIntegration:
+    def test_refreshes_stale_db_connection_before_query(self, monkeypatch) -> None:
+        # The ORM read runs lazily inside `get_rows` on a worker thread whose pooled
+        # Django connection may have been closed server-side, surfacing as
+        # `OperationalError: the connection is closed`. We must drop the stale
+        # connection before querying, so the read happens on a fresh connection.
+        calls: list[str] = []
+
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: calls.append("close_old_connections"))
+
+        integration = mock.MagicMock()
+        integration.errors = None
+
+        def fake_get(*args, **kwargs):
+            calls.append("Integration.objects.get")
+            return integration
+
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", fake_get)
+        # Avoid touching the real token-refresh path (network + DB).
+        monkeypatch.setattr(meta_ads_module, "MetaAdsIntegration", lambda i: mock.MagicMock(integration=i, errors=None))
+
+        config = MetaAdsSourceConfig(account_id="act_1", meta_ads_integration_id=42, sync_lookback_days=None)
+        get_integration(config, team_id=1)
+
+        # The stale connection must be dropped before the ORM read is issued.
+        assert calls == ["close_old_connections", "Integration.objects.get"]
 
 
 class TestNonRetryableErrors:

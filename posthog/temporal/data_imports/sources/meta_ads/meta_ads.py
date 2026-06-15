@@ -5,6 +5,8 @@ import collections.abc
 from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from django.db import close_old_connections
+
 from requests import Response
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
@@ -91,6 +93,12 @@ def _clean_account_id(s: str | None) -> str | None:
 
 def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
     """Get the Meta Ads integration."""
+    # Temporal activities run in a thread pool where Django DB connections can go
+    # stale between uses (Postgres closes the connection server-side). This is
+    # invoked lazily from inside `get_rows`, so the connection has often been idle
+    # for minutes by the time we reach it — drop any stale connection first,
+    # otherwise the ORM read raises `OperationalError: the connection is closed`.
+    close_old_connections()
     integration = Integration.objects.get(id=config.meta_ads_integration_id, team_id=team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
     meta_ads_integration.refresh_access_token()
