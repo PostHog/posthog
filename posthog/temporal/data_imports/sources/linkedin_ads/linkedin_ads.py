@@ -3,6 +3,8 @@ import datetime as dt
 import collections.abc
 from dataclasses import dataclass
 
+from django.db import close_old_connections
+
 import pyarrow as pa
 import structlog
 from structlog.types import FilteringBoundLogger
@@ -100,6 +102,12 @@ def get_schemas() -> dict[str, LinkedinAdsSchema]:
 
 def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
     """Initialize a LinkedIn Ads client with provided config."""
+    # Temporal activities run in a thread pool where Django DB connections can go
+    # stale between uses (Postgres closes the connection server-side). This is
+    # invoked lazily from inside `get_rows`, so the connection has often been idle
+    # for minutes by the time we reach it — drop any stale connection first,
+    # otherwise the read surfaces as `OperationalError: the connection is closed`.
+    close_old_connections()
     integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
     if not integration.access_token:
         raise ValueError("LinkedIn Ads integration does not have an access token")
