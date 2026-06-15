@@ -192,7 +192,9 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) => `${key}:write`),
+        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway') && key !== 'file_system').map(
+            ({ key }) => `${key}:write`
+        ),
         access_type: 'all',
     },
     {
