@@ -555,7 +555,7 @@
      FROM person_distinct_id2
      WHERE team_id = 99999
      GROUP BY distinct_id
-     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
   WHERE e.team_id = 99999
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC')
@@ -712,7 +712,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 99999
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id,
                            argMax(properties, version) as person_props
@@ -1005,7 +1005,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            WHERE e.team_id = 99999
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
@@ -1073,7 +1073,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            WHERE e.team_id = 99999
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -1494,7 +1494,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 99999
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
                  INNER JOIN
                    (SELECT id,
                            argMax(properties, version) as person_props
@@ -1747,7 +1747,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            WHERE e.team_id = 99999
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
@@ -2542,7 +2542,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            WHERE e.team_id = 99999
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
@@ -3680,7 +3680,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            INNER JOIN
              (SELECT id,
                      argMax(properties, version) as person_props
@@ -3790,7 +3790,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            INNER JOIN
              (SELECT id,
                      argMax(properties, version) as person_props
@@ -3968,7 +3968,7 @@
               FROM person_distinct_id2
               WHERE team_id = 99999
               GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
            INNER JOIN
              (SELECT id,
                      argMax(properties, version) as person_props
@@ -4270,7 +4270,7 @@
                     FROM person_distinct_id2
                     WHERE team_id = 99999
                     GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 99999
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
@@ -4723,7 +4723,7 @@
         FROM person_distinct_id2
         WHERE team_id = 99999
         GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+        HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT id
         FROM person
@@ -4954,7 +4954,7 @@
            FROM person_distinct_id2
            WHERE team_id = 99999
            GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           HAVING argMax(is_deleted, version) = 0) as pdi ON e.distinct_id = pdi.distinct_id
         INNER JOIN
           (SELECT id,
                   argMax(properties, version) as person_props
