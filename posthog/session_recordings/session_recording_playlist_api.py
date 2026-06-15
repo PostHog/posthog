@@ -16,6 +16,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -52,6 +53,7 @@ from posthog.session_recordings.synthetic_playlists import (
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 PLAYLIST_COUNT_REDIS_PREFIX = "@posthog/replay/playlist_filters_match_count/"
 
@@ -625,22 +627,28 @@ class SessionRecordingPlaylistViewSet(
         # Fall back to normal DB lookup
         return super().safely_get_object(queryset)
 
+    @tracer.start_as_current_span("session_recording_playlists_list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         """Override list to include synthetic playlists.
 
         Synthetics have no DB row, so we compute each one's position in the merged
         sort and split the requested page between synthetics and a DB queryset slice.
+        The merge/rank/sort is all in-memory, so each phase is wrapped in a span and
+        the input sizes are recorded as span attributes — a slow response on a team
+        with many playlists then shows up as a wide span against a large db_count.
         """
+        span = trace.get_current_span()
         queryset = self.safely_get_queryset(self.get_queryset())
         db_count = queryset.count()
 
-        all_synthetic_playlists = get_all_synthetic_playlists(self.team)
-        synthetic_instances = [
-            create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
-            for sp in all_synthetic_playlists
-        ]
-        filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
-        sorted_synthetics = self._order_playlists(request, filtered_synthetics)
+        with tracer.start_as_current_span("gather_synthetics"):
+            all_synthetic_playlists = get_all_synthetic_playlists(self.team)
+            synthetic_instances = [
+                create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
+                for sp in all_synthetic_playlists
+            ]
+            filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
+            sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
         synth_count = len(sorted_synthetics)
         total_count = db_count + synth_count
@@ -648,31 +656,45 @@ class SessionRecordingPlaylistViewSet(
         limit = min(parse_non_negative_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
         offset = parse_non_negative_int(request.GET.get("offset"), 0)
 
+        span.set_attribute("team_id", self.team.id)
+        span.set_attribute("db_count", db_count)
+        span.set_attribute("synth_count", synth_count)
+        span.set_attribute("limit", limit)
+        span.set_attribute("offset", offset)
+
         # Pair each synthetic with its global rank at the source so the two never
         # drift, then split the requested window into in-page synthetics + DB slice.
-        synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
-        ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
-        synth_for_page, db_items = self._split_page(offset, limit, ranked_synthetics, queryset)
+        with tracer.start_as_current_span("rank_synthetics"):
+            synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
+            ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
 
-        combined = self._order_playlists(request, synth_for_page + db_items)
+        with tracer.start_as_current_span("split_page"):
+            synth_for_page, db_items = self._split_page(offset, limit, ranked_synthetics, queryset)
+
+        with tracer.start_as_current_span("order_combined_page"):
+            combined = self._order_playlists(request, synth_for_page + db_items)
+
+        span.set_attribute("page_size", len(combined))
 
         # Batch-fetch recording counts for the page to avoid the per-playlist
         # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
         # On failure we log and attach empty prefetched attrs so the serializer
         # short-circuits to default empty counts instead of retrying per-playlist
         # (which amplifies load during a Redis/DB partial outage).
-        try:
-            precompute_recordings_counts(combined, cast(User, request.user), self.team)
-        except Exception as e:
-            logger.exception(
-                "playlist_recordings_counts_precompute_failed",
-                team_id=self.team.id,
-                page_size=len(combined),
-            )
-            posthoganalytics.capture_exception(e)
-            _attach_empty_recordings_counts(combined)
+        with tracer.start_as_current_span("precompute_recordings_counts"):
+            try:
+                precompute_recordings_counts(combined, cast(User, request.user), self.team)
+            except Exception as e:
+                logger.exception(
+                    "playlist_recordings_counts_precompute_failed",
+                    team_id=self.team.id,
+                    page_size=len(combined),
+                )
+                posthoganalytics.capture_exception(e)
+                _attach_empty_recordings_counts(combined)
 
-        serializer = self.get_serializer(combined, many=True)
+        with tracer.start_as_current_span("serialize"):
+            results = self.get_serializer(combined, many=True).data
 
         next_link, previous_link = self._pagination_links(request, total_count, limit, offset)
         return response.Response(
@@ -680,7 +702,7 @@ class SessionRecordingPlaylistViewSet(
                 "count": total_count,
                 "next": next_link,
                 "previous": previous_link,
-                "results": serializer.data,
+                "results": results,
             }
         )
 
