@@ -6,7 +6,7 @@
     (SELECT e.distinct_id AS distinct_id
      FROM events AS e
      WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'US/Pacific')), less(e.timestamp, toDateTime64('2020-01-13 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')), less(e.timestamp, toDateTime64('today', 6, 'US/Pacific')))
-     ORDER BY toTimeZone(e.timestamp, 'US/Pacific') DESC)
+     ORDER BY e.distinct_id ASC)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -28,7 +28,7 @@
     (SELECT e.distinct_id AS distinct_id
      FROM events_json AS e
      WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'US/Pacific')), less(e.timestamp, toDateTime64('2020-01-13 00:00:00.000000', 6, 'US/Pacific')), equals(e.event, '$pageview')), less(e.timestamp, toDateTime64('today', 6, 'US/Pacific')))
-     ORDER BY toTimeZone(e.timestamp, 'US/Pacific') DESC)
+     ORDER BY e.distinct_id ASC)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
