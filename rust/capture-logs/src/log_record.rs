@@ -47,14 +47,7 @@ pub struct KafkaLogRow {
 /// is the raw HTTP body size for the whole batch.
 pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
     let mut total: usize = 0;
-    total = total.saturating_add(row.uuid.len());
-    total = total.saturating_add(row.trace_id.len());
-    total = total.saturating_add(row.span_id.len());
     total = total.saturating_add(row.body.len());
-    total = total.saturating_add(row.severity_text.len());
-    total = total.saturating_add(row.service_name.len());
-    total = total.saturating_add(row.instrumentation_scope.len());
-    total = total.saturating_add(row.event_name.len());
     for (k, v) in &row.resource_attributes {
         total = total.saturating_add(k.len()).saturating_add(v.len());
     }
