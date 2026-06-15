@@ -42,6 +42,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         return {
             "REVOKED_ACCESS_TOKEN": None,
             "The token used in the request has expired": "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
+            # LinkedIn's per-member/app daily call budget only resets at midnight UTC, so retrying
+            # within the run just burns the remaining budget on doomed calls. The client already
+            # avoids in-process retries by raising LinkedinAdsDailyRateLimitError; failing the
+            # activity here too lets the next scheduled sync resume instead of retry-storming.
+            "LinkedIn daily rate limit reached (429)": "LinkedIn's daily API rate limit was reached. The sync will resume automatically on the next scheduled run once the limit resets.",
         }
 
     @property
