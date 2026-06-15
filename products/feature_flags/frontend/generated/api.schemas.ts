@@ -1339,6 +1339,13 @@ export interface PatchedScheduledChangeApi {
     readonly timezone?: string | null
 }
 
+export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string
+}
+
 export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
     /**
      * Name of the evaluation context to restore to suggestions.
