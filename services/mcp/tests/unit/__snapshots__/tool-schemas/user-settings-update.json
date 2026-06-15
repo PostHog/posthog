@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "ai_chat_send_on_cmd_enter": {
+            "description": "When true, the PostHog AI chat composer sends on Cmd/Ctrl+Enter and Enter inserts a new line. When false, Enter sends.",
+            "type": "boolean"
+        },
         "allow_impersonation": {
             "anyOf": [
                 {
