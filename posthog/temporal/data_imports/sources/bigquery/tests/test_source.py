@@ -3,7 +3,7 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import Forbidden, NotFound, PermissionDenied
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_query,
+    _has_duplicate_primary_keys,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
@@ -228,47 +229,36 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     assert "WHERE `updated_at` > 42" in query
 
 
-def test_bigquery_get_query_datetime_initial_value_has_no_timezone_offset():
-    """BigQuery DATETIME columns are timezone-naive; a literal with a UTC offset (the shared
-    tz-aware initial cursor value) fails with "Could not cast literal ... to type DATETIME"."""
+@pytest.mark.parametrize(
+    "field_type,last_value,expected_clause,offset_present",
+    [
+        # DATETIME columns are timezone-naive — a tz-aware literal can't be cast and BigQuery rejects it
+        # with "Could not cast literal ... to type DATETIME". On the first incremental sync the cursor
+        # defaults to the 1970-01-01 UTC initial value, whose isoformat carries a '+00:00' offset; for a
+        # DATETIME field the literal must be naive.
+        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
+        # A tz-aware value carried over from a previous sync is also rendered naive for DATETIME fields.
+        (
+            IncrementalFieldType.DateTime,
+            parser.parse("2024-03-11T09:26:04+00:00"),
+            "WHERE `cursor` > '2024-03-11T09:26:04'",
+            False,
+        ),
+        # TIMESTAMP columns are timezone-aware, so the offset must be preserved in the literal.
+        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
+    ],
+)
+def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=None,
-        bq_table=bq_table,
-        incremental_field="updated_at",
-        incremental_field_type=IncrementalFieldType.DateTime,
-    )
-    assert "WHERE `updated_at` > '1970-01-01T00:00:00'" in query
-    assert "+00:00" not in query
-
-
-def test_bigquery_get_query_datetime_strips_offset_from_stored_value():
-    """A stored tz-aware cursor value must also lose its offset for DATETIME columns."""
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    last_value = parser.parse("2024-03-11T09:26:04+00:00")
     query = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
         bq_table=bq_table,
-        incremental_field="updated_at",
-        incremental_field_type=IncrementalFieldType.DateTime,
+        incremental_field="cursor",
+        incremental_field_type=field_type,
     )
-    assert "WHERE `updated_at` > '2024-03-11T09:26:04'" in query
-    assert "+00:00" not in query
-
-
-def test_bigquery_get_query_timestamp_keeps_timezone_offset():
-    """BigQuery TIMESTAMP columns are timezone-aware, so the UTC offset must be preserved."""
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=None,
-        bq_table=bq_table,
-        incremental_field="created_at",
-        incremental_field_type=IncrementalFieldType.Timestamp,
-    )
-    assert "WHERE `created_at` > '1970-01-01T00:00:00+00:00'" in query
+    assert expected_clause in query
+    assert ("+00:00" in query) is offset_present
 
 
 @pytest.mark.parametrize(
@@ -531,3 +521,76 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
 def test_non_retryable_errors_does_not_match_transient(other_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def _run_has_duplicate_primary_keys(side_effect):
+    table = mock.MagicMock()
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = side_effect
+    client.query.return_value = job
+
+    with mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.capture_exception") as mock_capture:
+        result = _has_duplicate_primary_keys(table, client, ["id"])
+    return result, mock_capture
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        BadRequest(
+            "Resources exceeded during query execution: The query could not be executed in the allotted memory."
+        ),
+        BadRequest("query failed", errors=[{"reason": "resourcesExceeded", "message": "out of memory"}]),
+    ],
+)
+def test_has_duplicate_primary_keys_skips_resource_exceeded_quietly(exception):
+    """A `resourcesExceeded` BigQuery error during the best-effort duplicate-key probe must NOT
+    be captured to error tracking — it's a non-actionable data-volume limit that otherwise fires
+    on every sync of a large table."""
+    result, mock_capture = _run_has_duplicate_primary_keys(exception)
+
+    assert result is False
+    mock_capture.assert_not_called()
+
+
+def test_has_duplicate_primary_keys_captures_unexpected_bad_request():
+    """A non-resource BadRequest (e.g. a genuinely malformed probe query) is still captured so we
+    don't lose visibility into real bugs."""
+    result, mock_capture = _run_has_duplicate_primary_keys(BadRequest("Syntax error in query"))
+
+    assert result is False
+    mock_capture.assert_called_once()
+
+
+def test_has_duplicate_primary_keys_captures_unexpected_errors():
+    """Genuinely unexpected errors are still captured so we don't lose visibility."""
+    result, mock_capture = _run_has_duplicate_primary_keys(RuntimeError("boom"))
+
+    assert result is False
+    mock_capture.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["US", "EU", "asia-northeast1"],
+)
+def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
+    """A deleted/renamed dataset (or one in a region we don't query) surfaces from schema
+    discovery as a google-api-core NotFound. Its str() is "404 Not found: Dataset ... was
+    not found in location <X>", which must be recognised as non-retryable via the
+    "was not found in location" pattern instead of retrying forever."""
+    error = NotFound(
+        f"Not found: Dataset my-proj:my_dataset was not found in location {location}; "
+        f"reason: notFound, message: Not found: Dataset my-proj:my_dataset was not found in location {location}"
+    )
+
+    # Mirror the substring match in `sync_new_schemas_activity` / `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    assert any(pattern in error_msg for pattern in non_retryable_errors)

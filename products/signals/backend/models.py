@@ -28,6 +28,7 @@ class SignalSourceConfig(UUIDModel):
         PGANALYZE = "pganalyze", "pganalyze"
         SIGNALS_SCOUT = "signals_scout", "Signals scout"
         LOGS = "logs", "Logs"
+        HEALTH_CHECKS = "health_checks", "Health checks"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -39,6 +40,7 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
         CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
         ALERT_STATE_CHANGE = "alert_state_change", "Alert state change"
+        HEALTH_ISSUE = "health_issue", "Health issue"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)

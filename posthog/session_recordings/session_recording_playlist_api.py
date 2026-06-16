@@ -148,7 +148,7 @@ def count_synthetic_playlist(
     playlist: SessionRecordingPlaylist, user: User, team: Team
 ) -> dict[str, int | bool | None]:
     """Count recordings in a synthetic playlist using efficient database-level counting"""
-    synthetic_def = get_synthetic_playlist(playlist.short_id, team=team)
+    synthetic_def = get_synthetic_playlist(playlist.short_id)
     if not synthetic_def:
         return {
             "count": None,
@@ -579,7 +579,7 @@ class SessionRecordingPlaylistViewSet(
 
         # Check if this is a synthetic playlist
         if lookup_value and lookup_value.startswith("synthetic-"):
-            synthetic_def = get_synthetic_playlist(lookup_value, team=self.team)
+            synthetic_def = get_synthetic_playlist(lookup_value)
             if synthetic_def:
                 return create_synthetic_playlist_instance(synthetic_def, self.team, cast(User, self.request.user))
 
@@ -591,11 +591,11 @@ class SessionRecordingPlaylistViewSet(
         # Get regular DB playlists
         queryset = self.safely_get_queryset(self.get_queryset())
 
-        # Get the total count of DB playlists before pagination
-        db_count = queryset.count()
-
-        # Apply pagination to DB playlists
+        # Apply pagination to DB playlists. The paginator computes the DB count
+        # internally, so reuse it rather than issuing a second COUNT(*).
         page = self.paginate_queryset(queryset)
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        db_count = paginator.count if page is not None and paginator.count is not None else queryset.count()
 
         # Check if we're on the first page by looking at offset parameter
         # Synthetic playlists should only appear on the first page to avoid duplicates
@@ -603,8 +603,8 @@ class SessionRecordingPlaylistViewSet(
         page_number = int(request.GET.get("page", 1))
         is_first_page = offset == 0 and page_number == 1
 
-        # Create synthetic playlist instances (includes both static and dynamic)
-        all_synthetic_playlists = get_all_synthetic_playlists(self.team)
+        # Create synthetic playlist instances
+        all_synthetic_playlists = get_all_synthetic_playlists()
         synthetic_instances = [
             create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
             for sp in all_synthetic_playlists
@@ -694,8 +694,8 @@ class SessionRecordingPlaylistViewSet(
                 elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
                     queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "collection_type":
-                if request_value in ("synthetic", "new-urls"):
-                    # Exclude all DB playlists when filtering for synthetic or new-urls
+                if request_value == "synthetic":
+                    # Exclude all DB playlists when filtering for synthetic
                     queryset = queryset.none()
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
@@ -738,9 +738,6 @@ class SessionRecordingPlaylistViewSet(
                 if request_value == "custom":
                     # Custom means user-created only, exclude all synthetic playlists
                     return []
-                elif request_value == "new-urls":
-                    # Filter for only new-urls synthetic playlists
-                    filtered = [p for p in filtered if p.short_id.startswith("synthetic-new-url-")]
             elif key == "pinned":
                 # Synthetic playlists are never pinned, so exclude them
                 return []
@@ -789,7 +786,7 @@ class SessionRecordingPlaylistViewSet(
 
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):
-            synthetic_def = get_synthetic_playlist(playlist.short_id, team=self.team)
+            synthetic_def = get_synthetic_playlist(playlist.short_id)
             if synthetic_def:
                 playlist_items = synthetic_def.get_session_ids(self.team, cast(User, request.user), limit, offset)
             else:
