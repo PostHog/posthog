@@ -17,7 +17,6 @@ export type NotebookKernelInfo = {
     sandbox_id?: string | null
     cpu_cores?: number | null
     memory_gb?: number | null
-    disk_size_gb?: number | null
     idle_timeout_seconds?: number | null
 }
 

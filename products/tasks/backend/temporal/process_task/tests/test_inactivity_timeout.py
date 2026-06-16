@@ -8,6 +8,7 @@ from products.tasks.backend.temporal.constants import (
     INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
     INACTIVITY_TIMEOUT_TEST_SECONDS,
     INACTIVITY_TIMEOUT_USER_SECONDS,
+    MAX_INACTIVITY_TIMEOUT_SECONDS,
     resolve_inactivity_timeout,
 )
 
@@ -39,6 +40,13 @@ class TestResolveInactivityTimeout(SimpleTestCase):
     def test_per_task_override_wins_over_test_default(self):
         result = resolve_inactivity_timeout(is_user_origin=False, state={"inactivity_timeout_seconds": 1234})
         self.assertEqual(result, timedelta(seconds=1234))
+
+    @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
+    def test_per_task_override_is_clamped_to_max(self):
+        result = resolve_inactivity_timeout(
+            is_user_origin=True, state={"inactivity_timeout_seconds": MAX_INACTIVITY_TIMEOUT_SECONDS * 10}
+        )
+        self.assertEqual(result, timedelta(seconds=MAX_INACTIVITY_TIMEOUT_SECONDS))
 
     @parameterized.expand(
         [

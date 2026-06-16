@@ -18,6 +18,11 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.services.sandbox_config import (
+    MAX_SANDBOX_CPU_CORES,
+    MAX_SANDBOX_MEMORY_GB,
+    MAX_SANDBOX_TTL_SECONDS,
+)
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -129,20 +134,23 @@ class TaskProcessingContext:
 
         Empty when the task requested none — callers spread it into SandboxConfig so
         unset fields keep their defaults. `bool` is excluded explicitly since it's an
-        `int` subclass and would otherwise slip through as 0/1.
+        `int` subclass and would otherwise slip through as 0/1. Values are clamped to
+        server-owned bounds (and non-positive values ignored) as defense-in-depth, so
+        even if an override reaches here via an unexpected path it can't provision an
+        oversized sandbox.
         """
         overrides: dict[str, float | int] = {}
         state = self.state or {}
-        for state_key, config_key in (
-            ("sandbox_cpu_cores", "cpu_cores"),
-            ("sandbox_memory_gb", "memory_gb"),
+        for state_key, config_key, max_value in (
+            ("sandbox_cpu_cores", "cpu_cores", MAX_SANDBOX_CPU_CORES),
+            ("sandbox_memory_gb", "memory_gb", MAX_SANDBOX_MEMORY_GB),
         ):
             value = state.get(state_key)
-            if isinstance(value, int | float) and not isinstance(value, bool):
-                overrides[config_key] = float(value)
+            if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+                overrides[config_key] = float(min(value, max_value))
         ttl = state.get("sandbox_ttl_seconds")
-        if isinstance(ttl, int | float) and not isinstance(ttl, bool):
-            overrides["ttl_seconds"] = int(ttl)
+        if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl > 0:
+            overrides["ttl_seconds"] = int(min(ttl, MAX_SANDBOX_TTL_SECONDS))
         return overrides
 
     def get_sandbox_environment(self):

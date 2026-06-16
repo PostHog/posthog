@@ -156,9 +156,6 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             {kernelInfo.memory_gb && !isDockerKernel ? (
                                 <LemonTag type="default">{formatMemory(kernelInfo.memory_gb)} RAM</LemonTag>
                             ) : null}
-                            {kernelInfo.disk_size_gb && !isDockerKernel ? (
-                                <LemonTag type="default">{kernelInfo.disk_size_gb} GB disk</LemonTag>
-                            ) : null}
                         </div>
                         <div className="flex items-center gap-2 text-xs">
                             {isModalKernel ? (

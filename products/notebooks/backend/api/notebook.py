@@ -712,7 +712,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "sandbox_id": runtime.sandbox_id if runtime else None,
                 "cpu_cores": cpu_cores,
                 "memory_gb": sandbox_config.memory_gb,
-                "disk_size_gb": sandbox_config.disk_size_gb,
                 "idle_timeout_seconds": sandbox_config.ttl_seconds,
             }
         )
