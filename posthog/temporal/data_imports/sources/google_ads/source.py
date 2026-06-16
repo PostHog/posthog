@@ -13,6 +13,7 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -266,6 +267,11 @@ class GoogleAdsSource(
                     f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
                 )
             return True, None
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",
+            )
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
