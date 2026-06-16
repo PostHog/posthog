@@ -12,6 +12,10 @@ export type DashboardWidgetTileFiltersProps = {
     disabledReason?: string | null
     canMutateErrorTrackingIssues?: boolean
 }
+import { ActivityEventsWidget } from './activity/ActivityEventsWidget'
+import { parseActivityEventsWidgetConfigApiError } from './activity/activityEventsWidgetConfigValidation'
+import { ActivityEventsWidgetTileFilters } from './activity/ActivityEventsWidgetTileFilters'
+import { EditActivityEventsWidgetModal } from './activity/EditActivityEventsWidgetModal'
 import type {
     WidgetIssueMetadataContext,
     WidgetIssueMetadataDelta,
@@ -125,6 +129,12 @@ export type DashboardWidgetEditModalProps = {
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
 export const DASHBOARD_WIDGET_REGISTRY = {
+    activity_events_list: {
+        Component: ActivityEventsWidget,
+        TileFilters: ActivityEventsWidgetTileFilters,
+        EditModal: EditActivityEventsWidgetModal,
+        parseConfigApiError: parseActivityEventsWidgetConfigApiError,
+    },
     error_tracking_list: {
         Component: ErrorTrackingWidget,
         TileFilters: ErrorTrackingWidgetTileFilters,

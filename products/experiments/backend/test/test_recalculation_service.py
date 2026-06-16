@@ -14,6 +14,8 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
     get_latest_recalculation,
@@ -71,6 +73,25 @@ class TestRecalculationService(BaseTest):
         assert result["status"] == "pending"
         assert result["is_existing"] is False
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    def test_request_recalculation_sets_total_metrics_from_experiment(self):
+        # inline primary + inline secondary + one saved (shared) metric → total of 3
+        exp = self._launched_experiment(flag_key="total-metrics")
+        exp.metrics = [_mean_metric("p1")]
+        exp.metrics_secondary = [_mean_metric("s1")]
+        exp.save()
+        saved = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="saved-shared1",
+            query={"uuid": "shared1", "kind": "ExperimentMetric", "metric_type": "mean"},
+        )
+        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert row.total_metrics == 3
+        assert set(row.metric_uuids) == {"p1", "s1", "shared1"}
 
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()

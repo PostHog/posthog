@@ -523,6 +523,14 @@ class TestClickHouseSourceNonRetryableErrors:
             "Connection refused",
             "certificate verify failed",
             "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404",
+            # MEMORY_LIMIT_EXCEEDED (code 241) — server-wide OvercommitTracker kill
+            "HTTPDriver for https://host:8443 received ClickHouse error code 241\n Code: 241. "
+            "DB::Exception: (total) memory limit exceeded: would use 108.01 GiB, maximum: 108.00 GiB. "
+            "OvercommitTracker decision: Query was selected to stop by OvercommitTracker "
+            "(while reading column properties). (MEMORY_LIMIT_EXCEEDED)",
+            # MEMORY_LIMIT_EXCEEDED (code 241) — per-query `max_memory_usage` budget
+            "Code: 241. DB::Exception: Query memory limit exceeded: would use 3.73 GiB "
+            "(attempt to allocate chunk of 4.60 MiB), maximum: 3.73 GiB. (MEMORY_LIMIT_EXCEEDED)",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
