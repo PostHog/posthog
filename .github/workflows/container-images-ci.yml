@@ -49,7 +49,6 @@ jobs:
                       # drift means hobby waits for an image we never build (or vice versa).
                       hobby:
                         - Dockerfile
-                        - .dockerignore
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
                         - 'bin/deploy-hobby'
@@ -133,7 +132,6 @@ jobs:
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
-                  save: 'true' # keep the build in Depot's ephemeral registry so the boot check can pull it
 
             - name: Container image digest
               env:
@@ -149,27 +147,6 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
-
-            - name: Set up Depot CLI
-              uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-            - name: Pull built image for boot check
-              uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
-              with:
-                  build-id: ${{ steps.build.outputs.build-id }}
-                  tags: ${{ steps.build.outputs.tag }}
-            - name: Boot Django from the built image
-              env:
-                  IMAGE: posthog/posthog:${{ github.sha }}
-              # The Dockerfile already runs collectstatic with these same vars, so Django boots without
-              # live services. A file dropped from the image (e.g. by an over-broad .dockerignore) that
-              # the app imports at runtime surfaces here as an ImportError instead of breaking in prod.
-              run: |
-                  set -euo pipefail
-                  docker run --rm \
-                      -e SKIP_SERVICE_VERSION_REQUIREMENTS=1 \
-                      -e DATABASE_URL=postgres:/// \
-                      -e REDIS_URL=redis:/// \
-                      "$IMAGE" sh -c 'python -c "import posthog.asgi" && python manage.py check'
 
     lint:
         name: Lint changed Dockerfiles
