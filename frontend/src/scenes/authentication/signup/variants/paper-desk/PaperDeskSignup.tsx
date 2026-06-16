@@ -16,6 +16,7 @@ import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { LoginMethod } from '~/types'
@@ -30,8 +31,9 @@ const NOTES: Record<number, string[]> = {
 
 /** Step 1 — email (+ region, social, pending-invite branch). */
 function SignupEmailPanel(): JSX.Element {
-    const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl } =
+    const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
         useValues(signupLogic)
+    const { preflight } = useValues(preflightLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
     const accountExists = !!signupPanelEmailManualErrors?.email
@@ -40,11 +42,12 @@ function SignupEmailPanel(): JSX.Element {
         return <PendingInvitePanel />
     }
 
-    const footer = (
+    const footer = preflight?.demo ? undefined : (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
             Already have an account?{' '}
             <Link
                 to={loginUrl}
+                data-attr="signup-login-link"
                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
             >
                 Log in →
@@ -57,10 +60,16 @@ function SignupEmailPanel(): JSX.Element {
             <CardTitle title="Get started" sub="No credit card. No sales call. Just hogs." />
             <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
                 <RegionField />
-                <LemonField name="email" label="Email">
+                <LemonField
+                    name="email"
+                    label="Email"
+                    help={emailCaseNotice && <span className="text-warning">{emailCaseNotice}</span>}
+                >
                     {({ value, onChange, error, id }) => (
                         <LemonInput
                             id={id}
+                            className="ph-ignore-input"
+                            data-attr="signup-email"
                             type="email"
                             autoFocus
                             autoComplete="email"
@@ -88,32 +97,38 @@ function SignupEmailPanel(): JSX.Element {
                     center
                     fullWidth
                     htmlType="submit"
+                    data-attr="signup-start"
                     loading={isSignupPanelEmailSubmitting}
                 >
                     Continue
                 </LemonButton>
             </Form>
-            <SocialLoginButtons
-                topDivider
-                caption="or sign up with"
-                lastUsedProvider={lastLoginMethod ?? undefined}
-                captionLocation="top"
-            />
-            <div className="mt-4 text-center">
-                <button
-                    type="button"
-                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
-                    onClick={() => setShowJoinOrg((v) => !v)}
-                >
-                    Trying to join an existing organization?
-                </button>
-                {showJoinOrg && (
-                    <p className="PaperDesk__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
-                        You'll need your invite link. When a teammate invites you, we email you a personal link. Didn't
-                        get one? Check spam, or ask them to resend it from their members settings.
-                    </p>
-                )}
-            </div>
+            {!preflight?.demo && (
+                <SocialLoginButtons
+                    topDivider
+                    caption="or sign up with"
+                    lastUsedProvider={lastLoginMethod ?? undefined}
+                    captionLocation="top"
+                />
+            )}
+            {!preflight?.demo && (
+                <div className="mt-4 text-center">
+                    <button
+                        type="button"
+                        data-attr="signup-join-existing-org"
+                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
+                        onClick={() => setShowJoinOrg((v) => !v)}
+                    >
+                        Trying to join an existing organization?
+                    </button>
+                    {showJoinOrg && (
+                        <p className="PaperDesk__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                            You'll need your invite link. When a teammate invites you, we email you a personal link.
+                            Didn't get one? Check spam, or ask them to resend it from their members settings.
+                        </p>
+                    )}
+                </div>
+            )}
         </PaperDeskCard>
     )
 }
@@ -148,12 +163,19 @@ function PendingInvitePanel(): JSX.Element {
                         size="large"
                         center
                         fullWidth
+                        data-attr="pending-invite-resend"
                         loading={isPendingInviteResending}
                         onClick={() => resendPendingInvite(signupPanelEmail.email)}
                     >
                         Resend invite email
                     </LemonButton>
-                    <LemonButton size="large" center fullWidth onClick={() => dismissPendingInvite()}>
+                    <LemonButton
+                        size="large"
+                        center
+                        fullWidth
+                        data-attr="pending-invite-create-own-org"
+                        onClick={() => dismissPendingInvite()}
+                    >
                         I'd rather create my own organization
                     </LemonButton>
                 </div>
@@ -226,7 +248,10 @@ function SignupAuthPanel(): JSX.Element {
                         fullWidth
                         icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
                         onClick={registerPasskey}
+                        loading={isPasskeyRegistering}
                         disabled={isPasskeyRegistering}
+                        data-attr="signup-passkey"
+                        center
                     >
                         Sign up with a passkey
                     </LemonButton>
@@ -252,6 +277,8 @@ function SignupAuthPanel(): JSX.Element {
                         {({ value, onChange, error, id }) => (
                             <LemonInput
                                 id={id}
+                                className="ph-ignore-input"
+                                data-attr="password"
                                 type="password"
                                 autoFocus
                                 autoComplete="new-password"
@@ -270,6 +297,7 @@ function SignupAuthPanel(): JSX.Element {
                     center
                     fullWidth
                     htmlType="submit"
+                    data-attr="signup-auth-continue"
                     loading={isSignupPanelAuthSubmitting}
                     disabledReason={
                         !passkeyRegistered && validatedPassword.feedback ? validatedPassword.feedback : undefined
@@ -292,12 +320,19 @@ function SignupProfilePanel(): JSX.Element {
         turnstileToken,
         signupPanelEmail,
     } = useValues(signupLogic)
+    const { preflight } = useValues(preflightLogic)
     const { setTurnstileToken, setPanel } = useActions(signupLogic)
+
+    const submitLabel = !preflight?.demo
+        ? 'Create account'
+        : !isSignupPanelOnboardingSubmitting
+          ? 'Enter the demo environment'
+          : 'Preparing demo data…'
 
     const footer = (
         <>
             <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
-                By creating an account, you agree to our{' '}
+                By {preflight?.demo ? 'entering the demo environment' : 'creating an account'}, you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service ↗
                 </Link>{' '}
@@ -307,14 +342,16 @@ function SignupProfilePanel(): JSX.Element {
                 </Link>
                 .
             </p>
-            <p className="mt-5 mb-0 text-sm text-secondary text-center">
-                <Link
-                    onClick={() => setPanel(1)}
-                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                >
-                    ← or go back
-                </Link>
-            </p>
+            {!preflight?.demo && (
+                <p className="mt-5 mb-0 text-sm text-secondary text-center">
+                    <Link
+                        onClick={() => setPanel(1)}
+                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                    >
+                        ← or go back
+                    </Link>
+                </p>
+            )}
         </>
     )
 
@@ -343,6 +380,8 @@ function SignupProfilePanel(): JSX.Element {
                     {({ value, onChange, error, id }) => (
                         <LemonInput
                             id={id}
+                            className="ph-ignore-input"
+                            data-attr="signup-name"
                             autoFocus
                             placeholder="Jane Doe"
                             autoComplete="name"
@@ -357,6 +396,8 @@ function SignupProfilePanel(): JSX.Element {
                     {({ value, onChange, error, id }) => (
                         <LemonInput
                             id={id}
+                            className="ph-ignore-input"
+                            data-attr="signup-organization-name"
                             placeholder="Hogflix Movies"
                             value={value ?? ''}
                             onChange={onChange}
@@ -381,9 +422,10 @@ function SignupProfilePanel(): JSX.Element {
                         center
                         fullWidth
                         htmlType="submit"
+                        data-attr="signup-submit"
                         loading={isSignupPanelOnboardingSubmitting}
                     >
-                        Create account
+                        {submitLabel}
                     </LemonButton>
                 )}
             </Form>

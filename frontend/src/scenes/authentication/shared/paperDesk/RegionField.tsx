@@ -67,6 +67,7 @@ function RegionModal({ open, onClose }: { open: boolean; onClose: () => void }):
 const REGION_COUNTRY_CODE: Record<Region, string> = {
     [Region.US]: 'US',
     [Region.EU]: 'EU',
+    [Region.DEV]: 'US',
 }
 
 function MiniFlag({ region }: { region: Region }): JSX.Element {

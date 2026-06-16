@@ -4,14 +4,19 @@ import { useEffect, useState } from 'react'
 
 import { getCookie } from 'lib/api'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { isEmail } from 'lib/utils'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
+import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
+import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +28,7 @@ const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
     const { precheck, clearGeneralError, resendEmailMFA, devLogin, loadDevUsers } = useActions(loginLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
         precheckResponseLoading,
@@ -41,6 +47,7 @@ function Login(): JSX.Element {
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
     const [devLoginOpen, setDevLoginOpen] = useState(false)
+    const prevEmail = usePrevious(login.email)
 
     useEffect(() => {
         if (allowDevLogin) {
@@ -48,11 +55,23 @@ function Login(): JSX.Element {
         }
     }, [allowDevLogin, loadDevUsers])
 
+    // Trigger precheck for password manager autofill/paste (detected by large character delta),
+    // so SSO/SAML enforcement and passkey prompts resolve without a manual blur.
+    useEffect(() => {
+        const charDelta = login.email.length - (prevEmail?.length ?? 0)
+        const isAutofill = charDelta > 1
+
+        if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
+            precheck({ email: login.email })
+        }
+    }, [login.email, prevEmail, precheckResponse.status, precheck])
+
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
             New to PostHog?{' '}
             <Link
-                to={signupUrl}
+                to={[signupUrl, { email: login.email }]}
+                data-attr="signup"
                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
             >
                 Create an account →
@@ -62,6 +81,7 @@ function Login(): JSX.Element {
 
     return (
         <PaperDeskScene notes={['// welcome back', '// 100,000+ teams ship here']}>
+            {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <PaperDeskCard footer={footer}>
                 <CardTitle
                     title={isEmailVerificationSent ? 'Check your email' : 'Log in to PostHog'}
@@ -72,6 +92,26 @@ function Login(): JSX.Element {
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
+                        {preflight?.cloud && (
+                            <>
+                                {' '}
+                                <Link
+                                    data-attr="login-error-contact-support"
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        openSupportForm({ kind: 'support', target_area: 'login', email: login.email })
+                                    }}
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                >
+                                    Need help?
+                                </Link>
+                            </>
+                        )}
+                    </div>
+                )}
+                {generalError?.code === 'invalid_credentials' && (
+                    <div className="mb-4">
+                        <OtherRegionHint />
                     </div>
                 )}
                 {isEmailVerificationSent ? (
@@ -100,6 +140,8 @@ function Login(): JSX.Element {
                             {({ value, onChange, error, id }) => (
                                 <LemonInput
                                     id={id}
+                                    className="ph-ignore-input"
+                                    data-attr="login-email"
                                     type="email"
                                     autoFocus
                                     placeholder="you@yourcompany.com"
@@ -119,8 +161,9 @@ function Login(): JSX.Element {
                                     <div className="flex items-baseline justify-between w-full">
                                         <span>Password</span>
                                         <Link
-                                            to={urls.passwordReset()}
-                                            className="text-xs font-semibold text-muted"
+                                            to={[urls.passwordReset(), { email: login.email }]}
+                                            data-attr="forgot-password"
+                                            className="text-xs font-semibold text-warning"
                                             tabIndex={-1}
                                         >
                                             Forgot password?
@@ -131,6 +174,8 @@ function Login(): JSX.Element {
                                 {({ value, onChange, error, id }) => (
                                     <LemonInput
                                         id={id}
+                                        className="ph-ignore-input"
+                                        data-attr="password"
                                         type="password"
                                         placeholder="••••••••••"
                                         autoComplete="current-password"
@@ -149,6 +194,7 @@ function Login(): JSX.Element {
                                 center
                                 fullWidth
                                 htmlType="submit"
+                                data-attr="password-login"
                                 loading={isLoginSubmitting || precheckResponseLoading}
                             >
                                 Log in

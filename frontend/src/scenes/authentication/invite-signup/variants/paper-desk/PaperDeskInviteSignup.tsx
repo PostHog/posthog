@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { useEffect } from 'react'
+import { type ReactNode, useEffect } from 'react'
 
 import { Logomark } from 'lib/brand/Logomark'
 import { JudgeHog } from 'lib/components/hedgehogs'
@@ -24,7 +24,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PrevalidatedInvite } from '~/types'
 
-import { inviteSignupLogic } from '../../inviteSignupLogic'
+import { ErrorCodes, inviteSignupLogic } from '../../inviteSignupLogic'
 
 function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const {
@@ -101,6 +101,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
                         <Link
+                            data-attr="invite-signup-error-contact-support"
                             onClick={() => openSupportForm({ kind: 'support', target_area: 'login' })}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                         >
@@ -145,6 +146,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                     {({ value, onChange, error, id }) => (
                                         <LemonInput
                                             id={id}
+                                            className="ph-ignore-input"
+                                            data-attr="password"
                                             type="password"
                                             autoComplete="new-password"
                                             placeholder="••••••••••"
@@ -160,6 +163,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                 {({ value, onChange, error, id }) => (
                                     <LemonInput
                                         id={id}
+                                        className="ph-ignore-input"
+                                        data-attr="first_name"
                                         placeholder="Jane Doe"
                                         autoComplete="name"
                                         value={value ?? ''}
@@ -188,6 +193,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                 center
                                 fullWidth
                                 htmlType="submit"
+                                data-attr="password-signup"
                                 loading={isSignupSubmitting || precheckResponseLoading}
                             >
                                 Join {org}
@@ -241,7 +247,10 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
                     className="mb-4"
                 />
                 {user && (
-                    <div className="mb-4 flex gap-3 items-center py-2.5 px-3 border border-dashed border-[#c5c6bd] rounded-lg">
+                    <div
+                        className="mb-4 flex gap-3 items-center py-2.5 px-3 border border-dashed border-[#c5c6bd] rounded-lg"
+                        data-attr="accept-invite-whoami"
+                    >
                         <ProfilePicture user={user} size="xl" />
                         <div className="min-w-0">
                             <p className="m-0 text-sm font-semibold text-primary">{user.first_name}</p>
@@ -298,17 +307,72 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
 
 function InviteInvalid(): JSX.Element {
     const { error } = useValues(inviteSignupLogic)
+    const { user } = useValues(userLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    const code = error?.code ?? ErrorCodes.Unknown
+
+    const titles: Record<ErrorCodes, string> = {
+        [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
+        [ErrorCodes.UserAlreadyMember]: "You're already a member",
+        [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
+        [ErrorCodes.Unknown]: "We couldn't validate this invite link",
+    }
+
+    const details: Record<ErrorCodes, ReactNode> = {
+        [ErrorCodes.InvalidInvite]: (
+            <>
+                {error?.detail} If you believe this is a mistake, ask whoever created the invite to{' '}
+                <b>send you a new one</b>.
+            </>
+        ),
+        [ErrorCodes.UserAlreadyMember]: (
+            <>
+                {error?.detail || 'You already are a member of this organization.'} Your account
+                {user?.email ? (
+                    <>
+                        {' '}
+                        (<b>{user.email}</b>)
+                    </>
+                ) : null}{' '}
+                already belongs to it. To join a different organization, ask the inviter to send a new invite to a
+                different email address.
+            </>
+        ),
+        [ErrorCodes.InvalidRecipient]: (
+            <>
+                {error?.detail}{' '}
+                {user ? (
+                    <>
+                        You can log out and create a new account under the invited email address, or ask the
+                        organization admin to send a new invite to <b>{user.email}</b>.
+                    </>
+                ) : (
+                    'Log in with the invited email address above, or create your own password.'
+                )}
+            </>
+        ),
+        [ErrorCodes.Unknown]: (
+            <>
+                {error?.detail} There was an issue with your invite link. Please try again in a few seconds. If the
+                problem persists, contact us.
+            </>
+        ),
+    }
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            <Link
-                to={urls.login()}
-                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-            >
-                Log in
-            </Link>
-            <span className="mx-1.5 text-muted">·</span>
+            {!user && (
+                <>
+                    <Link
+                        to={urls.login()}
+                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                    >
+                        Log in
+                    </Link>
+                    <span className="mx-1.5 text-muted">·</span>
+                </>
+            )}
             <Link
                 to="https://posthog.com"
                 target="_blank"
@@ -325,24 +389,37 @@ function InviteInvalid(): JSX.Element {
                 <div className="flex flex-col items-center text-center">
                     <JudgeHog className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
-                        This invite isn't valid
+                        {titles[code]}
                     </h1>
                     <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        {error?.detail ||
-                            'The court finds this link expired, already used, or sent to a different email address.'}
+                        {details[code]}
                     </p>
-                    <p className="PaperDesk__note mb-4 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
-                        Invites are personal links that work once. Ask whoever invited you to <b>send a fresh one</b>{' '}
-                        from their organization's members settings. It takes them ten seconds.
-                    </p>
-                    <LemonButton
-                        size="large"
-                        center
-                        fullWidth
-                        onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
-                    >
-                        Contact support
-                    </LemonButton>
+                    <div className="flex flex-col gap-2.5 w-full">
+                        {user ? (
+                            <LemonButton size="large" center fullWidth type="primary" to={urls.default()}>
+                                Go back to PostHog
+                            </LemonButton>
+                        ) : code === ErrorCodes.InvalidRecipient ? (
+                            <LemonButton
+                                size="large"
+                                center
+                                fullWidth
+                                type="primary"
+                                to={window.location.pathname}
+                                disableClientSideRouting
+                            >
+                                Try again
+                            </LemonButton>
+                        ) : null}
+                        <LemonButton
+                            size="large"
+                            center
+                            fullWidth
+                            onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
+                        >
+                            Contact support
+                        </LemonButton>
+                    </div>
                 </div>
             </PaperDeskCard>
         </PaperDeskScene>

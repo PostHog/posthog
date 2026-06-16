@@ -105,17 +105,7 @@ function VerifyEmail(): JSX.Element {
                         <div className="PaperDesk__progress mb-4 w-full h-1.5 overflow-hidden bg-[#e0e1d9] rounded-sm">
                             <div className="PaperDesk__progress-fill w-full h-full bg-warning rounded-sm" />
                         </div>
-                        <LemonButton
-                            size="large"
-                            center
-                            type="primary"
-                            fullWidth
-                            onClick={() => {
-                                window.location.href = '/'
-                            }}
-                        >
-                            Continue to setup →
-                        </LemonButton>
+                        <p className="m-0 text-sm text-secondary text-center">Taking you to PostHog…</p>
                     </div>
                 </PaperDeskCard>
             </PaperDeskScene>
