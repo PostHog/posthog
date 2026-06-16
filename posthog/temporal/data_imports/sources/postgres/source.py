@@ -232,6 +232,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel
+            # private key can't be parsed, or password auth is missing a username/password.
+            # The auth config is fixed, so retrying just replays the same invalid credentials;
+            # stop and tell the customer to fix their SSH tunnel settings.
+            "SSHTunnel auth is not valid": (
+                "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+                "(private key, passphrase, or username and password) on the source's SSH tunnel "
+                "configuration, then re-enable the sync."
+            ),
             # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
             # due to conflict with recovery") 30 times in-process with backoff + chunk-size
             # reduction before raising this. The conflict comes from the customer's read replica
