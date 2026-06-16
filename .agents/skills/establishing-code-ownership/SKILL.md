@@ -7,7 +7,7 @@ description: Determine which PostHog team owns a file, directory, or code path, 
 
 Two sources, checked in order:
 
-1. **`products/*/product.yaml`: source of truth under `products/`.** Lists owning team(s) under `owners:` as bare slugs (the CODEOWNERS handle minus `@PostHog/`: `conversations`, `logs`, `team-signals`, …) and owns **all of `products/<name>/**`\*\*. Lives in the dir it owns, so never stale.
+1. **`products/*/product.yaml`: source of truth under `products/`.** Lists owning team(s) under `owners:` as bare slugs (the CODEOWNERS handle minus `@PostHog/`: `conversations`, `logs`, `team-signals`, …) and owns **all** of `products/<name>/**`. Lives in the dir it owns, so never stale.
 2. **`.github/CODEOWNERS` + [`CODEOWNERS-soft`](../../../.github/CODEOWNERS-soft): backup for paths outside `products/`.** [`CODEOWNERS`](../../../.github/CODEOWNERS) is hard/blocking (mostly infra); `CODEOWNERS-soft` carries most product mappings for shared code (backend, frontend scenes, generated artifacts, overrides).
 
 ## path → team (who owns this file?)
