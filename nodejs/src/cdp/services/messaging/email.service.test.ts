@@ -572,6 +572,7 @@ describe('EmailService', () => {
                 event: '$workflows_email_sent',
                 properties: {
                     $workflow_id: invocation.functionId,
+                    $messaging_source: 'direct',
                     $email_to: 'test@example.com',
                     $email_subject: 'Test Subject',
                 },
