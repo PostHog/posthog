@@ -4,8 +4,6 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
@@ -26,12 +24,10 @@ afterEach(() => {
     cleanup()
 })
 
-const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_STICKINESS]: true }
-
 describe('StickinessLineChart', () => {
     describe('renders', () => {
         it('renders the chart from a StickinessQuery with one series', async () => {
-            renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildStickinessQuery() })
 
             await screen.findByRole('img', { name: /chart with 1 data series/i })
         })
@@ -39,7 +35,7 @@ describe('StickinessLineChart', () => {
 
     describe('y-axis', () => {
         it('renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
-            renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildStickinessQuery() })
 
             await screen.findByRole('img', { name: /chart with/i })
             await waitFor(() => {
@@ -54,7 +50,7 @@ describe('StickinessLineChart', () => {
 
     describe('tooltips', () => {
         it('formats series values as percentages of the series total', async () => {
-            renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildStickinessQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
             // Pageview canned series is [45, 82, 134, 210, 95], total 566, so bucket 2 == 134/566 ≈ 23.7%.
@@ -62,7 +58,7 @@ describe('StickinessLineChart', () => {
         })
 
         it('uses "stickiness on {interval} {day}" as the tooltip title (not a calendar date)', async () => {
-            renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildStickinessQuery() })
 
             const tooltip = await chart.hoverTooltip(2)
             // Day at index 2 is 3 in the mock's 1-indexed stickiness days.
@@ -78,7 +74,6 @@ describe('StickinessLineChart', () => {
                 query: buildStickinessQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'NoActivity', name: 'NoActivity' }],
                 }),
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await waitFor(() => {
@@ -90,7 +85,7 @@ describe('StickinessLineChart', () => {
 
     describe('click → persons modal', () => {
         it('opens the modal with a "stickiness on {interval} {day}" title', async () => {
-            renderInsight({ query: buildStickinessQuery(), featureFlags: HOG_CHARTS_FLAG })
+            renderInsight({ query: buildStickinessQuery() })
 
             await chart.clickAtIndex(2)
 
@@ -107,7 +102,6 @@ describe('StickinessLineChart', () => {
             renderInsight({
                 query: buildStickinessQuery(),
                 context: { onDataPointClick },
-                featureFlags: HOG_CHARTS_FLAG,
             })
 
             await chart.clickAtIndex(2)
