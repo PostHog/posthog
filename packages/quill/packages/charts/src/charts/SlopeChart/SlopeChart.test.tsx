@@ -222,9 +222,13 @@ describe('SlopeChart', () => {
             color: '#000',
         })
 
-        it('orders rows biggest-to-smallest by value', () => {
-            const sorted = sortSlopeTooltipRows([row('a', 30), row('b', 90), row('c', 60)])
-            expect(sorted.map((r) => r.value)).toEqual([90, 60, 30])
+        it.each([
+            ['unsorted input', [row('a', 30), row('b', 90), row('c', 60)], [90, 60, 30]],
+            ['already sorted descending', [row('a', 90), row('b', 60), row('c', 30)], [90, 60, 30]],
+            ['already sorted ascending', [row('a', 30), row('b', 60), row('c', 90)], [90, 60, 30]],
+            ['single element', [row('a', 42)], [42]],
+        ] as const)('orders rows biggest-to-smallest by value (%s)', (_label, input, expected) => {
+            expect(sortSlopeTooltipRows([...input]).map((r) => r.value)).toEqual([...expected])
         })
 
         it('does not mutate the input array', () => {
