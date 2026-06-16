@@ -31,7 +31,7 @@ import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } f
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
-import { CyclotronJobQueue } from './services/job-queue/job-queue'
+import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -41,7 +41,12 @@ import { NativeDestinationExecutorService } from './services/native-destination-
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
 import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
-import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
+import {
+    convertToHogFunctionInvocationGlobals,
+    isNativeHogFunction,
+    isSegmentPluginHogFunction,
+    sanitizeLogMessage,
+} from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
@@ -85,15 +90,18 @@ export class CdpApi {
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
     private cdpSourceWebhooksConsumer: CdpSourceWebhooksConsumer
-    private cyclotronJobQueue: CyclotronJobQueue
+    private hogQueue: JobQueue
+    private hogflowQueue: JobQueue
     private emailTrackingService: EmailTrackingService
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
+    private groupsManager: GroupsManagerService
 
     constructor(
         private config: PluginsServerConfig,
-        private deps: CdpApiDeps
+        private deps: CdpApiDeps,
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
@@ -114,18 +122,20 @@ export class CdpApi {
             ...deps,
             monitoringOutputs: services.outputs,
         })
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
+        this.hogQueue = jobQueues.hogQueue
+        this.hogflowQueue = jobQueues.hogflowQueue
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
             services.hogFunctionMonitoringService,
             services.recipientsManager
         )
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
-            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.groupsManager,
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -142,8 +152,8 @@ export class CdpApi {
     }
 
     async start(): Promise<void> {
+        // CdpSourceWebhooksConsumer.start() calls startAsProducer on both queues
         await this.cdpSourceWebhooksConsumer.start()
-        await this.cyclotronJobQueue.startAsProducer()
 
         // Rerun endpoints don't run the work — they just enqueue a wrapper
         // job onto the cyclotron-v2 'rerun' queue. A dedicated consumer
@@ -160,9 +170,9 @@ export class CdpApi {
     }
 
     async stop(): Promise<void> {
+        // CdpSourceWebhooksConsumer.stop() calls stopProducer on both queues
         await Promise.all([
             this.cdpSourceWebhooksConsumer.stop(),
-            this.cyclotronJobQueue.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
         ])
@@ -402,10 +412,16 @@ export class CdpApi {
                 for (const invocation of invocations) {
                     invocation.id = invocationID
 
+                    const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                        invocation.hogFunction,
+                        invocation.state.globals.inputs ?? {}
+                    )
                     const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
                         mock_async_functions,
-                        logs
+                        logs,
+                        sensitiveValues
                     )
+                    options.sendEmailsInline = true
 
                     let response: any = null
                     if (isNativeHogFunction(compoundConfiguration)) {
@@ -525,6 +541,17 @@ export class CdpApi {
                 team_id: team.id,
             }
 
+            // Mirror real execution: resolve groups server-side from the event's $groups so test-run
+            // conditionals branch on group properties. Only resolve when the caller didn't supply
+            // groups, so hand-edited test payloads are respected.
+            if (!globals.groups || Object.keys(globals.groups).length === 0) {
+                globals.groups = await this.groupsManager.getGroupsForEvent(
+                    team.id,
+                    globals.event.properties,
+                    `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`
+                )
+            }
+
             const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
@@ -552,6 +579,7 @@ export class CdpApi {
 
             const logs: MinimalLogEntry[] = []
             const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
             res.json({
@@ -620,7 +648,7 @@ export class CdpApi {
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
 
-            await this.cyclotronJobQueue.queueInvocations([invocation])
+            await this.hogflowQueue.queueInvocations([invocation])
 
             res.json({ status: 'queued', invocation_id: invocation.id })
         } catch (e) {
@@ -927,7 +955,8 @@ export class CdpApi {
 
 const buildHogExecutorAsyncOptions = (
     mockAsyncFunctions: boolean,
-    logs: MinimalLogEntry[]
+    logs: MinimalLogEntry[],
+    sensitiveValues?: string[]
 ): HogExecutorExecuteAsyncOptions => {
     let mockFunctions: Record<string, (...args: any[]) => any> | undefined
 
@@ -935,7 +964,19 @@ const buildHogExecutorAsyncOptions = (
         mockFunctions = {}
         for (const name of getRegisteredAsyncFunctionNames()) {
             const handler = getAsyncFunctionHandler(name)!
-            mockFunctions[name] = (...args: any[]) => handler.mock(args, logs)
+            mockFunctions[name] = (...args: any[]) => {
+                const startIndex = logs.length
+                const result = handler.mock(args, logs)
+                if (sensitiveValues?.length) {
+                    for (let i = startIndex; i < logs.length; i++) {
+                        logs[i] = {
+                            ...logs[i],
+                            message: sanitizeLogMessage([logs[i].message], sensitiveValues),
+                        }
+                    }
+                }
+                return result
+            }
         }
     }
 

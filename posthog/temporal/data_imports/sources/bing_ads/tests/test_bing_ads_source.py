@@ -231,6 +231,130 @@ class TestBingAdsSource:
         with pytest.raises(ValueError, match="Bing Ads refresh token not found for job test-job-id"):
             self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
+    @pytest.mark.parametrize(
+        "pattern,raised_message",
+        [
+            # Auth-specific substrings — wrapped by BingAdsClient.get_customer_id as
+            # `ValueError("Failed to fetch customer ID: <ExcType>: <msg>")`, so the substring
+            # must appear inside that combined message.
+            (
+                "OAuthTokenRequestException",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+            ),
+            (
+                "invalid_grant",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+            ),
+            (
+                "AuthenticationTokenExpired",
+                "Failed to fetch customer ID: WebFault: ... AuthenticationTokenExpired ...",
+            ),
+            (
+                "InvalidCredentials",
+                "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
+            ),
+            # Generic SOAP fault returned by GetUser when the connected account's credentials/identity
+            # can't be used. GetUser takes no request params, so this is never our bug — stop retrying.
+            (
+                "Invalid client data",
+                "Failed to fetch customer ID: WebFault: Server raised fault: 'Invalid client data. "
+                "Check the SOAP fault details for more information. TrackingId: abc-123.'",
+            ),
+            # Specific Azure AD code — tenant missing service principal for the Microsoft Advertising API.
+            (
+                "AADSTS650052",
+                "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
+                "The app is trying to access a service that your organization lacks a service principal for.",
+            ),
+            # Bing rejects the request as invalid after auth succeeds (e.g. wrong/inaccessible Account ID).
+            # The SDK raises suds.WebFault whose str() embeds a volatile TrackingId — match the stable phrase.
+            (
+                "Invalid client data",
+                "Server raised fault: 'Invalid client data. Check the SOAP fault details for more "
+                "information. TrackingId: 9471598f-2992-4c98-9d96-cbe84a0ddb47.'",
+            ),
+            # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
+            # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
+            ("Integration not found", "Integration not found: 160672"),
+            # Non-numeric Account ID — raised by bing_ads_source.get_rows. The matched phrase
+            # precedes the volatile account id in the message.
+            (
+                "Bing Ads Account ID must be numeric",
+                "Bing Ads Account ID must be numeric. The configured Account ID 'F118FDGN' is not a number — "
+                "you may have entered your alphanumeric Account Number instead. Update the Account ID in the "
+                "source settings and try again.",
+            ),
+            # Deterministic credential/config errors raised in source_for_pipeline.
+            ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
+            ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
+            ("Bing Ads developer token not configured", "Bing Ads developer token not configured"),
+        ],
+    )
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert pattern in non_retryable_errors
+        assert pattern in raised_message
+
+    @pytest.mark.parametrize(
+        "transient_message",
+        [
+            # Plain transport-level failures — must NOT match any non-retryable pattern,
+            # otherwise the schema would be disabled after the first few transient failures.
+            "Failed to fetch customer ID: ConnectionError: HTTPSConnectionPool(host='bingads.microsoft.com', port=443): Max retries exceeded",
+            "Failed to fetch customer ID: TimeoutError: The read operation timed out",
+            "Failed to fetch customer ID: WebFault: Server raised fault: 'Internal Error'",
+            "Failed to fetch customer ID: HTTPError: 503 Server Error: Service Unavailable",
+        ],
+    )
+    def test_get_non_retryable_errors_does_not_match_transient_failures(self, transient_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
+    def test_aadsts650052_message_wins_over_generic_auth_wrappers(self):
+        # The real error string contains "OAuthTokenRequestException", "invalid_client", AND "AADSTS650052"
+        # as substrings. handle_non_retryable in external_data_job.py picks the first matching dict entry,
+        # so AADSTS650052 must come before BOTH generic wrappers — otherwise the user sees the
+        # "reconnect your integration" toast instead of the service-principal guidance, and reconnecting
+        # cannot fix it (only an org admin granting tenant consent can).
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        keys = list(non_retryable_errors.keys())
+
+        aadsts_index = keys.index("AADSTS650052")
+        assert aadsts_index < keys.index("OAuthTokenRequestException")
+        assert aadsts_index < keys.index("invalid_client")
+
+        error_message = (
+            "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
+            "The app is trying to access a service that your organization lacks a service principal for."
+        )
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in error_message]
+        assert friendly_errors[0] is not None
+        assert "AADSTS650052" in friendly_errors[0]
+        assert "service principal" in friendly_errors[0]
+
+    def test_invalid_client_data_maps_to_account_guidance(self):
+        # The dominant cause is a wrong/inaccessible Account ID (auth has already succeeded by this point),
+        # so the toast must point at the Account ID rather than telling the user to reconnect OAuth.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        error_message = (
+            "Server raised fault: 'Invalid client data. Check the SOAP fault details for more "
+            "information. TrackingId: 9471598f-2992-4c98-9d96-cbe84a0ddb47.'"
+        )
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in error_message]
+
+        assert friendly_errors[0] is not None
+        assert "Account ID" in friendly_errors[0]
+
+    def test_transient_bing_internal_error_fault_stays_retryable(self):
+        # A generic Bing-side fault ("Internal Error") is transient and must keep retrying — it must not
+        # be caught by the "Invalid client data" pattern.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        transient_message = "Server raised fault: 'Internal Error. TrackingId: abc-123.'"
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
         inputs = mock.MagicMock()

@@ -1,4 +1,5 @@
 import json
+import uuid
 from contextlib import asynccontextmanager
 from io import BytesIO
 
@@ -10,13 +11,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def _patch_async_producer_scope(mock_producer):
@@ -243,6 +244,13 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
     assert first_call_kwargs["data"]["team_id"] == team.id
     assert "properties" in first_call_kwargs["data"]
     assert "id" in first_call_kwargs["data"]["properties"]
+
+    # Each row carries a deterministic event id (valid UUID, stable per distinct row).
+    # Both chunks contain the same 3 rows, so we expect 3 unique ids repeated across the 6 messages.
+    event_ids = [call[1]["data"]["event_id"] for call in mock_kafka_producer.produce.call_args_list]
+    assert all(uuid.UUID(event_id) for event_id in event_ids)
+    assert len(set(event_ids)) == 3
+    assert event_ids[:3] == event_ids[3:]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -671,3 +679,42 @@ async def test_serialize_json_raises_on_non_dict_unsupported(team):
         mock_orjson.side_effect = TypeError("Cannot serialize")
         with pytest.raises(ValueError, match="Could not serialize record to JSON"):
             producer._serialize_json(record)
+
+
+def _make_producer(job_id: str) -> CDPProducer:
+    return CDPProducer(team_id=1, schema_id="schema_1", job_id=job_id, logger=mock.AsyncMock())
+
+
+def test_build_event_id_is_a_valid_uuid():
+    event_id = _make_producer("job_1")._build_event_id({"id": 1, "name": "Alice"})
+    assert str(uuid.UUID(event_id)) == event_id
+
+
+def test_build_event_id_is_stable_for_same_row_and_job():
+    producer = _make_producer("job_1")
+    row = {"id": 1, "name": "Alice"}
+    assert producer._build_event_id(row) == producer._build_event_id(dict(row))
+
+
+def test_build_event_id_is_independent_of_key_order():
+    producer = _make_producer("job_1")
+    assert producer._build_event_id({"id": 1, "name": "Alice"}) == producer._build_event_id({"name": "Alice", "id": 1})
+
+
+@pytest.mark.parametrize(
+    "row_a,row_b",
+    [
+        ({"id": 1, "name": "Alice"}, {"id": 1, "name": "Bob"}),
+        ({"id": 1, "name": "Alice"}, {"id": 2, "name": "Alice"}),
+        ({"id": 1}, {"id": 1, "name": "Alice"}),
+        ({"value": 1}, {"value": "1"}),
+    ],
+)
+def test_build_event_id_changes_when_row_data_changes(row_a, row_b):
+    producer = _make_producer("job_1")
+    assert producer._build_event_id(row_a) != producer._build_event_id(row_b)
+
+
+def test_build_event_id_changes_with_job_id():
+    row = {"id": 1, "name": "Alice"}
+    assert _make_producer("job_1")._build_event_id(row) != _make_producer("job_2")._build_event_id(row)

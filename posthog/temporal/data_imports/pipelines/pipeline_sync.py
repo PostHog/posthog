@@ -22,12 +22,12 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
-from products.data_warehouse.backend.postgres_helpers import filter_dwh_columns_by_enabled_columns
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -178,10 +178,9 @@ async def validate_schema_and_update_table(
         _schema_name: str = external_data_schema.name
         incremental_or_append = external_data_schema.should_use_incremental_field
 
-        # `dwh_storage_key` pins the Delta path to the original unqualified name for legacy
+        # `s3_folder_name` pins the Delta path to the original unqualified name for legacy
         # warehouse rows that got renamed to qualified form during multi-schema migration.
-        storage_key = (external_data_schema.sync_type_config or {}).get("dwh_storage_key")
-        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else _schema_name
+        storage_schema_name = external_data_schema.resolved_s3_folder_name or _schema_name
 
         table_name = build_table_name(job.pipeline, storage_schema_name)
         normalized_schema_name = NamingConvention.normalize_identifier(storage_schema_name)

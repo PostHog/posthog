@@ -11,11 +11,17 @@
             "~/*": ["./frontend/src/*"],
             "public/*": ["./frontend/public/*"],
             "products/*": ["./products/*"],
+            "@playwright-utils": ["./playwright/utils/index"],
+            "@playwright-utils/*": ["./playwright/utils/*"],
+            "@playwright-pages/*": ["./playwright/page-models/*"],
+            "@playwright-mocks/*": ["./playwright/mocks/*"],
             "@common/*": ["./common/*"],
             "@posthog/mcp-ui": ["./services/mcp/src/ui-apps/lib/index.ts"],
             "@posthog/mcp-ui/*": ["./services/mcp/src/ui-apps/lib/*"],
             "@posthog/replay-shared": ["./common/replay-shared/src/index.ts"],
             "@posthog/replay-shared/*": ["./common/replay-shared/src/*"],
+            "@posthog/quill-charts": ["./packages/quill/packages/charts/src/index.ts"],
+            "@posthog/quill-charts/*": ["./packages/quill/packages/charts/src/*"],
             // Needed to access the subpath since torph didn't set up types properly
             "torph/react": ["./frontend/node_modules/torph/dist/react/index"],
             // use-debounce@9.0.3 only exposes types under `node`/`browser` conditions,
@@ -58,7 +64,8 @@
         "common/esbuilder/*",
         "common/replay-shared/src/**/*",
         "common/storybook/*",
-        "docs/onboarding/**/*"
+        "docs/onboarding/**/*",
+        "packages/quill/packages/charts/src/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {

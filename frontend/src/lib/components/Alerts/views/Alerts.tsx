@@ -6,17 +6,16 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { DetectiveHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
+import { AlertsFiltersBar } from '../AlertsFiltersBar'
 import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -30,11 +29,9 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
     const { push } = useActions(router)
     const logic = alertsLogic()
     const { loadAlerts } = useActions(logic)
-    const { alertsSortedByState, alertsLoading } = useValues(logic)
+    const { alertsSortedByState, alertsResponseLoading, pagination, alertsCount, isFiltering } = useValues(logic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const alertsHistoryChartEnabled = !!featureFlags[FEATURE_FLAGS.ALERTS_HISTORY_CHART]
-    const { alert } = useValues(alertLogic({ alertId, historyChartEnabled: alertsHistoryChartEnabled }))
+    const { alert } = useValues(alertLogic({ alertId }))
 
     const columns: LemonTableColumns<AlertType> = [
         {
@@ -129,7 +126,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
         },
     ]
 
-    const isEmpty = alertsSortedByState.length === 0 && !alertsLoading
+    const isEmpty = alertsCount === 0 && !alertsResponseLoading && !isFiltering
     // TODO: add info here to sign up for alerts early access
     return (
         <>
@@ -167,16 +164,25 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             )}
 
             {isEmpty ? null : (
-                <LemonTable
-                    loading={alertsLoading}
-                    columns={columns}
-                    dataSource={alertsSortedByState}
-                    noSortingCancellation
-                    rowKey="id"
-                    loadingSkeletonRows={5}
-                    nouns={['alert', 'alerts']}
-                    rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
-                />
+                <>
+                    <AlertsFiltersBar />
+                    <LemonTable
+                        loading={alertsResponseLoading}
+                        columns={columns}
+                        dataSource={alertsSortedByState}
+                        noSortingCancellation
+                        rowKey="id"
+                        loadingSkeletonRows={5}
+                        nouns={['alert', 'alerts']}
+                        pagination={pagination}
+                        rowClassName={(alert) => (alert.state === AlertState.NOT_FIRING ? null : 'highlighted')}
+                        emptyState={
+                            isFiltering ? (
+                                <div className="py-8 text-center text-secondary">No alerts match your filters</div>
+                            ) : undefined
+                        }
+                    />
+                </>
             )}
         </>
     )

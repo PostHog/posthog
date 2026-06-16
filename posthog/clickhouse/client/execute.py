@@ -1,3 +1,4 @@
+import sys
 import time
 import types
 import logging
@@ -27,7 +28,6 @@ from posthog.clickhouse.client.connection import (
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
-    AccessMethod,
     Feature,
     Product,
     QueryTags,
@@ -35,10 +35,10 @@ from posthog.clickhouse.query_tagging import (
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
+    is_api_key_access_method,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
-from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
 QUERY_STARTED_COUNTER = Counter(
@@ -94,6 +94,7 @@ _KILL_SWITCH_EXEMPT_USERS = frozenset(
         ClickHouseUser.BATCH_EXPORT,
         ClickHouseUser.MIGRATIONS,
         ClickHouseUser.OPS,
+        ClickHouseUser.BILLING,
     }
 )
 
@@ -146,17 +147,21 @@ def get_hedged_app_queries_enabled() -> bool:
 def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
     from posthog.models.instance_setting import get_instance_setting
 
-    return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    try:
+        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
+    except Exception:
+        return False
 
 
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
 
-    value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
     try:
+        value = get_instance_setting("CLICKHOUSE_KILL_SWITCH")
         return KillSwitchLevel(value)
-    except ValueError:
+    except Exception:
+        # posthog_instancesetting may not exist yet during initial Postgres migrations
         return KillSwitchLevel.OFF
 
 
@@ -309,18 +314,21 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
     tags = get_query_tags()
-    is_personal_api_key = tags.access_method == AccessMethod.PERSONAL_API_KEY
+    # Any programmatic key auth — personal API key, project secret API key, or legacy team secret
+    # token — routes to the offline cluster as the API ClickHouse user. User-facing session/OAuth
+    # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
+    is_api_key_auth = is_api_key_access_method(tags.access_method)
 
     # When someone uses an API key, always put their query to the offline cluster
     # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_personal_api_key or tags.kind == "celery"):
+    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
     # Make sure we always have process_query_task on the online cluster
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
-        ch_user = ClickHouseUser.API if is_personal_api_key else ClickHouseUser.APP
+        ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
     if tags.workload == Workload.ENDPOINTS:
         workload = Workload.ENDPOINTS
@@ -350,7 +358,7 @@ def sync_execute(
     tags.query_settings = core_settings
     query_type = tags.query_type or "Other"
     if ch_user == ClickHouseUser.DEFAULT:
-        if is_personal_api_key:
+        if is_api_key_auth:
             ch_user = ClickHouseUser.API
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
@@ -358,8 +366,13 @@ def sync_execute(
         elif tags.feature == Feature.CACHE_WARMUP:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
-    # update tags if inside temporal (should not)
-    update_query_tags_with_temporal_info()
+    # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
+    # and being in one implies temporalio is imported — so the gate keeps the helper's module
+    # (aiohttp + pyarrow at module scope) off every other process's startup path.
+    if "temporalio" in sys.modules:
+        from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info  # noqa: PLC0415
+
+        update_query_tags_with_temporal_info()
 
     add_fallback_query_tags(tags)
 
@@ -367,6 +380,8 @@ def sync_execute(
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
+    elif tags.product == Product.BILLING:
+        ch_user = ClickHouseUser.BILLING
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries

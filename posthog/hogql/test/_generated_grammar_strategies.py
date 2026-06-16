@@ -23,13 +23,22 @@ from typing import Any
 from hypothesis import strategies as st
 
 from posthog.hogql.test._grammar_token_strategies import (
+    binary_literal_token,
     decimal_literal_token,
     floating_literal_token,
+    full_string_escape_trigger_token,
+    full_string_text_token,
     hexadecimal_literal_token,
+    hogqlx_text_token,
     identifier_token,
     octal_literal_token,
+    octal_prefix_literal_token,
+    quote_single_template_full_token,
+    quote_single_template_token,
     quoted_identifier_token,
+    string_escape_trigger_token,
     string_literal_token,
+    string_text_token,
 )
 
 _DEFAULT_DEPTH = 5
@@ -444,15 +453,46 @@ def block_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
 
 
 @functools.cache
+def kvPair_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(expression_strategy(_dec(depth))))
+        parts.append(":")
+        parts.append(draw(expression_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def kvPairList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(kvPair_strategy(_dec(depth))))
+        for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+            parts.append(",")
+            parts.append(draw(kvPair_strategy(_dec(depth))))
+        if _include_optional(draw):
+            parts.append(",")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
 def select_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
-        group_idx = draw(st.integers(min_value=0, max_value=1))
+        group_idx = draw(st.integers(min_value=0, max_value=2))
         if group_idx == 0:
             parts.append(draw(selectSetStmt_strategy(_dec(depth))))
         if group_idx == 1:
             parts.append(draw(selectStmt_strategy(_dec(depth))))
+        if group_idx == 2:
+            parts.append(draw(hogqlxTagElement_strategy(_dec(depth))))
         if _include_optional(draw):
             parts.append(";")
         parts.append("")
@@ -618,7 +658,8 @@ def selectStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
         parts.append("select")
         if _include_optional(draw):
             parts.append("distinct")
-        parts.append("")
+        if _include_optional(draw):
+            parts.append(draw(topClause_strategy(_dec(depth))))
         parts.append(draw(selectColumnExprListBeforeFrom_strategy(_dec(depth))))
         if _include_optional(draw):
             parts.append(draw(fromClause_strategy(_dec(depth))))
@@ -663,7 +704,8 @@ def selectStmt_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(draw(limitAndOffsetClause_strategy(_dec(depth))))
             if group_idx == 1:
                 parts.append(draw(offsetOnlyClause_strategy(_dec(depth))))
-        parts.append("")
+        if _include_optional(draw):
+            parts.append(draw(settingsClause_strategy(_dec(depth))))
         return " ".join(p for p in parts if p)
 
     return gen()
@@ -678,6 +720,21 @@ def withClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
         if _include_optional(draw):
             parts.append("recursive")
         parts.append(draw(withExprList_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def topClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("top")
+        parts.append(draw(decimal_literal_token))
+        if _include_optional(draw):
+            parts.append("with")
+            parts.append("ties")
         return " ".join(p for p in parts if p)
 
     return gen()
@@ -948,6 +1005,18 @@ def offsetOnlyClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
         parts: list[str] = []
         parts.append("offset")
         parts.append(draw(columnExpr_strategy(_dec(depth))))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def settingsClause_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append("settings")
+        parts.append(draw(settingExprList_strategy(_dec(depth))))
         return " ".join(p for p in parts if p)
 
     return gen()
@@ -1559,7 +1628,7 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
-        seed_idx = draw(st.integers(min_value=0, max_value=4))
+        seed_idx = draw(st.integers(min_value=0, max_value=5))
         seed = ""
         if seed_idx == 0:
             parts = []
@@ -1579,10 +1648,10 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
-            parts.append(draw(columnTypeExpr_strategy(_dec(depth))))
+            parts.append(draw(enumValue_strategy(_dec(depth))))
             for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
                 parts.append(",")
-                parts.append(draw(columnTypeExpr_strategy(_dec(depth))))
+                parts.append(draw(enumValue_strategy(_dec(depth))))
             if _include_optional(draw):
                 parts.append(",")
             parts.append(")")
@@ -1591,17 +1660,29 @@ def columnTypeExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[st
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
+            parts.append(draw(columnTypeExpr_strategy(_dec(depth))))
+            for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+                parts.append(",")
+                parts.append(draw(columnTypeExpr_strategy(_dec(depth))))
             if _include_optional(draw):
-                parts.append(draw(columnExprList_strategy(_dec(depth))))
+                parts.append(",")
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 3:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append("(")
+            if _include_optional(draw):
+                parts.append(draw(columnExprList_strategy(_dec(depth))))
+            parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 4:
+            parts = []
+            parts.append(draw(identifier_strategy(_dec(depth))))
             for _ in range(draw(st.integers(min_value=1, max_value=_MAX_REPEAT))):
                 parts.append(draw(identifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 4:
+        if seed_idx == 5:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
@@ -1763,7 +1844,7 @@ def selectColumnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
-        alt_idx = draw(st.integers(min_value=0, max_value=2))
+        alt_idx = draw(st.integers(min_value=0, max_value=3))
         if alt_idx == 0:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -1772,9 +1853,14 @@ def selectColumnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[
             return " ".join(p for p in parts if p)
         if alt_idx == 1:
             parts = []
-            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append("from")
+            parts.append(draw(implicitAlias_strategy(_dec(depth))))
             return " ".join(p for p in parts if p)
         if alt_idx == 2:
+            parts = []
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 3:
             parts = []
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(draw(implicitAlias_strategy(_dec(depth))))
@@ -1792,7 +1878,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     def gen(draw: Any) -> str:
         parts: list[str] = []
         if depth <= 0:
-            seed_idx = draw(st.sampled_from([5, 10, 15, 30, 33]))
+            seed_idx = draw(st.sampled_from([3, 5, 7, 9, 14, 19, 39]))
         else:
             seed_idx = draw(
                 st.sampled_from(
@@ -1832,6 +1918,12 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                         32,
                         33,
                         34,
+                        35,
+                        36,
+                        37,
+                        38,
+                        39,
+                        40,
                     ]
                 )
             )
@@ -1871,11 +1963,38 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             seed = " ".join(p for p in parts if p)
         if seed_idx == 3:
             parts = []
+            parts.append("date")
+            parts.append(draw(string_literal_token))
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 4:
+            parts = []
             parts.append("interval")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(draw(interval_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 4:
+        if seed_idx == 5:
+            parts = []
+            parts.append("interval")
+            parts.append(draw(string_literal_token))
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 6:
+            parts = []
+            parts.append("substring")
+            parts.append("(")
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append("from")
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            if _include_optional(draw):
+                parts.append("for")
+                parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 7:
+            parts = []
+            parts.append("timestamp")
+            parts.append(draw(string_literal_token))
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 8:
             parts = []
             parts.append("trim")
             parts.append("(")
@@ -1891,111 +2010,53 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 5:
+        if seed_idx == 9:
             parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(string_literal_token))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 6:
+        if seed_idx == 10:
             parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 7:
-            parts = []
-            group_idx = draw(st.integers(min_value=0, max_value=1))
-            if group_idx == 0:
-                parts.append("columns")
-                parts.append("(")
-                parts.append("*")
-                parts.append("exclude")
-                parts.append("(")
-                parts.append(draw(identifierList_strategy(_dec(depth))))
-                parts.append(")")
-                parts.append("replace")
-                parts.append("(")
-                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
-                parts.append(")")
-                parts.append(")")
-            if group_idx == 1:
-                parts.append("(")
-                parts.append("*")
-                parts.append("exclude")
-                parts.append("(")
-                parts.append(draw(identifierList_strategy(_dec(depth))))
-                parts.append(")")
-                parts.append("replace")
-                parts.append("(")
-                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
-                parts.append(")")
-                parts.append(")")
-            seed = " ".join(p for p in parts if p)
-        if seed_idx == 8:
-            parts = []
-            parts.append("columns")
-            parts.append("(")
-            parts.append("*")
-            parts.append("exclude")
-            parts.append("(")
-            parts.append(draw(identifierList_strategy(_dec(depth))))
-            parts.append(")")
-            parts.append(")")
-            seed = " ".join(p for p in parts if p)
-        if seed_idx == 9:
-            parts = []
-            group_idx = draw(st.integers(min_value=0, max_value=1))
-            if group_idx == 0:
-                parts.append("columns")
-                parts.append("(")
-                parts.append("*")
-                parts.append("replace")
-                parts.append("(")
-                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
-                parts.append(")")
-                parts.append(")")
-            if group_idx == 1:
-                parts.append("(")
-                parts.append("*")
-                parts.append("replace")
-                parts.append("(")
-                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
-                parts.append(")")
-                parts.append(")")
-            seed = " ".join(p for p in parts if p)
-        if seed_idx == 10:
-            parts = []
-            parts.append("columns")
-            parts.append("(")
-            parts.append("*")
-            parts.append(")")
-            seed = " ".join(p for p in parts if p)
         if seed_idx == 11:
             parts = []
-            parts.append("columns")
-            parts.append("(")
-            parts.append(draw(identifier_strategy(_dec(depth))))
-            parts.append(".")
-            parts.append("*")
-            parts.append("exclude")
-            parts.append("(")
-            parts.append(draw(identifierList_strategy(_dec(depth))))
-            parts.append(")")
-            parts.append("replace")
-            parts.append("(")
-            parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
-            parts.append(")")
-            parts.append(")")
+            group_idx = draw(st.integers(min_value=0, max_value=1))
+            if group_idx == 0:
+                parts.append("columns")
+                parts.append("(")
+                parts.append("*")
+                parts.append("exclude")
+                parts.append("(")
+                parts.append(draw(identifierList_strategy(_dec(depth))))
+                parts.append(")")
+                parts.append("replace")
+                parts.append("(")
+                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
+                parts.append(")")
+                parts.append(")")
+            if group_idx == 1:
+                parts.append("(")
+                parts.append("*")
+                parts.append("exclude")
+                parts.append("(")
+                parts.append(draw(identifierList_strategy(_dec(depth))))
+                parts.append(")")
+                parts.append("replace")
+                parts.append("(")
+                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
+                parts.append(")")
+                parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 12:
             parts = []
             parts.append("columns")
             parts.append("(")
-            parts.append(draw(identifier_strategy(_dec(depth))))
-            parts.append(".")
             parts.append("*")
             parts.append("exclude")
             parts.append("(")
@@ -2005,6 +2066,64 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             seed = " ".join(p for p in parts if p)
         if seed_idx == 13:
             parts = []
+            group_idx = draw(st.integers(min_value=0, max_value=1))
+            if group_idx == 0:
+                parts.append("columns")
+                parts.append("(")
+                parts.append("*")
+                parts.append("replace")
+                parts.append("(")
+                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
+                parts.append(")")
+                parts.append(")")
+            if group_idx == 1:
+                parts.append("(")
+                parts.append("*")
+                parts.append("replace")
+                parts.append("(")
+                parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
+                parts.append(")")
+                parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 14:
+            parts = []
+            parts.append("columns")
+            parts.append("(")
+            parts.append("*")
+            parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 15:
+            parts = []
+            parts.append("columns")
+            parts.append("(")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append(".")
+            parts.append("*")
+            parts.append("exclude")
+            parts.append("(")
+            parts.append(draw(identifierList_strategy(_dec(depth))))
+            parts.append(")")
+            parts.append("replace")
+            parts.append("(")
+            parts.append(draw(columnsReplaceList_strategy(_dec(depth))))
+            parts.append(")")
+            parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 16:
+            parts = []
+            parts.append("columns")
+            parts.append("(")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append(".")
+            parts.append("*")
+            parts.append("exclude")
+            parts.append("(")
+            parts.append(draw(identifierList_strategy(_dec(depth))))
+            parts.append(")")
+            parts.append(")")
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 17:
+            parts = []
             parts.append("columns")
             parts.append("(")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -2016,7 +2135,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 14:
+        if seed_idx == 18:
             parts = []
             parts.append("columns")
             parts.append("(")
@@ -2025,7 +2144,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append("*")
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 15:
+        if seed_idx == 19:
             parts = []
             parts.append("*")
             parts.append("columns")
@@ -2033,7 +2152,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(string_literal_token))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 16:
+        if seed_idx == 20:
             parts = []
             parts.append("*")
             parts.append("columns")
@@ -2041,7 +2160,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 17:
+        if seed_idx == 21:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
@@ -2050,7 +2169,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             parts.append(draw(withinGroupClause_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 18:
+        if seed_idx == 22:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
@@ -2075,7 +2194,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(draw(windowExpr_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 19:
+        if seed_idx == 23:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append("(")
@@ -2098,7 +2217,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append("over")
             parts.append(draw(identifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 20:
+        if seed_idx == 24:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             if _include_optional(draw):
@@ -2123,21 +2242,29 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(draw(columnExpr_strategy(_dec(depth))))
                 parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 21:
+        if seed_idx == 25:
+            parts = []
+            parts.append(draw(hogqlxTagElement_strategy(_dec(depth))))
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 26:
+            parts = []
+            parts.append(draw(templateString_strategy(_dec(depth))))
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 27:
             parts = []
             parts.append(draw(literal_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 22:
+        if seed_idx == 28:
             parts = []
             parts.append("-")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 23:
+        if seed_idx == 29:
             parts = []
             parts.append("not")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 24:
+        if seed_idx == 30:
             parts = []
             if _include_optional(draw):
                 parts.append(draw(tableIdentifier_strategy(_dec(depth))))
@@ -2149,7 +2276,7 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(draw(identifierList_strategy(_dec(depth))))
                 parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 25:
+        if seed_idx == 31:
             parts = []
             parts.append("lambda")
             parts.append(draw(identifier_strategy(_dec(depth))))
@@ -2161,25 +2288,25 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(":")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 26:
+        if seed_idx == 32:
             parts = []
             parts.append("(")
             parts.append(draw(selectSetStmt_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 27:
+        if seed_idx == 33:
             parts = []
             parts.append("(")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 28:
+        if seed_idx == 34:
             parts = []
             parts.append("(")
             parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append(")")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 29:
+        if seed_idx == 35:
             parts = []
             if _include_optional(draw):
                 parts.append("array")
@@ -2188,28 +2315,29 @@ def columnExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
                 parts.append(draw(columnExprList_strategy(_dec(depth))))
             parts.append("]")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 30:
+        if seed_idx == 36:
             parts = []
             parts.append("{")
-            parts.append("")
+            if _include_optional(draw):
+                parts.append(draw(kvPairList_strategy(_dec(depth))))
             parts.append("}")
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 31:
+        if seed_idx == 37:
             parts = []
             parts.append(draw(columnLambdaExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 32:
+        if seed_idx == 38:
             parts = []
             parts.append(draw(identifier_strategy(_dec(depth))))
             parts.append(":=")
             parts.append(draw(columnExpr_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 33:
+        if seed_idx == 39:
             parts = []
             parts.append("#")
             parts.append(draw(decimal_literal_token))
             seed = " ".join(p for p in parts if p)
-        if seed_idx == 34:
+        if seed_idx == 40:
             parts = []
             parts.append(draw(columnIdentifier_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
@@ -2492,6 +2620,103 @@ def columnsReplaceItem_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrateg
 
 
 @functools.cache
+def hogqlxChildElement_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        alt_idx = draw(st.integers(min_value=0, max_value=2))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(hogqlxTagElement_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(hogqlxText_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 2:
+            parts = []
+            parts.append("{")
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append("}")
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
+def hogqlxText_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(hogqlx_text_token))
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def hogqlxTagElement_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        alt_idx = draw(st.integers(min_value=0, max_value=1))
+        if alt_idx == 0:
+            parts = []
+            parts.append("<")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+                parts.append(draw(hogqlxTagAttribute_strategy(_dec(depth))))
+            parts.append("/>")
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append("<")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+                parts.append(draw(hogqlxTagAttribute_strategy(_dec(depth))))
+            parts.append(">")
+            for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+                parts.append(draw(hogqlxChildElement_strategy(_dec(depth))))
+            parts.append("</")
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append(">")
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
+def hogqlxTagAttribute_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        alt_idx = draw(st.integers(min_value=0, max_value=2))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append("=")
+            parts.append(draw(string_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            parts.append("=")
+            parts.append("{")
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append("}")
+            return " ".join(p for p in parts if p)
+        if alt_idx == 2:
+            parts = []
+            parts.append(draw(identifier_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
 def withExprList_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
@@ -2601,7 +2826,7 @@ def tableExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
-        seed_idx = draw(st.integers(min_value=0, max_value=4))
+        seed_idx = draw(st.integers(min_value=0, max_value=5))
         seed = ""
         if seed_idx == 0:
             parts = []
@@ -2624,6 +2849,10 @@ def tableExpr_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
             parts.append(")")
             seed = " ".join(p for p in parts if p)
         if seed_idx == 4:
+            parts = []
+            parts.append(draw(hogqlxTagElement_strategy(_dec(depth))))
+            seed = " ".join(p for p in parts if p)
+        if seed_idx == 5:
             parts = []
             parts.append(draw(placeholder_strategy(_dec(depth))))
             seed = " ".join(p for p in parts if p)
@@ -2880,11 +3109,11 @@ def numberLiteral_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str
         if group_idx == 0:
             parts.append(draw(floatingLiteral_strategy(_dec(depth))))
         if group_idx == 1:
-            parts.append("<unresolved:BINARY_LITERAL>")
+            parts.append(draw(binary_literal_token))
         if group_idx == 2:
             parts.append(draw(octal_literal_token))
         if group_idx == 3:
-            parts.append("<unresolved:OCTAL_PREFIX_LITERAL>")
+            parts.append(draw(octal_prefix_literal_token))
         if group_idx == 4:
             parts.append(draw(decimal_literal_token))
         if group_idx == 5:
@@ -3601,7 +3830,94 @@ def string_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
     @st.composite
     def gen(draw: Any) -> str:
         parts: list[str] = []
-        parts.append(draw(string_literal_token))
+        if depth <= 0:
+            alt_idx = draw(st.sampled_from([0]))
+        else:
+            alt_idx = draw(st.sampled_from([0, 1]))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(string_literal_token))
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(templateString_strategy(_dec(depth))))
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
+def templateString_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(quote_single_template_token))
+        for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+            parts.append(draw(stringContents_strategy(_dec(depth))))
+        parts.append("'")
         return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def stringContents_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        if depth <= 0:
+            alt_idx = draw(st.sampled_from([1]))
+        else:
+            alt_idx = draw(st.sampled_from([0, 1]))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(string_escape_trigger_token))
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append("}")
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(string_text_token))
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
+
+    return gen()
+
+
+@functools.cache
+def fullTemplateString_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        parts.append(draw(quote_single_template_full_token))
+        for _ in range(draw(st.integers(min_value=0, max_value=_MAX_REPEAT))):
+            parts.append(draw(stringContentsFull_strategy(_dec(depth))))
+        parts.append("")
+        return " ".join(p for p in parts if p)
+
+    return gen()
+
+
+@functools.cache
+def stringContentsFull_strategy(depth: int = _DEFAULT_DEPTH) -> st.SearchStrategy[str]:
+    @st.composite
+    def gen(draw: Any) -> str:
+        parts: list[str] = []
+        if depth <= 0:
+            alt_idx = draw(st.sampled_from([1]))
+        else:
+            alt_idx = draw(st.sampled_from([0, 1]))
+        if alt_idx == 0:
+            parts = []
+            parts.append(draw(full_string_escape_trigger_token))
+            parts.append(draw(columnExpr_strategy(_dec(depth))))
+            parts.append("}")
+            return " ".join(p for p in parts if p)
+        if alt_idx == 1:
+            parts = []
+            parts.append(draw(full_string_text_token))
+            return " ".join(p for p in parts if p)
+        raise AssertionError("unreachable")
 
     return gen()

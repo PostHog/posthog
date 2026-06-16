@@ -1,0 +1,22 @@
+{
+    "widgets": {
+        "activity_events_list": {
+            "configSchemaExport": "activityEventsWidgetConfigSchema",
+            "configTypeExport": "ActivityEventsWidgetConfig",
+            "formSchemaExport": "activityEventsWidgetFormSchema",
+            "formFields": ["limit", "dateRange", "filterTestAccounts"]
+        },
+        "error_tracking_list": {
+            "configSchemaExport": "errorTrackingWidgetConfigSchema",
+            "configTypeExport": "ErrorTrackingWidgetConfig",
+            "formSchemaExport": "errorTrackingWidgetFormSchema",
+            "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts", "status"]
+        },
+        "session_replay_list": {
+            "configSchemaExport": "sessionReplayWidgetConfigSchema",
+            "configTypeExport": "SessionReplayWidgetConfig",
+            "formSchemaExport": "sessionReplayWidgetFormSchema",
+            "formFields": ["limit", "orderBy", "orderDirection", "dateRange", "filterTestAccounts"]
+        }
+    }
+}

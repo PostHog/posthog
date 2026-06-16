@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -22,6 +22,11 @@ export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
 export const PANEL_LAYOUT_MIN_WIDTH: number = 160
+
+// Navbar resize: any width upward, snapping to collapsed below the threshold.
+export const PANEL_NAVBAR_DEFAULT_WIDTH: number = 215
+// Below this the drag snaps to collapsed mode.
+export const PANEL_NAVBAR_COLLAPSE_THRESHOLD: number = 140
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
@@ -48,6 +53,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setSidePanelWidth: (width: number) => ({ width }),
         toggleNavSection: (section: string) => ({ section }),
         setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
+        setNavbarWidth: (width: number) => ({ width }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -157,6 +163,14 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setNavExperimentTab: (_, { tab }) => tab,
             },
         ],
+        // Transient: the live open width is restored from the resizer's persisted size on mount,
+        // so persisting here would only duplicate it and thrash localStorage on every drag frame.
+        navbarWidth: [
+            PANEL_NAVBAR_DEFAULT_WIDTH,
+            {
+                setNavbarWidth: (_, { width }) => width,
+            },
+        ],
         expandedNavSections: [
             { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
             { persist: true },
@@ -258,6 +272,19 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         pathname: [(s) => [s.location], (location): string => location.pathname],
     }),
+    urlToAction(({ actions, values }) => ({
+        '*': () => {
+            // URL-surfaced panels (DataAndPeople, DataManagement) set activePanelIdentifier
+            // without flipping isLayoutPanelVisible, so check the identifier too — otherwise
+            // navigating away from one leaves the panel and its dim mounted.
+            const panelIsShown = values.isLayoutPanelVisible || values.activePanelIdentifier !== ''
+            if (values.mobileLayout && (values.isLayoutNavbarVisibleForMobile || panelIsShown)) {
+                actions.showLayoutNavBar(false)
+                actions.showLayoutPanel(false)
+                actions.clearActivePanelIdentifier()
+            }
+        },
+    })),
     afterMount(({ actions, cache, values }) => {
         // Watch for window resize
         if (typeof window !== 'undefined') {

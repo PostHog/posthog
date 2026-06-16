@@ -1,58 +1,57 @@
 import datetime as dt
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from temporalio.exceptions import ApplicationError
 
-from products.replay_vision.backend.models.replay_lens import LensModel, LensProvider, LensType
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
+from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
-from products.replay_vision.backend.temporal.lenses.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.lenses.indexer import IndexerOutput
-from products.replay_vision.backend.temporal.lenses.monitor import MonitorOutput
-from products.replay_vision.backend.temporal.lenses.scorer import ScorerOutput
-from products.replay_vision.backend.temporal.lenses.summarizer import SummarizerOutput
+from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
+from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 
-AnyLensOutput = Annotated[
-    ClassifierOutput | IndexerOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
-    Field(discriminator="lens_type"),
+AnyScannerOutput = Annotated[
+    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    Field(discriminator="scanner_type"),
 ]
 
 
-class LensSnapshot(BaseModel, frozen=True):
-    """Frozen view of a `ReplayLens` at observation-create time, persisted into `ReplayObservation.lens_snapshot`."""
+class ScannerSnapshot(BaseModel, frozen=True):
+    """Frozen view of a `ReplayScanner` at observation-create time, persisted into `ReplayObservation.scanner_snapshot`."""
 
     name: str
-    lens_type: LensType
-    lens_version: int = Field(ge=1)
-    model: LensModel
-    provider: LensProvider
+    scanner_type: ScannerType
+    scanner_version: int = Field(ge=1)
+    model: ScannerModel
+    provider: ScannerProvider
     emits_signals: bool
-    lens_config: dict[str, Any]
+    scanner_config: dict[str, Any]
 
     @classmethod
-    def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "LensSnapshot":
-        """Validate a persisted `lens_snapshot` blob, raising a non-retryable error tagged with the observation id."""
+    def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "ScannerSnapshot":
+        """Validate a persisted `scanner_snapshot` blob, raising a non-retryable error tagged with the observation id."""
         try:
             return cls.model_validate(raw or {})
         except ValidationError as exc:
             raise ApplicationError(
-                f"ReplayObservation {observation_id} has malformed lens_snapshot: {exc}", non_retryable=True
+                f"ReplayObservation {observation_id} has malformed scanner_snapshot: {exc}", non_retryable=True
             ) from exc
 
 
-class LensResult(BaseModel, frozen=True):
-    """Result data of a completed observation, persisted into `ReplayObservation.lens_result`."""
+class ScannerResult(BaseModel, frozen=True):
+    """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
-    model_output: AnyLensOutput
+    model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
 
 
-class ApplyLensInputs(BaseModel, frozen=True):
-    """Input to ApplyLensWorkflow."""
+class ApplyScannerInputs(BaseModel, frozen=True):
+    """Input to ApplyScannerWorkflow."""
 
-    lens_id: UUID
+    scanner_id: UUID
     session_id: str = Field(min_length=1, max_length=MAX_SESSION_ID_LENGTH)
     team_id: int
     triggered_by: ObservationTrigger
@@ -60,7 +59,7 @@ class ApplyLensInputs(BaseModel, frozen=True):
 
 
 class CreateObservationInputs(BaseModel, frozen=True):
-    lens_id: UUID
+    scanner_id: UUID
     team_id: int
     session_id: str = Field(min_length=1, max_length=MAX_SESSION_ID_LENGTH)
     triggered_by: ObservationTrigger
@@ -69,19 +68,42 @@ class CreateObservationInputs(BaseModel, frozen=True):
 
 
 class CreateObservationOutput(BaseModel, frozen=True):
-    """`was_created=False` means the row already existed; the caller should no-op."""
-
-    observation_id: UUID
+    # `was_created=False` means no row was persisted (either the row already existed, or the org's monthly quota is exhausted); the caller should no-op.
+    observation_id: UUID | None
     was_created: bool
+    scanner_type: ScannerType
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
     observation_id: UUID
 
 
+# Coarse progress phases, surfaced live via ApplyScannerWorkflow's `get_progress` query and streamed over SSE.
+OBSERVATION_PHASE_ORDER = ("queued", "fetching", "rendering", "uploading", "analyzing", "finalizing")
+OBSERVATION_PHASE_INDEX = {phase: index for index, phase in enumerate(OBSERVATION_PHASE_ORDER)}
+
+
+class ObservationProgress(TypedDict):
+    """Live progress snapshot returned by ApplyScannerWorkflow's `get_progress` query, streamed to the client over SSE."""
+
+    phase: str  # one of OBSERVATION_PHASE_ORDER
+    step: int  # index of `phase` in OBSERVATION_PHASE_ORDER
+    total_steps: int  # len(OBSERVATION_PHASE_ORDER)
+    rasterizer_workflow_id: str | None  # set while rendering, so the stream can read the child's frame heartbeats
+
+
 class MarkObservationFailedInputs(BaseModel, frozen=True):
     observation_id: UUID
+    # `kind:message` — kind is one of FailureKind values.
     error_reason: str
+    scanner_type: ScannerType
+
+
+class MarkObservationIneligibleInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    # `kind:message` — kind is one of IneligibleSessionKind values.
+    error_reason: str
+    scanner_type: ScannerType
 
 
 class FetchSessionEventsInputs(BaseModel, frozen=True):
@@ -105,8 +127,16 @@ class EventTable(BaseModel, frozen=True):
         return self
 
     def as_dicts(self) -> list[dict[str, Any]]:
-        """Zip columns and rows into per-event dicts for prompt-template rendering."""
-        return [dict(zip(self.columns, row)) for row in self.rows]
+        """Zip columns and rows into per-event dicts for prompt-template rendering; drops null/empty values so sparse events render compactly."""
+        # Explicit `is None` (not membership) so 0/False are never dropped via `0 == False`.
+        return [
+            {
+                column: value
+                for column, value in zip(self.columns, row)
+                if value is not None and value != "" and value != [] and value != {}
+            }
+            for row in self.rows
+        ]
 
 
 class SessionMetadata(BaseModel, frozen=True):
@@ -130,7 +160,7 @@ class SessionMetadata(BaseModel, frozen=True):
         return self.model_dump(mode="json", exclude_none=True)
 
 
-class LensLlmInputs(BaseModel, frozen=True):
+class ScannerLlmInputs(BaseModel, frozen=True):
     """Per-session analytics events + recording metadata, stashed in Redis between activities."""
 
     session_id: str
@@ -139,6 +169,7 @@ class LensLlmInputs(BaseModel, frozen=True):
     # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
+    event_timestamps: dict[str, int] = Field(default_factory=dict)
     metadata: SessionMetadata
 
 
@@ -161,30 +192,60 @@ class UploadedVideo(BaseModel, frozen=True):
     gemini_file_name: str  # opaque ID for `files.delete`
 
 
-class CallLensProviderInputs(BaseModel, frozen=True):
+class CallScannerProviderInputs(BaseModel, frozen=True):
     team_id: int
-    observation_id: UUID  # locates the LensLlmInputs blob in Redis AND the lens_snapshot on the row
+    observation_id: UUID  # locates the ScannerLlmInputs blob in Redis AND the scanner_snapshot on the row
     file_uri: str
     mime_type: str
 
 
-class LensCallOutput(BaseModel, frozen=True):
-    """Result of one `call_lens_provider` invocation."""
+class ScannerCallOutput(BaseModel, frozen=True):
+    """Result of one `call_scanner_provider` invocation."""
 
-    model_output: AnyLensOutput
+    model_output: AnyScannerOutput
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
+class EmbedObservationInputs(BaseModel, frozen=True):
+    """Input to the side-effect activity that emits embedding requests for an observation's reasoning/summary."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    scanner_id: UUID
+    model_output: AnyScannerOutput
+
+
+class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
+    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
+    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    summarizer_output: SummarizerOutput
+
+
+class EmitClassifierTagsInputs(BaseModel, frozen=True):
+    """Input to the classifier-side-effect activity that writes ai_tags_fixed/freeform via Kafka."""
+
+    team_id: int
+    session_id: str
+    observation_id: UUID
+    classifier_output: ClassifierOutput
+
+
 class MarkObservationSucceededInputs(BaseModel, frozen=True):
     observation_id: UUID
-    lens_result: LensResult
+    scanner_result: ScannerResult
+    scanner_type: ScannerType
 
 
 class EmitObservationEventInputs(BaseModel, frozen=True):
     """Payload for the `$recording_observed` capture."""
 
     observation_id: UUID
-    model_output: AnyLensOutput
+    model_output: AnyScannerOutput

@@ -10,7 +10,9 @@ import {
     flip,
     shift,
     size,
+    useDismiss,
     useFloating,
+    useInteractions,
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
@@ -26,9 +28,8 @@ import React, {
 } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 
 import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
 
@@ -86,7 +87,16 @@ export const PopoverOverlayContext = React.createContext<[boolean, number]>([tru
 /** Context for the popover reference element (if it's rendered as a Popover child and not externally). */
 export const PopoverReferenceContext = React.createContext<[boolean, Placement] | null>(null)
 
-let nestedPopoverReceivedClick = false
+// Registry of currently-visible Popover floating elements with their nesting level.
+// Used so a parent popover doesn't treat a click on a deeper-nested popover as an outside click.
+const openPopoverFloatings: Array<{ level: number; element: HTMLElement }> = []
+
+// Whether a click target opted out of outside-dismiss via CLICK_OUTSIDE_BLOCK_CLASS. Mirrors the
+// global exemption the legacy useOutsideClickHandler already applies, so both outside-click paths
+// agree. `Element` (not `HTMLElement`) so a click landing on an SVG icon inside an opted-out
+// element still matches.
+const optedOutOfOutsideDismiss = (target: EventTarget | Node | null): boolean =>
+    target instanceof Element && !!target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)
 
 /** This is a custom popover control that uses `floating-ui` to position DOM nodes.
  *
@@ -133,6 +143,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }
 
     const arrowRef = useRef<HTMLDivElement>(null)
+    const additionalRefsRef = useRef(additionalRefs)
+    additionalRefsRef.current = additionalRefs
+
     const {
         x,
         y,
@@ -141,8 +154,15 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement: effectivePlacement,
         update,
         middlewareData,
+        context,
     } = useFloating<HTMLElement>({
         open: visible,
+        onOpenChange: (open, event) => {
+            if (open || !visible || !event) {
+                return
+            }
+            onClickOutside?.(event as Event)
+        },
         placement,
         strategy: 'absolute',
         middleware: [
@@ -260,32 +280,47 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }, [referenceElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    useEventListener(
-        'keydown',
-        (event) => {
-            if (event.key === 'Escape') {
-                onClickOutside?.(event as Event)
+    const dismiss = useDismiss(context, {
+        enabled: visible,
+        // useDismiss only treats the floating + reference elements as "inside". Three things
+        // need explicit exemption: elements opting out via CLICK_OUTSIDE_BLOCK_CLASS,
+        // additionalRefs (consumer-registered companion elements), and deeper-nested popovers
+        // (portaled, so DOM-siblings rather than descendants).
+        outsidePress: (event) => {
+            const target = event.target as Node | null
+            if (!target) {
+                return true
             }
+            // Honor the block class on the floating-ui dismiss path too, not just onClickInside —
+            // a nested menu in a parent popover's *reference* subtree (e.g. the TaxonomicFilter
+            // category pill in the search input's suffix) inherits the wrong overlay level, so the
+            // level check below can't recognize it as nested.
+            if (optedOutOfOutsideDismiss(target)) {
+                return false
+            }
+            if (additionalRefsRef.current.some((r) => r.current?.contains(target))) {
+                return false
+            }
+            return !openPopoverFloatings.some((p) => p.level > currentPopoverLevel && p.element.contains(target))
         },
-        referenceElement
-    )
+    })
+    const { getFloatingProps } = useInteractions([dismiss])
 
-    useOutsideClickHandler(
-        visible ? [floatingRef, referenceRef, ...additionalRefs] : [],
-        (event) => {
-            // Delay by a tick to allow other Popovers to detect inside clicks.
-            // If a nested popover has handled the click, don't do anything
-            setTimeout(() => {
-                if (visible && !nestedPopoverReceivedClick) {
-                    onClickOutside?.(event)
-                }
-            }, 1)
-        },
-        [visible]
-    )
-
-    const additionalRefsRef = useRef(additionalRefs)
-    additionalRefsRef.current = additionalRefs
+    useEffect(() => {
+        // When closeParentPopoverOnClickInside is set, this popover deliberately presents itself
+        // as "outside" to its parent so parent menus dismiss on item click — skip registration.
+        if (!visible || !floatingElement || closeParentPopoverOnClickInside) {
+            return
+        }
+        const entry = { level: currentPopoverLevel, element: floatingElement }
+        openPopoverFloatings.push(entry)
+        return () => {
+            const i = openPopoverFloatings.indexOf(entry)
+            if (i >= 0) {
+                openPopoverFloatings.splice(i, 1)
+            }
+        }
+    }, [visible, floatingElement, currentPopoverLevel, closeParentPopoverOnClickInside])
 
     useEffect(() => {
         if (visible && referenceRef?.current && floatingElement) {
@@ -305,17 +340,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
-        if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
+        if (optedOutOfOutsideDismiss(e.target)) {
             return
         }
         onClickInside?.(e)
-        // If we are not the top level popover, set a flag so that other popovers know that.
-        if (parentPopoverLevel > -1 && !closeParentPopoverOnClickInside) {
-            nestedPopoverReceivedClick = true
-            setTimeout(() => {
-                nestedPopoverReceivedClick = false
-            }, 1)
-        }
     }
 
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
@@ -372,7 +400,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                     left,
                                     ...style,
                                 }}
-                                onClick={_onClickInside}
+                                {...getFloatingProps({
+                                    onClick: _onClickInside,
+                                })}
                                 onMouseEnter={onMouseEnterInside}
                                 onMouseLeave={onMouseLeaveInside}
                                 aria-level={currentPopoverLevel}

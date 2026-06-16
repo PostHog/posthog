@@ -200,6 +200,9 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 
     // separate runner
     [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
+
+    // separate runner — only the two range endpoints, cached on its own key
+    [ChartDisplayType.SlopeGraph]: ChartDisplayType.SlopeGraph,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
@@ -227,11 +230,14 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             ...insightFilter,
             showLegend: undefined,
             showPercentStackView: undefined,
+            stackBreakdownValues: undefined,
             showValuesOnSeries: undefined,
             aggregationAxisFormat: undefined,
             aggregationAxisPrefix: undefined,
             aggregationAxisPostfix: undefined,
             decimalPlaces: undefined,
+            xAxisLabel: undefined,
+            yAxisLabel: undefined,
             layout: undefined,
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
@@ -252,6 +258,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             stacked: undefined,
             detailedResultsAggregationType: undefined,
             excludeBoxPlotOutliers: undefined,
+            showAnnotations: undefined,
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,

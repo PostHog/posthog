@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -13,8 +13,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -33,6 +31,32 @@ JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
+
+
+def _extract_failure_code(error_codes: object) -> str | None:
+    if isinstance(error_codes, str):
+        return error_codes
+
+    if isinstance(error_codes, list):
+        for error_code in error_codes:
+            failure_code = _extract_failure_code(error_code)
+            if failure_code:
+                return failure_code
+
+    if isinstance(error_codes, dict):
+        for error_code in error_codes.values():
+            failure_code = _extract_failure_code(error_code)
+            if failure_code:
+                return failure_code
+
+    return None
+
+
+def _get_failure_code(exception: Exception) -> str | None:
+    if isinstance(exception, ValidationError):
+        return _extract_failure_code(exception.get_codes())
+
+    return None
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
@@ -177,6 +201,10 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Exact symbol set reference to filter by.",
     )
+    search = serializers.CharField(
+        required=False,
+        help_text="Case-insensitive substring search across reference, release version, release project, and release commit SHA.",
+    )
     status = serializers.ChoiceField(
         required=False,
         default="all",
@@ -200,7 +228,6 @@ class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
@@ -231,11 +258,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         params = self._get_list_params(self.request)
         ref = params.get("ref")
+        search = params.get("search")
         symbol_set_status = params.get("status")
         order_by = params.get("order_by")
 
         if ref:
             queryset = queryset.filter(ref=ref)
+
+        if search:
+            queryset = queryset.filter(
+                Q(ref__icontains=search)
+                | Q(release__version__icontains=search)
+                | Q(release__project__icontains=search)
+                | Q(release__metadata__git__commit_id__icontains=search)
+            )
 
         if symbol_set_status == "valid":
             queryset = queryset.filter(storage_ptr__isnull=False)
@@ -417,7 +453,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
         if not symbol_set.content_hash:
             symbol_set.content_hash = content_hash
-            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         return Response({"success": True}, status=status.HTTP_200_OK)
@@ -494,11 +529,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             )
 
         file_count = len(content_hashes)
-        symbol_set_ids = content_hashes.keys()
-        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
-
+        symbol_set_ids = set(content_hashes.keys())
         total_file_size = 0
         try:
+            symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids))
+            found_symbol_set_ids = {str(symbol_set.id) for symbol_set in symbol_sets}
+            missing_symbol_set_ids = symbol_set_ids - found_symbol_set_ids
+            if missing_symbol_set_ids:
+                raise ValidationError(
+                    code="symbol_set_not_found",
+                    detail=f"Unknown symbol set IDs: {', '.join(sorted(missing_symbol_set_ids))}",
+                )
+
             for symbol_set in symbol_sets:
                 s3_upload = None
                 if symbol_set.storage_ptr:
@@ -524,17 +566,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
 
                 content_hash = content_hashes[str(symbol_set.id)]
                 symbol_set.content_hash = content_hash
-                symbol_set.last_used = timezone.now()
-            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash", "last_used"])
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception as e:
-            for id in content_hashes.keys():
-                # Try to clean up the symbol sets preemptively if the upload fails
-                try:
-                    symbol_set = ErrorTrackingSymbolSet.objects.all().filter(id=id, team=self.team).get()
-                    symbol_set.delete()
-                except Exception:
-                    pass
-
             posthoganalytics.capture(
                 "error_tracking_symbol_set_uploaded",
                 properties={
@@ -542,6 +575,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                     "success": False,
                     "file_count": file_count,
                     "failure_reason": type(e).__name__,
+                    "failure_code": _get_failure_code(e),
                 },
                 groups=groups(self.team.organization, self.team),
             )
@@ -580,7 +614,6 @@ def create_symbol_set(
                 raise ValidationError(f"Symbol set has already been uploaded for a different release")
             symbol_set.storage_ptr = storage_ptr
             symbol_set.content_hash = content_hash
-            symbol_set.last_used = timezone.now()
             symbol_set.save()
 
         except ErrorTrackingSymbolSet.DoesNotExist:
@@ -590,7 +623,6 @@ def create_symbol_set(
                 release=release,
                 storage_ptr=storage_ptr,
                 content_hash=content_hash,
-                last_used=timezone.now(),
             )
 
         # Delete any existing frames associated with this symbol set
@@ -658,7 +690,6 @@ def bulk_create_symbol_sets(
                 ref=chunk_id,
                 storage_ptr=storage_ptr,
                 release_id=new_symbol_set_map[chunk_id].release_id,
-                last_used=timezone.now(),
             )
             symbol_sets_to_be_created.append(to_create)
 

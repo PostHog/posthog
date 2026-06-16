@@ -34,6 +34,28 @@ impl std::str::FromStr for CaptureMode {
     }
 }
 
+/// Compression algorithm applied at the Kafka message payload (envelope) level,
+/// independent of the broker-level `compression.codec` setting.
+/// Enables Warpstream billing reduction by storing compressed bytes.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Default)]
+pub enum EnvelopeCompression {
+    #[default]
+    None,
+    Lz4,
+}
+
+impl std::str::FromStr for EnvelopeCompression {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_ref() {
+            "none" => Ok(EnvelopeCompression::None),
+            "lz4" => Ok(EnvelopeCompression::Lz4),
+            _ => Err(format!("Unknown EnvelopeCompression: {s}")),
+        }
+    }
+}
+
 #[derive(Envconfig, Clone)]
 pub struct Config {
     #[envconfig(default = "false")]
@@ -55,6 +77,11 @@ pub struct Config {
 
     #[envconfig(default = "false")]
     pub global_rate_limit_enabled: bool,
+
+    /// When true, the global rate limiter evaluates and emits metrics/logs
+    /// but does not enforce (events pass through as if not limited).
+    #[envconfig(default = "false")]
+    pub global_rate_limit_dry_run: bool,
 
     /// Sliding window interval to apply global rate limiting threshold to
     #[envconfig(default = "60")]
@@ -200,9 +227,6 @@ pub struct Config {
     pub ai_s3_access_key_id: Option<String>,
     pub ai_s3_secret_access_key: Option<String>,
 
-    // if set in env, will configure a request timeout on the server's Axum router
-    pub request_timeout_seconds: Option<u64>,
-
     // HTTP/1 header read timeout in milliseconds - closes connections that don't
     // send complete headers within this duration (slow loris protection).
     // Set env var to enable; unset to disable.
@@ -249,6 +273,11 @@ pub struct KafkaConfig {
     pub kafka_producer_message_max_bytes: u32, // message.max.bytes - max kafka message size we will produce
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
+    /// Application-level compression for session replay (snapshot) Kafka payloads.
+    /// Independent of broker-level compression; consumers must detect and decompress.
+    /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
+    #[envconfig(default = "none")]
+    pub kafka_replay_envelope_compression: EnvelopeCompression,
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
@@ -260,7 +289,7 @@ pub struct KafkaConfig {
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
     pub kafka_historical_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
+    #[envconfig(default = "ingestion-clientwarnings-main-1")]
     pub kafka_client_ingestion_warning_topic: String,
     #[envconfig(default = "error_tracking_events")]
     pub kafka_error_tracking_topic: String,

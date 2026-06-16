@@ -12,14 +12,12 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_token_generator
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.models import Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
     get_members_to_notify_for_pipeline_error,
     login_from_new_device_notification,
@@ -30,7 +28,9 @@ from posthog.tasks.email import (
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_verification,
+    send_external_data_failure_digest,
     send_fatal_plugin_error,
+    send_hog_function_disabled,
     send_hog_functions_daily_digest,
     send_hog_functions_digest_email,
     send_invite,
@@ -42,6 +42,10 @@ from posthog.tasks.email import (
     should_send_pipeline_error_notification,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 
 
 def create_org_team_and_user(creation_date: str, email: str, ingested_event: bool = False) -> tuple[Organization, User]:
@@ -553,6 +557,190 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
         assert len(mocked_email_messages) == 0
 
+    def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 10:00:00"):
+            sent = send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Invoice",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "Invalid API key",
+                        "paused": True,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                    },
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "transient error",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    },
+                ],
+            )
+
+        assert sent is True
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+        assert (
+            MockEmailMessage.call_args.kwargs["campaign_key"]
+            == f"external_data_failure_digest_{self.team.pk}_2024-05-15"
+        )
+        assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
+
+    def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 09:59:00"):
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "boom",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    }
+                ],
+            )
+
+        assert (
+            MockEmailMessage.call_args.kwargs["campaign_key"]
+            == f"external_data_failure_digest_{self.team.pk}_2024-05-14"
+        )
+
+    @parameterized.expand([(True, 1), (False, 0)])
+    def test_send_external_data_failure_digest_respects_rollout_flag(
+        self, MockEmailMessage: MagicMock, flag_enabled: bool, expected_emails: int
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        items = [
+            {
+                "schema_name": "Charge",
+                "source_type": "Stripe",
+                "source_id": "abc",
+                "source_prefix": "",
+                "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                "error": "boom",
+                "paused": False,
+                "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+            }
+        ]
+        with (
+            self.settings(TEST=False),
+            patch("posthog.tasks.email.posthoganalytics.feature_enabled", return_value=flag_enabled) as mock_flag,
+        ):
+            sent = send_external_data_failure_digest(self.team.pk, items)
+
+        assert sent is flag_enabled
+        assert len(mocked_email_messages) == expected_emails
+        assert mock_flag.call_args.kwargs["key"] == "external-data-failure-digest-email"
+        assert mock_flag.call_args.kwargs["groups"]["project"] == str(self.team.pk)
+
+    def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        with freeze_time("2024-05-15 10:00:00"):
+            record, _ = MessagingRecord.objects.get_or_create(
+                raw_email="someone@posthog.com",
+                campaign_key=f"external_data_failure_digest_{self.team.pk}_2024-05-15",
+            )
+            record.sent_at = timezone.now()
+            record.save()
+
+            sent = send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Charge",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "boom",
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+                    }
+                ],
+            )
+
+        assert sent is False
+        assert len(mocked_email_messages) == 0
+
+    def test_send_external_data_failure_digest_all_paused_subject(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        send_external_data_failure_digest(
+            self.team.pk,
+            [
+                {
+                    "schema_name": "Invoice",
+                    "source_type": "Stripe",
+                    "source_id": "abc",
+                    "source_prefix": "",
+                    "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                    "error": "Invalid API key",
+                    "paused": True,
+                    "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                }
+            ],
+        )
+
+        assert len(mocked_email_messages) == 1
+        assert "paused" in MockEmailMessage.call_args.kwargs["subject"]
+
+    def test_send_external_data_failure_digest_with_settings(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        user2 = self._create_user("test2@posthog.com")
+        self.user.partial_notification_settings = {"plugin_disabled": False}
+        self.user.save()
+
+        items = [
+            {
+                "schema_name": "Charge",
+                "source_type": "Stripe",
+                "source_id": "abc",
+                "source_prefix": "",
+                "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                "error": "boom",
+                "paused": False,
+                "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Charge",
+            }
+        ]
+        with freeze_time("2024-05-15 10:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+        self.user.partial_notification_settings = {"plugin_disabled": True}
+        self.user.save()
+
+        with freeze_time("2024-05-15 18:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+        assert len(mocked_email_messages) == 1
+
+        with freeze_time("2024-05-16 10:00:00"):
+            send_external_data_failure_digest(self.team.pk, items)
+        assert len(mocked_email_messages[1].to) == 2
+
     def test_should_send_pipeline_error_notification(self, MockEmailMessage: MagicMock) -> None:
         # Default threshold is 1% (0.01) - notify when failure rate exceeds that
         assert should_send_pipeline_error_notification(self.user, failure_rate=0.1) is True
@@ -623,6 +811,122 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         memberships = get_members_to_notify_for_pipeline_error(cast(Team, self.user.team), failure_rate=0.5)
         assert len(memberships) == 1
         assert memberships[0].user.email == user2.email
+
+    def test_should_send_pipeline_error_notification_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {
+                "hog_function:abc-123": True,
+                "batch_export:def-456": True,
+            },
+        }
+        self.user.save()
+
+        assert (
+            should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id="hog_function:abc-123")
+            is False
+        )
+        assert (
+            should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id="batch_export:def-456")
+            is False
+        )
+        assert (
+            should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id="hog_function:other-id")
+            is True
+        )
+        assert should_send_pipeline_error_notification(self.user, failure_rate=1.0, pipeline_id=None) is True
+
+    def test_get_members_to_notify_for_pipeline_error_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        user2 = self._create_user("test2@posthog.com")
+
+        pipeline_id = "hog_function:test-function-id"
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {pipeline_id: True},
+        }
+        self.user.save()
+        user2.partial_notification_settings = {"plugin_disabled": True}
+        user2.save()
+
+        memberships = get_members_to_notify_for_pipeline_error(
+            cast(Team, self.user.team), failure_rate=1.0, pipeline_id=pipeline_id
+        )
+        assert len(memberships) == 1
+        assert memberships[0].user.email == user2.email
+
+        memberships = get_members_to_notify_for_pipeline_error(
+            cast(Team, self.user.team), failure_rate=1.0, pipeline_id="hog_function:other-id"
+        )
+        assert len(memberships) == 2
+
+    def test_send_fatal_plugin_error_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, team=self.team, enabled=True, order=1)
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"plugin_config:{plugin_config.id}": True},
+        }
+        self.user.save()
+
+        send_fatal_plugin_error(plugin_config.id, "20222-01-01", error="It exploded!", is_system_error=False)
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+    def test_send_hog_function_disabled_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        hog_function = HogFunction.objects.create(
+            team=self.team,
+            name="Test Hog Function",
+            enabled=True,
+        )
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"hog_function:{hog_function.id}": True},
+        }
+        self.user.save()
+
+        send_hog_function_disabled(str(hog_function.id))
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
+
+    def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.user.team, name="A batch export", destination=batch_export_destination
+        )
+        now = dt.datetime.now()
+        batch_export_run = BatchExportRun.objects.create(
+            batch_export=batch_export,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"batch_export:{batch_export.id}": True},
+        }
+        self.user.save()
+
+        send_batch_export_run_failure(batch_export_run.id)
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
 
     def test_send_canary_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -1570,7 +1874,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         jobs: list[tuple[str, dt.timedelta, str | None]],
         expect_email: bool,
     ) -> None:
-        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1602,7 +1907,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_not_sent_by_default(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1625,7 +1931,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 0
 
     def test_send_matview_failure_digest_kitchen_sink_snapshot(self, MockEmailMessage: MagicMock) -> None:
-        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -1703,7 +2010,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_matview_failure_digest_truncates_long_errors(
         self, MockEmailMessage: MagicMock, name: str, error: str, expected_error: str
     ) -> None:
-        from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+        from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 

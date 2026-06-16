@@ -2,8 +2,9 @@
 name: exploring-apm-traces
 description: >
   Investigates distributed application performance using PostHog APM (OpenTelemetry span) data via MCP.
-  Use when the user asks about service traces, slow HTTP/database spans, error spans, trace IDs, or span
-  attributes — not LLM analytics traces or product logs. Uses posthog:query-apm-spans, posthog:apm-trace-get,
+  Use when the user asks about service traces, slow HTTP/database spans, error spans, error-rate trends or
+  spikes, latency distributions, trace IDs, or span attributes — not AI observability traces or product logs.
+  Uses posthog:query-apm-spans, posthog:apm-trace-get, posthog:apm-spans-sparkline,
   posthog:apm-services-list, posthog:apm-attributes-list, and posthog:apm-attribute-values-list.
 ---
 
@@ -11,19 +12,23 @@ description: >
 
 PostHog captures distributed traces from OpenTelemetry. Each trace is a tree of spans representing a request's path through services.
 
-**Disambiguation:** This skill is for **APM / OpenTelemetry traces**. Do not confuse with **LLM analytics traces** (agent/model `$ai_*` events) or **logs** (`posthog:query-logs`, `posthog:logs-*`).
+**Disambiguation:** This skill is for **APM / OpenTelemetry traces**. Do not confuse with **AI observability traces** (agent/model `$ai_*` events) or **logs** (`posthog:query-logs`, `posthog:logs-*`).
 
 ## Available tools
 
-| Tool                                | Purpose                                           |
-| ----------------------------------- | ------------------------------------------------- |
-| `posthog:query-apm-spans`           | Search and filter spans (compact list view)       |
-| `posthog:apm-trace-get`             | Get the full span list for one hex `trace_id`     |
-| `posthog:apm-spans-aggregate`       | Per-operation aggregates (count, p50/p95, errors) |
-| `posthog:apm-spans-tree`            | Call-tree aggregates per `(parent, child)` edge   |
-| `posthog:apm-services-list`         | List distinct service names                       |
-| `posthog:apm-attributes-list`       | List span or resource attribute keys              |
-| `posthog:apm-attribute-values-list` | List values for a specific attribute key          |
+| Tool                                   | Purpose                                           |
+| -------------------------------------- | ------------------------------------------------- |
+| `posthog:query-apm-spans`              | Search and filter spans (compact list view)       |
+| `posthog:apm-trace-get`                | Get the full span list for one hex `trace_id`     |
+| `posthog:apm-spans-aggregate`          | Per-operation aggregates (count, p50/p95, errors) |
+| `posthog:apm-spans-tree`               | Call-tree aggregates per `(parent, child)` edge   |
+| `posthog:apm-spans-count`              | Scalar span count — cheap filter pre-flight       |
+| `posthog:apm-spans-sparkline`          | Span counts over time (zero-filled time series)   |
+| `posthog:apm-spans-duration-histogram` | Trace counts per log-scale duration bucket        |
+| `posthog:apm-attribute-breakdown`      | Span counts grouped by one attribute's value      |
+| `posthog:apm-services-list`            | List distinct service names                       |
+| `posthog:apm-attributes-list`          | List span or resource attribute keys              |
+| `posthog:apm-attribute-values-list`    | List values for a specific attribute key          |
 
 See [references/spans-and-fields.md](./references/spans-and-fields.md) for the response schema and the `kind`/`status_code` enums.
 
@@ -92,20 +97,42 @@ To rebuild the tree:
 
 ### "Where is time going?"
 
-1. Run `print_summary.py` — it surfaces the top-5 slowest spans by `duration_nano`.
-2. For a noisy trace, run `print_timeline.py` and scan the indented durations — you can see whether time is dominated by one child span or fan-out across many.
-3. To dig into one slow span, `SPAN="<name>" python3 scripts/extract_span.py FILE`.
+1. Every span from `apm-trace-get` carries `self_time_nano` — duration not covered by children. Sort by it: the top span is where wall-clock actually went. A parent with large `self_time_nano` is an **uninstrumented gap** (the work happened inside it, not in any recorded child).
+2. Run `print_summary.py` — it surfaces the top-5 slowest spans by `duration_nano`.
+3. For a noisy trace, run `print_timeline.py` and scan the indented durations — you can see whether time is dominated by one child span or fan-out across many.
+4. To dig into one slow span, `SPAN="<name>" python3 scripts/extract_span.py FILE`.
+5. For aggregate "which child dominates" questions use `apm-spans-tree` and read `calls_per_parent_invocation` — it separates a child that's slow per call from one that merely runs 20× per parent.
 
 ### "Where did the error happen?"
 
 1. `print_summary.py` lists every span with `status_code == 2` (Error). Each entry shows service, span name, and parent context.
 2. Walk up the tree from an error span via `parent_span_id` to see what request path led there.
-3. `apm-attribute-values-list` is the only way to fetch error message attributes — they're not in the trace payload.
+3. Error detail lives in each span's `attributes` map (e.g. `exception.message`, `exception.type`), which **is** returned in the trace payload — read it directly off the error span. `apm-attribute-values-list` is for discovering values across spans, not a prerequisite for reading one span's attributes.
 
 ### "Did the request hit service X?"
 
 1. Run `print_summary.py` — it prints the set of services involved in the trace.
 2. If service X is missing, the request never reached it (or instrumentation is missing — check `apm-services-list` to confirm X has emitted spans recently at all).
+
+### "What's different about the bad spans?" (over-represented values)
+
+1. Scope to the bad population: `filterGroup` with `status_code = Error`, or a `duration` threshold.
+2. Discover candidate keys with `apm-attributes-list` — typical suspects: `server.address`, `http.response.status_code`, `db.system`, resource keys like `k8s.pod.name` / `service.version`.
+3. Run `apm-attribute-breakdown` per candidate key on the bad set. A value owning most of the `count` is the signature.
+4. Confirm over-representation: re-run without the bad-set filter (or compare `error_count / count` per row). A value at 95% of errors but 10% of traffic is the culprit; one at 95% of both is just volume.
+
+### "When did it spike?" (trends over time)
+
+1. `apm-spans-sparkline` with your filters → total counts per time bucket (zero-filled, ~50 adaptive buckets per window).
+2. The same call with `statusCodes: [2]` → error counts per bucket.
+3. Error rate per bucket = errors / total; the bucket where the ratio jumps is when the spike started.
+4. Zoom in: re-run with a narrower `dateRange` around that bucket, then pull raw spans via `query-apm-spans`.
+
+### "What does the latency distribution look like?"
+
+1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span.
+2. A second hump or a fat tail = a distinct slow population; note its `bucket_ns` range.
+3. Fetch the actual slow traces with `query-apm-spans` using a `duration` filter (nanoseconds) and `orderBy: "duration"`.
 
 ### "Did the fan-out look right?"
 
@@ -114,9 +141,9 @@ To rebuild the tree:
 
 ### Searching by attribute (e.g. `http.method=POST`)
 
-The trace payload **does not contain attributes** — only the span's built-in fields. To filter or search by attributes:
+Each span carries an `attributes` map (span-level OTel attributes like `http.method`, `db.statement`) **in the payload** — so for a span you already have, just read it. **Resource** attributes (k8s labels, `service.version`) are not in the payload. To filter the whole dataset by an attribute:
 
-1. Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys and values.
+1. Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys and values (resource attributes especially).
 2. Re-issue `query-apm-spans` with a `filterGroup` entry of type `span_attribute` or `span_resource_attribute`.
 
 ## Constructing UI links
@@ -192,7 +219,9 @@ results (array of span dicts)
         ├── status_code (int 0–2), is_root_span (bool)
         ├── timestamp, end_time (ISO 8601)
         ├── duration_nano (int, nanoseconds)
-        └── matched_filter (bool — only meaningful when prefetching from query-apm-spans)
+        ├── attributes (map of span-level OTel attributes, e.g. db.statement, http.url)
+        └── matched_filter (0/1 — 1 if this span matched the query-apm-spans filter, 0 if it
+            only shares a trace with a match; always present, only meaningful from query-apm-spans)
 ```
 
 ### Available scripts
@@ -209,6 +238,6 @@ results (array of span dicts)
 
 - Always set `dateRange` on `query-apm-spans` — queries without a time range are slow. Default is `-1h`; widen only when needed.
 - Always include the `_posthogUrl` in your response so the user can click through.
-- Attributes are not in the `apm-trace-get` payload — use `apm-attribute-values-list` for those.
+- Span-level attributes **are** in the `apm-trace-get` / `query-apm-spans` payload (each span's `attributes` map). Resource attributes are not — use `apm-attributes-list` (type `resource`) and `apm-attribute-values-list` for those.
 - `is_root_span` is the cheap way to find the trace entry — don't string-match `00000000…`.
 - For aggregates (p95 by operation, slowest children of a span), use `apm-spans-aggregate` for a flat view or `apm-spans-tree` for parent→child edges — don't reach for SQL.

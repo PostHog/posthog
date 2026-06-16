@@ -1,6 +1,15 @@
-Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, and is_root_span.
+Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, is_root_span, matched_filter, and attributes (the span-level OTel attribute map, e.g. db.statement, http.url).
 
 Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
+
+# Return shape
+
+Results are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:
+
+- `matched_filter` — `1` if **this span** satisfies your `filterGroup`/`serviceNames`/`statusCodes`, `0` if it's only included because it shares a trace with a match (e.g. a prefetched sibling or the trace's root). When you filter by a child span's name, the matching child has `matched_filter: 1` and its root/siblings have `matched_filter: 0`.
+- `is_root_span` — `true` for the trace's entry span.
+
+To collapse each matching trace to a **single row — its root span**, set `rootSpans: true` — see below. (The row is the trace's entry span, which may itself carry `matched_filter: 0` when the match was on a child.) To inspect a single trace's full tree, take a `trace_id` from the results and call `apm-trace-get`.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
 
@@ -15,7 +24,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Span property types are:
-  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code).
+  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `apm-attributes-list` to discover available attribute keys** before building filters.
@@ -44,7 +53,7 @@ Filter by service names. Use `apm-services-list` to discover available services.
 
 ## query.statusCodes
 
-Filter by HTTP status codes (list of integers).
+Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.
 
 ## query.orderBy
 
@@ -67,7 +76,11 @@ Filter to a specific trace ID (hex string). Use this when you already know the t
 
 ## query.rootSpans
 
-Filter to root spans only. Defaults to true. Set to false to include all spans in the trace tree.
+Set `true` to return **only root spans** — one entry span per matching trace, which collapses each trace to a single row. Useful for "list the traces matching X" without sifting through `matched_filter`. Leave unset (or `false`) to get all spans of matching traces, where you read `matched_filter` to find the ones that matched. The frontend leaves this unset.
+
+## query.flatSpans
+
+Set `true` to return **the matching spans themselves, one row per span** (root and child), rather than collapsing to traces. This is the way to search by a child-span attribute (e.g. `code.filepath`) — the result is the matching child spans directly, not the traces that contain them. Streams under `ORDER BY … LIMIT`, so it stays bounded on hot child attributes where the whole-trace grouping would not. Distinct from `rootSpans` (which scopes whole-trace selection); `prefetchSpans` is ignored. Defaults to false.
 
 ## query.limit
 
@@ -79,7 +92,11 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 ## query.prefetchSpans
 
-Number of child spans to prefetch per trace (1-100). Useful to get a preview of trace structure without fetching the full trace.
+Number of spans to return per matching trace (1-100), root span first. Useful to preview trace structure without a separate `apm-trace-get`. With the default (1) you get one span per trace (the root); raise it to also pull the matching children and their siblings (check `matched_filter` to tell them apart). Ignored when `rootSpans: true`, which always returns just the root.
+
+## query.excludeAttributes
+
+Set `true` to drop the per-span `attributes` map from results (the map stays present but empty). The attribute map holds multi-KB values like `db.statement`, so excluding it keeps large result sets compact — set it when you only need span structure/timing (`name`, `service_name`, `duration_nano`, `parent_span_id`) and not the OTel attributes. Defaults to false.
 
 # Examples
 
@@ -88,7 +105,7 @@ Number of child spans to prefetch per trace (1-100). Useful to get a preview of 
 ```json
 {
   "query": {
-    "statusCodes": [500, 503]
+    "statusCodes": [2]
   }
 }
 ```

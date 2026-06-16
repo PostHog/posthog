@@ -7,7 +7,8 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 
 from boto3 import resource
 from botocore.config import Config
@@ -221,6 +222,26 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "type": "collection",
             },
         ]
+
+    def test_list_does_not_issue_redundant_db_count(self) -> None:
+        self._create_playlist({"name": "test", "type": "collection"})
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        playlist_count_queries = [
+            q
+            for q in ctx.captured_queries
+            if "count(" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylist" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylistitem" not in q["sql"].lower()
+        ]
+        assert len(playlist_count_queries) == 1, (
+            f"expected a single COUNT on the playlists table, saw {len(playlist_count_queries)}: "
+            f"{[q['sql'] for q in playlist_count_queries]}"
+        )
 
     @parameterized.expand(
         [
@@ -724,6 +745,72 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert len(result["results"]) == 1
         assert result["results"][0]["id"] == session_one
+
+    def test_collection_recordings_keep_one_year_search_bound(self) -> None:
+        # long retention keeps the old recording alive, so only the collections -1y bound excludes it
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="collection", created_by=self.user, type="collection"
+        )
+
+        recent_session = f"recent-{uuid4()}"
+        over_a_year_old_session = f"over-a-year-old-{uuid4()}"
+        three_days_ago = (datetime.now() - timedelta(days=3)).replace(tzinfo=UTC)
+        over_a_year_ago = (datetime.now() - timedelta(days=400)).replace(tzinfo=UTC)
+
+        for session_id, timestamp in [(recent_session, three_days_ago), (over_a_year_old_session, over_a_year_ago)]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="123",
+                first_timestamp=timestamp,
+                last_timestamp=timestamp,
+                retention_period_days=1826,
+            )
+            self.client.post(
+                f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/{session_id}"
+            )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == {recent_session}
+
+    @parameterized.expand(
+        [
+            ("narrow_window_excludes", "-1d", False),
+            ("covering_window_includes", "-30d", True),
+        ]
+    )
+    def test_filters_playlist_pinned_recordings_respect_date_params(
+        self, _name: str, date_from: str, expect_found: bool
+    ) -> None:
+        # legacy filters playlists can still carry pinned items
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="legacy filters with pins", created_by=self.user, type="filters"
+        )
+
+        old_session = f"old-{uuid4()}"
+        ten_days_ago = (datetime.now() - timedelta(days=10)).replace(tzinfo=UTC)
+        produce_replay_summary(
+            team_id=self.team.id,
+            session_id=old_session,
+            distinct_id="123",
+            first_timestamp=ten_days_ago,
+            last_timestamp=ten_days_ago,
+        )
+        # pinning via the API is collection-only, so create the legacy rows directly
+        recording, _ = SessionRecording.objects.get_or_create(
+            session_id=old_session, team=self.team, defaults={"deleted": False}
+        )
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings",
+            data={"date_from": date_from},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert {x["id"] for x in response.json()["results"]} == ({old_session} if expect_found else set())
 
     def test_add_remove_static_playlist_items(self):
         playlist1 = SessionRecordingPlaylist.objects.create(

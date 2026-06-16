@@ -1,17 +1,28 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
+import {
+    IconArrowLeft,
+    IconCheck,
+    IconChevronRight,
+    IconClock,
+    IconCopy,
+    IconDownload,
+    IconEye,
+    IconFlask,
+} from '@posthog/icons'
+import { LemonButton, LemonModal, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import type { UserInterviewTopicApi } from './generated/api.schemas'
+import type { PreviewInviteResultApi, TestInterviewLinkApi, UserInterviewTopicApi } from './generated/api.schemas'
 import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
@@ -44,7 +55,14 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         respondedCount,
         totalTargeted,
         responseRate,
+        linksCsvExporting,
+        testLink,
+        testLinkLoading,
+        previewInviteIdentifier,
+        invitePreview,
+        invitePreviewLoading,
     } = useValues(userInterviewLogic)
+    const { exportLinksCsv, loadTestLink, openInvitePreview, closeInvitePreview } = useActions(userInterviewLogic)
 
     if (topicLoading && !topic) {
         return (
@@ -70,11 +88,15 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
     const pendingCount = totalTargeted - respondedCount
     const questionCount = topic.questions?.length || 0
     const allIdentifiers = [...(topic.interviewee_emails || []), ...(topic.interviewee_distinct_ids || [])]
+    // Responded interviewees first (grouped together), awaiting ones below — stable within each group.
+    const orderedIdentifiers = [...allIdentifiers].sort(
+        (a, b) => Number(respondedIdentifiers.has(b)) - Number(respondedIdentifiers.has(a))
+    )
 
     return (
         <SceneContent>
             {/* Header */}
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between mb-4 gap-4">
                 <div>
                     <LemonButton
                         type="tertiary"
@@ -87,6 +109,21 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     </LemonButton>
                     <h1 className="text-2xl font-bold mb-1">{topic.topic}</h1>
                     {topic.agent_context && <p className="text-muted mb-0 text-sm">{topic.agent_context}</p>}
+                </div>
+                <div className="shrink-0">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconDownload />}
+                        onClick={exportLinksCsv}
+                        loading={linksCsvExporting}
+                        disabledReason={
+                            totalTargeted === 0 ? 'Add interviewees to the topic before exporting links' : undefined
+                        }
+                        data-attr="export-interview-links-csv"
+                        tooltip="Download a CSV with each interviewee's personal interview link, for use in your own email tooling"
+                    >
+                        Export links (CSV)
+                    </LemonButton>
                 </div>
             </div>
 
@@ -113,6 +150,12 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                         <StatCard label="Questions" value={questionCount} color="muted" />
                     </div>
 
+                    <TestInterviewWidget
+                        testLink={testLink}
+                        testLinkLoading={testLinkLoading}
+                        onRefresh={loadTestLink}
+                    />
+
                     {/* Targeted people list */}
                     <LemonWidget title={`People (${allIdentifiers.length})`}>
                         <div className="divide-y">
@@ -128,12 +171,14 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                                     links.
                                 </div>
                             ) : (
-                                allIdentifiers.map((identifier) => (
+                                orderedIdentifiers.map((identifier) => (
                                     <PersonRow
                                         key={identifier}
                                         identifier={identifier}
                                         topicId={id}
                                         hasResponded={respondedIdentifiers.has(identifier)}
+                                        onPreview={() => openInvitePreview(identifier)}
+                                        previewLoading={previewInviteIdentifier === identifier && invitePreviewLoading}
                                     />
                                 ))
                             )}
@@ -173,7 +218,65 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     )}
                 </div>
             </div>
+
+            <InvitePreviewModal
+                isOpen={previewInviteIdentifier !== null}
+                onClose={closeInvitePreview}
+                preview={invitePreview}
+                loading={invitePreviewLoading}
+            />
         </SceneContent>
+    )
+}
+
+export function InvitePreviewModal({
+    isOpen,
+    onClose,
+    preview,
+    loading,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    preview: PreviewInviteResultApi | null
+    loading: boolean
+}): JSX.Element {
+    return (
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Invite email preview" width="90vw">
+            {/* Gate on `loading` alone (not `loading && !preview`): while a newly opened person's
+                preview loads, kea-loaders still holds the previous person's value, so keying off
+                `loading` shows the skeleton instead of the stale email. */}
+            {loading ? (
+                <div className="space-y-3 h-[70vh]">
+                    <LemonSkeleton.Text className="h-4 w-[50%]" />
+                    <LemonSkeleton className="h-[60vh]" />
+                </div>
+            ) : preview ? (
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                        <div className="text-xs font-semibold uppercase text-muted tracking-wide">Subject</div>
+                        <div className="text-sm font-medium">{preview.subject}</div>
+                        <div className="text-sm text-muted">
+                            To {preview.user_name}
+                            {preview.email ? ` <${preview.email}>` : ''}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {!preview.emailable && <LemonTag type="warning">No email address — can't be sent</LemonTag>}
+                            {preview.is_preview_link && (
+                                <LemonTag type="default">Link is a placeholder until invites are sent</LemonTag>
+                            )}
+                        </div>
+                    </div>
+                    <iframe
+                        srcDoc={preview.html}
+                        sandbox=""
+                        title="Invite email preview"
+                        className="w-full h-[70vh] border rounded"
+                    />
+                </div>
+            ) : (
+                <div className="text-muted h-[70vh]">Couldn't load the preview. Try again.</div>
+            )}
+        </LemonModal>
     )
 }
 
@@ -218,14 +321,118 @@ function DetailRow({ label, value }: { label: string; value: string }): JSX.Elem
     )
 }
 
+function TestInterviewWidget({
+    testLink,
+    testLinkLoading,
+    onRefresh,
+}: {
+    testLink: TestInterviewLinkApi | null
+    testLinkLoading: boolean
+    onRefresh: () => void
+}): JSX.Element {
+    const interviewUrl = testLink?.interview_url
+    const latest = testLink?.latest_test_interview ?? null
+
+    const handleCopy = (): void => {
+        if (interviewUrl) {
+            void copyToClipboard(interviewUrl, 'test interview link')
+        }
+    }
+
+    return (
+        <LemonWidget
+            title={
+                <span className="flex items-center gap-2">
+                    <IconFlask />
+                    <span>Test interview</span>
+                    <LemonTag type="warning">No real user needed</LemonTag>
+                </span>
+            }
+        >
+            <div className="p-3 space-y-3">
+                <p className="text-muted text-sm mb-0">
+                    Open this link to try the AI voice interview yourself — your test calls are kept separate from the
+                    targeted interviewees and the most recent one appears below.
+                </p>
+                {testLinkLoading && !testLink ? (
+                    <LemonSkeleton.Text className="h-4 w-[80%]" />
+                ) : interviewUrl ? (
+                    <div className="flex items-center gap-2">
+                        <Link to={interviewUrl} target="_blank" className="text-sm font-mono break-all">
+                            {interviewUrl}
+                        </Link>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={handleCopy}
+                            tooltip="Copy test interview link"
+                        />
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={onRefresh}
+                            loading={testLinkLoading}
+                            tooltip="Refresh test interview state"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <p className="text-danger text-sm mb-0">Couldn't load the test link. Try refreshing the page.</p>
+                )}
+                <div>
+                    <div className="text-xs font-semibold uppercase text-muted tracking-wide mb-1">
+                        Latest test transcript
+                    </div>
+                    {latest ? (
+                        <div className="text-sm space-y-2">
+                            <div className="text-muted">
+                                Recorded {dayjs(latest.completed_at).format('MMM D, YYYY [at] HH:mm')}
+                            </div>
+                            {latest.summary ? (
+                                <div>
+                                    <div className="text-xs font-semibold uppercase text-muted tracking-wide mb-1">
+                                        Summary
+                                    </div>
+                                    <LemonMarkdown>{latest.summary}</LemonMarkdown>
+                                </div>
+                            ) : null}
+                            {latest.transcript ? (
+                                <details>
+                                    <summary className="cursor-pointer text-xs uppercase text-muted tracking-wide">
+                                        Full transcript
+                                    </summary>
+                                    <pre className="text-xs whitespace-pre-wrap mt-2">{latest.transcript}</pre>
+                                </details>
+                            ) : null}
+                            {!latest.summary && !latest.transcript ? (
+                                <div className="text-muted">
+                                    The most recent test call completed but no transcript or summary was delivered.
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        <div className="text-sm text-muted">No test call has completed yet for this topic.</div>
+                    )}
+                </div>
+            </div>
+        </LemonWidget>
+    )
+}
+
 function PersonRow({
     identifier,
     topicId,
     hasResponded,
+    onPreview,
+    previewLoading,
 }: {
     identifier: string
     topicId: string
     hasResponded: boolean
+    onPreview: () => void
+    previewLoading: boolean
 }): JSX.Element {
     return (
         <Link
@@ -238,6 +445,19 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconEye />}
+                            loading={previewLoading}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                onPreview()
+                            }}
+                            data-attr="user-interview-preview-invite"
+                            tooltip="Preview the invite email this person would receive"
+                        />
                         <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>

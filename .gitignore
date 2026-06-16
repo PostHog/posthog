@@ -129,6 +129,8 @@ playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
+frontend/dist-report/
+frontend/eager-graph-report*.json
 frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp

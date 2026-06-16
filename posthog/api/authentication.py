@@ -12,13 +12,11 @@ from django.contrib.auth import (
     logout as auth_logout,
 )
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.signals import user_logged_in
 from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
-from django.dispatch import receiver
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -31,7 +29,6 @@ from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
-from prometheus_client import Counter
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
@@ -78,41 +75,11 @@ from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_att
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
 
-USER_AUTH_METHOD_MISMATCH = Counter(
-    "user_auth_method_mismatches_sso_enforcement",
-    "A user successfully authenticated with a different method than the one they're required to use",
-    labelnames=["login_method", "sso_enforced_method", "user_uuid"],
-)
-
 
 class WebauthnCredentialPrecheck(TypedDict):
     id: str
     type: str
     transports: list[str]
-
-
-@receiver(user_logged_in)
-def post_login(sender, user, request: HttpRequest, **kwargs):
-    """
-    Runs after every user login (including tests)
-    Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
-    """
-
-    if hasattr(request, "backend"):
-        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
-        if sso_enforcement is not None and sso_enforcement != request.backend.name:
-            USER_AUTH_METHOD_MISMATCH.labels(
-                login_method=request.backend.name, sso_enforced_method=sso_enforcement, user_uuid=user.uuid
-            ).inc()
-
-    request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
-
-    # Cache device info on signup to skip login notification for this device
-    if user.last_login is None:
-        short_user_agent = get_short_user_agent(request)
-        ip_address = get_ip_address(request)
-        country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
-        check_and_cache_login_device(user.id, country, short_user_agent)
 
 
 @require_http_methods(["POST"])
@@ -985,6 +952,11 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
 
         user.set_password(password)
         user.requested_password_reset_at = None
+        # Possessing the unique reset token (only ever delivered by email via
+        # send_password_reset) proves the user owns this address, regardless of
+        # whether they came in as None (legacy / agentic-provisioned), False
+        # (invite-accept, Vercel-provisioned), or True.
+        user.is_email_verified = True
         user.save()
 
         report_user_password_reset(user)

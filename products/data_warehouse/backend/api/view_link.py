@@ -6,8 +6,10 @@ from rest_framework import filters, response, serializers, status, viewsets
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.utils import get_join_field_chain
+from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -21,7 +23,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_tools.backend.models.join import DataWarehouseJoin
 
 
 class ViewLinkValidationMixin:
@@ -221,7 +223,14 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             from_field=from_field,
             to_field=to_field,
             join_table=joining_table,
-            join_function=join.join_function(override_join_type="INNER JOIN"),
+            resolver=DATA_WAREHOUSE,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key=join.source_table_key,
+                joining_table_key=join.joining_table_key,
+                joining_table_name=join.joining_table_name,
+                configuration=join.configuration,
+                override_join_type="INNER JOIN",
+            ),
         )
         validation_query = parse_select(
             "SELECT {to_field} FROM {source_table_name} LIMIT 10",

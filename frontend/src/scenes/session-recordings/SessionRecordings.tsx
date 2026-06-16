@@ -188,16 +188,26 @@ function Warnings(): JSX.Element {
     )
 }
 
-function MainPanel({ tabId }: { tabId: string }): JSX.Element {
+// Keeps the recordings logic mounted for the scene's lifetime so its state survives tab
+// switches. Rendered only on the Home tab so landing on Collections/Templates does not mount
+// it — which would otherwise fire a wasted loadSessionRecordings ClickHouse query on load.
+function AttachScenePlaylistLogic({
+    playlistLogicProps,
+}: {
+    playlistLogicProps: SessionRecordingPlaylistLogicProps
+}): null {
+    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic())
+    return null
+}
+
+function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const isRedesignEnabled = useFeatureFlag('REPLAY_UI_REDESIGN_2026', 'test')
 
     const playlistLogicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: `scene-${tabId}`,
+        logicKey: 'scene',
         updateSearchParams: true,
     }
-
-    useAttachedLogic(sessionRecordingsPlaylistLogic(playlistLogicProps), sessionReplaySceneLogic({ tabId }))
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
@@ -207,6 +217,7 @@ function MainPanel({ tabId }: { tabId: string }): JSX.Element {
                 <Spinner />
             ) : tab === ReplayTabs.Home ? (
                 <div className="SessionRecordingPlaylistHeightWrapper grow">
+                    <AttachScenePlaylistLogic playlistLogicProps={playlistLogicProps} />
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...playlistLogicProps} />
                     ) : (
@@ -237,7 +248,7 @@ const ReplayPageTabs: ReplayTab[] = [
         'data-attr': 'session-recordings-collections-tab',
     },
     {
-        label: 'What to watch',
+        label: 'Filter templates',
         key: ReplayTabs.Templates,
         'data-attr': 'session-recordings-templates-tab',
     },
@@ -272,16 +283,9 @@ export function SessionRecordingsPageTabs(): JSX.Element {
     )
 }
 
-export interface SessionsRecordingsProps {
-    tabId?: string
-}
-
-export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('<SessionsRecordings /> must receive a tabId prop')
-    }
+export function SessionsRecordings(): JSX.Element {
     return (
-        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
+        <BindLogic logic={sessionReplaySceneLogic} props={{}}>
             <SceneContent className="h-full">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}
@@ -291,7 +295,7 @@ export function SessionsRecordings({ tabId }: SessionsRecordingsProps = {}): JSX
                     actions={<Header />}
                 />
                 <SessionRecordingsPageTabs />
-                <MainPanel tabId={tabId} />
+                <MainPanel />
             </SceneContent>
         </BindLogic>
     )

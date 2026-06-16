@@ -1,3 +1,4 @@
+import re
 import asyncio
 from collections.abc import Sequence
 from functools import cached_property
@@ -16,6 +17,7 @@ from posthog.schema import (
     HumanMessage,
     MaxBillingContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
     ModeContext,
 )
@@ -49,6 +51,21 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
 )
+
+# Client-supplied notebook markdown is embedded verbatim in the prompt; cap it so a
+# malicious or buggy client can't blow up the context window.
+NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
+
+
+def _sanitize_inline_prompt_value(value: str) -> str:
+    """Make a client-supplied string safe to interpolate into a single prompt line."""
+    return re.sub(r"\s+", " ", value.replace("`", "")).strip()
+
+
+def _markdown_fence_for(content: str) -> str:
+    """Return a backtick fence longer than any backtick run in the content, so the content can't close it."""
+    longest_run = max((len(match) for match in re.findall(r"`+", content)), default=0)
+    return "`" * max(3, longest_run + 1)
 
 
 class AssistantContextManager(AssistantContextMixin):
@@ -279,6 +296,10 @@ class AssistantContextManager(AssistantContextMixin):
 
             notebook_texts = []
             for nb in ui_context.notebooks:
+                if nb.markdown_with_insertion_placeholder:
+                    notebook_texts.append(self._format_markdown_notebook_context(nb))
+                    continue
+
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
                 if ctx:
                     notebook_texts.append(ctx.format())
@@ -333,6 +354,42 @@ class AssistantContextManager(AssistantContextMixin):
                 evaluations_context,
             )
         return None
+
+    def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:
+        title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
+        chat_id = _sanitize_inline_prompt_value(notebook.insertion_placeholder_block_id or "unknown")
+        chat_marker = _sanitize_inline_prompt_value(notebook.insertion_placeholder_marker or f'<Chat id="{chat_id}" />')
+        markdown = (notebook.markdown_with_insertion_placeholder or "")[:NOTEBOOK_MARKDOWN_MAX_LENGTH]
+        fence = _markdown_fence_for(markdown)
+
+        return "\n".join(
+            [
+                f"Notebook: {title}",
+                f"short_id: {notebook.id}",
+                "",
+                "The user is asking from a Markdown notebook v2 editor.",
+                f"Inline AI chat id: {chat_id}",
+                f"The chat is anchored in the markdown below at the marker `{chat_marker}`.",
+                "Placement rules when changing notebook content:",
+                (
+                    f"- Insert new or generated content immediately after `{chat_marker}`, unless the user "
+                    'explicitly names a different location. Phrases like "here", "this spot", "below", or '
+                    '"above" also refer to this anchor.'
+                ),
+                f"- Keep `{chat_marker}` in the markdown exactly once — never remove, move, or duplicate it.",
+                "- Leave the rest of the notebook unchanged unless the user asks you to change it.",
+                (
+                    "Use notebook tools against the current notebook when changing notebook content. "
+                    "For Markdown notebook v2, preserve the single ph-markdown-notebook node and update "
+                    "its attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks."
+                ),
+                "",
+                "Current notebook markdown with inline AI chat:",
+                f"{fence}markdown",
+                markdown,
+                fence,
+            ]
+        )
 
     def _build_insight_context(
         self,
@@ -447,13 +504,50 @@ class AssistantContextManager(AssistantContextMixin):
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
         prompts: list[ContextMessage] = []
+        ui_context = self.get_ui_context(state)
         if mode_prompt := self._get_mode_context_messages(state):
             prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
-        if ui_context := await self._format_ui_context(self.get_ui_context(state)):
-            prompts.append(ContextMessage(content=ui_context, id=str(uuid4())))
+        if voice_prompt := self._get_voice_mode_prompt(ui_context):
+            prompts.append(ContextMessage(content=voice_prompt, id=str(uuid4())))
+        if formatted_ui_context := await self._format_ui_context(ui_context):
+            prompts.append(ContextMessage(content=formatted_ui_context, id=str(uuid4())))
         return self._deduplicate_context_messages(state, prompts)
+
+    def _get_voice_mode_prompt(self, ui_context: MaxUIContext | None) -> str | None:
+        """Return a voice-mode instruction reflecting the current turn's modality.
+
+        Emits a tag whenever the frontend tells us explicitly whether voice mode is on
+        or off — both states need to survive in conversation history so a typed turn
+        that follows a spoken one cleanly overrides the earlier voice formatting rules
+        (otherwise the prior <voice_mode> instruction keeps steering the model toward
+        spelled-out numbers and no markdown).
+        """
+        if ui_context is None or ui_context.voice_mode is None:
+            return None
+        if ui_context.voice_mode:
+            return (
+                "<voice_mode>\n"
+                "The user is asking via hands-free voice mode. Your response will be read "
+                "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
+                "- Spell out all numbers and currencies in words "
+                '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
+                'not "$100 from 5,238 users").\n'
+                "- Spell out percentages as words "
+                '(e.g. "twelve point five percent", not "12.5%").\n'
+                "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
+                "- No emoji.\n"
+                "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
+                "</voice_mode>"
+            )
+        return (
+            "<voice_mode>\n"
+            "The user is no longer in hands-free voice mode for this turn. Ignore any "
+            "earlier voice-mode formatting instructions in this conversation: you may use "
+            "markdown, numerals, currency symbols, code blocks, and emoji as normal.\n"
+            "</voice_mode>"
+        )
 
     async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class

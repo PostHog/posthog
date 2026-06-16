@@ -32,7 +32,6 @@ const PREFLIGHT_WITH_OBJECT_STORAGE = {
     available_social_auth_providers: {},
     email_service_available: false,
     slack_service: { available: false },
-    posthog_code_slack_service: { available: false },
     data_warehouse_integrations: { hubspot: {}, salesforce: {} },
     object_storage: true,
 } satisfies PreflightStatus

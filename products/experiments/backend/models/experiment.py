@@ -5,8 +5,10 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamMixin, UUIDModel
 
 if TYPE_CHECKING:
@@ -30,22 +32,20 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
     # Filters define the target metric of an Experiment
     filters = models.JSONField(default=dict, blank=True)
 
-    # Parameters include configuration fields for the experiment: What the control & test variant are called,
-    # and any test significance calculation parameters
-    # We have 4 parameters today:
-    #   minimum_detectable_effect: number
-    #   recommended_running_time: number
-    #   recommended_sample_size: number
-    #   feature_flag_variants: { key: string, name: string, rollout_percentage: number }[]
-    #   custom_exposure_filter: Filter json
+    # DEPRECATED: catch-all config blob being split into dedicated homes.
+    # Feature flag config (feature_flag_variants, rollout_percentage, aggregation_group_type_index,
+    # feature_flag_payloads, ensure_experience_continuity) belongs on the linked FeatureFlag.
+    # Running-time calculator state (minimum_detectable_effect, recommended_running_time,
+    # recommended_sample_size, exposure_estimate_config) belongs in `running_time_calculation`.
+    # Do not add new keys here.
     parameters = models.JSONField(default=dict, null=True)
 
     # A list of filters for secondary metrics
     secondary_metrics = models.JSONField(default=list, null=True, blank=True)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True)
-    feature_flag = models.ForeignKey("posthog.FeatureFlag", blank=False, on_delete=models.RESTRICT)
-    exposure_cohort = models.ForeignKey("posthog.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
+    feature_flag = models.ForeignKey("feature_flags.FeatureFlag", blank=False, on_delete=models.RESTRICT)
+    exposure_cohort = models.ForeignKey("cohorts.Cohort", on_delete=models.SET_NULL, null=True, blank=True)
     holdout = models.ForeignKey("ExperimentHoldout", on_delete=models.SET_NULL, null=True, blank=True)
 
     start_date = models.DateTimeField(null=True, blank=True)
@@ -69,6 +69,11 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     stats_config = models.JSONField(default=dict, null=True, blank=True)
     scheduling_config = models.JSONField(default=dict, null=True, blank=True)
+
+    # Running-time calculator state: minimum_detectable_effect, recommended_running_time,
+    # recommended_sample_size, exposure_estimate_config. Canonical home for these keys,
+    # which historically lived in `parameters`.
+    running_time_calculation = models.JSONField(default=dict, null=True, blank=True)
 
     only_count_matured_users = models.BooleanField(default=False)
 
@@ -139,12 +144,12 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return Experiment.Status.DRAFT
 
     def get_feature_flag_key(self):
-        return self.feature_flag.key
+        # Strip the soft-delete tombstone so the API and analytics surface the original
+        # key, matching what the query runners resolve against historical events.
+        return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
-        variants = (self.parameters or {}).get("feature_flag_variants")
-        if not variants:
-            variants = self.feature_flag.filters.get("multivariate", {}).get("variants", [])
+        variants = self.feature_flag.variants
 
         return {
             "experiment_id": self.id,
@@ -155,6 +160,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
             "has_description": bool(self.description),
+            "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),
             "created_at": self.created_at,
         }
@@ -163,9 +169,9 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.stats_config.get(key) if self.stats_config else None
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Experiment"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
         base_qs = cls.objects.filter(team=team).exclude(deleted=True)
-        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
@@ -256,7 +262,9 @@ class ExperimentSavedMetric(ModelActivityMixin, RootTeamMixin, models.Model):
         db_table = "posthog_experimentsavedmetric"
 
 
-class ExperimentToSavedMetric(models.Model):
+class ExperimentToSavedMetric(ModelActivityMixin, models.Model):
+    activity_logging_on_delete = True
+
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     saved_metric = models.ForeignKey("ExperimentSavedMetric", on_delete=models.CASCADE)
 
@@ -337,3 +345,64 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
     def __str__(self):
         metric_uuid = self.metric.get("uuid", "unknown")
         return f"ExperimentTimeseriesRecalculation(exp={self.experiment_id}, metric={metric_uuid}, fingerprint={self.fingerprint}, status={self.status})"
+
+
+class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
+    """Tracks batch recalculation of all metrics for an experiment.
+
+    The primary key (`id`, a uuid7 from UUIDModel) is the recalculation_id passed to the recalculation workflow.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
+        EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
+        EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+
+    status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
+    total_metrics = models.PositiveIntegerField(default=0)
+    metric_errors = models.JSONField(default=dict)
+    # Internal: written by the discovery activity, used by the service to recompute recalc fingerprints. Not exposed by the API serializer.
+    metric_uuids = models.JSONField(default=list)
+
+    # Internal: single data-window end shared by all metrics in the run. Set once when the run starts; every metric
+    # (including retries) uses this value so all metrics cover the same window and retries overwrite rather than
+    # orphan rows. Not exposed by the API serializer.
+    query_to = models.DateTimeField(null=True, blank=True)
+
+    trigger = models.CharField(max_length=30, choices=Trigger, default=Trigger.MANUAL)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["experiment", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["experiment"],
+                condition=models.Q(status__in=["pending", "in_progress"]),
+                name="unique_active_metrics_recalculation_per_experiment",
+            ),
+        ]
+        db_table = "posthog_experimentmetricsrecalculation"
+
+    def __str__(self):
+        return f"ExperimentMetricsRecalculation(exp={self.experiment_id}, status={self.status}, total={self.total_metrics})"

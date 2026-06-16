@@ -13,16 +13,15 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { MaterializationStatusModal } from 'scenes/data-warehouse/saved_queries/MaterializationStatusModal'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
-
-interface EndpointConfigurationProps {
-    tabId: string
-}
 
 const DATA_FRESHNESS_OPTIONS: { value: number; label: string }[] = [
     { value: 900, label: '15 minutes' },
@@ -64,17 +63,17 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
     }
 }
 
-export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { setDataFreshness } = useActions(endpointSceneLogic({ tabId }))
+export function EndpointConfiguration(): JSX.Element {
+    const { endpoint } = useValues(endpointLogic)
+    const { setDataFreshness } = useActions(endpointSceneLogic)
     const {
         dataFreshness,
         viewingVersion,
         materializationPreview,
         materializationPreviewLoading,
         isMaterialized: localIsMaterialized,
-    } = useValues(endpointSceneLogic({ tabId }))
-    const { loadMaterializationPreview } = useActions(endpointSceneLogic({ tabId }))
+    } = useValues(endpointSceneLogic)
+    const { loadMaterializationPreview } = useActions(endpointSceneLogic)
     const [leftActiveKeys, setLeftActiveKeys] = useState<string[]>(['materialization'])
 
     if (!endpoint) {
@@ -107,7 +106,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                     </Tooltip>
                                 </div>
                             ),
-                            content: <MaterializationContent tabId={tabId} />,
+                            content: <MaterializationContent />,
                         },
                         {
                             key: 'data-freshness',
@@ -126,11 +125,16 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                         Choose how fresh the returned data should be. Shorter periods serve fresher
                                         data, but consume more compute.
                                     </p>
-                                    <LemonSelect
-                                        value={effectiveDataFreshness}
-                                        onChange={setDataFreshness}
-                                        options={DATA_FRESHNESS_OPTIONS}
-                                    />
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Endpoint}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonSelect
+                                            value={effectiveDataFreshness}
+                                            onChange={setDataFreshness}
+                                            options={DATA_FRESHNESS_OPTIONS}
+                                        />
+                                    </AccessControlAction>
                                 </div>
                             ),
                         },
@@ -221,20 +225,20 @@ function ExecutionQueryPanel({
     )
 }
 
-function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
-    const { loadMaterializationStatus } = useActions(endpointLogic({ tabId }))
+function MaterializationContent(): JSX.Element {
+    const { loadMaterializationStatus } = useActions(endpointLogic)
     const {
         endpoint,
         materializationStatus: loadedMaterializationStatus,
         materializationStatusLoading,
-    } = useValues(endpointLogic({ tabId }))
-    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic({ tabId }))
+    } = useValues(endpointLogic)
+    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic)
     const {
         isMaterialized: localIsMaterialized,
         viewingVersion,
         materializationPreview,
         bucketOverrides,
-    } = useValues(endpointSceneLogic({ tabId }))
+    } = useValues(endpointSceneLogic)
     const [runsModalOpen, setRunsModalOpen] = useState(false)
 
     if (!endpoint) {
@@ -285,12 +289,17 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
 
             {canMaterialize && (
                 <div className="flex flex-col gap-4">
-                    <LemonSwitch
-                        label={isMaterialized ? 'Materialization enabled' : 'Enable materialization'}
-                        checked={isMaterialized}
-                        onChange={handleToggleMaterialization}
-                        bordered
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.Endpoint}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonSwitch
+                            label={isMaterialized ? 'Materialization enabled' : 'Enable materialization'}
+                            checked={isMaterialized}
+                            onChange={handleToggleMaterialization}
+                            bordered
+                        />
+                    </AccessControlAction>
 
                     {hasUnsavedMaterializationChange && (
                         <LemonBanner type="info">
@@ -367,13 +376,20 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
                                     }
                                     info="Your date range variables are bucketed into this interval in the stored materialized table. Smaller bucket - more precise results. Larger bucket - less granular results."
                                 >
-                                    <LemonSelect
-                                        value={
-                                            bucketOverrides[pair.column] || BUCKET_FN_TO_KEY[pair.bucket_fn] || 'day'
-                                        }
-                                        onChange={(value) => setBucketOverride(pair.column, value)}
-                                        options={BUCKET_OPTIONS}
-                                    />
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Endpoint}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                    >
+                                        <LemonSelect
+                                            value={
+                                                bucketOverrides[pair.column] ||
+                                                BUCKET_FN_TO_KEY[pair.bucket_fn] ||
+                                                'day'
+                                            }
+                                            onChange={(value) => setBucketOverride(pair.column, value)}
+                                            options={BUCKET_OPTIONS}
+                                        />
+                                    </AccessControlAction>
                                 </LemonField.Pure>
                             ))}
                         </div>

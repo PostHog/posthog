@@ -1990,7 +1990,7 @@
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL."
+                "Fetch the trace referenced by an AI observability URL."
             ],
             "label": "MCP tool description"
         },
@@ -3380,6 +3380,42 @@
             "description": "A user has been identified with properties.",
             "description_llm": "Identifies an anonymous user. The event shows how many users used an account, so do not use it for active users metrics because a user may skip identification.",
             "label": "Identify"
+        },
+        "$mcp_custom": {
+            "description": "A custom MCP analytics event emitted by a server through the SDK's custom-event API. Properties depend on what the caller passed.",
+            "label": "MCP custom event"
+        },
+        "$mcp_initialize": {
+            "description": "Fires when an MCP client completes the handshake with the server. Carries the client and server name/version so you can break down usage by client. Canonical replacement for the legacy `mcp_initialize`.",
+            "label": "MCP initialize"
+        },
+        "$mcp_missing_capability": {
+            "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` \u2014 a capability gap, not a tool invocation.",
+            "label": "MCP missing capability"
+        },
+        "$mcp_prompt_get": {
+            "description": "Fires when an MCP prompt is fetched by a client. Includes the prompt name.",
+            "label": "MCP prompt fetched"
+        },
+        "$mcp_prompts_list": {
+            "description": "Fires when an MCP client requests the list of available prompts.",
+            "label": "MCP prompts listed"
+        },
+        "$mcp_resource_read": {
+            "description": "Fires when an MCP resource is fetched by a client. Includes the resource name.",
+            "label": "MCP resource read"
+        },
+        "$mcp_resources_list": {
+            "description": "Fires when an MCP client requests the list of available resources.",
+            "label": "MCP resources listed"
+        },
+        "$mcp_tool_call": {
+            "description": "Fires every time an MCP server tool is invoked via @posthog/mcp. Includes the tool name, wall-clock duration, error state, and (when the client supplied a context argument) the agent's stated intent. Canonical replacement for the legacy `mcp_tool_call`.",
+            "label": "MCP tool call"
+        },
+        "$mcp_tools_list": {
+            "description": "Fires when an MCP client requests the list of available tools. Useful for measuring discovery \u2014 whether new clients are finding the server. Canonical replacement for the legacy `mcp_tools_list`.",
+            "label": "MCP tools listed"
         },
         "$merge_dangerously": {
             "description": "An alias ID has been added to a user.",
@@ -5899,7 +5935,7 @@
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do \u2014 descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL."
+                "Fetch the trace referenced by an AI observability URL."
             ],
             "label": "MCP tool description"
         },

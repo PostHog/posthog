@@ -1,17 +1,22 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
+import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
+import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
+
 import { InsightCard } from 'lib/components/Cards/InsightCard'
+import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
+import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -36,6 +41,7 @@ export function DashboardItems(): JSX.Element {
         tiles,
         layouts,
         dashboardMode,
+        layoutEditMode,
         placement,
         isRefreshingQueued,
         isRefreshing,
@@ -48,6 +54,10 @@ export function DashboardItems(): JSX.Element {
         temporaryBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
+        dashboardWidgetsEnabled,
+        widgetResultsByTileId,
+        widgetRefreshStatus,
+        scrollToBottomSignal,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -58,11 +68,15 @@ export function DashboardItems(): JSX.Element {
         removeTile,
         duplicateTile,
         refreshDashboardItem,
+        refreshDashboardWidgets,
+        scheduleRefreshDashboardWidgets,
+        applyWidgetIssueMetadataChange,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
+    const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
@@ -81,6 +95,7 @@ export function DashboardItems(): JSX.Element {
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
+    const lastScrollSignalRef = useRef(scrollToBottomSignal)
 
     useEffect(() => {
         return () => {
@@ -94,9 +109,30 @@ export function DashboardItems(): JSX.Element {
             scrollContainerRectRef.current = null
         }
     }, [])
+
+    // Scroll the dashboard to the bottom when the logic requests it (e.g. after adding tiles).
+    // Two animation frames let React commit and react-grid-layout grow the container before we measure.
+    useEffect(() => {
+        if (scrollToBottomSignal === lastScrollSignalRef.current) {
+            return
+        }
+        lastScrollSignalRef.current = scrollToBottomSignal
+
+        let secondFrame = 0
+        const firstFrame = requestAnimationFrame(() => {
+            secondFrame = requestAnimationFrame(() => {
+                const scrollContainer = document.getElementById('main-content')
+                scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' })
+            })
+        })
+        return () => {
+            cancelAnimationFrame(firstFrame)
+            cancelAnimationFrame(secondFrame)
+        }
+    }, [scrollToBottomSignal])
     const className = clsx({
-        'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
-        'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
+        'dashboard-view-mode': !layoutEditMode,
+        'dashboard-edit-mode': layoutEditMode,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -139,18 +175,17 @@ export function DashboardItems(): JSX.Element {
     ].includes(placement)
 
     const canEnterEditModeFromEdge =
-        !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
+        !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
 
-    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && layoutZoom !== 1
+    const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
-    const effectiveZoom = dashboardMode === DashboardMode.Edit ? layoutZoom : 1
+    const effectiveZoom = layoutEditMode ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
 
-    const showResizeHandles =
-        dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
-    const showEditingControls = isEditablePlacement || dashboardMode === DashboardMode.Edit
+    const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
+    const showEditingControls = isEditablePlacement || layoutEditMode
     const showDetailsControls =
         placement !== DashboardPlacement.Export &&
         placement !== DashboardPlacement.Public &&
@@ -158,26 +193,30 @@ export function DashboardItems(): JSX.Element {
 
     const dragConfig = useMemo(
         () => ({
-            enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
-            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body',
+            enabled: layoutEditMode && !isMobileView,
+            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body,.WidgetCard__header,.drag-handle',
             cancel: 'a,table,button,input,.Popover',
             bounded: true,
         }),
-        [dashboardMode, isMobileView]
+        [layoutEditMode, isMobileView]
     )
 
     const resizeConfig = useMemo(
         () => ({
-            enabled: dashboardMode === DashboardMode.Edit && !isMobileView && !isLayoutZoomToggled,
+            enabled: layoutEditMode && !isMobileView && !isLayoutZoomToggled,
             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'] as const,
         }),
-        [dashboardMode, isMobileView, isLayoutZoomToggled]
+        [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
             canEnterEditModeFromEdge
-                ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                ? (e: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => {
+                      setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
+                      // continue the press into a live resize so the user doesn't have to release and grab again
+                      continueResizeGestureInEditMode(e, edge)
+                  }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardMode]
     )
@@ -207,6 +246,8 @@ export function DashboardItems(): JSX.Element {
                       e.preventDefault()
                       e.stopPropagation()
                       setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
+                      // continue the press into a live drag so the user doesn't have to release and grab again
+                      continueDragGestureInEditMode(e)
                   }
                 : undefined,
         [canEnterEditModeFromEdge, setDashboardMode]
@@ -224,11 +265,11 @@ export function DashboardItems(): JSX.Element {
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (dashboardMode === DashboardMode.Edit) {
+            if (layoutEditMode) {
                 updateLayouts(newLayouts)
             }
         },
-        [dashboardMode, updateLayouts]
+        [layoutEditMode, updateLayouts]
     )
 
     const handleWidthChange = useCallback(
@@ -318,7 +359,7 @@ export function DashboardItems(): JSX.Element {
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
-            {dashboardMode === DashboardMode.Edit && isMobileView && (
+            {layoutEditMode && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
                     resize tiles.
@@ -326,7 +367,7 @@ export function DashboardItems(): JSX.Element {
             )}
             {mounted && (
                 <div className="relative">
-                    {dashboardMode === DashboardMode.Edit && !isMobileView && (
+                    {layoutEditMode && !isMobileView && (
                         <GridBackground
                             width={gridWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
@@ -359,7 +400,7 @@ export function DashboardItems(): JSX.Element {
                         onDragStop={handleDragStop}
                     >
                         {tiles?.map((tile) => {
-                            const { insight, text, button_tile } = tile
+                            const { insight, text, button_tile, widget } = tile
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -463,6 +504,53 @@ export function DashboardItems(): JSX.Element {
                                         onMoveToDashboard={commonTileProps.moveToDashboard}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        showEditingControls={commonTileProps.showEditingControls}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+
+                            if (widget && dashboardWidgetsEnabled && isWidgetTileVisibleOnPlacement(placement)) {
+                                const runResult = widgetResultsByTileId[tile.id]
+                                const refreshState = widgetRefreshStatus[tile.id]
+
+                                return (
+                                    <DashboardWidgetItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        placement={placement}
+                                        dashboardId={dashboard?.id}
+                                        canEditDashboard={canEditDashboard}
+                                        isDashboardEditMode={dashboardMode === DashboardMode.Edit}
+                                        result={runResult?.result}
+                                        error={getDashboardWidgetFetchDisplayError(
+                                            runResult?.error ?? refreshState?.error
+                                        )}
+                                        loading={!!refreshState?.loading}
+                                        lastFetchedAt={refreshState?.fetchedAt}
+                                        onRefresh={() =>
+                                            refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                                        }
+                                        onRefreshWidgetData={scheduleRefreshDashboardWidgets}
+                                        onApplyWidgetIssueMetadataChange={(tileId, issueId, delta, context) => {
+                                            applyWidgetIssueMetadataChange({
+                                                tileId,
+                                                issueId,
+                                                delta,
+                                                context,
+                                            })
+                                        }}
+                                        onUpdateWidgetTile={async (patch) => {
+                                            await updateWidgetTile({ tile, ...patch })
+                                        }}
+                                        toggleShowDescription={() => toggleTileDescription(tile.id)}
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onCopyToDashboard={commonTileProps.copyToDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
                                         showEditingControls={commonTileProps.showEditingControls}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}

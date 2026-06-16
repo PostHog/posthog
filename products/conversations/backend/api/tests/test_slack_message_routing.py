@@ -1,9 +1,21 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
+from parameterized import parameterized
+
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
-from products.conversations.backend.slack import handle_support_mention, handle_support_message, handle_support_reaction
+from products.conversations.backend.slack import (
+    handle_member_joined_channel,
+    handle_member_left_channel,
+    handle_support_mention,
+    handle_support_message,
+    handle_support_reaction,
+)
+
+MODULE = "products.conversations.backend.slack"
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -94,6 +106,96 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
 
+    @parameterized.expand(
+        [
+            # No ticket yet: seed from the thread's parent message and backfill replies.
+            (
+                "seeds_from_parent",
+                False,
+                [{"user": "U_OP", "text": "Initial message that started the thread"}],
+                True,
+                "U_OP",
+                "Initial message that started the thread",
+                False,
+            ),
+            # Ticket already tracked: just append the mention as a reply, no parent fetch.
+            (
+                "existing_ticket_adds_reply",
+                True,
+                None,
+                False,
+                "U_MENTIONER",
+                "<@U_BOT> please help here",
+                True,
+            ),
+            # Parent unavailable (deleted / API hiccup): fall back to the mention itself.
+            (
+                "parent_unavailable_falls_back",
+                False,
+                [],
+                False,
+                "U_MENTIONER",
+                "<@U_BOT> please help here",
+                False,
+            ),
+        ]
+    )
+    @patch(f"{MODULE}._backfill_thread_replies")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_thread_reply_mention(
+        self,
+        _name,
+        ticket_exists,
+        history_messages,
+        expect_backfill,
+        expected_user,
+        expected_text,
+        expected_is_thread_reply,
+        mock_create_or_update,
+        mock_get_client,
+        mock_backfill,
+    ):
+        if ticket_exists:
+            Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.SLACK,
+                widget_session_id="",
+                distinct_id="",
+                slack_channel_id="C_ANY",
+                slack_thread_ts="1700000000.000100",
+            )
+        else:
+            mock_get_client.return_value.conversations_history.return_value = {"messages": history_messages}
+            mock_create_or_update.return_value = object()
+
+        handle_support_mention(
+            {
+                "type": "app_mention",
+                "channel": "C_ANY",
+                "thread_ts": "1700000000.000100",
+                "ts": "1700000000.000200",
+                "user": "U_MENTIONER",
+                "text": "<@U_BOT> please help here",
+            },
+            self.team,
+            "T123",
+        )
+
+        if ticket_exists:
+            mock_get_client.return_value.conversations_history.assert_not_called()
+        else:
+            mock_get_client.return_value.conversations_history.assert_called_once()
+
+        assert mock_backfill.call_count == (1 if expect_backfill else 0)
+        mock_create_or_update.assert_called_once()
+        kwargs = mock_create_or_update.call_args.kwargs
+        assert kwargs["slack_user_id"] == expected_user
+        assert kwargs["text"] == expected_text
+        assert kwargs["thread_ts"] == "1700000000.000100"
+        assert kwargs["is_thread_reply"] is expected_is_thread_reply
+        assert kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
+
     @patch("products.conversations.backend.slack.get_slack_client")
     @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
     def test_emoji_reaction_passes_channel_detail(self, mock_create_or_update, mock_get_client):
@@ -113,3 +215,175 @@ class TestSlackMessageRouting(BaseTest):
 
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_EMOJI_REACTION
+
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_top_level_bot_message_does_not_create_ticket(self, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U_BOT",
+                "text": "Automated alert",
+                "bot_id": "B123",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_top_level_bot_message_subtype_does_not_create_ticket(self, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "subtype": "bot_message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U_BOT",
+                "text": "Webhook post",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_other_bot_thread_reply_creates_comment(self, mock_create_or_update, _mock_client, _mock_bot_id):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "thread_ts": "1700000000.000100",
+                "ts": "1700000000.000200",
+                "user": "U_OTHER_BOT",
+                "text": "Bot summary",
+                "bot_id": "B_OTHER",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_called_once()
+        assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is True
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_own_bot_thread_reply_is_skipped(self, mock_create_or_update, _mock_client, _mock_bot_id):
+        Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="",
+            distinct_id="",
+            slack_channel_id="C_CONFIG",
+            slack_thread_ts="1700000000.000100",
+        )
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "thread_ts": "1700000000.000100",
+                "ts": "1700000000.000200",
+                "user": "U_OWN_BOT",
+                "text": "Ticket #1 created",
+                "bot_id": "B_OWN",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+
+
+class TestSlackMemberAlerts(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()  # bot user id is cached per team — keep tests isolated
+        self.team.conversations_settings = {
+            "slack_enabled": True,
+            "slack_notify_on_join": True,
+            "slack_notify_on_leave": True,
+            "slack_alert_channel_id": "C_ALERTS",
+        }
+        self.team.save()
+
+    @parameterized.expand(
+        [
+            ("join", handle_member_joined_channel, "joined"),
+            ("leave", handle_member_left_channel, "left"),
+        ]
+    )
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_posts_alert(self, _name, handler, verb, mock_get_client, _mock_bot_id):
+        handler(
+            {"user": "U123", "channel": "C_SUPPORT"},
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
+        kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
+        assert kwargs["channel"] == "C_ALERTS"
+        assert kwargs["text"] == f"<@U123> {verb} <#C_SUPPORT>"
+
+    @parameterized.expand(
+        [
+            ("join", handle_member_joined_channel, "slack_notify_on_join"),
+            ("leave", handle_member_left_channel, "slack_notify_on_leave"),
+        ]
+    )
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_no_op_when_toggle_off(self, _name, handler, toggle_key, mock_get_client, _mock_bot_id):
+        self.team.conversations_settings[toggle_key] = False
+        self.team.save()
+
+        handler({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_no_op_without_alert_channel(self, mock_get_client):
+        self.team.conversations_settings["slack_alert_channel_id"] = None
+        self.team.save()
+
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_own_bot(self, mock_get_client, _mock_bot_id):
+        handle_member_joined_channel({"user": "U_OWN_BOT", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_malformed_ids(self, mock_get_client, _mock_bot_id):
+        handle_member_joined_channel({"user": "not-a-user", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.get_bot_user_id", return_value=None)
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_when_bot_id_unresolved(self, mock_get_client, _mock_bot_id):
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()

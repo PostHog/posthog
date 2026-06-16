@@ -201,6 +201,7 @@ export interface NewSurvey extends Pick<
     | 'headline_response_count'
     | 'form_content'
     | 'translations'
+    | 'base_language'
 > {
     id: 'new'
     linked_flag_id: number | null
@@ -237,6 +238,7 @@ export const NEW_SURVEY: NewSurvey = {
     enable_partial_responses: true,
     user_access_level: AccessControlLevel.Editor,
     form_content: null,
+    base_language: 'en',
 }
 
 export enum SurveyTemplateType {
@@ -658,6 +660,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             ...defaultSurveyAppearance,
             displayThankYouMessage: true,
             thankYouMessageHeader: 'Thanks — we will be in touch shortly!',
+            allowGoBack: true,
         },
         description: 'Recruit research participants via a shareable link.',
         tagType: 'completion',
@@ -717,6 +720,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             ...defaultSurveyAppearance,
             displayThankYouMessage: true,
             thankYouMessageHeader: 'Thanks for sharing your perspective!',
+            allowGoBack: true,
         },
         description: 'Go deep on segmentation, satisfaction, and roadmap signal.',
         tagType: 'primary',

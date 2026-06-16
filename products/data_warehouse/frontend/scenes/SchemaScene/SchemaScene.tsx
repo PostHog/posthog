@@ -1,4 +1,5 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -8,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -15,7 +17,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
-import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
 import {
@@ -48,18 +49,11 @@ export function SchemaScene({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         return <NotFound object="Data warehouse schema" />
     }
 
-    const cleanedSourceId = cleanSourceId(sourceId)
-    const settingsLogicProps = { id: cleanedSourceId, availableSources: {} }
-
-    return (
-        <BindLogic logic={sourceSettingsLogic} props={settingsLogicProps}>
-            <SchemaSceneContent sourceId={sourceId} schemaId={schemaId} />
-        </BindLogic>
-    )
+    return <SchemaSceneContent sourceId={sourceId} schemaId={schemaId} />
 }
 
 function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Element {
-    const { currentTab, currentSection, schema, source, sourceLoading } = useValues(
+    const { currentTab, currentSection, schema, source, schemaDataLoading, supportsColumnSelection } = useValues(
         schemaSceneLogic({ sourceId, schemaId })
     )
     const { setCurrentTab, setCurrentSection } = useActions(schemaSceneLogic({ sourceId, schemaId }))
@@ -67,6 +61,8 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const showColumnsSection = supportsColumnSelection
+    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
 
     useEffect(() => {
         if (!showMetrics && currentTab === 'metrics') {
@@ -74,7 +70,13 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         }
     }, [showMetrics, currentTab, setCurrentTab])
 
-    if (sourceLoading && !source) {
+    useEffect(() => {
+        if (!showColumnsSection && currentSection === 'columns') {
+            setCurrentSection('details')
+        }
+    }, [showColumnsSection, currentSection, setCurrentSection])
+
+    if (schemaDataLoading && !schema) {
         return (
             <SceneContent>
                 <LemonSkeleton className="w-full h-12" />
@@ -93,6 +95,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             key: 'configuration',
             content: (
                 <ConfigurationSectionLayout
+                    sections={visibleSections}
                     section={currentSection}
                     onSectionChange={setCurrentSection}
                     body={
@@ -101,6 +104,14 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                             schema={schema}
                             source={source}
                             section={currentSection}
+                            onConfigureSyncMethod={() => setCurrentSection('sync-method')}
+                            onViewSyncHistory={() =>
+                                router.actions.push(
+                                    combineUrl(urls.dataWarehouseSource(sourceId, 'syncs'), {
+                                        schema: schema.name,
+                                    }).url
+                                )
+                            }
                         />
                     }
                 />
@@ -131,10 +142,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 }
 
 function ConfigurationSectionLayout({
+    sections,
     section,
     onSectionChange,
     body,
 }: {
+    sections: readonly SchemaConfigurationSection[]
     section: SchemaConfigurationSection
     onSectionChange: (section: SchemaConfigurationSection) => void
     body: JSX.Element
@@ -143,7 +156,7 @@ function ConfigurationSectionLayout({
         <div className="flex items-start gap-6">
             <nav className="sticky top-[var(--scene-title-section-height,50px)] flex flex-col w-56 flex-shrink-0">
                 <ul className="flex flex-col gap-y-px">
-                    {SCHEMA_CONFIGURATION_SECTIONS.map((key) => (
+                    {sections.map((key) => (
                         <li key={key}>
                             <LemonButton
                                 fullWidth

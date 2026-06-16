@@ -630,12 +630,14 @@ mod tests {
         let server_sdks = vec![
             "posthog-python/1.4.0",
             "posthog-ruby/2.0.0",
+            "posthog-ruby2.0.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
             "posthog-go/0.1.0",
             "posthog-node/2.2.0",
             "posthog-dotnet/1.0.0",
             "posthog-elixir/0.2.0",
+            "posthog-rs/0.10.0",
         ];
 
         for sdk in server_sdks {

@@ -1,39 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
 
-import { SlackChannelType } from '~/types'
-
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
-    LogsAlertDestinationGroup,
+    getHogFunctionEventKind,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+    LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingLogsAlertNotification,
+    resolveGroupLabel,
 } from './logsAlertUtils'
-
-function slackChannelLabel(channelValue: string, slackChannels: SlackChannelType[]): string {
-    const channelId = channelValue.split('|')[0]
-    const name = slackChannels.find((c) => c.id === channelId)?.name
-    return name ? `Slack #${name}` : 'Slack'
-}
-
-function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannels: SlackChannelType[]): string {
-    if (group.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
-        const hf = group.hogFunctions[0]
-        const channelValue = hf.inputs?.channel?.value
-        if (typeof channelValue === 'string') {
-            return slackChannelLabel(channelValue, slackChannels)
-        }
-    }
-    return group.label
-}
 
 export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
     const {
@@ -85,7 +68,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
             if (!webhookUrl) {
                 return
             }
-            addPendingNotification({ type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl })
+            addPendingNotification({ type: selectedType, webhookUrl })
             setWebhookUrl('')
         }
     }
@@ -93,6 +76,9 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const getNotificationLabel = (notification: PendingLogsAlertNotification): string => {
         if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
             return `Slack: #${notification.slackChannelName ?? 'channel'}`
+        }
+        if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS) {
+            return `Microsoft Teams: ${notification.webhookUrl}`
         }
         return `Webhook: ${notification.webhookUrl}`
     }
@@ -108,42 +94,52 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                         <LemonSkeleton className="h-8" repeat={2} />
                     ) : destinationGroups.length > 0 ? (
                         <div className="space-y-2">
-                            {destinationGroups.map((group) => (
-                                <div
-                                    key={group.key}
-                                    className="flex items-center justify-between border rounded p-2 gap-2"
-                                >
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="text-sm font-medium truncate">
-                                                {resolveGroupLabel(group, slackChannels)}
-                                            </span>
-                                            <LemonTag type={group.enabled ? 'success' : 'default'} size="small">
-                                                {group.enabled ? 'Active' : 'Paused'}
-                                            </LemonTag>
+                            {destinationGroups.map((group) => {
+                                const detailHogFunctionId =
+                                    group.hogFunctions.find((hf) => getHogFunctionEventKind(hf) === 'firing')?.id ??
+                                    group.hogFunctions[0]?.id
+                                const detailUrl =
+                                    alertId && detailHogFunctionId
+                                        ? urls.logsAlertNotificationDetail(alertId, detailHogFunctionId)
+                                        : undefined
+                                return (
+                                    <div
+                                        key={group.key}
+                                        className="flex items-center justify-between border rounded p-2 gap-2"
+                                    >
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-sm font-medium truncate">
+                                                    {resolveGroupLabel(group, slackChannels)}
+                                                </span>
+                                                <LemonTag type={group.enabled ? 'success' : 'default'} size="small">
+                                                    {group.enabled ? 'Active' : 'Paused'}
+                                                </LemonTag>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                to={detailUrl}
+                                                disabledReason={
+                                                    detailUrl ? undefined : 'Save the alert to view details'
+                                                }
+                                                data-attr="logs-alert-destination-view"
+                                            >
+                                                View
+                                            </LemonButton>
+                                            <LemonButton
+                                                icon={<IconTrash />}
+                                                size="xsmall"
+                                                status="danger"
+                                                onClick={() => deleteExistingDestination(group)}
+                                                tooltip="Delete notification"
+                                            />
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-1 shrink-0">
-                                        {group.hogFunctions.length === 1 && (
-                                            <LemonButton
-                                                icon={<IconExternal />}
-                                                size="xsmall"
-                                                to={urls.hogFunction(group.hogFunctions[0].id)}
-                                                targetBlank
-                                                hideExternalLinkIcon
-                                                tooltip="Open destination"
-                                            />
-                                        )}
-                                        <LemonButton
-                                            icon={<IconTrash />}
-                                            size="xsmall"
-                                            status="danger"
-                                            onClick={() => deleteExistingDestination(group)}
-                                            tooltip="Delete notification"
-                                        />
-                                    </div>
-                                </div>
-                            ))}
+                                )
+                            })}
                         </div>
                     ) : null}
                 </div>
@@ -156,7 +152,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                             key={
                                 notification.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK
                                     ? `slack-${notification.slackChannelId}`
-                                    : `webhook-${notification.webhookUrl}`
+                                    : `${notification.type}-${notification.webhookUrl}`
                             }
                             className="flex items-center justify-between border rounded p-2 gap-2"
                         >
@@ -211,6 +207,21 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
                         onChange={setWebhookUrl}
                         fullWidth
                     />
+                )}
+
+                {selectedType === LOGS_ALERT_NOTIFICATION_TYPE_TEAMS && (
+                    <div className="space-y-1">
+                        <LemonInput
+                            placeholder="https://prod-00.westus.logic.azure.com:443/workflows/..."
+                            value={webhookUrl}
+                            onChange={setWebhookUrl}
+                            fullWidth
+                        />
+                        <p className="text-xs text-muted-alt m-0">
+                            Paste the URL from a Teams "Workflows" (Power Automate) or incoming webhook connector. We
+                            send a formatted Adaptive Card to it.
+                        </p>
+                    </div>
                 )}
 
                 <LemonButton

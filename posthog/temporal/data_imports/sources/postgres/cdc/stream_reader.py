@@ -7,23 +7,27 @@ approach — batch reads on a schedule.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Iterator
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import psycopg
+import structlog
 from psycopg import sql
 
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.sources.postgres.cdc.decoder import PgOutputDecoder
-from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres, get_primary_key_columns
+from posthog.temporal.data_imports.sources.postgres.postgres import (
+    _connect_to_postgres,
+    _connect_with_dropped_retry,
+    get_primary_key_columns,
+)
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,12 +77,21 @@ class PgCDCStreamReader:
             self._effective_host, self._effective_port = tunnel_cm.__enter__()
             self._tunnel_cm = tunnel_cm
 
-        self._conn = _connect_to_postgres(
-            host=self._effective_host,
-            port=self._effective_port,
-            database=self._params.database,
-            user=self._params.user,
-            password=self._params.password,
+        # The initial connect reaches the source through the just-opened SSH tunnel /
+        # connection pooler, either of which can drop the first connection with a
+        # transient "server closed the connection unexpectedly". Mirror the non-CDC
+        # read paths and absorb those drops in-process instead of failing the whole
+        # extraction activity; permanent errors (auth, SSL-required) are re-raised
+        # immediately by the helper.
+        self._conn = _connect_with_dropped_retry(
+            lambda: _connect_to_postgres(
+                host=self._effective_host,
+                port=self._effective_port,
+                database=self._params.database,
+                user=self._params.user,
+                password=self._params.password,
+            ),
+            logger,
         )
 
     def read_changes(self) -> Iterator[ChangeEvent]:
@@ -142,7 +155,7 @@ class PgCDCStreamReader:
         finally:
             advance_conn.close()
 
-        logger.info("Advanced slot %s to position %s", self._params.slot_name, position)
+        logger.info("advanced_slot", slot_name=self._params.slot_name, position=position)
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]:
         """Query information_schema for PK columns of the given tables.

@@ -1,19 +1,21 @@
 import csv
 import json
+import time
 import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
 from typing import Annotated, Any, Literal, Optional, Union, cast
 
-from django.conf import settings
-from django.db import DatabaseError
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
+from django.db.models import OuterRef, QuerySet, Subquery
+from django.utils import timezone
 
+import requests
 import structlog
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from pydantic import (
     BaseModel,
     Field,
@@ -35,16 +37,17 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.services.flags_service import FlagVersionConflictError, batch_evaluate_flag_for_team
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.constants import LIMIT, OFFSET, PropertyOperatorType
+from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Cohort, FeatureFlag, Person, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     Change,
     Detail,
@@ -54,33 +57,35 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
-from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.cohort.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, CohortType
-from posthog.models.cohort.util import (
+from posthog.models.filters.filter import Filter
+from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
+from posthog.models.property.property import Property
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT
+from posthog.queries.actor_base_query import get_serialized_people
+from posthog.queries.base import determine_parsed_date_for_property_matching
+from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import get_earliest_timestamp
+from posthog.renderers import SafeJSONRenderer
+from posthog.utils import format_query_params_absolute_url, str_to_bool
+
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import (
+    DEFAULT_COHORT_INSERT_BATCH_SIZE,
+    REALTIME_COHORT_MAX_PERSON_COUNT,
+    Cohort,
+    CohortOrEmpty,
+    CohortType,
+)
+from products.cohorts.backend.models.util import (
+    CohortErrorCode,
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
 )
-from posthog.models.cohort.validation import CohortTypeValidationSerializer
-from posthog.models.feature_flag.flag_matching import (
-    FeatureFlagMatcher,
-    FlagsMatcherCache,
-    get_feature_flag_hash_key_overrides,
-)
-from posthog.models.filters.filter import Filter
-from posthog.models.insight import Insight
-from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.models.person.util import validate_person_uuids_exist
-from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.team.team import Team
-from posthog.models.utils import UUIDT
-from posthog.queries.actor_base_query import get_serialized_people
-from posthog.queries.base import determine_parsed_date_for_property_matching, property_group_to_Q
-from posthog.queries.person_query import PersonQuery
-from posthog.queries.util import get_earliest_timestamp
-from posthog.renderers import SafeJSONRenderer
-from posthog.utils import format_query_params_absolute_url
+from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 # Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
@@ -382,6 +387,67 @@ class RemovePersonRequestSerializer(serializers.Serializer):
     person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
 
 
+COHORT_USED_IN_PAGE_SIZE = 100
+
+
+class CohortUsedInFlagSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Feature flag database ID")
+    key = serializers.CharField(help_text="Feature flag key (URL slug)")
+    name = serializers.CharField(allow_null=True, allow_blank=True, help_text="Feature flag display name")
+
+
+class CohortUsedInInsightSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Insight database ID")
+    short_id = serializers.CharField(help_text="Insight short ID used for routing in the frontend")
+    name = serializers.CharField(
+        help_text="Insight display name; falls back to derived name, then to 'Unnamed' when both are empty"
+    )
+
+
+class CohortUsedInCohortSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Cohort database ID")
+    name = serializers.CharField(help_text="Cohort display name; falls back to 'Unnamed' when empty")
+
+
+class CohortUsedInFlagsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInFlagSerializer(
+        many=True, help_text=f"Feature flags referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of feature flags referencing this cohort, before truncation"
+    )
+    has_more = serializers.BooleanField(help_text="True when more feature flags exist beyond the truncation cap")
+
+
+class CohortUsedInInsightsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInInsightSerializer(
+        many=True, help_text=f"Insights referencing this cohort, capped at {COHORT_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(help_text="Total number of insights referencing this cohort, before truncation")
+    has_more = serializers.BooleanField(help_text="True when more insights exist beyond the truncation cap")
+
+
+class CohortUsedInCohortsBlockSerializer(serializers.Serializer):
+    results = CohortUsedInCohortSerializer(
+        many=True,
+        help_text=f"Cohorts that include this cohort as a criterion, capped at {COHORT_USED_IN_PAGE_SIZE} results",
+    )
+    total = serializers.IntegerField(help_text="Total number of cohorts referencing this cohort, before truncation")
+    has_more = serializers.BooleanField(help_text="True when more cohorts exist beyond the truncation cap")
+
+
+class CohortUsedInResponseSerializer(serializers.Serializer):
+    feature_flags = CohortUsedInFlagsBlockSerializer(
+        help_text="Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata",
+    )
+    insights = CohortUsedInInsightsBlockSerializer(
+        help_text="Insights referencing this cohort with truncation metadata"
+    )
+    cohorts = CohortUsedInCohortsBlockSerializer(
+        help_text="Other cohorts that include this cohort as a criterion, with truncation metadata"
+    )
+
+
 class CohortCalculationHistorySerializer(serializers.ModelSerializer):
     duration_seconds = serializers.ReadOnlyField()
     is_completed = serializers.ReadOnlyField()
@@ -502,6 +568,16 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "experiment_set",
         ]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Basic list payload (opt-in via `?basic=true` on the list endpoint): drop
+        # the heavy JSON columns the cohort picker never reads. Keeps the
+        # response small for teams with thousands of cohorts. Default output is
+        # unchanged; only callers that explicitly ask get the trimmed shape.
+        if self.context.get("basic_cohort_list"):
+            for field_name in ("filters", "query", "groups"):
+                self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
         # Prefer the annotated last_error_code when available
@@ -976,8 +1052,7 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             if deleted_state:
-                flags_using_cohort = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, active=True)
-                flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
+                flags_with_cohort = get_active_flags_using_cohort(cohort)
                 if flags_with_cohort:
                     flag_names = [flag.name or flag.key for flag in flags_with_cohort]
                     raise ValidationError(
@@ -1005,21 +1080,7 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
                 # Check if cohort is used in insights
-
-                # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
-                # This finds cohort references at any depth in the JSON structure
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                insights_using_cohort = Insight.objects.filter(
-                    team_id=cohort.team_id,
-                    deleted=False,
-                ).extra(
-                    where=[
-                        """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
-                        OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
-                            AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
-                    ],
-                    params=[cohort.id, cohort.id, cohort.id],
-                )
+                insights_using_cohort = get_insights_using_cohort(cohort)
 
                 if insights_using_cohort.exists():
                     count = insights_using_cohort.count()
@@ -1035,24 +1096,11 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
                 # Check if cohort is used as criteria in other cohorts
-                # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-                dependent_cohorts = (
-                    Cohort.objects.filter(
-                        team__project_id=cohort.team.project_id,
-                        deleted=False,
-                    )
-                    .exclude(id=cohort.id)
-                    .extra(
-                        where=[
-                            """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
-                        ],
-                        params=[cohort.id, cohort.id],
-                    )
-                )
+                dependent_cohorts = get_cohorts_using_cohort(cohort)
 
                 if dependent_cohorts.exists():
                     count = dependent_cohorts.count()
-                    cohort_names = [c.name for c in dependent_cohorts[:5]]
+                    cohort_names = [c.name or "Unnamed" for c in dependent_cohorts[:5]]
                     names_str = ", ".join(cohort_names)
                     if count > 5:
                         names_str = f"{names_str}, and {count - 5} more"
@@ -1120,17 +1168,129 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = (
-            instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
-        )
+        # Skip when the slim list dropped `filters`; computing
+        # `properties.to_dict()` is the expensive part we're avoiding there.
+        if "filters" in self.fields:
+            representation["filters"] = (
+                instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
+            )
         return representation
 
 
-@extend_schema(tags=["core"])
+def _truncate_used_in_queryset(qs: QuerySet) -> tuple[list[dict], int]:
+    """Return up to COHORT_USED_IN_PAGE_SIZE rows plus the total count.
+
+    Fetches one row past the cap so the common short-list case derives the total
+    from the page itself; the expensive predicate only runs a second time (via
+    ``count()``) when the cap is actually exceeded.
+    """
+    page = list(qs[: COHORT_USED_IN_PAGE_SIZE + 1])
+    if len(page) <= COHORT_USED_IN_PAGE_SIZE:
+        return page, len(page)
+    return page[:COHORT_USED_IN_PAGE_SIZE], qs.count()
+
+
+def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
+    """Return active, non-deleted feature flags that reference this cohort.
+
+    Used by deletion protection — only live flags should block cohort deletion.
+    """
+    active_flags = FeatureFlag.objects.filter(
+        team__project_id=cohort.team.project_id, active=True, deleted=False
+    ).select_related("team")
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
+    return [flag for flag in active_flags if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
+
+
+def get_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
+    """Return all non-deleted feature flags (active or inactive) that reference this cohort.
+
+    Used by the informational ``used_in`` endpoint — surfaces inactive flags too so users
+    are aware before flipping one back on. Excludes soft-deleted flags for consistency
+    with ``get_insights_using_cohort`` and ``get_cohorts_using_cohort``.
+    """
+    flags = FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False).select_related("team")
+    seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
+    return [flag for flag in flags if cohort.id in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache)]
+
+
+def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
+    """Return insights that reference this cohort in their query filters or breakdown."""
+    return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        Insight.objects.filter(
+            team_id=cohort.team_id,
+            deleted=False,
+        )
+        .extra(
+            where=[
+                """jsonb_path_exists(query, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)
+            OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                AND query->'source'->'breakdownFilter'->'breakdown' @> '[%s]'::jsonb)"""
+            ],
+            params=[cohort.id, cohort.id, cohort.id],
+        )
+        .order_by("id")
+    )
+
+
+def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
+    """Return other cohorts that include this cohort as criteria."""
+    return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        Cohort.objects.filter(
+            team__project_id=cohort.team.project_id,
+            deleted=False,
+        )
+        .exclude(id=cohort.id)
+        .extra(
+            where=[
+                """jsonb_path_exists(filters, '$.** ? (@.type == "cohort" && @.value == %s)', '{"cohort_id": %s}'::jsonb)"""
+            ],
+            params=[cohort.id, cohort.id],
+        )
+        .order_by("id")
+    )
+
+
+@extend_schema(extensions={"x-product": "cohorts"})
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="hide_behavioral_cohorts",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description="Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.",
+            ),
+            OpenApiParameter(
+                name="basic",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return a basic payload that omits the heavy `filters`, `query`, and "
+                    "`groups` fields. Useful for pickers that only need id/name/count."
+                ),
+            ),
+        ]
+    )
+)
 class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
+
+    def _is_basic_list_request(self) -> bool:
+        # `?basic=true` on the list endpoint: trimmed payload + deferred columns.
+        # Single source of truth for both the queryset and serializer paths so they
+        # can't drift if the default changes or `basic` is wired into another action.
+        return self.action == "list" and str_to_bool(self.request.query_params.get("basic", "0"))
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["basic_cohort_list"] = self._is_basic_list_request()
+        return context
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -1158,10 +1318,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # backfilled are allowed through.
             if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
                 # Avoid circular import: feature_flag imports cohort models
-                from posthog.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
+                from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
-                all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
+                # Lists every column read by _find_behavioral_cohorts (is_static, filters)
+                # and Cohort.is_flag_compatible (cohort_type, last_backfill_person_properties_at);
+                # dropping one triggers a per-cohort deferred query (an N+1 that only bites a
+                # team with thousands of cohorts). Deferring the rest keeps the graph scan cheap.
+                graph_source = queryset.only(
+                    "id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at"
+                )
+                all_cohorts = {cohort.id: cohort for cohort in graph_source.all()}
                 behavioral_cohort_ids = self._find_behavioral_cohorts(
                     all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
                 )
@@ -1169,6 +1336,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
+
+            # `?basic=true` callers never read these columns, so skip reading them
+            # off disk (the serializer drops them too; see CohortSerializer.__init__).
+            if self._is_basic_list_request():
+                queryset = queryset.defer("filters", "query", "groups")
 
         last_error_code_subquery = Subquery(
             CohortCalculationHistory.objects.filter(
@@ -1180,46 +1352,54 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .values("error_code")[:1]
         )
 
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
+        # one query instead of the two extra round-trips `prefetch_related` costs.
+        # `experiment_set` is a reverse relation, so it stays prefetched.
         return (
             queryset.annotate(last_error_code=last_error_code_subquery)
-            .prefetch_related("experiment_set", "created_by", "team")
+            .select_related("created_by", "team")
+            .prefetch_related("experiment_set")
             .order_by("-created_at")
         )
 
     def _find_behavioral_cohorts(
         self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
     ) -> set[int]:
-        """
-        Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
-        using a graph-based approach.
+        """Find cohorts that are behavioral, or reference (transitively) a behavioral cohort.
 
-        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled are
-        excluded from the result because they can be evaluated via the cohort_membership table
-        during flag evaluation.
+        A cohort is affected if it's a behavioral seed, or references one through the
+        dependency graph. We walk the *reverse* graph once from the seeds (O(V+E)) —
+        every node that can reach a seed via forward edges is affected.
+
+        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
+        are not seeds: they can be evaluated via the cohort_membership table during flag
+        evaluation. (They can still be pulled in if they reference another seed.)
         """
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
 
-        # When the feature is enabled, realtime+backfilled cohorts are flag-compatible
         flag_compatible: set[int] = set()
         if allow_realtime_backfilled:
             flag_compatible = {
                 cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
             }
-        affected_cohorts = behavioral_cohorts - flag_compatible
+        seeds = behavioral_cohorts - flag_compatible
 
-        def find_affected_cohorts() -> None:
-            changed = True
-            while changed:
-                changed = False
-                for source_id in list(graph.keys()):
-                    if source_id not in affected_cohorts:
-                        # NB: If this cohort points to any affected cohort, it's also affected
-                        if any(target_id in affected_cohorts for target_id in graph[source_id]):
-                            affected_cohorts.add(source_id)
-                            changed = True
+        # Reverse adjacency: target -> sources that reference it.
+        reverse: dict[int, set[int]] = defaultdict(set)
+        for source_id, targets in graph.items():
+            for target_id in targets:
+                reverse[target_id].add(source_id)
 
-        find_affected_cohorts()
-        return affected_cohorts
+        affected = set(seeds)
+        stack = list(seeds)
+        while stack:
+            node = stack.pop()
+            for source_id in reverse.get(node, ()):
+                if source_id not in affected:
+                    affected.add(source_id)
+                    stack.append(source_id)
+
+        return affected
 
     def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
         """
@@ -1407,15 +1587,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_id must be a valid UUID")
 
         # Check if person exists and belongs to this team
-        try:
-            person_uuid = (
-                # nosemgrep: no-direct-persons-db-orm
-                Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                .get(team_id=self.team_id, uuid=person_id)
-                .uuid  # nosemgrep: no-direct-persons-db-orm
-            )  # nosemgrep: no-direct-persons-db-orm
-        except Person.DoesNotExist:
+        person = get_person_by_uuid(team_id=self.team_id, uuid=person_id)
+        if person is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
+        person_uuid = person.uuid
 
         # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
         cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
@@ -1486,6 +1661,59 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 "count": total_count,
                 "next": None if offset + limit >= total_count else f"?limit={limit}&offset={offset + limit}",
                 "previous": None if offset == 0 else f"?limit={limit}&offset={max(0, offset - limit)}",
+            }
+        )
+
+    @extend_schema(responses=CohortUsedInResponseSerializer)
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    def used_in(self, request: request.Request, **kwargs) -> Response:
+        cohort: Cohort = self.get_object()
+        # Hide references the caller has been denied at the object level, matching the
+        # access-level filtering on the flag/insight list endpoints.
+        uac = self.user_access_control
+
+        flag_ids = [flag.id for flag in get_flags_using_cohort(cohort)]
+        flags_qs = uac.filter_queryset_by_access_level(
+            # nosemgrep: idor-lookup-without-team (flag_ids are already team-scoped via get_flags_using_cohort)
+            FeatureFlag.objects.filter(id__in=flag_ids),
+            include_all_if_admin=True,
+        ).order_by("id")
+        flags_data = [{"id": flag.id, "key": flag.key, "name": flag.name} for flag in flags_qs]
+
+        insights_qs = uac.filter_queryset_by_access_level(get_insights_using_cohort(cohort))
+        insights_page, insights_total = _truncate_used_in_queryset(
+            insights_qs.values("id", "short_id", "name", "derived_name")
+        )
+        insights_data = [
+            {
+                "id": insight["id"],
+                "short_id": insight["short_id"],
+                "name": insight.get("name") or insight.get("derived_name") or "Unnamed",
+            }
+            for insight in insights_page
+        ]
+
+        cohorts_qs = uac.filter_queryset_by_access_level(get_cohorts_using_cohort(cohort))
+        cohorts_page, cohorts_total = _truncate_used_in_queryset(cohorts_qs.values("id", "name"))
+        cohorts_data = [{"id": c["id"], "name": c["name"] or "Unnamed"} for c in cohorts_page]
+
+        return Response(
+            {
+                "feature_flags": {
+                    "results": flags_data[:COHORT_USED_IN_PAGE_SIZE],
+                    "total": len(flags_data),
+                    "has_more": len(flags_data) > COHORT_USED_IN_PAGE_SIZE,
+                },
+                "insights": {
+                    "results": insights_data,
+                    "total": insights_total,
+                    "has_more": insights_total > len(insights_data),
+                },
+                "cohorts": {
+                    "results": cohorts_data,
+                    "total": cohorts_total,
+                    "has_more": cohorts_total > len(cohorts_data),
+                },
             }
         )
 
@@ -1582,166 +1810,199 @@ def will_create_loops(cohort: Cohort) -> bool:
     return dfs_loop_helper(cohort, set(), set())
 
 
-def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000):
-    # :TODO: Find a way to incorporate this into the same code path as feature flag evaluation
+# Number of attempts per page when calling the batch evaluation endpoint, including the
+# first try. Only transient failures (connection errors, timeouts, 5xx) are retried.
+BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS = 3
+BATCH_FLAG_EVALUATION_RETRY_BACKOFF_SECONDS = 2.0
+
+COHORT_FLAG_GENERATION_COMPLETED_COUNTER = Counter(
+    "cohort_flag_generation_completed_total",
+    "Cohort generations from a feature flag that finished, by outcome",
+    ["outcome"],  # "success" or a CohortErrorCode value ("flag_changed", "unknown")
+)
+
+COHORT_FLAG_GENERATION_DURATION_SECONDS = Histogram(
+    "cohort_flag_generation_duration_seconds",
+    "Duration of cohort generation from a feature flag in seconds",
+    ["outcome"],
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1800, 3600, 7200, 14400],
+)
+
+COHORT_FLAG_GENERATION_PAGE_RETRIES_COUNTER = Counter(
+    "cohort_flag_generation_page_retries_total",
+    "Transient batch flag evaluation page failures that were retried against the flags service",
+)
+
+COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER = Counter(
+    "cohort_flag_generation_eval_errors_total",
+    "Per-person evaluation errors reported by the flags service during cohort generation",
+)
+
+
+def _batch_evaluate_flag_page_with_retries(
+    *,
+    team_id: int,
+    project_id: int,
+    flag_key: str,
+    expected_version: int,
+    cursor: int,
+    limit: int,
+) -> dict[str, Any]:
+    last_error: Exception | None = None
+    for attempt in range(BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS):
+        if attempt > 0:
+            COHORT_FLAG_GENERATION_PAGE_RETRIES_COUNTER.inc()
+            time.sleep(BATCH_FLAG_EVALUATION_RETRY_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+        try:
+            return batch_evaluate_flag_for_team(
+                team_id=team_id,
+                project_id=project_id,
+                flag_key=flag_key,
+                expected_version=expected_version,
+                cursor=cursor,
+                limit=limit,
+            )
+        except FlagVersionConflictError:
+            # Permanent: the flag changed mid-run; retrying the same page cannot help.
+            raise
+        except requests.RequestException as err:
+            if (
+                isinstance(err, requests.HTTPError)
+                and err.response is not None
+                and 400 <= err.response.status_code < 500
+            ):
+                # Permanent client errors (bad request, missing flag, auth misconfiguration).
+                raise
+            last_error = err
+            logger.warning(
+                "cohort_from_feature_flag_page_retry",
+                team_id=team_id,
+                flag_key=flag_key,
+                cursor=cursor,
+                attempt=attempt + 1,
+                error=str(err),
+            )
+    assert last_error is not None
+    raise last_error
+
+
+def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, batchsize: int = 1_000) -> None:
+    """
+    Populate a static cohort with the persons matched by a feature flag.
+
+    Evaluation happens in the Rust feature-flags service (the same code path as live
+    /flags evaluation) via its internal cursor-paged batch endpoint; this task only
+    orchestrates paging and inserts the matched person UUIDs into the cohort.
+    """
+    # Flag and cohort lookups are deliberately project-scoped (team__project_id), matching
+    # how flags resolve everywhere else. Multi-team projects ("environments") are
+    # deprecated, so a project has exactly one team and this cannot cross team boundaries.
     project_id = Team.objects.only("project_id").get(pk=team_id).project_id
+    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
+    # The enqueue site set is_calculating=True before dispatching, so every exit has to
+    # clear it. On the guard paths there is nothing to evaluate, so finalize as a clean
+    # no-op run rather than leaving the cohort stuck "calculating" with no record of why.
     try:
         feature_flag = FeatureFlag.objects.get(team__project_id=project_id, key=flag)
     except FeatureFlag.DoesNotExist:
-        return []
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
+        return
 
     if not feature_flag.active or feature_flag.aggregation_group_type_index is not None:
-        return []
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
+        return
 
-    cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
-    matcher_cache = FlagsMatcherCache(project_id=project_id)
-    uuids_to_add_to_cohort = []
-    cohorts_cache: dict[int, CohortOrEmpty] = {}
+    # Pin the flag definition for the whole run: every page sends this version and the
+    # service refuses to evaluate under any other, so a run can never mix two
+    # definitions of the flag. Nullable versions coerce to 0 on both sides.
+    expected_version = feature_flag.version or 0
 
-    if feature_flag.uses_cohorts:
-        # TODO: Consider disabling flags with cohorts for creating static cohorts
-        # because this is currently a lot more inefficient for flag matching,
-        # as we're required to go to the database for each person.
-        cohorts_cache = {
-            cohort.pk: cohort for cohort in Cohort.objects.filter(team__project_id=project_id, deleted=False)
-        }
-
-    default_person_properties = {}
-    for condition in feature_flag.conditions:
-        property_list = Filter(data=condition).property_groups.flat
-        for property in property_list:
-            default_person_properties.update(get_default_person_property(property, cohorts_cache))
-
-    flag_property_conditions = [Filter(data=condition).property_groups for condition in feature_flag.conditions]
-    flag_property_group = PropertyGroup(type=PropertyOperatorType.OR, values=flag_property_conditions)
-
+    started_at = timezone.now()
+    start_monotonic = time.monotonic()
+    eval_errors_count = 0
     try:
-        # QuerySet.Iterator() doesn't work with pgbouncer, it will load everything into memory and then stream
-        # which doesn't work for us, so need a manual chunking here.
-        # Because of this pgbouncer transaction pooling mode, we can't use server-side cursors.
-        # We pre-filter all persons to be ones that will match the feature flag, so that we don't have to
-        # iterate through all persons
-        queryset = (
-            Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id)
-            .filter(property_group_to_Q(team_id, flag_property_group, cohorts_cache=cohorts_cache))
-            .order_by("id")
-        )
-        # get batchsize number of people at a time
-        start = 0
-        batch_of_persons = queryset[start : start + batchsize]
-        while batch_of_persons:
-            # TODO: Check if this subquery bulk fetch limiting is better than just doing a join for all distinct ids
-            # OR, if row by row getting single distinct id is better
-            # distinct_id = PersonDistinctId.objects.filter(person=person, team_id=team_id).values_list(
-            #     "distinct_id", flat=True
-            # )[0]
-            distinct_id_subquery = Subquery(
-                PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-                .filter(team_id=team_id, person_id=OuterRef("person_id"))
-                .values_list("id", flat=True)[:3]
+        uuids_to_add_to_cohort: list[str] = []
+        cursor = 0
+        while True:
+            page = _batch_evaluate_flag_page_with_retries(
+                team_id=team_id,
+                project_id=project_id,
+                flag_key=feature_flag.key,
+                expected_version=expected_version,
+                cursor=cursor,
+                limit=batchsize,
             )
-            prefetch_related_objects(
-                batch_of_persons,
-                Prefetch(
-                    "persondistinctid_set",
-                    to_attr="distinct_ids_cache",
-                    queryset=PersonDistinctId.objects.db_manager(  # nosemgrep: no-direct-persons-db-orm
-                        READ_DB_FOR_PERSONS
-                    ).filter(  # nosemgrep: no-direct-persons-db-orm
-                        id__in=distinct_id_subquery
-                    ),
-                ),
-            )
+            uuids_to_add_to_cohort.extend(page["matched_person_uuids"])
+            page_errors_count = page.get("errors_count") or 0
+            if page_errors_count:
+                COHORT_FLAG_GENERATION_EVAL_ERRORS_COUNTER.inc(page_errors_count)
+            eval_errors_count += page_errors_count
 
-            all_persons = list(batch_of_persons)
-            if len(all_persons) == 0:
+            if len(uuids_to_add_to_cohort) >= batchsize:
+                cohort.insert_users_list_by_uuid(
+                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+                )
+                uuids_to_add_to_cohort = []
+
+            next_cursor = page["next_cursor"]
+            if next_cursor is None:
                 break
+            if next_cursor <= cursor:
+                raise RuntimeError(f"Batch flag evaluation cursor did not advance (got {next_cursor} after {cursor})")
+            cursor = next_cursor
 
-            for person in all_persons:
-                # ignore almost-deleted persons / persons with no distinct ids
-                if len(person.distinct_ids) == 0:
-                    continue
+        # Always flush, even when empty: insert_users_list_by_uuid recomputes the cohort
+        # count and clears is_calculating via _safe_save_cohort_state. Re-running after a
+        # partial failure is safe because inserts dedupe on (cohort_id, person_id).
+        # raise_on_error surfaces an insert failure so the except below records it rather
+        # than letting a partial insert be counted as a successful generation.
+        cohort.insert_users_list_by_uuid(
+            uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+        )
 
-                distinct_id = person.distinct_ids[0]
-                person_overrides = {}
-                if feature_flag.ensure_experience_continuity:
-                    # :TRICKY: This is inefficient because it tries to get the hashkey overrides one by one.
-                    # But reusing functions is better for maintainability. Revisit optimising if this becomes a bottleneck.
-                    person_overrides = get_feature_flag_hash_key_overrides(
-                        team_id,
-                        [distinct_id],
-                        person_id_to_distinct_id_mapping={person.id: distinct_id},
-                    )
+        if eval_errors_count:
+            logger.warning(
+                "cohort_from_feature_flag_eval_errors",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                flag_key=feature_flag.key,
+                errors_count=eval_errors_count,
+            )
 
-                try:
-                    match = FeatureFlagMatcher(
-                        team_id,
-                        project_id,
-                        [feature_flag],
-                        distinct_id,
-                        groups={},
-                        cache=matcher_cache,
-                        hash_key_overrides=person_overrides,
-                        property_value_overrides={
-                            **default_person_properties,
-                            **person.properties,
-                        },
-                        group_property_value_overrides={},
-                        cohorts_cache=cohorts_cache,
-                    ).get_match(feature_flag)
-                    if match.match:
-                        uuids_to_add_to_cohort.append(str(person.uuid))
-                except (DatabaseError, ValueError, ValidationError):
-                    logger.exception(
-                        "Error evaluating feature flag for person",
-                        person_uuid=str(person.uuid),
-                        team_id=team_id,
-                    )
-                except Exception as err:
-                    # matching errors are not fatal, so we just log them and move on.
-                    # Capturing error for now just in case there are some unexpected errors
-                    # we did not account for.
-                    capture_exception(err)
-
-                if len(uuids_to_add_to_cohort) >= batchsize:
-                    cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
-                    uuids_to_add_to_cohort = []
-
-            start += batchsize
-            batch_of_persons = queryset[start : start + batchsize]
-
-        if len(uuids_to_add_to_cohort) > 0:
-            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
-
+        COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome="success").inc()
+        COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome="success").observe(time.monotonic() - start_monotonic)
     except Exception as err:
-        if settings.DEBUG or settings.TEST:
-            raise
-        capture_exception(err)
-
-
-def get_default_person_property(prop: Property, cohorts_cache: dict[int, CohortOrEmpty]):
-    default_person_properties = {}
-
-    if prop.operator not in ("is_set", "is_not_set") and prop.type == "person":
-        default_person_properties[prop.key] = ""
-    elif prop.type == "cohort" and not isinstance(prop.value, list):
-        try:
-            parsed_cohort_id = int(prop.value)
-        except (ValueError, TypeError):
-            return None
-        cohort = cohorts_cache.get(parsed_cohort_id)
-        if cohort:
-            return get_default_person_properties_for_cohort(cohort, cohorts_cache)
-    return default_person_properties
-
-
-def get_default_person_properties_for_cohort(cohort: Cohort, cohorts_cache: dict[int, CohortOrEmpty]) -> dict[str, str]:
-    """
-    Returns a dictionary of default person properties to use when evaluating a feature flag
-    """
-    default_person_properties = {}
-    for property in cohort.properties.flat:
-        default_person_properties.update(get_default_person_property(property, cohorts_cache))
-
-    return default_person_properties
+        logger.exception(
+            "cohort_from_feature_flag_failed",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            flag_key=feature_flag.key,
+            error=str(err),
+        )
+        capture_exception(err, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
+        error_code = (
+            CohortErrorCode.FLAG_CHANGED if isinstance(err, FlagVersionConflictError) else CohortErrorCode.UNKNOWN
+        )
+        COHORT_FLAG_GENERATION_COMPLETED_COUNTER.labels(outcome=error_code.value).inc()
+        COHORT_FLAG_GENERATION_DURATION_SECONDS.labels(outcome=error_code.value).observe(
+            time.monotonic() - start_monotonic
+        )
+        # Finalize cohort state before writing the history row. _safe_save_cohort_state
+        # swallows its own failures, so if the history insert ran first and raised, the
+        # cohort would stay is_calculating=True with no Celery retry to recover it
+        # (max_retries=0). Worst case in this order is a finalized cohort missing a
+        # history row, rather than one stuck calculating forever.
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=err)
+        # The history `error` field is user-visible via the calculation history API, so
+        # store the friendly message; raw exception details (internal URLs, instance
+        # config) stay in logs and error tracking only.
+        CohortCalculationHistory.objects.create(
+            team_id=team_id,
+            cohort=cohort,
+            filters=cohort.filters or {},
+            started_at=started_at,
+            finished_at=timezone.now(),
+            error=get_friendly_error_message(error_code),
+            error_code=error_code,
+        )
+        raise

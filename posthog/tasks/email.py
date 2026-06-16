@@ -12,8 +12,8 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
+from prometheus_client import Counter, Histogram
 
-from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
@@ -21,26 +21,19 @@ from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
-from posthog.models import (
-    Organization,
-    OrganizationInvite,
-    OrganizationMembership,
-    PersonalAPIKey,
-    Plugin,
-    PluginConfig,
-    Team,
-    User,
-)
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
 
@@ -97,13 +90,16 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     return memberships_to_email
 
 
-def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1.0) -> list[OrganizationMembership]:
+def get_members_to_notify_for_pipeline_error(
+    team: Team, failure_rate: float = 1.0, pipeline_id: Optional[str] = None
+) -> list[OrganizationMembership]:
     """
-    Get members to notify for a data pipeline error, respecting threshold.
+    Get members to notify for a data pipeline error, respecting threshold and per-pipeline opt-out.
 
     Args:
         team: The team that owns the pipeline
         failure_rate: The current failure rate (0.0 to 1.0). Defaults to 1.0 (100%) for single failures.
+        pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). Used for per-pipeline opt-out.
 
     Returns:
         List of organization memberships to notify
@@ -111,7 +107,9 @@ def get_members_to_notify_for_pipeline_error(team: Team, failure_rate: float = 1
     members_to_notify = get_members_to_notify(team, "plugin_disabled")
 
     return [
-        member for member in members_to_notify if should_send_pipeline_error_notification(member.user, failure_rate)
+        member
+        for member in members_to_notify
+        if should_send_pipeline_error_notification(member.user, failure_rate, pipeline_id)
     ]
 
 
@@ -193,6 +191,7 @@ def should_send_notification(
 def should_send_pipeline_error_notification(
     user: User,
     failure_rate: float = 1.0,
+    pipeline_id: Optional[str] = None,
 ) -> bool:
     """
     Determines if a data pipeline error notification should be sent to a user.
@@ -200,11 +199,18 @@ def should_send_pipeline_error_notification(
     Args:
         user: The user to check settings for
         failure_rate: The current failure rate (0.0 to 1.0) for this pipeline. Defaults to 1.0 (100%) for single failures.
+        pipeline_id: Optional pipeline identifier (e.g. "hog_function:<uuid>"). If provided, checks per-pipeline opt-out.
 
     Returns:
         bool: True if the notification should be sent, False otherwise
     """
     settings = user.notification_settings
+
+    # Check per-pipeline opt-out
+    if pipeline_id is not None:
+        pipeline_disabled = settings.get("pipeline_notifications_disabled", {})
+        if pipeline_disabled.get(pipeline_id, False):
+            return False
 
     # Check threshold - if threshold is 0.0, notify on any failure
     threshold = settings.get("data_pipeline_error_threshold", 0.0)
@@ -294,17 +300,19 @@ def send_invite(invite_id: str) -> None:
         # idempotency guard (a previous attempt had already set `sent_at`). Without this
         # snapshot, "delivered=True" after `send()` reads identically in both cases — which
         # can mislead an operator looking at the success log.
-        # MessagingRecord stores SHA-256(SECRET_KEY + email) in `email_hash`. The custom
-        # manager remaps a `raw_email=` kwarg to `email_hash=` magically, but django-stubs
-        # can't follow that override and mypy then can't resolve `raw_email` against the
-        # model's actual fields. Compute the hash directly to keep mypy happy.
-        target_email_hash = get_email_hash(invite.target_email)
+        # MessagingRecord stores a one-way SHA-256(MESSAGING_HASH_SALT + email) in
+        # `email_hash`. The custom manager remaps a `raw_email=` kwarg to `email_hash=`
+        # magically, but django-stubs can't follow that override and mypy then can't
+        # resolve `raw_email` against the model's actual fields. Compute the hashes
+        # directly to keep mypy happy, matching the primary salt and any rotation
+        # fallbacks so dedup still works across a salt rotation.
+        target_email_hashes = get_email_hashes(invite.target_email)
         already_delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
         message.send(send_async=False)
         delivered = MessagingRecord.objects.filter(
-            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+            campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
         if delivered:
             OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
@@ -503,7 +511,8 @@ def send_fatal_plugin_error(
     if team is None:
         return
 
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    pipeline_id = f"plugin_config:{plugin_config_id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
 
@@ -531,7 +540,8 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     hog_function: HogFunction = HogFunction.objects.prefetch_related("team").get(id=hog_function_id)
     team = hog_function.team
 
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    pipeline_id = f"hog_function:{hog_function_id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
 
@@ -564,7 +574,8 @@ def send_batch_export_run_failure(
     batch_export = batch_export_run.parent
     team: Team = batch_export.team
 
-    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate)
+    pipeline_id = f"batch_export:{batch_export.id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate, pipeline_id=pipeline_id)
     if not memberships_to_email:
         return
 
@@ -598,10 +609,125 @@ def send_batch_export_run_failure(
     message.send()
 
 
+# The digest "day" rolls over at this hour UTC (not midnight) so the daily block
+# resets — and the catch-up email lands — during waking hours for US and EU.
+# The catch-up cron in scheduled.py is anchored to this constant.
+EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
+
+# Send-funnel counter: every call lands on exactly one outcome label, so the
+# delivered-vs-suppressed breakdown (and the "delivered" rate that feeds the
+# noise dashboard + alert) is recoverable from a single metric. Intentionally
+# unlabelled by team — per-team volume is read from MessagingRecord instead, to
+# keep Prometheus cardinality bounded.
+EXTERNAL_DATA_FAILURE_DIGEST_COUNTER = Counter(
+    "external_data_failure_digest_total",
+    "External data failure digest email send attempts, by funnel outcome.",
+    labelnames=["outcome"],
+)
+
+# Heaviness of delivered emails — the true failing-schema count (capped rows +
+# omitted), so a digest listing 200 failures is distinguishable from one listing 2.
+EXTERNAL_DATA_FAILURE_DIGEST_SCHEMAS_HISTOGRAM = Histogram(
+    "external_data_failure_digest_schemas",
+    "Failing schemas represented in a delivered failure digest email.",
+    buckets=(1, 2, 3, 5, 10, 20, 30, 50, 100, 250, float("inf")),
+)
+
+EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER = Counter(
+    "external_data_failure_digest_omitted_schemas_total",
+    "Failing schemas dropped from delivered digest emails beyond the per-email cap.",
+)
+
+
+def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
+    """Email a per-team digest of failing external data source syncs.
+
+    Runs inside the digest Celery task (products/data_warehouse/backend/tasks.py),
+    so the send is synchronous. The MessagingRecord campaign key embeds the digest
+    day, capping delivery at one email per team per digest day — repeat calls the
+    same day are no-ops.
+
+    Returns whether the email was actually delivered, so the caller can stamp the
+    included schemas as notified.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="email_unavailable").inc()
+        return False
+
+    # Shift the clock back so the date in the key changes at the boundary hour
+    # (UTC-anchored — date.today() would follow the OS timezone instead).
+    digest_day = (timezone.now() - datetime.timedelta(hours=EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC)).date()
+    campaign_key = f"external_data_failure_digest_{team_id}_{digest_day.strftime('%Y-%m-%d')}"
+
+    # Every job in a burst schedules its own delayed digest task; the first to send
+    # wins and the rest bail here, before the expensive recipient queries and render.
+    if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="deduped").inc()
+        return False
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="team_missing").inc()
+        logger.warning("Team %d not found for external data failure digest", team_id)
+        return False
+
+    # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
+    # flag opens up the catch-up delivers their currently-failing schemas naturally.
+    if not settings.TEST and not posthoganalytics.feature_enabled(
+        key="external-data-failure-digest-email",
+        distinct_id=str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+    ):
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="flag_disabled").inc()
+        return False
+
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
+    if not memberships_to_email:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="no_recipients").inc()
+        return False
+
+    paused_count = sum(1 for schema in schemas if schema["paused"])
+    subject = (
+        f"[Alert] Data warehouse syncs paused in project '{team.name}'"
+        if paused_count == len(schemas) and omitted_count == 0
+        else f"[Alert] Data warehouse syncs failing in project '{team.name}'"
+    )
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="external_data_failure_digest",
+        template_context={
+            "team": team,
+            "schemas": schemas,
+            "has_paused": paused_count > 0,
+            "omitted_count": omitted_count,
+            "sources_url": f"{settings.SITE_URL}/project/{team.id}/data-management/sources",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    # _send_email swallows provider failures without retrying, so only
+    # MessagingRecord.sent_at proves delivery — stamping on enqueue would
+    # permanently silence paused schemas whenever a send failed.
+    message.send(send_async=False)
+    delivered = MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
+    if delivered:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="delivered").inc()
+        EXTERNAL_DATA_FAILURE_DIGEST_SCHEMAS_HISTOGRAM.observe(len(schemas) + omitted_count)
+        if omitted_count:
+            EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER.inc(omitted_count)
+    else:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="send_failed").inc()
+    return delivered
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -669,7 +795,8 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -925,6 +1052,10 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 @skip_team_scope_audit
 def send_two_factor_reset_email(user_id: int, token: str) -> None:
     """Send 2FA reset email to user when an admin initiates a reset."""
+    # Deferred: this constant lives in a DRF viewset module; email.py is eager-imported by
+    # posthog/tasks/__init__, so a module-level import drags that machinery onto startup.
+    from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS  # noqa: PLC0415
+
     user: User = User.objects.get(pk=user_id)
 
     reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"
@@ -939,7 +1070,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
             "user_name": user.first_name,
             "user_email": user.email,
             "url": reset_link,
-            "expiration_hours": 1,
+            "expiration_hours": TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS,
             "site_url": settings.SITE_URL,
         },
     )
@@ -1181,12 +1312,16 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     for membership in memberships_to_email:
         user = membership.user
 
-        # Filter functions based on user's threshold
+        # Filter functions based on user's threshold and per-pipeline opt-out
         # failure_rate is stored as a percentage (e.g., 15.5 for 15.5%), convert to decimal for threshold check
         user_functions = [
             f
             for f in all_functions
-            if should_send_pipeline_error_notification(user, float(f.get("failure_rate", 0) or 0) / 100)
+            if should_send_pipeline_error_notification(
+                user,
+                float(f.get("failure_rate", 0) or 0) / 100,
+                pipeline_id=f"hog_function:{f['id']}" if f.get("id") else None,
+            )
         ]
 
         # Skip this user if no functions exceed their threshold
@@ -1291,7 +1426,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.models.hog_functions.hog_function import HogFunction
+
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
 

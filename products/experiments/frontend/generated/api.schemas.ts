@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -168,6 +168,63 @@ export interface PatchedExperimentSavedMetricApi {
     readonly user_access_level?: string | null
 }
 
+/**
+ * * `server` - Server
+ * * `client` - Client
+ * * `all` - All
+ */
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+
+export const EvaluationRuntimeEnumApi = {
+    Server: 'server',
+    Client: 'client',
+    All: 'all',
+} as const
+
+/**
+ * * `distinct_id` - User ID (default)
+ * * `device_id` - Device ID
+ */
+export type BucketingIdentifierEnumApi = (typeof BucketingIdentifierEnumApi)[keyof typeof BucketingIdentifierEnumApi]
+
+export const BucketingIdentifierEnumApi = {
+    DistinctId: 'distinct_id',
+    DeviceId: 'device_id',
+} as const
+
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
+
+export interface MinimalFeatureFlagApi {
+    readonly id: number
+    readonly team_id: number
+    name?: string
+    /** @maxLength 400 */
+    key: string
+    filters?: MinimalFeatureFlagApiFilters
+    deleted?: boolean
+    active?: boolean
+    /** @nullable */
+    ensure_experience_continuity?: boolean | null
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    version?: number | null
+    /** Specifies where this feature flag should be evaluated
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | null
+    /** Identifier used for bucketing users into rollout and variants
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
+    readonly evaluation_contexts: readonly string[]
+}
+
 export interface ExperimentVariantApi {
     /** Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'. */
     key: string
@@ -179,12 +236,51 @@ export interface ExperimentVariantApi {
 }
 
 export interface ExperimentParametersApi {
+    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
+    excluded_variants?: string[] | null
     /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariantApi[] | null
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number | null
     /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number | null
+}
+
+export type ConversionRateInputTypeApi = (typeof ConversionRateInputTypeApi)[keyof typeof ConversionRateInputTypeApi]
+
+export const ConversionRateInputTypeApi = {
+    Manual: 'manual',
+    Automatic: 'automatic',
+} as const
+
+export type ManualMetricTypeApi = (typeof ManualMetricTypeApi)[keyof typeof ManualMetricTypeApi]
+
+export const ManualMetricTypeApi = {
+    Funnel: 'funnel',
+    MeanCount: 'mean_count',
+    MeanSumOrAvg: 'mean_sum_or_avg',
+} as const
+
+export interface ExperimentExposureEstimateConfigApi {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: ConversionRateInputTypeApi
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number | null
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number | null
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: ManualMetricTypeApi | null
+}
+
+export interface ExperimentRunningTimeCalculationApi {
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfigApi | null
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number | null
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number | null
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number | null
 }
 
 export interface ExperimentToSavedMetricApi {
@@ -199,13 +295,20 @@ export interface ExperimentToSavedMetricApi {
 
 /**
  * * `web` - web
- * `product` - product
+ * * `product` - product
  */
 export type ExperimentTypeEnumApi = (typeof ExperimentTypeEnumApi)[keyof typeof ExperimentTypeEnumApi]
 
 export const ExperimentTypeEnumApi = {
     Web: 'web',
     Product: 'product',
+} as const
+
+export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+
+export const Kind1Api = {
+    ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
+    ActionsNode: 'ActionsNode',
 } as const
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
@@ -257,9 +360,12 @@ export interface EventPropertyFilterApi {
 }
 
 export interface ExperimentApiExposureConfigApi {
-    /** Custom exposure event name. */
-    event: string
-    kind?: 'ExperimentEventExposureConfig'
+    /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
+    event?: string | null
+    /** Action ID. Required when kind is 'ActionsNode'. */
+    id?: number | null
+    /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
+    kind?: Kind1Api | null
     /** Event property filters. Pass an empty array if no filters needed. */
     properties: EventPropertyFilterApi[]
 }
@@ -276,14 +382,54 @@ export const KindApi = {
     ActionsNode: 'ActionsNode',
 } as const
 
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+
+export const ExperimentMetricMathTypeApi = {
+    Total: 'total',
+    Sum: 'sum',
+    UniqueSession: 'unique_session',
+    Min: 'min',
+    Max: 'max',
+    Avg: 'avg',
+    Dau: 'dau',
+    UniqueGroup: 'unique_group',
+    Hogql: 'hogql',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+
+export const MathGroupTypeIndexApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+} as const
+
 export interface ExperimentApiEventSourceApi {
     /** Event name, e.g. '$pageview'. Required for EventsNode. */
     event?: string | null
     /** Action ID. Required for ActionsNode. */
     id?: number | null
     kind: KindApi
+    /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
+    math?: ExperimentMetricMathTypeApi | null
+    /** Group type index to aggregate over. Required when math is 'unique_group'. */
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum. */
+    math_hogql?: string | null
+    /** Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue'). */
+    math_property?: string | null
     /** Event property filters to narrow which events are counted. */
     properties?: EventPropertyFilterApi[] | null
+}
+
+export interface ExperimentMetricOutlierHandlingApi {
+    ignore_zeros?: boolean | null
+    /** Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). */
+    lower_bound_percentile?: number | null
+    /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
+    upper_bound_percentile?: number | null
 }
 
 export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
@@ -328,14 +474,22 @@ export interface ExperimentApiMetricApi {
     conversion_window?: number | null
     /** For ratio metrics: denominator source. */
     denominator?: ExperimentApiEventSourceApi | null
+    /** For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped. */
+    denominator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     /** Whether higher or lower values indicate success. */
     goal?: ExperimentMetricGoalApi | null
+    /** For mean metrics: exclude zero values when computing the winsorization percentile thresholds. */
+    ignore_zeros?: boolean | null
     kind?: 'ExperimentMetric'
+    /** For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation. */
+    lower_bound_percentile?: number | null
     metric_type: ExperimentMetricTypeApi
     /** Human-readable metric name. */
     name?: string | null
     /** For ratio metrics: numerator source. */
     numerator?: ExperimentApiEventSourceApi | null
+    /** For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds. */
+    numerator_outlier_handling?: ExperimentMetricOutlierHandlingApi | null
     retention_window_end?: number | null
     retention_window_start?: number | null
     retention_window_unit?: FunnelConversionWindowTimeUnitApi | null
@@ -346,6 +500,8 @@ export interface ExperimentApiMetricApi {
     /** For retention metrics: start event. */
     start_event?: ExperimentApiEventSourceApi | null
     start_handling?: StartHandlingApi | null
+    /** For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation. */
+    upper_bound_percentile?: number | null
     /** Unique identifier. Auto-generated if omitted. */
     uuid?: string | null
 }
@@ -357,10 +513,10 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
 
 /**
  * * `won` - won
- * `lost` - lost
- * `inconclusive` - inconclusive
- * `stopped_early` - stopped_early
- * `invalid` - invalid
+ * * `lost` - lost
+ * * `inconclusive` - inconclusive
+ * * `stopped_early` - stopped_early
+ * * `invalid` - invalid
  */
 export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
 
@@ -380,8 +536,6 @@ export const ExperimentStatusEnumApi = {
     Paused: 'paused',
     Stopped: 'stopped',
 } as const
-
-export type ExperimentApiFeatureFlag = { [key: string]: unknown }
 
 /**
  * Mixin for serializers to add user access control fields
@@ -403,9 +557,9 @@ export interface ExperimentApi {
     start_date?: string | null
     /** @nullable */
     end_date?: string | null
-    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
+    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key: string
-    readonly feature_flag: ExperimentApiFeatureFlag
+    readonly feature_flag: MinimalFeatureFlagApi
     readonly holdout: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -414,8 +568,10 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
     parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     secondary_metrics?: unknown
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
     /**
@@ -432,13 +588,13 @@ export interface ExperimentApi {
     readonly created_at: string
     readonly updated_at: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
-
-  * `web` - web
-  * `product` - product */
+     *
+     * * `web` - web
+     * * `product` - product */
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -448,12 +604,12 @@ export interface ExperimentApi {
     allow_unknown_events?: boolean
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
-
-  * `won` - won
-  * `lost` - lost
-  * `inconclusive` - inconclusive
-  * `stopped_early` - stopped_early
-  * `invalid` - invalid */
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
@@ -483,8 +639,6 @@ export interface PaginatedExperimentListApi {
     results: ExperimentApi[]
 }
 
-export type PatchedExperimentApiFeatureFlag = { [key: string]: unknown }
-
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -505,9 +659,9 @@ export interface PatchedExperimentApi {
     start_date?: string | null
     /** @nullable */
     end_date?: string | null
-    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
+    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key?: string
-    readonly feature_flag?: PatchedExperimentApiFeatureFlag
+    readonly feature_flag?: MinimalFeatureFlagApi
     readonly holdout?: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -516,8 +670,10 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
     parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     secondary_metrics?: unknown
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /**
@@ -534,13 +690,13 @@ export interface PatchedExperimentApi {
     readonly created_at?: string
     readonly updated_at?: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
-
-  * `web` - web
-  * `product` - product */
+     *
+     * * `web` - web
+     * * `product` - product */
     type?: ExperimentTypeEnumApi | null
     /** Exposure configuration including filter test accounts and custom exposure events. */
     exposure_criteria?: ExperimentApiExposureCriteriaApi | null
-    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project. */
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
     metrics?: _ExperimentApiMetricsListApi | null
     /** Secondary metrics for additional measurements. Same format as primary metrics. */
     metrics_secondary?: _ExperimentApiMetricsListApi | null
@@ -550,12 +706,12 @@ export interface PatchedExperimentApi {
     allow_unknown_events?: boolean
     _create_in_folder?: string
     /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
-
-  * `won` - won
-  * `lost` - lost
-  * `inconclusive` - inconclusive
-  * `stopped_early` - stopped_early
-  * `invalid` - invalid */
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
@@ -587,12 +743,12 @@ export interface CopyExperimentToProjectApi {
 
 export interface EndExperimentApi {
     /** The conclusion of the experiment.
-
-  * `won` - won
-  * `lost` - lost
-  * `inconclusive` - inconclusive
-  * `stopped_early` - stopped_early
-  * `invalid` - invalid */
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
@@ -601,14 +757,158 @@ export interface EndExperimentApi {
     conclusion_comment?: string | null
 }
 
+/**
+ * * `manual` - manual
+ * * `experiment_launch` - experiment_launch
+ * * `experiment_stop` - experiment_stop
+ * * `experiment_update` - experiment_update
+ */
+export type RecalculateMetricsRequestTriggerEnumApi =
+    (typeof RecalculateMetricsRequestTriggerEnumApi)[keyof typeof RecalculateMetricsRequestTriggerEnumApi]
+
+export const RecalculateMetricsRequestTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
+} as const
+
+/**
+ * Request body for triggering a metrics recalculation.
+ */
+export interface RecalculateMetricsRequestApi {
+    /** What triggered this recalculation (manual is the default for user-initiated runs)
+     *
+     * * `manual` - manual
+     * * `experiment_launch` - experiment_launch
+     * * `experiment_stop` - experiment_stop
+     * * `experiment_update` - experiment_update */
+    trigger?: RecalculateMetricsRequestTriggerEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ExperimentMetricsRecalculationStatusEnumApi =
+    (typeof ExperimentMetricsRecalculationStatusEnumApi)[keyof typeof ExperimentMetricsRecalculationStatusEnumApi]
+
+export const ExperimentMetricsRecalculationStatusEnumApi = {
+    Pending: 'pending',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `manual` - Manual
+ * * `experiment_launch` - Experiment Launch
+ * * `experiment_stop` - Experiment Stop
+ * * `experiment_update` - Experiment Update
+ */
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
+} as const
+
+/**
+ * * `pending` - pending
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type MetricRecalculationResultStatusEnumApi =
+    (typeof MetricRecalculationResultStatusEnumApi)[keyof typeof MetricRecalculationResultStatusEnumApi]
+
+export const MetricRecalculationResultStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * One metric's recalculated result row, read back from ExperimentMetricResult.
+ */
+export interface MetricRecalculationResultApi {
+    /** UUID of the metric this result belongs to */
+    readonly metric_uuid: string
+    /** Status of this metric's calculation in the run
+     *
+     * * `pending` - pending
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: MetricRecalculationResultStatusEnumApi
+    /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+    readonly result: unknown
+    /**
+     * Error message when status is failed; otherwise null
+     * @nullable
+     */
+    readonly error_message: string | null
+}
+
+/**
+ * Serializer for metrics recalculation status responses.
+ */
+export interface ExperimentMetricsRecalculationApi {
+    /** Unique identifier for this recalculation job */
+    readonly id: string
+    /** ID of the experiment being recalculated */
+    readonly experiment_id: number
+    /** Current status of the recalculation job
+     *
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ExperimentMetricsRecalculationStatusEnumApi
+    /** Total number of metrics to recalculate */
+    readonly total_metrics: number
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+    readonly completed_metrics: number
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+    readonly failed_metrics: number
+    /** Map of metric_uuid to error details */
+    readonly metric_errors: unknown
+    /** What triggered this recalculation
+     *
+     * * `manual` - Manual
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update */
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
+    /** When the job was created */
+    readonly created_at: string
+    /**
+     * When processing started
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When processing completed
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /** True if returning an existing job rather than a newly created one */
+    readonly is_existing: boolean
+    /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+    readonly results: readonly MetricRecalculationResultApi[]
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
-
-  * `won` - won
-  * `lost` - lost
-  * `inconclusive` - inconclusive
-  * `stopped_early` - stopped_early
-  * `invalid` - invalid */
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
@@ -623,8 +923,8 @@ export interface ShipVariantApi {
 
 /**
  * * `cost` - cost
- * `latency` - latency
- * `eval_pass_rate` - eval_pass_rate
+ * * `latency` - latency
+ * * `eval_pass_rate` - eval_pass_rate
  */
 export type TemplatesEnumApi = (typeof TemplatesEnumApi)[keyof typeof TemplatesEnumApi]
 
@@ -641,6 +941,7 @@ export interface CreateFromPromptInputApi {
      * Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.
      * @minItems 2
      * @maxItems 10
+     * @items.minimum 1
      */
     versions: number[]
     /**
@@ -677,6 +978,10 @@ export type ExperimentSavedMetricsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
 }
 
 export type ExperimentsListParams = {
@@ -688,6 +993,10 @@ export type ExperimentsListParams = {
      * Filter to experiments created by the given user ID.
      */
     created_by_id?: number
+    /**
+     * Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.
+     */
+    event?: string
     /**
      * Filter to experiments linked to the given feature flag ID.
      */

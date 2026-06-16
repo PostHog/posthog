@@ -1,7 +1,24 @@
+import posthog from 'posthog-js'
+
 import { toSentenceCase } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { APIScopeObject, AccessControlLevel, AccessControlResourceType } from '~/types'
+import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
+
+/** Which iteration of the access control settings UI an interaction came from. */
+export type AccessControlUIVersion = 'v1' | 'v2'
+
+/**
+ * Capture an access control analytics event. All events are tagged with
+ * `platform_feature: ACCESS_CONTROL` so usage of the feature can be grouped and
+ * filtered together, matching the tagging used elsewhere (e.g. RestrictedArea).
+ */
+export const captureAccessControlEvent = (event: string, properties?: Record<string, unknown>): void => {
+    posthog.capture(event, {
+        ...properties,
+        platform_feature: AvailableFeature.ACCESS_CONTROL,
+    })
+}
 
 /**
  * Returns the minimum allowed access level for a resource.
@@ -42,7 +59,7 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     if (resource === AccessControlResourceType.CustomerAnalytics) {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
-        return 'LLM analytics'
+        return 'AI observability'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
@@ -56,6 +73,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === AccessControlResourceType.Tracing) {
+        return 'tracing'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -89,7 +108,7 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
     if (resourceType === AccessControlResourceType.CustomerAnalytics) {
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
-        return 'LLM analytics resource'
+        return 'AI observability resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {

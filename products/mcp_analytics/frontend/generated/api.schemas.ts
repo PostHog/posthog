@@ -9,7 +9,7 @@
  */
 /**
  * * `feedback` - Feedback
- * `missing_capability` - Missing capability
+ * * `missing_capability` - Missing capability
  */
 export type MCPAnalyticsSubmissionKindEnumApi =
     (typeof MCPAnalyticsSubmissionKindEnumApi)[keyof typeof MCPAnalyticsSubmissionKindEnumApi]
@@ -23,9 +23,9 @@ export interface MCPAnalyticsSubmissionApi {
     /** Unique identifier for this submission. */
     readonly id: string
     /** Whether this submission is general feedback or a missing capability report.
-
-  * `feedback` - Feedback
-  * `missing_capability` - Missing capability */
+     *
+     * * `feedback` - Feedback
+     * * `missing_capability` - Missing capability */
     readonly kind: MCPAnalyticsSubmissionKindEnumApi
     /** The user's goal in plain language. */
     goal: string
@@ -69,10 +69,10 @@ export interface PaginatedMCPAnalyticsSubmissionListApi {
 
 /**
  * * `results` - Results
- * `usability` - Usability
- * `bug` - Bug
- * `docs` - Docs
- * `other` - Other
+ * * `usability` - Usability
+ * * `bug` - Bug
+ * * `docs` - Docs
+ * * `other` - Other
  */
 export type MCPFeedbackCreateCategoryEnumApi =
     (typeof MCPFeedbackCreateCategoryEnumApi)[keyof typeof MCPFeedbackCreateCategoryEnumApi]
@@ -132,19 +132,19 @@ export interface MCPFeedbackCreateApi {
      */
     feedback: string
     /** High-level category for the feedback.
-
-  * `results` - Results
-  * `usability` - Usability
-  * `bug` - Bug
-  * `docs` - Docs
-  * `other` - Other */
+     *
+     * * `results` - Results
+     * * `usability` - Usability
+     * * `bug` - Bug
+     * * `docs` - Docs
+     * * `other` - Other */
     category?: MCPFeedbackCreateCategoryEnumApi
 }
 
 /**
  * * `idle` - Idle
- * `computing` - Computing
- * `error` - Error
+ * * `computing` - Computing
+ * * `error` - Error
  */
 export type MCPIntentClusterSnapshotStatusEnumApi =
     (typeof MCPIntentClusterSnapshotStatusEnumApi)[keyof typeof MCPIntentClusterSnapshotStatusEnumApi]
@@ -170,7 +170,7 @@ export interface MCPIntentClusterToolEntryApi {
 
 /**
  * * `completed` - Completed
- * `error` - Error
+ * * `error` - Error
  */
 export type OutcomeEnumApi = (typeof OutcomeEnumApi)[keyof typeof OutcomeEnumApi]
 
@@ -183,9 +183,9 @@ export interface MCPIntentClusterJourneyPathApi {
     /** Ordered tool names called during the path. Length is fixed; null entries indicate the session ended before this step. */
     readonly steps: readonly (string | null)[]
     /** Terminal outcome of the sessions following this path.
-
-  * `completed` - Completed
-  * `error` - Error */
+     *
+     * * `completed` - Completed
+     * * `error` - Error */
     readonly outcome: OutcomeEnumApi
     /** Number of sessions in this cluster that followed this exact path. */
     readonly count: number
@@ -238,10 +238,10 @@ export interface MCPIntentClusterSnapshotMetaApi {
 
 export interface MCPIntentClusterSnapshotApi {
     /** Whether a snapshot is current (idle), being recomputed (computing), or failed (error).
-
-  * `idle` - Idle
-  * `computing` - Computing
-  * `error` - Error */
+     *
+     * * `idle` - Idle
+     * * `computing` - Computing
+     * * `error` - Error */
     readonly status: MCPIntentClusterSnapshotStatusEnumApi
     /** Error message from the most recent failed run, otherwise empty. */
     readonly error_message: string
@@ -309,7 +309,7 @@ export interface MCPMissingCapabilityCreateApi {
 }
 
 export interface MCPSessionApi {
-    /** PostHog $session_id grouping all mcp_tool_call events. */
+    /** $mcp_session_id grouping all mcp_tool_call events in the session. */
     readonly session_id: string
     /** Total number of mcp_tool_call events in the session. */
     readonly tool_calls: number
@@ -329,17 +329,21 @@ export interface MCPSessionApi {
     readonly person_email: string
     /** name property of the Person resolved from distinct_id; empty when no Person is mapped. */
     readonly person_name: string
-    /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until the summary workflow runs. */
+    /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. Empty until generated on demand via the generate_intent endpoint. */
     readonly intent: string
 }
 
 export interface PaginatedMCPSessionListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
     results: MCPSessionApi[]
+    /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+    has_next: boolean
+}
+
+export interface MCPSessionIntentApi {
+    /** $mcp_session_id the intent summary was generated for. */
+    readonly session_id: string
+    /** LLM-generated summary (at most two sentences) of the agent's overall goal for the session. */
+    readonly intent: string
 }
 
 export interface MCPToolCallApi {
@@ -363,12 +367,9 @@ export interface MCPToolCallApi {
 }
 
 export interface PaginatedMCPToolCallListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
     results: MCPToolCallApi[]
+    /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
+    has_next: boolean
 }
 
 export type McpAnalyticsFeedbackListParams = {
@@ -403,7 +404,7 @@ export type McpAnalyticsSessionsListParams = {
      */
     offset?: number
     /**
-     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_end'.
+     * Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).
      */
     order_by?: string
     /**

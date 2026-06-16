@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
@@ -52,7 +52,7 @@ import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventsFilter } from '~/queries/nodes/EventsNode/EventsFilter'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
@@ -181,6 +181,7 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
+    const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
@@ -190,17 +191,29 @@ export function DataTable({
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables &&
         response?.hogql
+    // Lazy precompute can be on without the v2 pre-agg flag, so check it
+    // independently of `canUseWebAnalyticsPreAggregatedTables`.
+    const usedWebAnalyticsLazyPrecompute = Boolean(
+        response && 'usedLazyPrecompute' in response && response.usedLazyPrecompute
+    )
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
-        vizKey,
+        vizKey: uniqueKey ? String(uniqueKey) : vizKey,
         dataKey,
         dataNodeLogicKey: dataNodeLogicProps.key,
         context,
     }
-    const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const {
+        dataTableRows,
+        columnsInQuery,
+        columnsInResponse,
+        queryWithDefaults,
+        canSort,
+        sourceFeatures,
+        expandedRows,
+    } = useValues(dataTableLogic(dataTableLogicProps))
+    const { toggleRowExpanded } = useActions(dataTableLogic(dataTableLogicProps))
 
     useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     useAttachedLogic(dataTableLogic(dataTableLogicProps), attachTo)
@@ -880,7 +893,14 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <div className="relative">
-                            {usedWebAnalyticsPreAggregatedTables && <PreAggregatedBadge />}
+                            {usedWebAnalyticsLazyPrecompute ? (
+                                <PreAggregatedBadge
+                                    variant="precomputed"
+                                    onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                />
+                            ) : usedWebAnalyticsPreAggregatedTables ? (
+                                <PreAggregatedBadge variant="preagg" />
+                            ) : null}
                             <LemonTable
                                 data-attr={dataAttr}
                                 className="DataTable"
@@ -904,6 +924,7 @@ export function DataTable({
                                             <InsightErrorState
                                                 query={query}
                                                 excludeDetail
+                                                onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
@@ -913,7 +934,10 @@ export function DataTable({
                                                 }
                                             />
                                         ) : (
-                                            <InsightErrorState query={query} />
+                                            <InsightErrorState
+                                                query={query}
+                                                onRetry={() => loadData('force_blocking')}
+                                            />
                                         )
                                     ) : (
                                         <InsightEmptyState
@@ -928,6 +952,9 @@ export function DataTable({
                                         ? context.expandable
                                         : expandable && columnsInResponse?.includes('*')
                                           ? {
+                                                isRowExpanded: (_, rowIndex) => expandedRows.includes(rowIndex),
+                                                onRowExpand: (_, rowIndex) => toggleRowExpanded(rowIndex),
+                                                onRowCollapse: (_, rowIndex) => toggleRowExpanded(rowIndex),
                                                 expandedRowRender: function renderExpand({ result }) {
                                                     if (
                                                         (isEventsQuery(query.source) ||

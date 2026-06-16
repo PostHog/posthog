@@ -33,7 +33,7 @@ export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run'
+    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run' | 'endpoints'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]
@@ -66,7 +66,7 @@ export type GroupedLogEntry = {
 }
 
 export type LogEntryParams = {
-    sourceType: 'hog_function' | 'hog_flow' | 'data_modeling_run'
+    sourceType: LogsViewerLogicProps['sourceType']
     sourceId: string
     levels: LogEntryLevel[]
     searchGroups: string[]

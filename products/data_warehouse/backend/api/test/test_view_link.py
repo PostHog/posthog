@@ -10,11 +10,12 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseTable
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -565,7 +566,8 @@ class TestViewLinkValidation(APIBaseTest):
         data = response.json()
         self.assertEqual(data["attr"], None)
         self.assertEqual(data["code"], "invalid_input")
-        self.assertEqual(data["detail"], "Unexpected character '!' (U+0021)")
+        # rust-py and the legacy cpp parser surface different low-level wording on this
+        # garbage input; just assert that a parse error was returned.
         self.assertEqual(data["type"], "validation_error")
 
     def test_missing_source_table_name(self):

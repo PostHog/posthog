@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
@@ -43,14 +42,21 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
+import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
 
-function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
+function PropertyValueComponent({
+    property,
+    getDistinctIdName,
+}: {
+    property: AnyPropertyFilter
+    getDistinctIdName: (distinctId: string) => string
+}): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
@@ -63,12 +69,13 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
         return <></>
     }
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+    const isDistinctId = isDistinctIdFilter(property)
 
     return (
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {String(val)}
+                    {isDistinctId ? getDistinctIdName(String(val)) : String(val)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -93,7 +100,6 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
 export function FeatureFlagReleaseConditions({
     id,
     readOnly,
-    isSuper,
     excludeTitle,
     filters,
     onChange,
@@ -105,7 +111,6 @@ export function FeatureFlagReleaseConditions({
     isDisabled,
 }: FeatureFlagReleaseConditionsLogicProps & {
     hideMatchOptions?: boolean
-    isSuper?: boolean
     excludeTitle?: boolean
     showTrashIconWithOneCondition?: boolean
     removedLastConditionCallback?: () => void
@@ -114,7 +119,6 @@ export function FeatureFlagReleaseConditions({
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
         readOnly,
-        isSuper,
         excludeTitle,
         filters,
         onChange,
@@ -129,6 +133,7 @@ export function FeatureFlagReleaseConditions({
         aggregationTargetName,
         properties,
         filterGroups,
+        getDistinctIdName,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -142,8 +147,7 @@ export function FeatureFlagReleaseConditions({
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } =
-        useValues(featureFlagLogic)
+    const { hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } = useValues(featureFlagLogic)
     const { setBucketingIdentifier, setFeatureFlag } = useActions(featureFlagLogic)
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
@@ -348,7 +352,7 @@ export function FeatureFlagReleaseConditions({
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    <PropertyValueComponent property={property} />
+                                    <PropertyValueComponent property={property} getDistinctIdName={getDistinctIdName} />
                                 </div>
                             ))}
                         </>
@@ -391,7 +395,6 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
@@ -491,20 +494,7 @@ export function FeatureFlagReleaseConditions({
                                 })()}{' '}
                                 <span>of total {aggregationTargetName(group.aggregation_group_type_index)}.</span>
                                 {filters.aggregation_group_type_index == null && (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                A user may have{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                    target="_blank"
-                                                >
-                                                    multiple profiles
-                                                </Link>
-                                            </>
-                                        }
-                                        interactive
-                                    >
+                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
                                         <IconInfo className="text-muted text-xs ml-0.5" />
                                     </Tooltip>
                                 )}
@@ -554,74 +544,9 @@ export function FeatureFlagReleaseConditions({
         )
     }
 
-    const renderSuperReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
-        if (!readOnly) {
-            return <></>
-        }
-
-        // TODO: EarlyAccessFeatureType is not the correct type for featureFlag.features, hence bypassing TS check
-        const hasMatchingEarlyAccessFeature = earlyAccessFeaturesList?.find((f: any) => f.flagKey === featureFlagKey)
-
-        return (
-            <div className="w-full" key={group.sort_key}>
-                {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
-                <div className="mb-4 rounded p-4 bg-surface-primary">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                            <div>
-                                {group.properties?.length ? (
-                                    <>
-                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
-                                        value set on <LemonSnack>{'$feature_enrollment/' + featureFlagKey}</LemonSnack>
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match{' '}
-                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    <LemonDivider className="my-3" />
-
-                    {(group.properties?.length || 0) > 0 && (
-                        <>
-                            <div className="feature-flag-property-display">
-                                <LemonButton icon={<IconSubArrowRight className="arrow-right" />} size="small" />
-                                <span>
-                                    If null, default to <b>Release conditions</b>
-                                </span>
-                            </div>
-                            <LemonDivider className="my-3" />
-                        </>
-                    )}
-                    <div className="flex items-center justify-between">
-                        <div />
-                        <LemonButton
-                            disabledReason={
-                                !hasMatchingEarlyAccessFeature &&
-                                'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
-                            }
-                            aria-label="more"
-                            data-attr="feature-flag-feature-list-button"
-                            size="small"
-                            onClick={() =>
-                                hasEarlyAccessFeatures &&
-                                router.actions.push(urls.earlyAccessFeature(earlyAccessFeaturesList[0].id))
-                            }
-                        >
-                            {hasMatchingEarlyAccessFeature ? 'View Early Access Feature' : 'No Early Access Feature'}
-                        </LemonButton>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
     return (
         <SceneSection
-            title={excludeTitle ? null : isSuper ? 'Super release conditions' : 'Release conditions'}
+            title={excludeTitle ? null : 'Release conditions'}
             data-attr="feature-flag-release-conditions"
             description={
                 !readOnly &&
@@ -805,11 +730,7 @@ export function FeatureFlagReleaseConditions({
             )}
             <div className="FeatureConditionCard max-w-prose">
                 {filterGroups.map((group, index) => (
-                    <div key={group.sort_key || index}>
-                        {isSuper
-                            ? renderSuperReleaseConditionGroup(group, index)
-                            : renderReleaseConditionGroup(group, index)}
-                    </div>
+                    <div key={group.sort_key || index}>{renderReleaseConditionGroup(group, index)}</div>
                 ))}
             </div>
             {!readOnly && (

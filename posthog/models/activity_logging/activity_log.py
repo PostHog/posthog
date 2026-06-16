@@ -69,6 +69,7 @@ ActivityScope = Literal[
     "Subscription",
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
+    "OAuthApplication",
     "User",
     "Action",
     "AlertConfiguration",
@@ -76,18 +77,30 @@ ActivityScope = Literal[
     "AlertSubscription",
     "ExternalDataSource",
     "ExternalDataSchema",
+    "Evaluation",
     "LLMTrace",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
     "LogsExclusionRule",
+    "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "InstanceSetting",
+    "SignalScoutConfig",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
 ]
+
+# Internal-only scope key. Used by `field_exclusions` and `changes_between` to address
+# through-tables and other internal models that are never exposed as a top-level
+# `scope` in stored activity logs. Keeping these out of `ActivityScope` prevents them
+# from leaking into the generated `ActivityLogListScope` API enum, where filtering by
+# them would always return zero results.
+InternalActivityScope = Literal["ExperimentToSavedMetric",]
+AuditableScope = Union[ActivityScope, InternalActivityScope]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -188,6 +201,8 @@ class ActivityLog(UUIDTModel):
     is_system = models.BooleanField(null=True)
     # Value of the x-posthog-client request header captured when the activity was logged
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
+    # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -218,7 +233,7 @@ common_field_exclusions = [
 ]
 
 
-field_with_masked_contents: dict[ActivityScope, list[str]] = {
+field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
     ],
@@ -249,7 +264,7 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
 }
 
-field_name_overrides: dict[ActivityScope, dict[str, str]] = {
+field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
@@ -257,6 +272,7 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
         "name": "organization name",
         "enforce_2fa": "two-factor authentication requirement",
         "members_can_invite": "member invitation permissions",
+        "members_can_create_projects": "member project creation permissions",
         "members_can_use_personal_api_keys": "personal API key permissions",
         "allow_publicly_shared_resources": "public sharing permissions",
         "is_member_join_email_enabled": "member join email notifications",
@@ -271,6 +287,10 @@ field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+    },
+    "SignalScoutConfig": {
+        "run_interval_minutes": "run interval (minutes)",
+        "emit": "emit findings",
     },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
@@ -314,6 +334,15 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "OrganizationDomain": [
         "last_verification_retry",
     ],
+    "Subscription": [
+        "next_delivery_date",
+    ],
+    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout).
+    # When that is the only change, suppress the activity signal entirely so run bookkeeping
+    # never spams the audit log.
+    "SignalScoutConfig": [
+        "last_run_at",
+    ],
 }
 
 # Activity visibility restrictions - controls which users can see certain activity logs
@@ -343,12 +372,25 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "exclude_when": {},
         "allow_staff": True,
     },
+    {
+        # Instance-setting changes are staff-only operations and must not leak into the
+        # org-scoped activity log endpoints, which are visible to organization admins.
+        "scope": "InstanceSetting",
+        "activities": ["updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
 ]
 
-field_exclusions: dict[ActivityScope, list[str]] = {
+field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+    ],
+    "Subscription": [
+        # Scheduler-derived field; keep it out of user-facing change diffs even when another
+        # field changes in the same save (signal_exclusions only governs whether the signal fires).
+        "next_delivery_date",
     ],
     "Cohort": [
         "version",
@@ -384,8 +426,15 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "experiments",
         "experimenttosavedmetric_set",
     ],
+    "ExperimentToSavedMetric": [
+        "experiment",
+        "saved_metric",
+    ],
     "ProjectSecretAPIKey": [
         "secure_value",
+        # Gateway is team-scoped; resolving it for a diff would hit the fail-closed
+        # manager. Binding changes are audited by the gateway management API instead.
+        "gateway",
     ],
     "Person": [
         "distinct_ids",
@@ -589,6 +638,36 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "latest_error",
         "last_synced_at",
     ],
+    "Evaluation": [
+        # Reverse relations — auto-managed by FK creates, not user intent.
+        "reports",
+    ],
+    "SignalScoutConfig": [
+        # Run bookkeeping, not user intent — keep it out of change detection even when it
+        # rides along with a real change (belt-and-suspenders with signal_exclusions above).
+        "last_run_at",
+        # Reverse relations auto-managed by FK creates, not user-initiated config changes.
+        "runs",
+    ],
+    "OAuthApplication": [
+        # Secrets — never diff these, even masked.
+        "client_secret",
+        "hash_client_secret",
+        "provisioning_signing_secret",
+        # Reverse token relations can hold tens of thousands of rows; reading
+        # through them in `changes_between` would scan the token tables.
+        "oauthaccesstoken",
+        "oauthidtoken",
+        "oauthrefreshtoken",
+        "oauthgrant",
+        # Bookkeeping timestamps and FKs, not scope-ceiling intent.
+        "created",
+        "updated",
+        "cimd_metadata_last_fetched",
+        "dcr_client_id_issued_at",
+        "organization",
+        "user",
+    ],
 }
 
 
@@ -600,11 +679,11 @@ def describe_change(m: Any) -> Union[str, dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
-        description = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
-        if m.insight:
-            description["insight"] = {"id": m.insight.id}
-        if m.text:
-            description["text"] = {"id": m.text.id}
+        description: dict[str, Any] = {"dashboard": {"id": m.dashboard.id, "name": m.dashboard.name}}
+        description["insight"] = {"id": m.insight_id} if m.insight_id else None
+        description["text"] = {"id": m.text_id} if m.text_id else None
+        description["button_tile"] = {"id": m.button_tile_id} if m.button_tile_id else None
+        description["widget"] = {"id": str(m.widget_id)} if m.widget_id else None
         return description
     else:
         return str(m)
@@ -658,7 +737,7 @@ def safely_get_field_value(instance: models.Model | None, field: str):
 
 
 def changes_between(
-    model_type: ActivityScope,
+    model_type: AuditableScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> list[Change]:
@@ -726,7 +805,7 @@ def changes_between(
 
 
 def dict_changes_between(
-    model_type: ActivityScope,
+    model_type: AuditableScope,
     previous: dict[Any, Any],
     new: dict[Any, Any],
     use_field_exclusions: bool = False,
@@ -807,11 +886,14 @@ def log_activity(
     detail: Detail,
     was_impersonated: bool,
     client: Optional[str] = None,
+    ip_address: Optional[str] = None,
     force_save: bool = False,
     instance_only: bool = False,
 ) -> ActivityLog | None:
     if client is None:
         client = activity_storage.get_client()
+    if ip_address is None:
+        ip_address = activity_storage.get_ip_address()
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -845,6 +927,7 @@ def log_activity(
                 activity=activity,
                 detail=detail,
                 client=client,
+                ip_address=ip_address,
             )
 
         def _do_log_activity():
@@ -860,6 +943,7 @@ def log_activity(
                 activity=log.activity,
                 detail=log.detail,
                 client=log.client,
+                ip_address=log.ip_address,
             )
 
         if instance_only:
@@ -900,6 +984,7 @@ class LogActivityEntry(TypedDict, total=False):
     detail: Required[Detail]
     was_impersonated: Required[bool]
     client: Optional[str]
+    ip_address: Optional[str]
     force_save: bool
 
 

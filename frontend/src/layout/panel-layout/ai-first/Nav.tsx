@@ -1,8 +1,9 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { lazy, Suspense, useRef } from 'react'
+import { lazy, Suspense, useEffect, useRef } from 'react'
 
 import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
 
@@ -11,20 +12,26 @@ import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { NotificationsPanel } from 'lib/components/NotificationsMenu/NotificationsPanel'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
-import { NavExperimentTab, PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import {
+    NavExperimentTab,
+    PANEL_NAVBAR_COLLAPSE_THRESHOLD,
+    PANEL_NAVBAR_DEFAULT_WIDTH,
+    PanelLayoutNavIdentifier,
+    panelLayoutLogic,
+} from '~/layout/panel-layout/panelLayoutLogic'
 
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
-import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
+import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
@@ -98,12 +105,33 @@ export function Nav(): JSX.Element {
         setActivePanelIdentifier,
         showLayoutPanel,
         clearActivePanelIdentifier,
+        setNavbarWidth,
     } = useActions(panelLayoutLogic)
     const { isLayoutPanelVisible, isLayoutNavCollapsed, navExperimentActiveTab, activePanelIdentifier } =
         useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { firstTabIsActive } = useValues(sceneLogic)
     const { toggleCommand } = useActions(commandLogic)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        logicKey: 'panel-layout-navbar',
+        placement: 'right',
+        containerRef,
+        persistent: true,
+        closeThreshold: PANEL_NAVBAR_COLLAPSE_THRESHOLD,
+        onToggleClosed: (shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed),
+        onDoubleClick: () => toggleLayoutNavCollapsed(),
+    }
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
+    // Grow to any width upward; never render narrower than the collapse snap so the live drag
+    // stays in sync with where onToggleClosed flips to collapsed mode.
+    const openWidth = Math.max(Math.round(desiredSize ?? PANEL_NAVBAR_DEFAULT_WIDTH), PANEL_NAVBAR_COLLAPSE_THRESHOLD)
+
+    useEffect(() => {
+        if (!isLayoutNavCollapsed && !isMobileLayout) {
+            setNavbarWidth(openWidth)
+        }
+    }, [openWidth, isLayoutNavCollapsed, isMobileLayout, setNavbarWidth])
 
     useAppShortcut({
         name: 'ToggleLeftNav',
@@ -174,10 +202,14 @@ export function Nav(): JSX.Element {
                                 tooltipPlacement="right"
                                 active={activePanelIdentifier === 'Chat'}
                                 onClick={() => {
+                                    const isOpening = activePanelIdentifier !== 'Chat'
                                     posthog.capture('nav chat panel toggled', {
-                                        is_open: activePanelIdentifier !== 'Chat',
+                                        is_open: isOpening,
                                     })
                                     handlePanelTriggerClick('Chat')
+                                    if (isOpening) {
+                                        router.actions.push(urls.ai())
+                                    }
                                 }}
                             >
                                 <span
@@ -206,6 +238,9 @@ export function Nav(): JSX.Element {
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
+                        if (value === 'chat') {
+                            router.actions.push(urls.ai())
+                        }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
@@ -288,15 +323,9 @@ export function Nav(): JSX.Element {
                 </Tabs.Root>
                 {!isMobileLayout && (
                     <Resizer
-                        logicKey="panel-layout-navbar"
-                        placement="right"
-                        containerRef={containerRef}
-                        closeThreshold={100}
-                        onToggleClosed={(shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed)}
-                        onDoubleClick={() => toggleLayoutNavCollapsed()}
+                        {...resizerLogicProps}
                         data-attr="tree-navbar-resizer"
-                        className={cn('top-[calc(var(--scene-layout-header-height)+7px)] right-[-1px] bottom-4 z-2', {
-                            'top-[var(--scene-layout-header-height)]': firstTabIsActive,
+                        className={cn('top-3 -right-px bottom-4 z-2', {
                             'top-0': isLayoutPanelVisible,
                         })}
                         offset={0}
@@ -304,45 +333,12 @@ export function Nav(): JSX.Element {
                 )}
             </nav>
 
-            {activePanelIdentifier === 'DataAndPeople' && (
-                <ProjectTree root="data-and-people://" searchPlaceholder="Search data" />
-            )}
-            {activePanelIdentifier === 'Project' && (
-                <ProjectTree
-                    root="project://"
-                    logicKey={PROJECT_TREE_KEY}
-                    searchPlaceholder="Search files"
-                    showRecents
-                />
-            )}
-            {activePanelIdentifier === 'Products' && <ProjectTree root="products://" searchPlaceholder="Search apps" />}
-            {activePanelIdentifier === 'Shortcuts' && (
-                <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />
-            )}
-            {activePanelIdentifier === 'Notifications' && <NotificationsPanel />}
-            {activePanelIdentifier === 'Chat' && (
-                <div className="flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]">
-                    <Suspense
-                        fallback={
-                            <div className="flex flex-col gap-px px-1 pt-2">
-                                {Array.from({ length: 15 }).map((_, index) => (
-                                    <WrappingLoadingSkeleton fullWidth key={index}>
-                                        <ButtonPrimitive aria-hidden inert menuItem />
-                                    </WrappingLoadingSkeleton>
-                                ))}
-                            </div>
-                        }
-                    >
-                        <NavTabChat
-                            inPanel
-                            onItemClick={() => {
-                                clearActivePanelIdentifier()
-                                showLayoutPanel(false)
-                            }}
-                        />
-                    </Suspense>
-                </div>
-            )}
+            {/* Desktop renders panel content inline next to the nav (PanelLayoutPanel's
+                ResizableElement positions it via left:100% of this flex parent). On mobile we
+                lift the panel out to PanelLayout.tsx so it can have its own stacking context
+                independent of #project-panel-layout — this lets the dim overlay slot between
+                the nav and the panel. */}
+            {!isMobileLayout && <PanelLayoutPanels />}
         </div>
     )
 }

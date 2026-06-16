@@ -1,6 +1,8 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
+from django.db import close_old_connections
+
 import s3fs
 import pyarrow as pa
 import deltalake as deltalake
@@ -9,12 +11,14 @@ import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.common.load import run_post_load_operations, supports_partial_data_loading
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     append_partition_key_to_table,
+    evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
@@ -30,13 +34,15 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     PARQUET_READ_DURATION_SECONDS,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
+from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import release_v3_pipeline_lock
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -133,12 +139,14 @@ async def _handle_partial_data_loading(
         if modified_files:
             logger.warning(
                 "Found modified files during first sync, skipping partial data loading",
+                batch_index=export_signal.batch_index,
                 modified_count=len(modified_files),
             )
+            capture_exception(Exception(f"Found {len(modified_files)} modified delta files during first sync"))
             return
 
     if not new_file_uris:
-        logger.debug("No new files to make queryable")
+        logger.debug("No new files to make queryable", batch_index=export_signal.batch_index)
         return
 
     logger.debug(
@@ -168,7 +176,11 @@ async def _handle_partial_data_loading(
         primary_keys=export_signal.primary_keys,
     )
 
-    logger.debug("partial_data_loading_complete", queryable_folder=queryable_folder)
+    logger.debug(
+        "partial_data_loading_complete",
+        batch_index=export_signal.batch_index,
+        queryable_folder=queryable_folder,
+    )
 
 
 def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
@@ -201,7 +213,11 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
         delta_table = await delta_table_helper.get_delta_table()
         if delta_table is None:
-            logger.warning("no_delta_table_for_post_load", job_id=export_signal.job_id)
+            logger.error(
+                "no_delta_table_for_post_load",
+                external_data_job_id=export_signal.job_id,
+                batch_index=export_signal.batch_index,
+            )
             return
 
         pa_table = read_parquet(export_signal.s3_path)
@@ -227,6 +243,27 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     async_to_sync(_run)()
 
 
+def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
+    try:
+        job = ExternalDataJob.objects.only("workflow_run_id").get(
+            id=export_signal.job_id, team_id=export_signal.team_id
+        )
+        if job.workflow_run_id:
+            release_v3_pipeline_lock(
+                team_id=export_signal.team_id,
+                schema_id=export_signal.schema_id,
+                token=job.workflow_run_id,
+            )
+    except Exception as e:
+        logger.error(
+            "failed_to_release_v3_pipeline_lock",
+            job_id=export_signal.job_id,
+            schema_id=export_signal.schema_id,
+            exc_info=True,
+        )
+        capture_exception(e)
+
+
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     update_external_job_status(
         job_id=export_signal.job_id,
@@ -240,10 +277,12 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     logger.info(
         "job_marked_completed",
-        job_id=export_signal.job_id,
+        external_data_job_id=export_signal.job_id,
         team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
+        external_data_schema_id=export_signal.schema_id,
     )
+
+    _release_pipeline_lock_for_job(export_signal)
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
@@ -256,9 +295,9 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
     if existing is not None:
         logger.info(
             "job_already_marked_failed",
-            job_id=export_signal.job_id,
+            external_data_job_id=export_signal.job_id,
             team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
+            external_data_schema_id=export_signal.schema_id,
         )
         return
 
@@ -272,15 +311,20 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
 
     logger.info(
         "job_marked_failed",
-        job_id=export_signal.job_id,
+        external_data_job_id=export_signal.job_id,
         team_id=export_signal.team_id,
-        schema_id=export_signal.schema_id,
+        external_data_schema_id=export_signal.schema_id,
         error=str(error),
     )
+
+    _release_pipeline_lock_for_job(export_signal)
 
 
 def process_message(message: Any, progress_callback: Callable[[], None] | None = None) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
+
+    # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
+    close_old_connections()
 
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
@@ -321,7 +365,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             logger.info(
                 "batch_already_processed",
                 team_id=export_signal.team_id,
-                schema_id=export_signal.schema_id,
+                external_data_schema_id=export_signal.schema_id,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -331,7 +375,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
             logger.info(
                 "batch_already_processed_running_post_load",
                 team_id=export_signal.team_id,
-                schema_id=export_signal.schema_id,
+                external_data_schema_id=export_signal.schema_id,
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
@@ -342,7 +386,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         logger.debug(
             "message_received",
             team_id=export_signal.team_id,
-            schema_id=export_signal.schema_id,
+            external_data_schema_id=export_signal.schema_id,
             resource_name=export_signal.resource_name,
             batch_index=export_signal.batch_index,
             is_final_batch=export_signal.is_final_batch,
@@ -356,6 +400,7 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
 
         logger.debug(
             "parquet_file_read",
+            batch_index=export_signal.batch_index,
             s3_path=export_signal.s3_path,
             num_rows=pa_table.num_rows,
             num_columns=pa_table.num_columns,
@@ -402,6 +447,13 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                             delete_key_set.add(tuple(arr[i] for arr in pk_arrays))
 
                     if delete_key_set:
+                        logger.debug(
+                            "cdc_delete_enrichment",
+                            delete_row_count=len(delete_key_set),
+                            primary_key_count=len(present_pks),
+                            cdc_write_mode=cdc_write_mode,
+                            batch_index=export_signal.batch_index,
+                        )
                         # Delta-rs: single-column IN avoids tuple filters (weak NULL semantics).
                         # For composite PKs that IN is a superset — narrow in PyArrow below.
                         first_pk = present_pks[0]
@@ -433,6 +485,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                             existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
 
                         pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+        if existing_delta_table is not None:
+            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
 
         if cdc_write_mode == "scd2_append":
             logger.debug(
@@ -500,8 +555,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
         )
 
         if export_signal.is_final_batch:
-            logger.debug(
+            logger.info(
                 "final_batch_received",
+                batch_index=export_signal.batch_index,
                 total_batches=export_signal.total_batches,
                 total_rows=export_signal.total_rows,
                 cdc_write_mode=export_signal.cdc_write_mode,

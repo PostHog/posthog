@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -16,21 +16,54 @@ use crate::config::CaptureMode;
 use crate::v1::context::Context;
 use crate::v1::sinks::event::Event;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::{BatchSummary, Outcome, SinkResult};
+use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
+/// Null the partition key when person processing is force-disabled for
+/// Main/Overflow destinations — spreads load across partitions instead of
+/// hotspotting on a single token:distinct_id pair.
+fn effective_partition_key<'a>(
+    key_buf: &'a str,
+    force_disable_person_processing: bool,
+    destination: &Destination,
+) -> Option<&'a str> {
+    if force_disable_person_processing
+        && matches!(
+            destination,
+            Destination::AnalyticsMain | Destination::Overflow
+        )
+    {
+        None
+    } else {
+        Some(key_buf)
+    }
+}
+
 /// Shared label values for metrics emitted within a single `publish_batch` call.
-/// All fields are `&'static str` (zero-cost) or `SharedString` (Arc-based, so
-/// `.clone()` is a refcount bump rather than a heap allocation).
 struct MetricLabels {
     sink: &'static str,
     mode: &'static str,
-    path: metrics::SharedString,
-    attempt: metrics::SharedString,
+    path: &'static str,
+    attempt: &'static str,
+}
+
+/// Map the client-controlled attempt number to a bounded static label value.
+/// Attempts 0-5 map to themselves; 6 or more bucket into "6+" as a
+/// cardinality defense (the label reads literally: "6 or more").
+fn attempt_tag(attempt: u32) -> &'static str {
+    match attempt {
+        0 => "0",
+        1 => "1",
+        2 => "2",
+        3 => "3",
+        4 => "4",
+        5 => "5",
+        _ => "6+",
+    }
 }
 
 pub struct KafkaSink<P: KafkaProducerTrait> {
@@ -67,15 +100,23 @@ fn reject_publishable(
 ) -> Vec<Box<dyn SinkResult>> {
     let enqueued_at = Utc::now();
     let publishable: Vec<_> = events.iter().filter(|e| e.should_publish()).collect();
-    counter!(
-        "capture_v1_kafka_publish_total",
-        "mode" => labels.mode,
-        "cluster" => labels.sink,
-        "outcome" => Outcome::RetriableError.as_tag(),
-        "path" => labels.path.clone(),
-        "attempt" => labels.attempt.clone(),
-    )
-    .increment(publishable.len() as u64);
+    let mut by_dest: std::collections::HashMap<&'static str, u64> =
+        std::collections::HashMap::new();
+    for e in &publishable {
+        *by_dest.entry(e.destination().as_tag()).or_default() += 1;
+    }
+    for (dest_tag, count) in &by_dest {
+        counter!(
+            "capture_v1_kafka_publish_total",
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "outcome" => Outcome::RetriableError.as_tag(),
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+            "destination" => *dest_tag,
+        )
+        .increment(*count);
+    }
     publishable
         .into_iter()
         .map(|e| -> Box<dyn SinkResult> {
@@ -93,7 +134,9 @@ type AckFuture = Pin<
         dyn Future<
                 Output = (
                     Uuid,
+                    &'static str,
                     DateTime<Utc>,
+                    Duration,
                     Result<(), super::producer::ProduceError>,
                 ),
             > + Send,
@@ -114,7 +157,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         enqueued_at: DateTime<Utc>,
         results: &mut Vec<Box<dyn SinkResult>>,
         pending: &mut FuturesUnordered<AckFuture>,
-        enqueued_keys: &mut Vec<Uuid>,
+        enqueued_keys: &mut Vec<(Uuid, &'static str, Instant)>,
     ) {
         let mut payload_buf = String::with_capacity(4096);
         let mut key_buf = String::with_capacity(128);
@@ -125,6 +168,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             }
 
             let uuid = event.uuid();
+            let dest_tag = event.destination().as_tag();
 
             let topic = match self.config.kafka.topic_for(event.destination()) {
                 Some(t) => t,
@@ -146,8 +190,9 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     "mode" => labels.mode,
                     "cluster" => labels.sink,
                     "outcome" => Outcome::FatalError.as_tag(),
-                    "path" => labels.path.clone(),
-                    "attempt" => labels.attempt.clone(),
+                    "path" => labels.path,
+                    "attempt" => labels.attempt,
+                    "destination" => dest_tag,
                 )
                 .increment(1);
                 results.push(Box::new(KafkaResult::err(
@@ -158,10 +203,19 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 continue;
             }
 
-            let headers: rdkafka::message::OwnedHeaders = event.headers(ctx).into();
+            let captured_headers = event.headers(ctx);
 
             key_buf.clear();
-            let key = event.partition_key(ctx, &mut key_buf);
+            event.partition_key(ctx, &mut key_buf);
+            let key = effective_partition_key(
+                &key_buf,
+                captured_headers
+                    .force_disable_person_processing
+                    .unwrap_or(false),
+                event.destination(),
+            );
+
+            let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
             let mut record = ProduceRecord {
                 topic,
@@ -190,10 +244,12 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             )
                             .increment(1);
                         }
-                        enqueued_keys.push(uuid);
+                        let sent_at = Instant::now();
+                        enqueued_keys.push((uuid, dest_tag, sent_at));
                         pending.push(Box::pin(async move {
                             let result = ack_future.await;
-                            (uuid, Utc::now(), result)
+                            let ack_latency = sent_at.elapsed();
+                            (uuid, dest_tag, Utc::now(), ack_latency, result)
                         }));
                         break;
                     }
@@ -221,8 +277,9 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             "mode" => labels.mode,
                             "cluster" => labels.sink,
                             "outcome" => outcome.as_tag(),
-                            "path" => labels.path.clone(),
-                            "attempt" => labels.attempt.clone(),
+                            "path" => labels.path,
+                            "attempt" => labels.attempt,
+                            "destination" => dest_tag,
                         )
                         .increment(1);
                         results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
@@ -250,7 +307,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
         loop {
             match tokio::time::timeout_at(deadline, pending.next()).await {
-                Ok(Some((uuid, completed_at, ack))) => {
+                Ok(Some((uuid, dest_tag, completed_at, ack_latency, ack))) => {
                     resolved_keys.insert(uuid);
 
                     let outcome_tag = match &ack {
@@ -269,23 +326,24 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                         "mode" => labels.mode,
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
-                        "path" => labels.path.clone(),
-                        "attempt" => labels.attempt.clone(),
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
                     )
                     .increment(1);
 
-                    let elapsed = completed_at.signed_duration_since(enqueued_at);
-                    if let Ok(secs) = elapsed.to_std() {
-                        histogram!(
-                            "capture_v1_kafka_ack_duration_seconds",
-                            "mode" => labels.mode,
-                            "cluster" => labels.sink,
-                            "outcome" => outcome_tag,
-                            "path" => labels.path.clone(),
-                            "attempt" => labels.attempt.clone(),
-                        )
-                        .record(secs.as_secs_f64());
-                    }
+                    // Per-event broker-ack latency (send → ack), isolated from
+                    // batch enqueue wall-time.
+                    histogram!(
+                        "capture_v1_kafka_ack_duration_seconds",
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome_tag,
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
+                    )
+                    .record(ack_latency.as_secs_f64());
 
                     match ack {
                         Ok(()) => results.push(Box::new(
@@ -309,28 +367,48 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     fn collect_timeouts(
         labels: &MetricLabels,
         enqueued_at: DateTime<Utc>,
-        enqueued_keys: Vec<Uuid>,
+        enqueued_keys: Vec<(Uuid, &'static str, Instant)>,
         resolved_keys: &HashSet<Uuid>,
         results: &mut Vec<Box<dyn SinkResult>>,
     ) {
-        let timed_out_keys: Vec<_> = enqueued_keys
+        let timed_out: Vec<_> = enqueued_keys
             .into_iter()
-            .filter(|k| !resolved_keys.contains(k))
+            .filter(|(k, _, _)| !resolved_keys.contains(k))
             .collect();
-        if timed_out_keys.is_empty() {
+        if timed_out.is_empty() {
             return;
         }
-        counter!(
-            "capture_v1_kafka_publish_total",
-            "mode" => labels.mode,
-            "cluster" => labels.sink,
-            "outcome" => Outcome::Timeout.as_tag(),
-            "path" => labels.path.clone(),
-            "attempt" => labels.attempt.clone(),
-        )
-        .increment(timed_out_keys.len() as u64);
+        let mut by_dest: std::collections::HashMap<&'static str, u64> =
+            std::collections::HashMap::new();
+        for (_, dest_tag, _) in &timed_out {
+            *by_dest.entry(dest_tag).or_default() += 1;
+        }
+        for (dest_tag, count) in &by_dest {
+            counter!(
+                "capture_v1_kafka_publish_total",
+                "mode" => labels.mode,
+                "cluster" => labels.sink,
+                "outcome" => Outcome::Timeout.as_tag(),
+                "path" => labels.path,
+                "attempt" => labels.attempt,
+                "destination" => *dest_tag,
+            )
+            .increment(*count);
+        }
         let gave_up_at = Utc::now();
-        for uuid in timed_out_keys {
+        for (uuid, dest_tag, sent_at) in timed_out {
+            // Record timed-out acks so the latency tail (>= produce_timeout)
+            // is visible rather than silently dropped.
+            histogram!(
+                "capture_v1_kafka_ack_duration_seconds",
+                "mode" => labels.mode,
+                "cluster" => labels.sink,
+                "outcome" => Outcome::Timeout.as_tag(),
+                "path" => labels.path,
+                "attempt" => labels.attempt,
+                "destination" => dest_tag,
+            )
+            .record(sent_at.elapsed().as_secs_f64());
             results.push(Box::new(
                 KafkaResult::err(uuid, KafkaSinkError::Timeout, enqueued_at)
                     .with_completed_at(gave_up_at),
@@ -353,8 +431,8 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let labels = MetricLabels {
             sink: self.name.as_str(),
             mode: self.capture_mode.as_tag(),
-            path: ctx.path.clone().into(),
-            attempt: ctx.attempt.to_string().into(),
+            path: ctx.path,
+            attempt: attempt_tag(ctx.attempt),
         };
 
         if !self.producer.is_ready() {
@@ -371,8 +449,10 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let enqueued_at = Utc::now();
         let mut results: Vec<Box<dyn SinkResult>> = Vec::new();
         let mut pending: FuturesUnordered<AckFuture> = FuturesUnordered::new();
-        let mut enqueued_keys: Vec<Uuid> = Vec::new();
+        let mut enqueued_keys: Vec<(Uuid, &'static str, Instant)> = Vec::new();
 
+        // Enqueue wall-time, isolated from per-event broker-ack latency.
+        let enqueue_start = Instant::now();
         self.enqueue_events(
             ctx,
             events,
@@ -383,6 +463,14 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             &mut enqueued_keys,
         )
         .await;
+        histogram!(
+            "capture_v1_kafka_enqueue_duration_seconds",
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+        )
+        .record(enqueue_start.elapsed().as_secs_f64());
 
         let resolved_keys = self
             .drain_acks(&labels, enqueued_at, &mut results, &mut pending)
@@ -445,5 +533,48 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         })
         .await
         .map_err(|e| anyhow::anyhow!("flush task panicked: {e:#}"))?
+    }
+}
+
+#[cfg(test)]
+mod effective_partition_key_tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::main_disabled(true, Destination::AnalyticsMain, None)]
+    #[case::overflow_disabled(true, Destination::Overflow, None)]
+    #[case::dlq_disabled(true, Destination::Dlq, Some("k"))]
+    #[case::historical_disabled(true, Destination::AnalyticsHistorical, Some("k"))]
+    #[case::custom_disabled(true, Destination::Custom("t".into()), Some("k"))]
+    #[case::main_not_disabled(false, Destination::AnalyticsMain, Some("k"))]
+    fn policy(
+        #[case] force_disable: bool,
+        #[case] dest: Destination,
+        #[case] expected: Option<&str>,
+    ) {
+        assert_eq!(effective_partition_key("k", force_disable, &dest), expected);
+    }
+}
+
+#[cfg(test)]
+mod attempt_tag_tests {
+    use super::attempt_tag;
+
+    #[test]
+    fn maps_in_range_attempts_to_exact_values() {
+        assert_eq!(attempt_tag(0), "0");
+        assert_eq!(attempt_tag(1), "1");
+        assert_eq!(attempt_tag(2), "2");
+        assert_eq!(attempt_tag(3), "3");
+        assert_eq!(attempt_tag(4), "4");
+        assert_eq!(attempt_tag(5), "5");
+    }
+
+    #[test]
+    fn caps_out_of_range_attempts() {
+        assert_eq!(attempt_tag(6), "6+");
+        assert_eq!(attempt_tag(100), "6+");
+        assert_eq!(attempt_tag(u32::MAX), "6+");
     }
 }

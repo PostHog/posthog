@@ -2,7 +2,7 @@ from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -25,6 +25,32 @@ class NoLiveEventsCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "30 4 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Open the Web analytics health page. Confirm the PostHog snippet or SDK is installed and
+            initialized on your site or app and that you're using the correct project API key (Project
+            settings → find your Web snippet / API key). Load a page on your site, then check Activity →
+            Live events to see if events arrive in real time.
+        """,
+        agent="""
+            Use `execute-sql` to see whether any events at all are landing (`SELECT event, count() FROM
+            events WHERE timestamp > now() - INTERVAL 7 DAY GROUP BY event ORDER BY 2 DESC`) — other events
+            but no $pageview/$screen points to autocapture being disabled; nothing at all points to the SDK
+            not sending. Then fix it in the user's codebase: find where PostHog is initialized, make sure
+            `posthog.init` runs with the correct project API key and that pageview autocapture is enabled
+            (if it sets `capture_pageview: false`, either re-enable it or send `$pageview` manually on
+            navigation). Use `docs-search` for the install guide for the relevant framework. The issue
+            resolves once events start arriving again.
+        """,
+    )
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        return AlertContent(
+            title="No live events",
+            summary=issue.payload.get("reason", "No $pageview or $screen events received recently"),
+            link="/web/health",
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

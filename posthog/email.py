@@ -25,11 +25,11 @@ import posthoganalytics
 from celery import shared_task
 from lxml import html as lxml_html
 
+from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
-from posthog.tasks.utils import CeleryQueue
 
 
 def inline_css(value: str) -> str:
@@ -121,6 +121,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "proxy_provisioned": "64",
     "delegation_invite": "66",
     "provisioning_welcome": "67",
+    "baa_signed_ai_disabled": "68",
 }
 
 

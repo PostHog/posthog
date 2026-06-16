@@ -45,6 +45,7 @@ import { FeedbackButton } from 'products/customer_analytics/frontend/components/
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -101,7 +102,10 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div className="flex items-center gap-1">
                 <span className="text-secondary">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
-                <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
+                <Link
+                    to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user"
+                    target="_blank"
+                >
                     <Tooltip
                         title={
                             <>
@@ -165,7 +169,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
-export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
+export function PersonScene(): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
@@ -200,10 +204,25 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
+    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
-        return <NotFound object="person" meta={{ urlId }} />
+        return (
+            <div className="flex flex-col items-center justify-center w-full p-8">
+                <LemonBanner
+                    type="error"
+                    className="max-w-200 w-full"
+                    action={{
+                        children: 'Reload',
+                        onClick: () => window.location.reload(),
+                        'data-attr': 'person-load-error-reload',
+                    }}
+                >
+                    <p>We couldn't load this person.</p>
+                    <p className="text-muted mb-0">{personError}</p>
+                </LemonBanner>
+            </div>
+        )
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
@@ -312,7 +331,6 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                 context={{
                                     insightProps: {
                                         dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
-                                        tabId,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
                                     customActions: (
@@ -370,14 +388,33 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         ),
                     },
                     {
+                        key: PersonsTabType.LOGS,
+                        label: <span data-attr="persons-logs-tab">Logs</span>,
+                        content: <PersonLogsTab person={person} />,
+                    },
+                    {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} setQuery={(q) => setExceptionsQuery(q)} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-exceptions"
+                                attachTo={mountedPersonsLogic}
+                                query={exceptionsQuery}
+                                setQuery={(q) => setExceptionsQuery(q)}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.SURVEY_RESPONSES,
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
-                        content: <Query query={surveyResponsesQuery} setQuery={(q) => setSurveyResponsesQuery(q)} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-surveys"
+                                attachTo={mountedPersonsLogic}
+                                query={surveyResponsesQuery}
+                                setQuery={(q) => setSurveyResponsesQuery(q)}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.COHORTS,
@@ -472,7 +509,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                 ]}
             />
 
-            {splitMergeModalShown && person && <MergeSplitPerson person={person} tabId={tabId} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </SceneContent>
     )
 }

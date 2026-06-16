@@ -1,4 +1,9 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .code_workstreams.activities.list_active_teams import list_active_code_teams
+from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
+from .code_workstreams.activities.poll_pull_requests import poll_team_pull_requests
+from .code_workstreams.activities.rebuild_workstreams import rebuild_team_workstreams
+from .code_workstreams.workflow import EvaluateCodeWorkstreamsWorkflow, EvaluateTeamCodeWorkstreamsWorkflow
 from .create_snapshot.activities import (
     cleanup_sandbox as snapshot_cleanup_sandbox,
     clone_repository as snapshot_clone_repository,
@@ -23,6 +28,7 @@ from .process_task.activities import (
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    refresh_sandbox_credentials,
     relay_sandbox_events,
     send_followup_to_sandbox,
     start_agent_server,
@@ -38,6 +44,8 @@ WORKFLOWS = [
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
     RunTaskAutomationWorkflow,
+    EvaluateCodeWorkstreamsWorkflow,
+    EvaluateTeamCodeWorkstreamsWorkflow,
 ]
 
 ACTIVITIES = [
@@ -46,6 +54,7 @@ ACTIVITIES = [
     prepare_sandbox_for_repository,
     create_sandbox_for_repository,
     inject_fresh_tokens_on_resume,
+    refresh_sandbox_credentials,
     clone_repository_in_sandbox,
     checkout_branch_in_sandbox,
     get_sandbox_for_repository,
@@ -71,4 +80,8 @@ ACTIVITIES = [
     snapshot_setup_repository,
     snapshot_create_snapshot,
     snapshot_cleanup_sandbox,
+    list_active_code_teams,
+    load_team_pr_urls,
+    poll_team_pull_requests,
+    rebuild_team_workstreams,
 ]

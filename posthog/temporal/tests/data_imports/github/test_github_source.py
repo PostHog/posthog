@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
 import requests
@@ -13,6 +14,7 @@ from posthog.temporal.data_imports.sources.github.github import (
     _flatten_commit,
     _flatten_stargazer,
     _format_incremental_value,
+    _is_empty_repository_response,
     _is_issue_not_pr,
     _is_older_than_cutoff,
     _parse_next_url,
@@ -22,6 +24,9 @@ from posthog.temporal.data_imports.sources.github.github import (
     validate_credentials,
 )
 from posthog.temporal.data_imports.sources.github.settings import GITHUB_ENDPOINTS
+from posthog.temporal.data_imports.sources.github.source import GithubSource
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 def _make_response(status: int = 200, body: Any = None, link: str = "") -> mock.Mock:
@@ -151,6 +156,30 @@ class TestBuildInitialParams:
         assert "since" not in params
         assert params["sort"] == "created"
         assert params["direction"] == "asc"
+
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental_first_sync", True, None),
+            ("incremental_with_cutoff", True, datetime(2026, 1, 15, 10, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_workflow_runs_always_minimal_params(
+        self, _name: str, should_use_incremental_field: bool, last_value: Any
+    ) -> None:
+        params = _build_initial_params(
+            GITHUB_ENDPOINTS["workflow_runs"],
+            "workflow_runs",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+            incremental_field="created_at",
+        )
+
+        # workflow_runs is always a plain paged read: no state/sort/direction,
+        # no `since`, and crucially no `created` filter (the filter caps results
+        # at 1,000). Incremental bounding happens client-side via desc
+        # early-stop in get_rows, so the request never changes shape.
+        assert params == {"per_page": 100}
 
 
 class TestBuildInitialUrl:
@@ -345,6 +374,21 @@ class TestIsIssueNotPr:
         assert _is_issue_not_pr(item) == expected
 
 
+class TestIsEmptyRepositoryResponse:
+    @parameterized.expand(
+        [
+            ("conflict_empty_repo", 409, {"message": "Git Repository is empty."}, True),
+            ("conflict_empty_repo_lowercase", 409, {"message": "git repository is empty"}, True),
+            ("conflict_other_message", 409, {"message": "Merge conflict"}, False),
+            ("conflict_no_body", 409, [], False),
+            ("not_conflict_status", 404, {"message": "Git Repository is empty."}, False),
+            ("ok_status", 200, [{"sha": "abc"}], False),
+        ]
+    )
+    def test_detects_empty_repository(self, _name: str, status: int, body: Any, expected: bool) -> None:
+        assert _is_empty_repository_response(_make_response(status=status, body=body)) is expected
+
+
 class TestValidateCredentials:
     def test_valid_credentials(self) -> None:
         with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
@@ -439,6 +483,18 @@ class TestGithubSourceSortMode:
                 "desc",
             ),
             ("issues_always_asc", "issues", True, datetime(2026, 1, 15, tzinfo=UTC), "asc"),
+            # workflow_runs always emits newest-first (the API ignores sort), so
+            # sort_mode must be desc even on the first sync / full refresh —
+            # never the asc default that other endpoints use before a cutoff.
+            ("workflow_runs_full_refresh", "workflow_runs", False, None, "desc"),
+            ("workflow_runs_first_sync_no_cutoff", "workflow_runs", True, None, "desc"),
+            (
+                "workflow_runs_incremental_with_cutoff",
+                "workflow_runs",
+                True,
+                datetime(2026, 1, 15, tzinfo=UTC),
+                "desc",
+            ),
         ]
     )
     def test_sort_mode(
@@ -579,6 +635,165 @@ class TestGetRowsResume:
         saved = manager.save_state.call_args.args[0]
         assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
 
+    def test_empty_repository_409_syncs_zero_rows(self) -> None:
+        """An empty repo returns 409 "Git Repository is empty." on the commits
+        endpoint. That's a benign state, not an error — get_rows must yield zero
+        rows and not raise (otherwise the activity retries indefinitely)."""
+        manager = _make_manager(can_resume=False)
+        empty_repo_409 = _make_response(status=409, body={"message": "Git Repository is empty."})
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [empty_repo_409]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="commits",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert rows == []
+        manager.save_state.assert_not_called()
+
+    def test_non_empty_repo_409_still_raises(self) -> None:
+        """A 409 that is NOT the empty-repository case must still surface as an
+        error rather than being silently swallowed as zero rows."""
+        manager = _make_manager(can_resume=False)
+        other_409 = _make_response(status=409, body={"message": "Merge conflict"})
+        other_409.text = '{"message": "Merge conflict"}'
+        other_409.raise_for_status.side_effect = requests.HTTPError(
+            "409 Client Error: Conflict for url: ...", response=other_409
+        )
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [other_409]
+            with pytest.raises(requests.HTTPError):
+                list(
+                    get_rows(
+                        personal_access_token="tok",
+                        repository="owner/repo",
+                        endpoint="commits",
+                        logger=mock.Mock(),
+                        resumable_source_manager=manager,
+                        should_use_incremental_field=False,
+                    )
+                )
+
+    def test_workflow_runs_envelope_is_unwrapped(self) -> None:
+        manager = _make_manager(can_resume=False)
+        envelope = {"total_count": 1, "workflow_runs": [{"id": 1001, "created_at": "2026-01-20T10:00:00Z"}]}
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert len(rows) == 1
+        assert rows[0]["id"] == 1001
+
+    def test_workflow_runs_empty_envelope_ends_loop(self) -> None:
+        manager = _make_manager(can_resume=False)
+        envelope = {"total_count": 0, "workflow_runs": []}
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [_make_response(body=envelope, link="")]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert rows == []
+        manager.save_state.assert_not_called()
+
+    def test_workflow_runs_incremental_stops_at_cutoff_without_filter(self) -> None:
+        """Incremental workflow_runs paginates newest-first and stops once a
+        page crosses below the cursor — never sending a `created`/`since`
+        filter (which would cap results at 1,000). A page past the cutoff must
+        not be fetched."""
+        manager = _make_manager(can_resume=False)
+        cutoff = datetime(2026, 1, 20, tzinfo=UTC)
+        page1 = {
+            "total_count": 3,
+            "workflow_runs": [
+                {"id": 3, "created_at": "2026-01-25T00:00:00Z"},
+                {"id": 2, "created_at": "2026-01-22T00:00:00Z"},
+            ],
+        }
+        page2 = {"total_count": 3, "workflow_runs": [{"id": 1, "created_at": "2026-01-18T00:00:00Z"}]}
+        link_page1 = '<https://api.github.com/repos/owner/repo/actions/runs?page=2>; rel="next"'
+        # Only two responses are provided: a fetch of page 3 would raise
+        # StopIteration, so the test fails if early-stop doesn't fire.
+        responses = [
+            _make_response(body=page1, link=link_page1),
+            _make_response(
+                body=page2, link='<https://api.github.com/repos/owner/repo/actions/runs?page=3>; rel="next"'
+            ),
+        ]
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = responses
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="workflow_runs",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=cutoff,
+                    incremental_field="created_at",
+                )
+            )
+
+        assert [row["id"] for row in rows] == [3, 2, 1]
+        assert mock_get.return_value.get.call_count == 2
+        first_url = mock_get.return_value.get.call_args_list[0].args[0]
+        assert "created=" not in first_url
+        assert "since=" not in first_url
+        assert "/actions/runs" in first_url
+
     def test_mid_page_chunk_boundary_checkpoints_current_page(self) -> None:
         """If the chunk boundary lands mid-page, the checkpoint must point at
         the CURRENT page (not the next), so trailing unyielded items are
@@ -657,3 +872,70 @@ class _ChunkingBatcher:
             self._buffer = []
             return table
         raise Exception("No chunks available to yield")
+
+
+class TestGithubSourceNonRetryableErrors:
+    def setup_method(self) -> None:
+        self.source = GithubSource()
+
+    def test_source_type(self) -> None:
+        assert self.source.source_type == ExternalDataSourceType.GITHUB
+
+    @parameterized.expand(
+        [
+            ("401",),
+            ("403",),
+            ("404",),
+            ("bad_credentials",),
+            ("client_id_not_configured",),
+            ("private_key_not_configured",),
+        ]
+    )
+    def test_non_retryable_errors_contains_key(self, _name: str) -> None:
+        expected_keys = {
+            "401": "401 Client Error",
+            "403": "403 Client Error",
+            "404": "404 Client Error",
+            "bad_credentials": "Bad credentials",
+            "client_id_not_configured": "GITHUB_APP_CLIENT_ID is not configured",
+            "private_key_not_configured": "GITHUB_APP_PRIVATE_KEY is not configured",
+        }
+        assert expected_keys[_name] in self.source.get_non_retryable_errors()
+
+    @parameterized.expand(
+        [
+            ("[ErrorDetail(string='GITHUB_APP_CLIENT_ID is not configured', code='invalid')]",),
+            ("[ErrorDetail(string='GITHUB_APP_PRIVATE_KEY is not configured', code='invalid')]",),
+        ]
+    )
+    def test_app_not_configured_is_recognised_as_non_retryable(self, internal_error: str) -> None:
+        # Mirrors the substring match done in external_data_job.update_external_data_job_model.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in internal_error for pattern in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            # GitHub returns this body verbatim when the App installation no longer exists; matching it
+            # stops the pipeline from retrying a token refresh that can never succeed.
+            (
+                "not_found",
+                'Failed to refresh installation token: {"message":"Not Found",'
+                '"documentation_url":"https://docs.github.com/rest/reference/apps'
+                '#create-an-installation-access-token-for-an-app","status":"404"}',
+                True,
+            ),
+            # A 5xx during token refresh is transient and must stay retryable, so the generic
+            # "Failed to refresh installation token" prefix must not match on its own.
+            (
+                "server_error",
+                'Failed to refresh installation token: {"message":"Server Error","status":"500"}',
+                False,
+            ),
+        ]
+    )
+    def test_installation_token_refresh_non_retryable_matching(
+        self, _name: str, error_message: str, expected_match: bool
+    ) -> None:
+        # Mirrors the substring match done in external_data_job.update_external_data_job_model.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in non_retryable_errors) == expected_match

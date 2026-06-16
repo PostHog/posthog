@@ -12,14 +12,19 @@ import type {
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
+    _HasSpansResponseApi,
     _TracingAggregationRequestApi,
+    _TracingAttributeBreakdownRequestApi,
+    _TracingCountRequestApi,
+    _TracingCountResponseApi,
     _TracingQueryRequestApi,
+    _TracingTimeseriesRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
 } from './api.schemas'
 
 export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/tracing/spans/aggregate/`
+    return `/api/projects/${projectId}/tracing/spans/aggregate/`
 }
 
 export const tracingSpansAggregateCreate = async (
@@ -35,6 +40,23 @@ export const tracingSpansAggregateCreate = async (
     })
 }
 
+export const getTracingSpansAttributeBreakdownCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/attribute-breakdown/`
+}
+
+export const tracingSpansAttributeBreakdownCreate = async (
+    projectId: string,
+    _tracingAttributeBreakdownRequestApi: _TracingAttributeBreakdownRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansAttributeBreakdownCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingAttributeBreakdownRequestApi),
+    })
+}
+
 export const getTracingSpansAttributesRetrieveUrl = (
     projectId: string,
     params?: TracingSpansAttributesRetrieveParams
@@ -43,15 +65,15 @@ export const getTracingSpansAttributesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/tracing/spans/attributes/?${stringifiedParams}`
-        : `/api/environments/${projectId}/tracing/spans/attributes/`
+        ? `/api/projects/${projectId}/tracing/spans/attributes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/spans/attributes/`
 }
 
 export const tracingSpansAttributesRetrieve = async (
@@ -65,8 +87,56 @@ export const tracingSpansAttributesRetrieve = async (
     })
 }
 
+export const getTracingSpansCountCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/count/`
+}
+
+export const tracingSpansCountCreate = async (
+    projectId: string,
+    _tracingCountRequestApi: _TracingCountRequestApi,
+    options?: RequestInit
+): Promise<_TracingCountResponseApi> => {
+    return apiMutator<_TracingCountResponseApi>(getTracingSpansCountCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingCountRequestApi),
+    })
+}
+
+export const getTracingSpansDurationHistogramCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/duration-histogram/`
+}
+
+export const tracingSpansDurationHistogramCreate = async (
+    projectId: string,
+    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingTimeseriesRequestApi),
+    })
+}
+
+export const getTracingSpansHasSpansRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/has_spans/`
+}
+
+export const tracingSpansHasSpansRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<_HasSpansResponseApi> => {
+    return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTracingSpansQueryCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/tracing/spans/query/`
+    return `/api/projects/${projectId}/tracing/spans/query/`
 }
 
 export const tracingSpansQueryCreate = async (
@@ -90,15 +160,15 @@ export const getTracingSpansServiceNamesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/tracing/spans/service-names/?${stringifiedParams}`
-        : `/api/environments/${projectId}/tracing/spans/service-names/`
+        ? `/api/projects/${projectId}/tracing/spans/service-names/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/spans/service-names/`
 }
 
 export const tracingSpansServiceNamesRetrieve = async (
@@ -113,24 +183,24 @@ export const tracingSpansServiceNamesRetrieve = async (
 }
 
 export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/tracing/spans/sparkline/`
+    return `/api/projects/${projectId}/tracing/spans/sparkline/`
 }
 
 export const tracingSpansSparklineCreate = async (
     projectId: string,
-    _tracingQueryRequestApi: _TracingQueryRequestApi,
+    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingQueryRequestApi),
+        body: JSON.stringify(_tracingTimeseriesRequestApi),
     })
 }
 
 export const getTracingSpansTraceCreateUrl = (projectId: string, traceId: string) => {
-    return `/api/environments/${projectId}/tracing/spans/trace/${traceId}/`
+    return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/`
 }
 
 export const tracingSpansTraceCreate = async (
@@ -148,7 +218,7 @@ export const tracingSpansTraceCreate = async (
 }
 
 export const getTracingSpansTreeCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/tracing/spans/tree/`
+    return `/api/projects/${projectId}/tracing/spans/tree/`
 }
 
 export const tracingSpansTreeCreate = async (
@@ -169,15 +239,15 @@ export const getTracingSpansValuesRetrieveUrl = (projectId: string, params: Trac
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/tracing/spans/values/?${stringifiedParams}`
-        : `/api/environments/${projectId}/tracing/spans/values/`
+        ? `/api/projects/${projectId}/tracing/spans/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/spans/values/`
 }
 
 export const tracingSpansValuesRetrieve = async (

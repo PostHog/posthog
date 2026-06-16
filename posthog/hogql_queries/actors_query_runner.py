@@ -1,4 +1,3 @@
-import re
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any, Optional
@@ -26,11 +25,13 @@ from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.actor_strategies import ActorStrategy, GroupStrategy, PersonStrategy, SessionStrategy
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode, QueryRunner, get_query_runner
+from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import User
 
 
@@ -46,7 +47,9 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+            self.source_query_runner = get_query_runner(
+                self.query.source, self.team, self.timings, self.limit_context, user=self.user
+            )
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only
@@ -101,12 +104,18 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
     def determine_strategy(self) -> ActorStrategy:
         if self.group_type_index is not None:
-            return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
+            return GroupStrategy(
+                self.group_type_index,
+                team=self.team,
+                query=self.query,
+                paginator=self.paginator,
+                user=self.user,
+            )
 
         if self.is_session_aggregation:
-            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator)
+            return SessionStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 
-        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
 
     @staticmethod
     def _get_recordings(event_results: list, recordings_lookup: dict) -> list[dict]:
@@ -137,8 +146,16 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
                 actor_data: dict[str, Any] = {"id": actor_id}
                 if self.group_type_index is not None:
                     actor_data["group_type_index"] = self.group_type_index
+                else:
+                    # Person stubs occur when the actor_id from ClickHouse can't be
+                    # hydrated from Postgres — typically because the person was merged
+                    # into another or deleted. Flag the row so CSV consumers can tell
+                    # these apart from fully hydrated persons.
+                    actor_data["is_unresolved"] = True
                 if events_distinct_id_lookup is not None:
-                    actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id)
+                    # Default to [] to keep the stub shape consistent — downstream CSV
+                    # flattening calls len() on this and would crash on None.
+                    actor_data["distinct_ids"] = events_distinct_id_lookup.get(actor_id) or []
                 new_row[actor_column_index] = actor_data
             if recordings_column_index is not None and recordings_lookup is not None:
                 new_row[recordings_column_index] = (
@@ -154,7 +171,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         results_list = list(results)
 
         person_uuids = {str(row[person_id_col_index]) for row in results_list if row[person_id_col_index]}
-        person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+        person_strategy = PersonStrategy(team=self.team, query=self.query, paginator=self.paginator, user=self.user)
         persons_lookup = person_strategy.get_actors(iter(person_uuids)) if person_uuids else {}
 
         enriched = []
@@ -181,6 +198,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
             query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
         )
@@ -241,6 +259,11 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         )
 
     def _calculate(self) -> ActorsQueryResponse:
+        # `ActorsQuery.select` and `ActorsQuery.orderBy` are user-supplied HogQL strings,
+        # parsed by `to_query()`. Tag here so platform sub-query callers (e.g.
+        # `hogql_cohort_query._actors_query_from_source`) that invoke `to_query()` with
+        # platform-constant select lists are not mis-attributed.
+        tag_contains_user_hogql()
         try:
             self.calculating = True
             return self._calculate_internal()
@@ -536,13 +559,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
 
     def _get_person_display_name_column(self) -> ast.Expr:
         property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        # Only use backticks for property names with spaces or special chars
-        props = []
-        for key in property_keys:
-            if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", key):
-                props.append(f"toString(properties.{key})")
-            else:
-                props.append(f"toString(properties.`{key}`)")
+        props = person_display_name_property_exprs(property_keys, "properties")
         # nosemgrep: hogql-fstring-audit (property_keys from team config is admin-only, not user input)
         return parse_expr(f"(coalesce({', '.join([*props, 'toString(id)'])}), toString(id))")
 

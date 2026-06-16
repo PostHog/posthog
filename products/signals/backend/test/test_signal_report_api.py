@@ -3,6 +3,7 @@ from datetime import timedelta
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -12,8 +13,8 @@ from social_django.models import UserSocialAuth
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
-from products.signals.backend.views import SignalReportViewSet
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -205,6 +206,91 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
+
+    # --- priority filter ---
+
+    @parameterized.expand(
+        [
+            ("single", "P1", {"P1"}),
+            ("multiple", "P0,P2", {"P0", "P2"}),
+            ("case_insensitive", "p1", {"P1"}),
+        ]
+    )
+    def test_filter_by_priority(self, _name, query_value, expected_priorities):
+        reports_by_priority = {
+            "P0": self._create_report(title="P0 report"),
+            "P1": self._create_report(title="P1 report"),
+            "P2": self._create_report(title="P2 report"),
+        }
+        for priority, report in reports_by_priority.items():
+            self._priority_artefact(report, priority=priority)
+
+        response = self.client.get(self._list_url(priority=query_value))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(reports_by_priority[p].id) for p in expected_priorities}
+
+    def test_filter_excludes_reports_without_priority(self):
+        self._create_report(title="No priority")
+        r_p1 = self._create_report(title="P1 report")
+        self._priority_artefact(r_p1, priority="P1")
+
+        response = self.client.get(self._list_url(priority="P1"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(r_p1.id)}
+
+    @parameterized.expand(
+        [
+            ("out_of_range", "P9"),
+            ("garbage", "not-a-priority"),
+            ("mixed_valid_and_invalid", "P0,P9"),
+        ]
+    )
+    def test_filter_priority_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(priority=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "priority"
+        assert body["code"] == "invalid_input"
+
+    def test_filter_priority_combines_with_ordering(self):
+        r_p2 = self._create_report(title="P2 report")
+        r_p0 = self._create_report(title="P0 report")
+        r_p1 = self._create_report(title="P1 report")
+        self._priority_artefact(r_p2, priority="P2")
+        self._priority_artefact(r_p0, priority="P0")
+        self._priority_artefact(r_p1, priority="P1")
+
+        response = self.client.get(self._list_url(priority="P0,P2", ordering="priority"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids == [str(r_p0.id), str(r_p2.id)]
+
+    # --- status filter ---
+
+    def test_filter_by_resolved_status(self):
+        resolved = self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        self._create_report(title="Ready", status=SignalReport.Status.READY)
+
+        response = self.client.get(self._list_url(status="resolved"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(resolved.id)}
+
+    @parameterized.expand(
+        [
+            ("garbage", "bogus_status"),
+            ("mixed_valid_and_invalid", "ready,bogus_status"),
+            ("deleted_not_filterable", "deleted"),
+        ]
+    )
+    def test_filter_status_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(status=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "status"
+        assert body["code"] == "invalid_input"
 
     # --- ordering ---
 
@@ -510,9 +596,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
         self._create_implementation_task_with_run(report_without_pr, output={"commit_sha": "abc123"})
 
-        viewset = SignalReportViewSet()
-        viewset.team = self.team
-        result = viewset._fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
+        result = fetch_implementation_pr_urls_for_reports([str(report_with_pr.id), str(report_without_pr.id)])
 
         assert result == {
             str(report_with_pr.id): "https://github.com/org/repo/pull/42",
@@ -528,12 +612,111 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["source_products"] == []
 
-    def test_source_products_empty_on_retrieve(self):
+    def test_source_products_empty_on_retrieve_without_signals(self):
         report = self._create_report()
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
+
+    def test_source_products_present_on_retrieve(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={str(report.id): ["zendesk", "github"]},
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_products"] == ["zendesk", "github"]
+
+    def test_source_products_present_on_signals_action(self):
+        report = self._create_report()
+
+        with (
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                return_value={str(report.id): ["zendesk"]},
+            ),
+            patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/signals/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["report"]["source_products"] == ["zendesk"]
+
+    def test_source_products_resilient_to_clickhouse_failure_on_retrieve(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_products"] == []
+
+    # --- suppressed report reachability ---
+    #
+    # Suppressed (dismissed) reports stay out of the list by default, but the inbox's
+    # Dismissed tab needs to read them by ID (detail + evidence) and reopen them. Read
+    # paths (retrieve, signals, state) are reachable; mutating-by-ID paths (delete,
+    # reingest) deliberately are not, so they keep returning 404.
+
+    def test_retrieve_serves_suppressed_report(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(report.id)
+        assert response.json()["status"] == SignalReport.Status.SUPPRESSED
+
+    def test_signals_action_serves_suppressed_report(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        with (
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                return_value={str(report.id): ["zendesk"]},
+            ),
+            patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/signals/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["report"]["id"] == str(report.id)
+
+    def test_list_excludes_suppressed_by_default(self):
+        ready = self._create_report(status=SignalReport.Status.READY)
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(ready.id) in ids
+        assert str(suppressed.id) not in ids
+
+    def test_list_includes_suppressed_when_filtered(self):
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(suppressed.id) in ids
+
+    def test_reingest_suppressed_report_returns_404(self):
+        # reingest is a mutating-by-ID action, so a suppressed report stays unreachable
+        # and 404s before any workflow is started (mirrors the delete contract).
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # --- legacy choice removal ---
 
@@ -636,6 +819,42 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["user_id"] == self.user.id
         assert content["user_uuid"] == str(self.user.uuid)
 
+    def test_state_transition_response_includes_source_products(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={str(report.id): ["zendesk"]},
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["source_products"] == ["zendesk"]
+
+    def test_state_transition_resilient_to_clickhouse_failure(self):
+        # A ClickHouse hiccup during best-effort enrichment must not 500 an already-committed
+        # state change — the transition is persisted and the response degrades to empty.
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["source_products"] == []
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
     @parameterized.expand(
         [
             (
@@ -653,3 +872,74 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
+
+    def test_rejects_unknown_state(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "ready"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_snooze_for_delays_repromotion(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5
+        )
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "snooze_for": 10}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        assert report.signals_at_run == 15
+
+    @parameterized.expand([("zero", 0), ("negative", -1), ("too_large", 100_001)])
+    def test_snooze_for_out_of_bounds_rejected(self, _name, snooze_for):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "snooze_for": snooze_for}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    def test_internal_transition_kwargs_are_not_injectable(self):
+        # Callers must not be able to reach internal transition_to kwargs through the body.
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5, total_weight=9.0
+        )
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "state": "potential",
+                    "reset_weight": True,
+                    "error": "injected",
+                    "signals_at_run_increment": 999,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        # None of the injected kwargs took effect.
+        assert report.total_weight == 9.0
+        assert report.error is None
+        assert report.signals_at_run == 0
+
+    def test_can_reopen_suppressed_report(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL

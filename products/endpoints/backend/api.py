@@ -5,7 +5,7 @@ import builtins
 import dataclasses
 from collections.abc import Iterator
 from datetime import timedelta
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -17,9 +17,13 @@ from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
 from loginas.utils import is_impersonated_session
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -32,7 +36,6 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    ProductKey,
     PropertyOperator,
     QueryRequest,
     QueryStatus,
@@ -41,7 +44,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
@@ -51,20 +53,28 @@ from posthog.hogql.printer.utils import print_prepared_ast
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.api.documentation import extend_schema
+from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.query import _process_query_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemViewSetMixin, cleanup_orphan_tags, set_tags_on_object
 from posthog.api.utils import action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import (
+    Feature,
+    Product,
+    get_query_tag_value,
+    is_api_key_access_method,
+    tag_queries,
+)
 from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
@@ -75,18 +85,25 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
-from posthog.models.insight_variable import InsightVariable
+from posthog.permissions import (
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    is_authenticated_via_project_secret_api_key,
+)
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.synthetic_user import SyntheticUser
 from posthog.types import InsightQueryNode
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag, sync_saved_query_to_dag
 from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
-from products.data_warehouse.backend.models import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 from products.endpoints.backend.insight_transformers import (
     MaterializedSeriesMismatchError,
     transform_materialized_insight_response,
 )
+from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE, build_execution_message, log_endpoint_execution
 from products.endpoints.backend.materialization import (
     ENDPOINT_BREAKDOWN_LIMIT,
     SUPPORTED_BUCKET_FUNCTIONS,
@@ -108,7 +125,7 @@ from products.endpoints.backend.metrics import (
     ENDPOINT_EXECUTION_TOTAL,
     ENDPOINT_HOGQL_RESULT_ROWS,
     ENDPOINT_MATERIALIZATION_EVENT_TOTAL,
-    ENDPOINT_MATERIALIZED_AGE_SECONDS,
+    ENDPOINT_MATERIALIZED_FRESHNESS_RATIO,
     ENDPOINT_VALIDATION_ERROR_TOTAL,
     query_kind_label,
 )
@@ -116,6 +133,8 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
 from products.endpoints.backend.rate_limit import (
     EndpointBurstThrottle,
+    EndpointProjectSecretApiKeyTeamBurstThrottle,
+    EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
     clear_endpoint_materialization_cache,
 )
@@ -126,6 +145,8 @@ from products.endpoints.backend.serializers import (
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
 
 from common.hogvm.python.utils import HogVMException
 
@@ -140,7 +161,6 @@ DATA_FRESHNESS_BUCKETS: dict[int, str] = {
 }
 VALID_DATA_FRESHNESS_SECONDS: frozenset[int] = frozenset(DATA_FRESHNESS_BUCKETS)
 DEFAULT_DATA_FRESHNESS_SECONDS = 86400
-
 
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
@@ -166,7 +186,7 @@ def _emit_endpoint_failure_signal(
 
     Fails silently — signal emission must never mask the underlying error.
     """
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     try:
         error_class = type(exc).__name__
@@ -382,6 +402,18 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
     )
 
 
+class _RunRejected(Exception):
+    """Internal control-flow signal: a run request was rejected during validation.
+
+    Carries the 4xx Response to return to the caller. Caught in `run()`, where the rejection is
+    logged once — alongside DRF ValidationErrors — so every rejected run surfaces in the logs.
+    """
+
+    def __init__(self, response: Response):
+        self.response = response
+        super().__init__()
+
+
 @extend_schema_view(
     partial_update=extend_schema(
         request=EndpointRequestSerializer,
@@ -389,10 +421,20 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
         description="Update an existing endpoint.",
     ),
 )
-@extend_schema(tags=[ProductKey.ENDPOINTS])
-class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
+class EndpointViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    PydanticModelMixin,
+    TaggedItemViewSetMixin,
+    LogEntryMixin,
+    viewsets.ModelViewSet,
+):
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["run"]
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"
+    # Read endpoint execution logs from the `log_entries` table keyed by this source.
+    log_source = ENDPOINTS_LOG_SOURCE
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = [
         "retrieve",
@@ -402,6 +444,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "openapi_spec",
         "materialization_preview",
         "materialization_status",
+        "get_endpoints_last_execution_times",
+        "logs",
     ]
     scope_object_write_actions: list[str] = [
         "create",
@@ -421,7 +465,49 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
 
     def get_throttles(self):
-        return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
+        return [
+            EndpointBurstThrottle(),
+            EndpointSustainedThrottle(),
+            EndpointProjectSecretApiKeyTeamBurstThrottle(),
+            EndpointProjectSecretApiKeyTeamSustainedThrottle(),
+        ]
+
+    def dangerously_get_permissions(self):
+        # `run` is the public-facing execution API. It still requires authentication, the
+        # `endpoint:read` API scope, and project membership, but intentionally skips
+        # resource-level access control (AccessControlPermission) — a restrictive resource-level
+        # default must not break execution for API consumers. Explicit per-endpoint
+        # (object-level) denials are still enforced in run() via _enforce_object_level_access.
+        if self.action == "run":
+            return [permission() for permission in (IsAuthenticated, APIScopePermission, TeamMemberAccessPermission)]
+        raise NotImplementedError()
+
+    def _get_endpoint_with_object_access(self, name: str | None) -> Endpoint:
+        """Fetch a team-scoped endpoint by name and enforce object-level access controls.
+
+        The custom retrieve/destroy/versions/materialization actions fetch endpoints directly via
+        get_object_or_404, which bypasses get_object()'s built-in check_object_permissions. Routing
+        through here restores that check so per-endpoint resource access controls (RBAC) are honored,
+        not just the resource-level defaults.
+        """
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        self.check_object_permissions(self.request, endpoint)
+        return endpoint
+
+    def _enforce_object_level_access(self, endpoint: Endpoint) -> None:
+        """Block execution only when the user is explicitly denied this specific endpoint via an
+        object-level access control. Unlike check_object_permissions, this ignores resource-level
+        defaults so a restrictive project default doesn't break the public execution API. Creators
+        and org admins always pass (specific_access_level_for_object returns the highest level).
+        """
+        # PSAK scopes are project-wide within their resource type and deliberately ignore
+        # object-level access controls — the key's team binding and `endpoint:read` scope are
+        # the whole authorization story (see posthog/scopes.py).
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        specific_level = self.user_access_control.specific_access_level_for_object(endpoint)
+        if specific_level is not None and not access_level_satisfied_for_resource("endpoint", specific_level, "viewer"):
+            raise PermissionDenied("You do not have access to this endpoint.")
 
     def _parse_version_param(self, request: Request) -> int | None:
         """Parse version number from request body or query params.
@@ -444,6 +530,32 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 raise ValidationError({"version": f"Must be an integer, got: {query_version}"})
 
         return None
+
+    def _get_tag_names(self, endpoint: Endpoint) -> list[str]:
+        """Read tag names from the prefetched cache or from the DB if not prefetched."""
+        if hasattr(endpoint, "prefetched_tags"):
+            return sorted({ti.tag.name for ti in endpoint.prefetched_tags})
+        return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
+
+    def _apply_tags(self, endpoint: Endpoint, tags: list[str] | None) -> None:
+        """Replace the endpoint's tags. No-op when tags is None (field omitted)."""
+        if tags is None:
+            return
+        # `prefetched_tags` is a dynamic attribute populated by the TaggedItem prefetch / set_tags_on_object;
+        # it's not declared on the Endpoint model.
+        endpoint.prefetched_tags = set_tags_on_object(tags, endpoint)  # type: ignore[attr-defined]
+        cleanup_orphan_tags(endpoint.team_id)
+
+    @extend_schema(exclude=True)
+    @action(methods=["POST"], detail=False)
+    def bulk_update_tags(self, request: Request, *args, **kwargs) -> Response:
+        # The inherited TaggedItemViewSetMixin.bulk_update_tags assumes integer PKs (its
+        # BulkUpdateTagsRequestSerializer validates ids as IntegerField). Endpoint uses
+        # UUID PKs, so the action is unusable. Return 405 until the mixin gains UUID support.
+        return Response(
+            {"detail": "Bulk tag updates are not supported for endpoints."},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
     def _build_materialization_info(self, version: EndpointVersion, endpoint_name: str | None = None) -> dict:
         """Build materialization status dict for a version."""
@@ -515,12 +627,15 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "materialization": self._build_materialization_info(version),
             "bucket_overrides": version.bucket_overrides,
             "columns": version.get_columns() if version else [],
+            "tags": self._get_tag_names(endpoint),
         }
 
         if isinstance(obj, EndpointVersion):
             result["version"] = version.version
             result["version_id"] = str(version.id)
             result["endpoint_is_active"] = endpoint.is_active
+            # Version detail returns the version's own execution time (may be null until it's been run).
+            result["last_executed_at"] = version.last_executed_at.isoformat() if version.last_executed_at else None
             result["version_created_at"] = version.created_at.isoformat()
             result["version_updated_at"] = version.updated_at.isoformat() if version.updated_at else None
             result["version_created_by"] = UserBasicSerializer(version.created_by).data if version.created_by else None
@@ -547,7 +662,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     )
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
-        endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version_number = self._parse_version_param(request)
         try:
@@ -780,6 +895,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 columns=columns,
             )
 
+            self._apply_tags(endpoint, data.tags)
+
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,
@@ -849,7 +966,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         If version is specified, updates target that specific version.
         Otherwise, the current version is used.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        # Enforce object-level RBAC: a user with global editor scope can still be restricted
+        # from a specific endpoint via per-object access controls.
+        endpoint = self._get_endpoint_with_object_access(name)
         endpoint_before_update = Endpoint.objects.get(pk=endpoint.id)
 
         upgraded_query = upgrade(request.data)
@@ -998,6 +1117,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                             raise
                 elif should_disable:
                     self._disable_materialization(endpoint, request, target_version)
+
+            self._apply_tags(endpoint, data.tags)
 
             endpoint_changes = changes_between("Endpoint", previous=endpoint_before_update, current=endpoint)
             if endpoint_changes:
@@ -1159,6 +1280,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         saved_query.save()
 
+        version.saved_query = saved_query
+        version.bucket_overrides = bucket_overrides
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
+
         saved_query.schedule_materialization()
 
         try:
@@ -1178,9 +1303,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "saved_query_id": version.saved_query.id if version and version.saved_query else None,
                 },
             )
-        version.saved_query = saved_query
-        version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(
         self, endpoint: Endpoint, request: Request, version: EndpointVersion | None = None
@@ -1234,7 +1356,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete an endpoint and clean up materialized query."""
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
         endpoint_id = str(endpoint.id)
         endpoint_name = endpoint.name
 
@@ -1514,7 +1636,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             execution_mode=execution_mode,
             query_id=client_query_id,
             user=cast(User, request.user),
-            is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+            is_query_service=is_api_key_access_method(get_query_tag_value("access_method")),
             cache_age_seconds=cache_age_seconds,
             analytics_props=get_request_analytics_properties(request),
         )
@@ -1803,9 +1925,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     trigger_saved_query_schedule(saved_query)
                     raise
 
-            if saved_query.last_run_at:
+            # Freshness relative to the configured target: >1.0 means behind SLA.
+            # Absolute age is meaningless across endpoints with different frequencies.
+            if saved_query.last_run_at and version and version.data_freshness_seconds:
                 age_seconds = max((timezone.now() - saved_query.last_run_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_AGE_SECONDS.observe(age_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
 
             return result
         except Exception as e:
@@ -1846,8 +1970,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @staticmethod
     def _parse_int_param(
         body_value: int | None, query_param: str | None, name: str, min_value: int | None = None
-    ) -> tuple[int | None, Response | None]:
-        """Parse an integer from the request body or query params. Returns (value, error_response)."""
+    ) -> int | None:
+        """Parse an integer from the request body or query params. Raises `_RunRejected` if invalid."""
         value = body_value
         if value is None and query_param is not None:
             try:
@@ -1855,16 +1979,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 if min_value is not None and value < min_value:
                     raise ValueError()
             except (ValueError, TypeError):
-                return None, Response(
-                    {"error": f"Invalid {name} parameter: {query_param}"},
-                    status=status.HTTP_400_BAD_REQUEST,
+                raise _RunRejected(
+                    Response({"error": f"Invalid {name} parameter: {query_param}"}, status=status.HTTP_400_BAD_REQUEST)
                 )
         elif value is not None and min_value is not None and value < min_value:
-            return None, Response(
-                {"error": f"Invalid {name} parameter: {value}"},
-                status=status.HTTP_400_BAD_REQUEST,
+            raise _RunRejected(
+                Response({"error": f"Invalid {name} parameter: {value}"}, status=status.HTTP_400_BAD_REQUEST)
             )
-        return value, None
+        return value
 
     def _apply_pagination_to_query(self, query: dict, limit: int, offset: int) -> tuple[dict, EndpointPagination]:
         """Apply pagination to a HogQL query. Returns (modified_query, pagination).
@@ -2003,24 +2125,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return DashboardFilter(date_from=date_from, date_to=date_to, properties=properties)
 
     def _should_use_ducklake(self, endpoint: Endpoint, version: EndpointVersion | None) -> bool:
-        if version is None:
-            return False
-        if version.query.get("kind") != "HogQLQuery":
+        if version is None or version.query.get("kind") != "HogQLQuery":
             return False
 
-        user_email = getattr(self.request.user, "email", "") if self.request else ""
         ff_result = posthoganalytics.feature_enabled(
             "endpoints-ducklake-execution",
-            user_email,
-            person_properties={"email": str(user_email)},
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {"id": str(self.team.organization_id)},
+                "project": {"id": str(self.team.id)},
+            },
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        logger.info(
-            "Ducklake FF evaluation",
-            endpoint_name=endpoint.name,
-            ff_result=ff_result,
-        )
+        logger.info("Ducklake FF evaluation", endpoint_name=endpoint.name, ff_result=ff_result)
         if not ff_result:
             return False
 
@@ -2160,6 +2282,69 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise
 
+    def _log_rejected_run(self, endpoint: Endpoint, reason: str) -> None:
+        """Record a rejected run request as a failed execution so it surfaces in the endpoint logs.
+
+        Request validation runs before the execution block, so a rejected request would otherwise
+        never appear in the logs. Each rejection gets its own execution id.
+        """
+        log_endpoint_execution(
+            team_id=self.team_id,
+            endpoint_id=str(endpoint.id),
+            instance_id=str(uuid.uuid4()),
+            level="ERROR",
+            message=f"Endpoint execution failed · invalid request · {reason}",
+        )
+
+    def _resolve_version(
+        self, endpoint: Endpoint, version_number: int | None, name: str | None
+    ) -> EndpointVersion | None:
+        """Return the requested version, or None when no specific version was asked for and none exist.
+
+        Raises `_RunRejected` (404) only when a specific `version_number` was requested but not found —
+        matching the original behavior where an unspecified version falls through to the inline path.
+        """
+        try:
+            return endpoint.get_version(version_number)
+        except EndpointVersion.DoesNotExist:
+            if version_number is not None:
+                raise _RunRejected(
+                    Response(
+                        {
+                            "error": f"Version {version_number} not found for endpoint '{name}'",
+                            "current_version": endpoint.current_version,
+                        },
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                )
+            return None
+
+    @staticmethod
+    def _format_validation_detail(detail: Any) -> str:
+        """Flatten a DRF ValidationError detail (str | list | dict, possibly nested) into one line."""
+        if isinstance(detail, dict):
+            return "; ".join(
+                f"{field}: {EndpointViewSet._format_validation_detail(messages)}" for field, messages in detail.items()
+            )
+        if isinstance(detail, list):
+            return "; ".join(EndpointViewSet._format_validation_detail(item) for item in detail)
+        return str(detail)
+
+    @staticmethod
+    def _parse_run_request(request: Request) -> EndpointRunRequest:
+        """Parse and validate the run request body into a clean, field-level 400 on failure.
+
+        Raises a DRF ValidationError so the caller never sees pydantic's raw error dump. Rejection
+        logging is handled centrally in `run()`.
+        """
+        try:
+            return EndpointRunRequest.model_validate(request.data)
+        except PydanticValidationError as exc:
+            field_errors = {
+                ".".join(str(part) for part in error["loc"]) or "body": error["msg"] for error in exc.errors()
+            }
+            raise ValidationError(field_errors)
+
     @extend_schema(
         request=EndpointRunRequest,
         responses={200: EndpointRunResponseSerializer},
@@ -2169,63 +2354,59 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute endpoint with optional parameters."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name, is_active=True, deleted=False)
-        data = self.get_model(request.data, EndpointRunRequest)
+        self._enforce_object_level_access(endpoint)
 
-        # Track endpoint execution for deprecation monitoring
-        report_user_action(
-            user=cast(User, request.user),
-            event="endpoint executed",
-            properties={
-                "endpoint_id": str(endpoint.id),
-                "endpoint_name": endpoint.name,
-                "has_filters_override": bool(data.filters_override),
-                "has_variables": bool(data.variables),
-                "has_limit": data.limit is not None,
-                "has_offset": data.offset is not None,
-                "refresh_mode": data.refresh.value if data.refresh else None,
-            },
-            team=self.team,
-            request=request,
-        )
+        # All run-request validation lives in one place so every rejection — whether it raises a DRF
+        # ValidationError or returns a 4xx Response — is logged exactly once before we bail out.
+        try:
+            data = self._parse_run_request(request)
 
-        version_number, err = self._parse_int_param(data.version, request.query_params.get("version"), "version")
-        if err:
-            return err
-        limit, err = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
-        if err:
-            return err
-        offset, err = self._parse_int_param(data.offset, request.query_params.get("offset"), "offset", min_value=0)
-        if err:
-            return err
-
-        if offset is not None and limit is None:
-            return Response(
-                {"error": "offset requires limit to be set"},
-                status=status.HTTP_400_BAD_REQUEST,
+            report_user_action(
+                user=cast("User | SyntheticUser", request.user),
+                event="endpoint executed",
+                properties={
+                    "endpoint_id": str(endpoint.id),
+                    "endpoint_name": endpoint.name,
+                    "has_filters_override": bool(data.filters_override),
+                    "has_variables": bool(data.variables),
+                    "has_limit": data.limit is not None,
+                    "has_offset": data.offset is not None,
+                    "refresh_mode": data.refresh.value if data.refresh else None,
+                    "auth_method": "project_secret_api_key"
+                    if is_authenticated_via_project_secret_api_key(request)
+                    else "user",
+                },
+                team=self.team,
+                request=request,
             )
 
-        version_obj = None
-        try:
-            version_obj = endpoint.get_version(version_number)
-        except EndpointVersion.DoesNotExist:
-            if version_number is not None:
-                return Response(
-                    {
-                        "error": f"Version {version_number} not found for endpoint '{name}'",
-                        "current_version": endpoint.current_version,
-                    },
-                    status=status.HTTP_404_NOT_FOUND,
+            version_number = self._parse_int_param(data.version, request.query_params.get("version"), "version")
+            limit = self._parse_int_param(data.limit, request.query_params.get("limit"), "limit", min_value=1)
+            offset = self._parse_int_param(data.offset, request.query_params.get("offset"), "offset", min_value=0)
+
+            if offset is not None and limit is None:
+                raise _RunRejected(
+                    Response({"error": "offset requires limit to be set"}, status=status.HTTP_400_BAD_REQUEST)
                 )
 
-        self.validate_run_request(data, endpoint, version_obj)
+            version_obj = self._resolve_version(endpoint, version_number, name)
 
-        if offset is not None and version_obj:
-            query_kind = version_obj.query.get("kind")
-            if query_kind != "HogQLQuery":
-                return Response(
-                    {"error": "offset is only supported for HogQL endpoints"},
-                    status=status.HTTP_400_BAD_REQUEST,
+            self.validate_run_request(data, endpoint, version_obj)
+
+            if offset is not None and version_obj and version_obj.query.get("kind") != "HogQLQuery":
+                raise _RunRejected(
+                    Response(
+                        {"error": "offset is only supported for HogQL endpoints"}, status=status.HTTP_400_BAD_REQUEST
+                    )
                 )
+        except ValidationError as exc:
+            self._log_rejected_run(endpoint, self._format_validation_detail(exc.detail))
+            raise
+        except _RunRejected as rejected:
+            data_ = rejected.response.data
+            reason = data_.get("error", data_) if isinstance(data_, dict) else data_
+            self._log_rejected_run(endpoint, str(reason))
+            return rejected.response
 
         # Check if we should use materialization for this version
         use_materialized = self._should_use_materialized_table(endpoint, data, version_obj)
@@ -2234,7 +2415,12 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         execution_type = "materialized" if use_materialized else "inline"
         query_kind_metric = query_kind_label(version_obj.query if version_obj else None)
         execution_status: str | None = None
+        execution_id = str(uuid.uuid4())
+        cache_outcome: str | None = None
+        result_row_count: int | None = None
+        error_label: str | None = None
         _start_time = time.monotonic()
+        _duration = 0.0
 
         try:
             if use_materialized:
@@ -2285,7 +2471,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
             execution_status = "success"
         except (ExposedHogQLError, ExposedCHQueryError) as e:
-            execution_status = "error"
+            execution_status = "user_error"
+            error_label = getattr(e, "code_name", None) or type(e).__name__
             logger.exception(
                 "Endpoint execution failed",
                 endpoint_name=endpoint.name,
@@ -2293,24 +2480,27 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
             raise ValidationError("Query execution failed.", getattr(e, "code_name", None))
         except HogVMException:
-            execution_status = "error"
+            execution_status = "user_error"
+            error_label = "HogVMException"
             logger.exception(
                 "Endpoint execution failed (HogVM)",
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query execution failed: HogQL virtual machine error")
         except ResolutionError:
-            execution_status = "error"
+            execution_status = "user_error"
+            error_label = "ResolutionError"
             logger.exception(
                 "Endpoint resolution failed",
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
         except ConcurrencyLimitExceeded:
-            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.inc()
+            ENDPOINT_CONCURRENCY_REJECTED_TOTAL.labels(team_id=str(self.team_id)).inc()
             raise Throttled(detail="Too many concurrent requests. Please try again later.")
-        except Exception:
+        except Exception as e:
             execution_status = "error"
+            error_label = type(e).__name__
             raise
         finally:
             if execution_status is not None:
@@ -2321,6 +2511,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 ENDPOINT_EXECUTION_TOTAL.labels(
                     execution_type=execution_type, query_kind=query_kind_metric, status=execution_status
                 ).inc()
+            if execution_status in ("error", "user_error"):
+                log_endpoint_execution(
+                    team_id=self.team_id,
+                    endpoint_id=str(endpoint.id),
+                    instance_id=execution_id,
+                    level="ERROR",
+                    message=build_execution_message(
+                        succeeded=False,
+                        execution_type=execution_type,
+                        version=version_obj.version if version_obj else None,
+                        error=error_label,
+                    ),
+                )
 
         try:
             if isinstance(result.data, dict):
@@ -2331,21 +2534,44 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                         execution_type=execution_type, query_kind=query_kind_metric, outcome=cache_outcome
                     ).inc()
 
-                if query_kind_metric == "hogql":
-                    results_value = result.data.get("results")
-                    if isinstance(results_value, list):
-                        ENDPOINT_HOGQL_RESULT_ROWS.labels(execution_type=execution_type).observe(len(results_value))
+                results_value = result.data.get("results")
+                if isinstance(results_value, list):
+                    result_row_count = len(results_value)
+                    if query_kind_metric == "hogql":
+                        ENDPOINT_HOGQL_RESULT_ROWS.labels(execution_type=execution_type).observe(result_row_count)
         except Exception:
             logger.debug("Failed to record endpoint result metrics", exc_info=True)
 
-        if get_query_tag_value("access_method") == "personal_api_key":
+        log_endpoint_execution(
+            team_id=self.team_id,
+            endpoint_id=str(endpoint.id),
+            instance_id=execution_id,
+            level="INFO",
+            message=build_execution_message(
+                succeeded=True,
+                execution_type=execution_type,
+                cache_outcome=cache_outcome,
+                duration_ms=round(_duration * 1000),
+                rows=result_row_count,
+                version=version_obj.version if version_obj else None,
+            ),
+        )
+
+        if is_api_key_access_method(get_query_tag_value("access_method")):
             now = timezone.now()
-            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > timedelta(hours=1)):
+            throttle = timedelta(minutes=30)
+            if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > throttle):
                 endpoint.last_executed_at = now
                 endpoint.save(update_fields=["last_executed_at"])
+            if version_obj is not None and (
+                version_obj.last_executed_at is None or (now - version_obj.last_executed_at > throttle)
+            ):
+                version_obj.last_executed_at = now
+                version_obj.save(update_fields=["last_executed_at"])
 
         if isinstance(result.data, dict):
             result.data["name"] = endpoint.name
+            result.data["execution_id"] = execution_id
             if version_obj:
                 result.data["endpoint_version"] = version_obj.version
                 result.data["endpoint_version_created_at"] = version_obj.created_at.isoformat()
@@ -2409,14 +2635,17 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     )
 
     @extend_schema(
-        description="Get the last execution times in the past 6 months for multiple endpoints.",
+        description=(
+            "Get the most recent execution time per endpoint (endpoint-level). "
+            "Timestamps are recorded by the run path for personal-API-key calls. "
+            "For per-version usage, query the query_log table directly."
+        ),
         request=EndpointLastExecutionTimesRequest,
         responses={200: QueryStatusResponse},
     )
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
-            tag_queries(product=Product.ENDPOINTS, feature=Feature.ENDPOINT_LAST_EXECUTION)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
@@ -2427,30 +2656,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     status=200,
                 )
 
-            validated_names = []
             for name in names:
                 if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
                     raise ValidationError({"names": f"Invalid endpoint name: {name}"})
-                validated_names.append(f"'{name}'")
-            names_list = ",".join(validated_names)
 
-            query = HogQLQuery(
-                query=f"select name, max(query_start_time) as last_executed_at from query_log where name in ({names_list}) and endpoint like '%/endpoints/%' and is_personal_api_key_request and query_start_time >= (today() - interval 6 month) group by name",
-                name="get_endpoints_last_execution_times",
+            endpoint_rows = list(
+                Endpoint.objects.filter(team=self.team, name__in=names, last_executed_at__isnull=False).values_list(
+                    "name", "last_executed_at"
+                )
             )
-            hogql_runner = HogQLQueryRunner(
-                query=query,
-                team=self.team,
-                modifiers=HogQLQueryModifiers(),
-                limit_context=LimitContext.QUERY,
-            )
-            result = hogql_runner.calculate()
+            results = [[name, ts.isoformat()] for name, ts in endpoint_rows if ts is not None]
 
-            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=result.results)
+            query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=results)
 
             return Response(QueryStatusResponse(query_status=query_status).model_dump(), status=200)
-        except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
         except Exception as e:
             capture_exception(e, {"product": Product.ENDPOINTS, "team_id": self.team_id})
             raise
@@ -2479,7 +2698,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Returns versions in descending order (latest first).
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
         versions_qs = endpoint.versions.all()
         page = self.paginate_queryset(versions_qs)
         if page is not None:
@@ -2498,7 +2717,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Supports ?version=N query param to get status for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version_number = self._parse_version_param(request)
         if version_number is not None:
@@ -2521,7 +2740,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Returns the transformed query, range pair info, and aggregate re-aggregation info.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version_number = request.validated_data.get("version")
         if version_number is not None:
@@ -2652,6 +2871,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         )
 
     @extend_schema(
+        # url_path="openapi.json" would otherwise produce `..._openapi.json_retrieve` —
+        # the `.` is rejected by lint_spec_consistency_hook + the MCP YAML scaffolder.
+        operation_id="endpoints_openapi_spec_retrieve",
         description="Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.",
         parameters=[
             OpenApiParameter(
@@ -2672,7 +2894,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         Supports ?version=N query param to generate spec for a specific version.
         """
-        endpoint = get_object_or_404(Endpoint, team=self.team, name=name, deleted=False)
+        endpoint = self._get_endpoint_with_object_access(name)
 
         version = None
         version_number = self._parse_version_param(request)

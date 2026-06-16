@@ -1,11 +1,15 @@
 import logging
+from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
@@ -22,6 +26,8 @@ class SignalSourceConfig(UUIDModel):
         CONVERSATIONS = "conversations", "Conversations"
         ERROR_TRACKING = "error_tracking", "Error tracking"
         PGANALYZE = "pganalyze", "pganalyze"
+        SIGNALS_SCOUT = "signals_scout", "Signals scout"
+        LOGS = "logs", "Logs"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
@@ -31,6 +37,8 @@ class SignalSourceConfig(UUIDModel):
         ISSUE_CREATED = "issue_created", "Issue created"
         ISSUE_REOPENED = "issue_reopened", "Issue reopened"
         ISSUE_SPIKING = "issue_spiking", "Issue spiking"
+        CROSS_SOURCE_ISSUE = "cross_source_issue", "Cross source issue"
+        ALERT_STATE_CHANGE = "alert_state_change", "Alert state change"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct)
@@ -45,7 +53,7 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        LLM analytics signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
+        AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
         For everything else, the team must have a SignalSourceConfig row with enabled=True.
         """
         if source_product == cls.SourceProduct.LLM_ANALYTICS:
@@ -85,7 +93,9 @@ class SignalTeamConfig(UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_team_config",
     )
-    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P2)
+    default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    autostart_base_branches = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -100,6 +110,21 @@ register_team_extension_signal(SignalTeamConfig, logger=logger)
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
     autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
+    # Slack notifications for new inbox items where the user is a suggested reviewer.
+    # All three fields are required together; a config row with any of them null
+    # disables notifications. Integration is team-scoped, so notifications are
+    # scoped to a single team via the integration's team.
+    slack_notification_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
+    # When null, all priorities (including reports with no priority) notify.
+    # When set, only reports with a priority at or above this value (P0 highest) notify.
+    slack_notification_min_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -162,7 +187,7 @@ class SignalReport(UUIDModel):
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
     conversation = deprecate_field(
-        models.ForeignKey("ee.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
+        models.ForeignKey("posthog_ai.Conversation", null=True, blank=True, on_delete=models.SET_NULL)
     )
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
 
@@ -351,3 +376,329 @@ class SignalReportTask(UUIDModel):
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+
+
+# ── Signals scout (headless cross-source explorer) ──────────────────────────────
+#
+# Three tables back the v1 Signals scout:
+#   - SignalScoutConfig: per-team binding (one row per team).
+#   - SignalScoutRun:    bridge from a `tasks.TaskRun` to its scout-domain context.
+#                        Mirrors `SignalReportTask` (1:1 to TaskRun instead of N:1
+#                        to Task because scout runs are per-execution, not per-task).
+#                        Status, timing, error, chat-log all live on `TaskRun`;
+#                        findings live on emitted `Signal`/`SignalReport` rows.
+#   - SignalScratchpad:  working notes the scout reads in future runs.
+
+
+class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    """One row per (team, scout skill): schedule + emit posture for a `signals-scout-*` skill.
+
+    Changes are activity-logged (they drive spend). Team-level participation in the
+    dogfood program is gated by the `signals-scout` flag at the coordinator, not here.
+    """
+
+    # ModelActivityMixin only logs deletes when this is set.
+    activity_logging_on_delete = True
+
+    # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
+    # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
+    # (admin changelist queryset, related-object access, prefetch_related) that must not
+    # filter by team. `default_manager_name` routes `_default_manager` / `_base_manager`
+    # there. Same pattern as ProductTeamModel — duplicated here because TeamScopedRootMixin
+    # doesn't bake it in (most callers don't need it).
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_configs",
+    )
+    # The `signals-scout-*` LLMSkill this row references (controlling only its scheduling /
+    # enablement, not the skill itself). The coordinator auto-creates a
+    # row when it discovers a scout skill on a participating team, so a user authoring
+    # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
+    skill_name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True, db_default=True)
+    # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
+    # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
+    # nothing — to validate it on a team before its findings reach the inbox.
+    emit = models.BooleanField(default=True, db_default=True)
+    # Minutes between runs. The coordinator dispatches this scout when
+    # `last_run_at is None or now - last_run_at >= run_interval_minutes`. Deterministic —
+    # no sampling. Floor of 10 keeps one scout from monopolising the worker pool; default
+    # 60 = hourly. Ceiling 43200 = 30 days. `PositiveIntegerField` (int4) not
+    # `PositiveSmallIntegerField` (smallint, max 32767) so the documented 30-day ceiling fits.
+    run_interval_minutes = models.PositiveIntegerField(
+        default=60,
+        db_default=60,
+        validators=[MinValueValidator(10), MaxValueValidator(43200)],
+    )
+    # Stamped by the coordinator after each dispatch; drives the due-check. Written every
+    # run, so it is excluded from activity logging (see field_exclusions below).
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    # Who last flipped `enabled` on. Tracked because enablement drives spend.
+    enabled_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name = "Signal scout config"
+        verbose_name_plural = "Signal scout configs"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
+        ]
+
+    def _get_before_update(self, **kwargs: Any) -> "SignalScoutConfig | None":
+        # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
+        # TeamScopedManager). Edits from Django admin / the coordinator / a shell run with no
+        # team scope set, so route the lookup through the unscoped `all_teams` manager to avoid
+        # a TeamScopeError when logging the change.
+        if not self.pk:
+            return None
+        return type(self).all_teams.filter(pk=self.pk).first()
+
+
+class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
+    """Bridge from a Tasks `TaskRun` to the scout skill that ran inside it.
+
+    Mirrors `SignalReportTask` (the bridge used by the SignalReport research flow):
+    a thin row that links a `tasks.TaskRun` to its scout-domain context. Status,
+    timing, error, and chat-log live on the `TaskRun`; emitted findings are
+    `Signal` / `SignalReport` rows created by `emit_signal`. This row carries only
+    the scout-specific fields that need to be queryable as real columns
+    (`skill_name` for the per-team running-check, `scout_config` for audit lineage,
+    and the `emitted_count` / `emitted_finding_ids` emit tally so "did this run
+    surface anything?" is a column lookup, not a prose-`summary` parse).
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # 1:1 with the TaskRun the scout span ran inside. CASCADE: if the TaskRun is
+    # purged (data retention), the scout-side bridge row goes with it.
+    task_run = models.OneToOneField(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_run",
+    )
+    # Denormalised tenant boundary. Canonical via `task_run.task.team`, but kept
+    # on this row so per-team queries (e.g. running-check) avoid the join and the
+    # `TeamScopedRootMixin` fail-closed manager has a column to filter on.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_runs",
+    )
+    # SET_NULL so deleting a config row (e.g. recreating from scratch) doesn't
+    # destroy the run history we want for audit and dedupe.
+    scout_config = models.ForeignKey(
+        SignalScoutConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="runs",
+    )
+    skill_name = models.CharField(max_length=200)
+    skill_version = models.IntegerField()
+    # One-paragraph close-out the scout writes at end-of-run via `SignalScoutRunSummary`.
+    # Searchable via ILIKE on the list endpoint — the dedupe path for runs that didn't
+    # emit any findings (and so left no `Signal` row to query against). Empty default
+    # so historical rows and mid-run reads return a string, not NULL.
+    summary = models.TextField(blank=True, default="", db_default="")
+    # Tally of findings this run actually emitted (preflight-skipped/dry-run emits don't
+    # count). Bumped post-success by `emit_finding`; kept as a real column so a run that
+    # surfaced something is queryable directly (the `emitted` filter on the list endpoint)
+    # instead of parsing the prose `summary`. NOT an idempotency barrier — re-emitting the
+    # same `finding_id` increments it again, just like it emits a second signal.
+    # Nullable (with a 0 `db_default`) so the AddField stays non-blocking on a table that
+    # already has rows — new and historical rows both read 0; NULL is permitted but never
+    # written by the ORM path.
+    emitted_count = models.IntegerField(null=True, default=0, db_default=0)
+    # The `finding_id`s behind `emitted_count`, in emit order — lets a caller tie a run back
+    # to its `Signal` rows (`source_id = run:<run_id>:finding:<finding_id>`) without a
+    # ClickHouse scan. Parallel to `emitted_count` (`len(emitted_finding_ids) == emitted_count`).
+    emitted_finding_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout run"
+        verbose_name_plural = "Signal scout runs"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "skill_name"], name="signal_scout_run_skill_idx"),
+        ]
+
+
+class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
+    """One persisted row per finding a scout run emitted to the inbox.
+
+    The durable, queryable record of *what* a scout surfaced — written at emit time by
+    `emit_finding`, in the same transaction as the run's `emitted_count` tally bump. It lets a
+    team (and its MCP agents) read a run's findings directly via API/MCP without scanning the
+    ClickHouse signal store or parsing `source_id`. It complements, not replaces, that store:
+    ClickHouse is keyed for embedding/grouping, lags emit by the fire-and-forget Temporal
+    pipeline, and can drop under buffer backpressure — this row reflects the emit
+    deterministically at the moment it fired.
+
+    Parallel to `SignalScoutRun.emitted_finding_ids` (one row per emit, in emit order) and, like
+    that tally, NOT an idempotency barrier: re-emitting the same `finding_id` writes a second
+    row, mirroring the second signal it produces downstream.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale: emit can run with no team scope set
+    # (Temporal activity), so the write path needs the unscoped manager.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # Denormalised tenant boundary, matching `SignalScoutRun`. Canonical via `scout_run.team`,
+    # kept on this row so the `TeamScopedRootMixin` fail-closed manager has a column to filter on.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scout_emissions",
+    )
+    # CASCADE: an emission is meaningless without its run; purging the run (or the TaskRun it
+    # bridges, via that row's own CASCADE) takes the per-finding rows with it.
+    scout_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.CASCADE,
+        related_name="emissions",
+    )
+    # Stable finding id the agent emitted under — baked into `source_id` below and present in the
+    # run's `emitted_finding_ids`.
+    finding_id = models.CharField(max_length=200)
+    # The emitted signal's `description` (the finding prose surfaced to the inbox). Bounded
+    # upstream by `MAX_FINDING_DESCRIPTION_LENGTH` on the emit serializer and the emit_signal
+    # token cap, so it stays well clear of row-size concerns.
+    description = models.TextField()
+    weight = models.FloatField()
+    confidence = models.FloatField()
+    severity = models.CharField(max_length=20, null=True, blank=True)
+    # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
+    # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt
+    # (`recent_tag_usage`), so the vocabulary derives from emitted behavior, not a maintained list.
+    tags = models.JSONField(default=list, blank=True)
+    # Deterministic `run:<run_id>:finding:<finding_id>` — the join key back into the signal store
+    # for the full embedding/grouping view of this finding.
+    source_id = models.CharField(max_length=200)
+    emitted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Signal scout emission"
+        verbose_name_plural = "Signal scout emissions"
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "scout_run"], name="signal_scout_emission_run_idx"),
+        ]
+
+
+class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
+    """Narrow per-team memory surface for the Signals scout fleet — MCP-readable across agents.
+
+    Scratchpad entries are keyed prose notes the scout fleet writes during runs and
+    reads back on future runs (intra-fleet memory) — classifications, dedupe
+    fingerprints, learned team quirks the scout decided not to re-emit. The MCP
+    read surface is intentional product design: any agent (PostHog AI, ad-hoc
+    investigators, other scouts) can read what the scout fleet has learned about
+    a team.
+
+    Distinct in shape from PostHog AI's memory primitives (`CoreMemory`,
+    `AgentMemory`) — those are singleton-per-team blob or per-conversation
+    embedded snippets, neither of which fits the scout's per-key cross-agent
+    read pattern. Kept narrow to the scouts feature on purpose; not a shared
+    primitive.
+    """
+
+    # See SignalScoutConfig.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_scratchpads",
+    )
+    # Semantic key, scout-chosen. Unique per team.
+    key = models.CharField(max_length=300)
+    # Prose for prompt injection — the scout reads this verbatim.
+    content = models.TextField()
+    # The run that wrote this entry. SET_NULL so deleting a run row doesn't
+    # destroy the memory it left behind.
+    created_by_run = models.ForeignKey(
+        SignalScoutRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="scratchpads_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Signal scratchpad"
+        verbose_name_plural = "Signal scratchpads"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]
+
+
+class SignalProjectProfile(TeamScopedRootMixin, UUIDModel):
+    """Deterministic snapshot of "what's true about this project" — agent orientation surface.
+
+    One row per (team, computed_at). Time-series so Phase 7 can diff a new profile against
+    the previous row to populate `payload.deltas`. v1 (Phase 4a) writes inventory only;
+    Phase 7 layers on deltas, activity_notes, and an LLM narrative section.
+
+    Profile is the *deterministic ground truth* about a project (computed from authoritative
+    tables). Distinct from `SignalScratchpad`, which is the *agent's inferred learnings* (possibly
+    wrong, TTL'd). Profile feeds memory; memory does not update profile.
+    """
+
+    # See `SignalScoutConfig.all_teams` for the rationale on the unscoped sibling manager
+    # and `default_manager_name`.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_project_profiles",
+    )
+    computed_at = models.DateTimeField(auto_now_add=True)
+    # Soft TTL — `get_project_profile` treats rows past expiry as cache misses and recomputes.
+    # Aligned to the coordinator tick (`PROFILE_TTL`) so an active team's agent runs see
+    # ground-truth that's at most one tick stale. Callers that know the underlying data
+    # just changed can punch through the cache via `get_project_profile(force_refresh=True)`.
+    expires_at = models.DateTimeField()
+    # Bumps when the inventory schema changes meaningfully so `get_project_profile` can
+    # invalidate stale rows without a manual backfill.
+    source_version = models.CharField(max_length=40)
+    # Structured payload: `{inventory: {...}}` in v1; `deltas`, `activity_notes`, `narrative`
+    # slots reserved for Phase 7. Stored as jsonb because the payload is written by one
+    # builder, read whole, and never field-queried — relational columns would buy no query
+    # benefit and a migration per section as coverage grows. Not schemaless, though:
+    # `build_inventory` returns a validated `Inventory` model (see
+    # `scout_harness/profile/schema.py`), so the jsonb is schema-backed on write.
+    payload = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "Signal project profile"
+        verbose_name_plural = "Signal project profiles"
+        default_manager_name = "all_teams"
+        indexes = [
+            # `get_project_profile` reads the newest non-expired row for a team — supports the
+            # ORDER BY computed_at DESC LIMIT 1 lookup pattern.
+            models.Index(fields=["team", "-computed_at"], name="signal_proj_profile_recent_idx"),
+        ]

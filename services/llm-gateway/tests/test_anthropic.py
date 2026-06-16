@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -232,6 +233,29 @@ class TestAnthropicMessagesEndpoint:
         assert data["id"] == "msg_123"
         assert data["role"] == "assistant"
         assert data["usage"]["input_tokens"] == 10
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_bare_claude_model_is_prefixed_for_litellm_routing(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+        mock_anthropic.return_value = mock_response
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-opus-4-8",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_args.kwargs["model"] == "anthropic/claude-opus-4-8"
 
     @pytest.mark.parametrize(
         "error_status,error_message,error_type",
@@ -474,7 +498,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 200
         call_kwargs = mock_anthropic.call_args.kwargs
-        assert call_kwargs["model"] == "claude-sonnet-4-6"
+        assert call_kwargs["model"] == "anthropic/claude-sonnet-4-6"
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
@@ -572,6 +596,107 @@ class TestStripServerSideTools:
         self._call(data)
         assert len(data["tools"]) == 1
         assert data["tools"][0]["name"] == "read_data"
+
+
+class TestSanitizeForBedrock:
+    """Unit tests for sanitize_for_bedrock — the allowlist boundary for Anthropic->Bedrock requests."""
+
+    def _call(self, data: dict[str, Any]) -> dict[str, Any]:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+
+        return sanitize_for_bedrock(data, model="test-model", product="test")
+
+    def test_drops_anthropic_only_param(self) -> None:
+        data: dict[str, Any] = {
+            "model": "bedrock/us.anthropic.claude-sonnet-4-6",
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": {"edits": [{"type": "clear_tool_uses_20250919"}]},
+        }
+        result = self._call(data)
+        assert "context_management" not in result
+        assert result["model"] == "bedrock/us.anthropic.claude-sonnet-4-6"
+        assert result["messages"] == [{"role": "user", "content": "hi"}]
+
+    @pytest.mark.parametrize(
+        "param",
+        [
+            "model",
+            "messages",
+            "system",
+            "max_tokens",
+            "stream",
+            "stop_sequences",
+            "temperature",
+            "top_p",
+            "top_k",
+            "tools",
+            "tool_choice",
+            "thinking",
+            "metadata",
+            "anthropic_version",
+            "anthropic_beta",
+            "output_format",
+            "output_config",
+        ],
+    )
+    def test_keeps_supported_param(self, param: str) -> None:
+        # A valid tools list so the nested server-side-tool stripper leaves it intact.
+        value: Any = [{"name": "t", "input_schema": {"type": "object", "properties": {}}}]
+        data: dict[str, Any] = {"model": "m", param: value}
+        assert param in self._call(data)
+
+    @pytest.mark.parametrize(
+        "param",
+        # Anthropic-only params litellm forwards verbatim but Bedrock rejects, plus an unknown
+        # future param (the case that ends the cat-and-mouse: dropped by default).
+        [
+            "context_management",
+            "inference_geo",
+            "speed",
+            "mcp_servers",
+            "container",
+            "service_tier",
+            "some_future_beta_param",
+        ],
+    )
+    def test_drops_unsupported_param(self, param: str) -> None:
+        data: dict[str, Any] = {"model": "m", param: "value"}
+        assert param not in self._call(data)
+
+    def test_does_not_mutate_input(self) -> None:
+        data: dict[str, Any] = {"model": "m", "context_management": {}}
+        self._call(data)
+        assert "context_management" in data
+
+    def test_increments_metric_per_dropped_param(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+        from llm_gateway.metrics.prometheus import BEDROCK_PARAM_STRIPPED
+
+        before = BEDROCK_PARAM_STRIPPED.labels(param="context_management", product="test")._value.get()
+        sanitize_for_bedrock({"model": "m", "context_management": {}}, model="test-model", product="test")
+        after = BEDROCK_PARAM_STRIPPED.labels(param="context_management", product="test")._value.get()
+        assert after == before + 1
+
+    def test_logs_warning_per_dropped_param(self) -> None:
+        from llm_gateway.api.anthropic import sanitize_for_bedrock
+
+        data: dict[str, Any] = {"model": "m", "context_management": {}, "mcp_servers": []}
+        with patch("llm_gateway.api.anthropic.logger") as mock_logger:
+            sanitize_for_bedrock(data, model="test-model", product="test")
+            warned = {call.kwargs["param"] for call in mock_logger.warning.call_args_list}
+        assert {"context_management", "mcp_servers"} <= warned
+
+    def test_still_strips_server_side_tools(self) -> None:
+        data: dict[str, Any] = {
+            "model": "m",
+            "tools": [
+                {"name": "read_data", "input_schema": {"type": "object", "properties": {}}},
+                {"type": "web_search_20250305", "name": "web_search"},
+            ],
+        }
+        result = self._call(data)
+        assert len(result["tools"]) == 1
+        assert result["tools"][0]["name"] == "read_data"
 
 
 class TestAnthropicCountTokensEndpoint:
@@ -1027,7 +1152,7 @@ class TestAnthropicCircuitBreakerIntegration:
 
         assert response.status_code == 200
         forwarded_model = mock_anthropic.call_args.kwargs["model"]
-        assert forwarded_model == "claude-sonnet-4-6"
+        assert forwarded_model == "anthropic/claude-sonnet-4-6"
         breaker.record_outcome.assert_awaited_with(success=True)
         breaker.evaluate.assert_not_called()
 
@@ -1056,7 +1181,7 @@ class TestAnthropicCircuitBreakerIntegration:
 
         assert response.status_code == 200
         forwarded_model = mock_anthropic.call_args.kwargs["model"]
-        assert forwarded_model == "claude-sonnet-4-6"
+        assert forwarded_model == "anthropic/claude-sonnet-4-6"
         breaker.record_outcome.assert_awaited_with(success=True)
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
@@ -1137,9 +1262,9 @@ class TestAnthropicCircuitBreakerIntegration:
         mock_anthropic: MagicMock,
         authenticated_client: TestClient,
         install_breaker,
-        request_body: dict,
         mock_response_dict: dict,
     ) -> None:
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
         breaker = install_breaker(bypass=False)
         error = Exception("rate limited")
         error.status_code = 429  # type: ignore[attr-defined]
@@ -1166,6 +1291,54 @@ class TestAnthropicCircuitBreakerIntegration:
         assert response.status_code == 200
         breaker.record_outcome.assert_awaited_with(success=False)
         assert mock_anthropic.call_count == 2
+        assert mock_anthropic.call_args_list[0].kwargs["model"] == "anthropic/claude-opus-4-8"
+        assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_only_param_stripped_before_bedrock_fallback(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict,
+    ) -> None:
+        """Regression: an Anthropic-only beta param (context_management) used to 400 every Bedrock
+        fallback. The allowlist must drop it on the Bedrock leg while keeping it on the Anthropic leg.
+        """
+        request_body = {
+            "model": "claude-opus-4-8",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "context_management": {"edits": [{"type": "clear_tool_uses_20250919"}]},
+        }
+        install_breaker(bypass=False)
+        error = Exception("internal error")
+        error.status_code = 500  # type: ignore[attr-defined]
+        error.message = "internal error"  # type: ignore[attr-defined]
+        error.type = "internal_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        assert mock_anthropic.call_count == 2
+        anthropic_kwargs = mock_anthropic.call_args_list[0].kwargs
+        bedrock_kwargs = mock_anthropic.call_args_list[1].kwargs
+        assert "context_management" in anthropic_kwargs
+        assert "context_management" not in bedrock_kwargs
 
     def test_streaming_success_records_after_stream_completes(
         self,
@@ -1187,9 +1360,7 @@ class TestAnthropicCircuitBreakerIntegration:
         async def consume() -> list[bytes]:
             return [chunk async for chunk in wrapped.body_iterator]
 
-        import asyncio as _asyncio
-
-        chunks = _asyncio.get_event_loop().run_until_complete(consume())
+        chunks = asyncio.run(consume())
         assert len(chunks) == 2
         breaker.record_outcome.assert_awaited_with(success=True)
 
@@ -1219,7 +1390,5 @@ class TestAnthropicCircuitBreakerIntegration:
             except RuntimeError:
                 pass
 
-        import asyncio as _asyncio
-
-        _asyncio.get_event_loop().run_until_complete(consume())
+        asyncio.run(consume())
         breaker.record_outcome.assert_awaited_with(success=False)
