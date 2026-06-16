@@ -211,9 +211,16 @@ export function InsightTooltip({
                                 colIdx
                             )),
                     render: function renderSeriesColumnData(_, datum) {
-                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData.find(
-                            (s) => s.order === colIdx
-                        )
+                        const seriesColumnData: SeriesDatum | undefined =
+                            datum.seriesData.find((s) => s.order === colIdx) ??
+                            // When the layout collapses to a single value column — i.e. every breakdown
+                            // group resolves to exactly one series, as in funnel historical trends where
+                            // each line is its own breakdown value — that series' `order` encodes breakdown
+                            // rank rather than an entity/step index, so it won't line up with `colIdx` and
+                            // every cell but one renders as "–". With one column there's no ambiguity, so
+                            // fall back to the row's only series. Multi-entity layouts (numDataPoints > 1)
+                            // are unaffected and still show "–" for genuinely missing entities.
+                            (numDataPoints === 1 ? datum.seriesData[0] : undefined)
                         const cell = renderDatumToTableCell(
                             seriesColumnData?.action?.math_property,
                             seriesColumnData?.count,
