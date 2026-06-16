@@ -101,10 +101,10 @@ tools:
             or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string
             (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
 
-            Note: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create
-            for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list
-            (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then
-            use cdp-functions-partial-update or cdp-functions-delete.
+            Note: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on
+            cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it
+            via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against
+            this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.
         exclude_params:
             - state
             - last_notified_at
