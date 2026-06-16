@@ -51,9 +51,9 @@ tools:
                     string. There is no dedicated payload parameter.
             ensure_experience_continuity:
                 description:
-                    Whether to persist the flag's value for a user across the anonymous-to-identified transition (the
-                    "persist across authentication steps" option in the UI). Keeps a user's evaluated value stable once
-                    they log in. Incompatible with `device_id` bucketing.
+                    Whether to persist the flag's value for a user across the anonymous-to-identified transition (the "persist
+                    across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
+                    in. Incompatible with `device_id` bucketing.
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true
@@ -443,6 +443,6 @@ tools:
                     string. There is no dedicated payload parameter.
             ensure_experience_continuity:
                 description:
-                    Whether to persist the flag's value for a user across the anonymous-to-identified transition (the
-                    "persist across authentication steps" option in the UI). Keeps a user's evaluated value stable once
-                    they log in. Incompatible with `device_id` bucketing.
+                    Whether to persist the flag's value for a user across the anonymous-to-identified transition (the "persist
+                    across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
+                    in. Incompatible with `device_id` bucketing.
