@@ -570,11 +570,14 @@ async def _write_batch_export_record_batches_to_internal_stage(
     async with get_client(
         team_id=team_id,
         clickhouse_url=clickhouse_url,
-        use_strict_insert_block_limits=1,
-        max_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
-        # Disable all of these so only the bytes limit counts.
-        max_insert_block_size_rows=0,
-        min_insert_block_size_bytes=0,
+        # TODO: Strict limits are available in ClickHouse 26.4
+        # We should uncomment all of these here to let max_insert_block_size_bytes dictate the size
+        # once clickhouse is upgraded.
+        # use_strict_insert_block_limits=1,
+        # max_insert_block_size_rows=0,
+        # max_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
+        min_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
+        # Disable all of these so only the bytes limits counts.
         min_insert_block_size_rows=0,
     ) as client:
         if not await client.is_alive():
