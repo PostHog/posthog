@@ -280,6 +280,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
                 "your database so it contains data, then re-enable the sync."
             ),
+            # Raised by Postgres while reading a view/materialized view whose own definition calls
+            # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
+            # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;
+            # the function lives in the customer's view definition. The failure is deterministic
+            # against the source data, so retrying re-evaluates the same view and hits the same row.
+            "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
         }
 
     def reconcile_schema_metadata(

@@ -344,6 +344,20 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "cannot call jsonb_each on a non-object",
+            "InvalidParameterValue: cannot call jsonb_each on a non-object",
+            "cannot call jsonb_each_text on a non-object",
+            "InvalidParameterValue: cannot call jsonb_each_text on a non-object",
+        ],
+    )
+    def test_jsonb_each_on_non_object_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
