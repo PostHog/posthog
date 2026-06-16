@@ -17,28 +17,7 @@ import { SLACK_BOT_TOKEN_KEY } from '../spec/trigger-secrets'
 import { FailureNotifier, FailureNotifierInput, userFacingMessage } from './failure-notifier'
 import { HttpFetcher } from './http-client'
 import { SecretResolver } from './secret-resolver'
-
-export interface SlackTriggerMetadata {
-    type: 'slack'
-    workspace_id: string
-    channel: string
-    ts: string
-    thread_ts: string
-}
-
-function isSlackTriggerMetadata(meta: unknown): meta is SlackTriggerMetadata {
-    if (!meta || typeof meta !== 'object') {
-        return false
-    }
-    const m = meta as Record<string, unknown>
-    return (
-        m.type === 'slack' &&
-        typeof m.channel === 'string' &&
-        typeof m.thread_ts === 'string' &&
-        m.channel.length > 0 &&
-        m.thread_ts.length > 0
-    )
-}
+import { isSlackTriggerMetadata, SlackTriggerMetadata } from './slack-reply'
 
 export interface SlackFailureNotifierDeps {
     http: HttpFetcher

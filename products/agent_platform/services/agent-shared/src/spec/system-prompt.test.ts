@@ -200,4 +200,17 @@ describe('buildSystemPrompt', () => {
         const omittedPrompt = await buildSystemPrompt(makeRev(omittedSpec), bundle)
         expect(omittedPrompt).not.toMatch(/Reasoning budget/)
     })
+
+    it('adds the Slack reply-relay note only when slackReplyRelay is set', async () => {
+        await bundle.write('rev1', 'agent.md', 'You are a helpful agent.')
+        const spec = AgentSpecSchema.parse({ model: 'x' })
+
+        const off = await buildSystemPrompt(makeRev(spec), bundle)
+        expect(off).not.toMatch(/Responding in Slack/)
+
+        const on = await buildSystemPrompt(makeRev(spec), bundle, { slackReplyRelay: true })
+        expect(on).toMatch(/Responding in Slack/)
+        expect(on).toMatch(/delivered to the thread automatically/i)
+        expect(on).toContain('@posthog/slack-post-message')
+    })
 })

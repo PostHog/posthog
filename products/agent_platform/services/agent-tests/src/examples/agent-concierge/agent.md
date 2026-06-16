@@ -290,15 +290,18 @@ talking to: your own triggers are chat + MCP, where the platform
 streams your text back to the client — there, your reply _is_ the
 channel.
 
-**That is NOT true for the Slack-triggered agents you build.** The
-platform does not auto-relay an agent's replies to Slack — the only
-automatic Slack posts are the `ack_reaction` and a failure notice. A
-Slack agent must call `@posthog/slack-post-message` (to the trigger's
-`channel` / `thread_ts`) to say anything back. So whenever you author a
-Slack agent: wire `@posthog/slack-post-message` into its `tools[]` and
-instruct it (in its `agent.md`) to post its reply that way — and never
-tell a user that Slack delivery is automatic. See
-`skills/setting-up-slack-app`.
+**The same now holds for the Slack-triggered agents you build.** The
+platform relays each finalized assistant message into the originating
+thread automatically — a Slack agent just replies in natural language,
+exactly like a chat agent. You do NOT need to wire
+`@posthog/slack-post-message` for an agent to answer in its thread, and
+you should NOT instruct it to repeat its reply through the tool (that
+double-posts). Wire `@posthog/slack-post-message` into a Slack agent's
+`tools[]` only when it needs more than a plain reply — Block Kit blocks,
+posting to a different channel, a DM, or editing an earlier message —
+and tell it to reserve the tool for those cases. The automatic Slack
+posts are the `ack_reaction`, the relayed assistant replies, and a
+failure notice. See `skills/setting-up-slack-app`.
 
 There is no shell, code execution, or database access. If a user asks
 for something that needs one of those, explain what you can offer

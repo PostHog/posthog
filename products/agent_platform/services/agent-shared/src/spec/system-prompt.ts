@@ -42,6 +42,15 @@ export interface BuildSystemPromptOpts {
      * live in `log_entries` for the agent owner.
      */
     unavailableMcps?: readonly UnavailableMcp[]
+    /**
+     * Set for slack-triggered sessions: the runner relays each finalized
+     * assistant message into the thread automatically, so the model is told to
+     * just reply normally and reserve `@posthog/slack-post-message` for advanced
+     * sends. Without this note the chat-tuned model crams answers into tool
+     * calls or assumes its reply is auto-delivered when (for tool-only agents)
+     * it would not be.
+     */
+    slackReplyRelay?: boolean
 }
 
 const CATEGORY_HINTS: Record<UnavailableMcpCategory, string> = {
@@ -95,6 +104,18 @@ export async function buildSystemPrompt(
             'Continue helping the user with the tools you DO have. If they ask for something only an unavailable server can do, tell them the relevant capability is temporarily unavailable and let them know the agent owner can check the session logs for detail — do NOT paste raw error messages, transport URLs, or stack traces into the conversation.'
         )
         parts.push(lines.join('\n'))
+    }
+
+    if (opts.slackReplyRelay) {
+        parts.push(
+            [
+                '\n\n---\n\n## Responding in Slack',
+                '',
+                'This session is triggered from a Slack thread, and the platform posts your reply for you: every message you finish is delivered to the thread automatically. Just answer in natural language as you normally would — you do NOT need a tool to reply, and you should NOT repeat your answer through a tool (that double-posts).',
+                '',
+                'Reach for `@posthog/slack-post-message` only when the plain reply cannot express what you need: Block Kit blocks, posting to a different channel, a DM, or editing an earlier message. For everything else, your normal reply IS the Slack message.',
+            ].join('\n')
+        )
     }
 
     return parts.join('\n')

@@ -58,17 +58,22 @@ import {
     HttpFetcher,
     IntegrationCredentials,
     isDeltaEventKind,
+    isSlackTriggerMetadata,
     LogLevel,
     LogSink,
     MemoryStore,
     NoopAnalyticsSink,
     parseClientToolResultMarker,
+    postSlackReply,
     Sandbox,
     SecretBroker,
     SessionEvent,
     SessionEventBus,
     SessionEventKind,
     SessionInputsStore,
+    SLACK_BOT_TOKEN_KEY,
+    SlackStatusReporter,
+    slackTextFromContent,
     TabularStore,
     toolSpanId,
 } from '@posthog/agent-shared'
@@ -219,8 +224,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     if (!deps.approvals) {
         throw new Error('RunSessionDeps.approvals is required — refusing to run with approval gating disabled.')
     }
+    // Slack-triggered sessions: the runner relays each finalized assistant
+    // message into the thread (see the turn_end handler). The model is told as
+    // much so it replies in natural language instead of forcing everything
+    // through the slack-post-message tool.
+    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
+        slackReplyRelay: slackReply !== null,
     })
     const bus: SessionEventBus = deps.bus
     const logs: LogSink = deps.logs
@@ -235,6 +246,20 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     const log = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void => {
         runLog[level](meta ?? {}, msg)
     }
+
+    // Slack "working on it" status: a message the runner keeps in the thread
+    // while a turn is in flight and removes when a real reply lands. Null for
+    // non-slack sessions.
+    const slackStatus = slackReply
+        ? new SlackStatusReporter({
+              http: deps.http,
+              token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+              channel: slackReply.channel,
+              thread_ts: slackReply.thread_ts,
+              sessionId: session.id,
+              logger: { warn: (meta, m) => log('warn', m, meta), info: (meta, m) => log('info', m, meta) },
+          })
+        : null
 
     const emit = async (kind: SessionEventKind, data: Record<string, unknown> = {}): Promise<void> => {
         const ts = new Date().toISOString()
@@ -484,6 +509,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     turn++
                     controlThisTurn = undefined
                     await emit('turn_started', { turn })
+                    // Show "working on it" in the thread while this turn runs.
+                    await slackStatus?.start(':hourglass_flowing_sand: _Working on it…_')
                     return
                 }
                 case 'message_start': {
@@ -518,6 +545,10 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         t0: Date.now(),
                     })
                     await emit('tool_call', { name: event.toolName, args: event.args, id: event.toolCallId })
+                    // Reflect the in-flight tool in the "working" status.
+                    await slackStatus?.update(
+                        `:hourglass_flowing_sand: _Working on it… (\`${event.toolName.replace(/^@posthog\//, '')}\`)_`
+                    )
                     return
                 }
                 case 'tool_execution_end': {
@@ -594,6 +625,35 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     for (const b of msg.content) {
                         if (b.type === 'text' && b.text) {
                             await emit('assistant_text', { text: b.text })
+                        }
+                    }
+
+                    // Slack relay: post this finalized assistant message into the
+                    // originating thread. The model just replies normally; the
+                    // platform owns Slack delivery (mirrors how chat streams text
+                    // to the console). Never throws — a Slack hiccup must not break
+                    // the loop. Turns with no prose (pure tool calls) post nothing.
+                    if (slackReply) {
+                        const replyText = slackTextFromContent(msg.content)
+                        if (replyText) {
+                            const posted = await postSlackReply(deps.http, {
+                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                                channel: slackReply.channel,
+                                thread_ts: slackReply.thread_ts,
+                                text: replyText,
+                                sessionId: session.id,
+                                logger: {
+                                    warn: (meta, m) => log('warn', m, meta),
+                                    info: (meta, m) => log('info', m, meta),
+                                },
+                            })
+                            // Only drop the "working" status once the reply is
+                            // visibly in the thread — otherwise a failed post
+                            // would leave the thread with neither status nor
+                            // reply. A subsequent turn re-posts the status.
+                            if (posted) {
+                                await slackStatus?.clear()
+                            }
                         }
                     }
 
@@ -993,6 +1053,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         return outcome
     } finally {
         tearDownClientDispatch()
+        // Guarantee the "working" status never lingers past the run (e.g. a
+        // turn that ended without prose, or a thrown loop).
+        await slackStatus?.clear()
     }
 }
 
