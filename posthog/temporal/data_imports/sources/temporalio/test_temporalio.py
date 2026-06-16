@@ -52,23 +52,11 @@ class TestTemporalIONonRetryableErrors:
             "received fatal alert: CertificateUnknown",
             "invalid peer certificate: UnknownIssuer",
             "Failed client connect: Server connection error: tonic::transport::Error(Transport, CertificateParseError)",
-        ],
-    )
-    def test_tls_certificate_failures_are_non_retryable(self, error_message):
-        non_retryable_errors = self.source.get_non_retryable_errors()
-
-        assert any(pattern in error_message for pattern in non_retryable_errors), (
-            f"Expected '{error_message}' to match a non-retryable pattern"
-        )
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
             'RuntimeError: Failed client connect: invalid target URL: empty host: ":7233"',
             "tonic::transport::Error(Transport, InvalidUri(InvalidUri(InvalidFormat))): invalid target URL: empty host",
         ],
     )
-    def test_empty_host_config_is_non_retryable(self, error_message):
+    def test_config_failures_are_non_retryable(self, error_message):
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert any(pattern in error_message for pattern in non_retryable_errors), (
