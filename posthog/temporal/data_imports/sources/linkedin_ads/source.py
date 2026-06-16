@@ -43,6 +43,20 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         return {
             "REVOKED_ACCESS_TOKEN": None,
             "The token used in the request has expired": "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
+            # LinkedIn rejects a non-numeric Account ID with a 400 whose message names the offending
+            # key value (volatile) followed by this stable type-coercion phrase. The account id is a
+            # fixed config value, so retrying can't help — fail fast and tell the user to fix it.
+            "must be of type 'java.lang.Long'": "LinkedIn rejected the configured Account ID. It must be the numeric LinkedIn ad account ID (digits only). Please correct the Account ID in your source settings and re-sync.",
+            # LinkedIn returns a 404 with this stable error code when the requested ad account /
+            # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
+            # access. Retrying can't recover it, so stop syncing instead of looping the 404.
+            "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
+            # The Account ID is a free-text field. A malformed value (a profile URL, a name, stray
+            # whitespace) makes LinkedIn reject the `urn:li:sponsoredAccount:<id>` accounts param with
+            # a deterministic 400 ("...is invalid. Reason: Deserializing output ... failed"). Retrying
+            # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
+            # the stable prefix only — the offending value that follows varies per source.
+            "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
         }
 
     @property
