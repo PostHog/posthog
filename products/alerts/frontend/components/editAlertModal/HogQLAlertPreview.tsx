@@ -1,6 +1,10 @@
 import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { HOGQL_ANY_ROW_MAX_ROWS, HogQLAlertPreview, HogQLAlertPreviewRow } from 'lib/components/Alerts/alertFormLogic'
+import {
+    HOGQL_ANY_ROW_MAX_ROWS,
+    HogQLAlertPreview,
+    HogQLAlertPreviewRow,
+} from 'lib/components/Alerts/hogqlAlertPreview'
 import { humanFriendlyNumber, pluralize } from 'lib/utils'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'

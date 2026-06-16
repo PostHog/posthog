@@ -11,7 +11,8 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { AlertFormType, HogQLAlertPreview } from 'lib/components/Alerts/alertFormLogic'
+import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
 import { AlertSimulationResult, isHogQLAlertConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'

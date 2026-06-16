@@ -21,14 +21,9 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import {
-    alertFormLogic,
-    deriveHogQLAlertPreview,
-    HOGQL_ANY_ROW_MAX_ROWS,
-    thresholdAlertHasBounds,
-    type AlertFormType,
-} from './alertFormLogic'
+import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import type { AlertType } from './types'
 
