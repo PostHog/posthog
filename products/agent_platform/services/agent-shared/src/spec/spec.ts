@@ -546,14 +546,14 @@ export const SpecLimitsSchema = z.object({
      * the in-process default. Bump for tools that load large model artifacts
      * or process big payloads.
      */
-    max_memory_mb: z.number().int().positive().default(512),
+    max_memory_mb: z.number().int().positive().max(16384).default(512),
     /**
      * CPU reservation for the per-session sandbox in (fractional) cores.
      * Modal honors as `cpu`; Docker as `--cpus`. Default 0.25 — most custom
      * tools are I/O-bound (HTTP, file reads). Bump for compute-bound tools
      * (image processing, parsing, anything CPU-pinned).
      */
-    max_cpu_cores: z.number().positive().default(0.25),
+    max_cpu_cores: z.number().positive().max(8).default(0.25),
     // Per-turn provider max_tokens. Unset → reasoning-aware default in runner.
     // Clamped at request time to model.maxTokens + operator override.
     max_output_tokens: z.number().int().positive().max(200_000).optional(),

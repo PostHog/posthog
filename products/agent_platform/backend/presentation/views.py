@@ -62,7 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.organization import OrganizationMembership
@@ -1440,9 +1440,6 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             payload = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        # Cross-check ownership: the janitor doesn't know about teams.
-        if payload.get("application_id") != str(application.id):
-            raise NotFound("Approval not found")
         return Response(payload)
 
     @extend_schema(
@@ -1480,19 +1477,16 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._require_team_admin()
         body = DecideApprovalRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
-        # Cross-check ownership before forwarding.
         try:
             existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
-        if existing.get("application_id") != str(application.id):
-            raise NotFound("Approval not found")
         # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide — not a programmatic Personal API key. A PAT
-        # resolves to a real authenticated User, so `is_authenticated` can't tell
-        # them apart; discriminate on the authenticator that actually succeeded.
-        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and isinstance(
-            request.successful_authenticator, PersonalAPIKeyAuthentication
+        # interactively may decide. Allowlist SessionAuthentication rather than
+        # blocking PersonalAPIKey alone — that left OAuth bearers with the
+        # `agents:write` scope as a bypass path.
+        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and not isinstance(
+            request.successful_authenticator, SessionAuthentication
         ):
             raise NotFound("Approval not found")
         try:

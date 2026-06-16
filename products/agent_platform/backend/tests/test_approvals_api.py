@@ -23,6 +23,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from ..logic.janitor_client import JanitorClientError
 from ..models import AgentApplication
 
 
@@ -111,21 +112,19 @@ class TestApprovalEndpointsAuth(APIBaseTest):
     @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_admin_cannot_decide_approval_for_other_application(self, mock_janitor) -> None:
         self._set_org_level(OrganizationMembership.Level.ADMIN)
-        other_app = AgentApplication.all_teams.create(
+        AgentApplication.all_teams.create(
             team_id=self.team.id,
             slug="other-agent",
             name="Other Agent",
             description="",
         )
-        # Janitor reports the approval belongs to `other_app`, but we asked
-        # via the URL for `self.application`. The view must reject — otherwise
-        # an admin on team A could decide approvals on any agent in the same
-        # janitor DB just by mutating the URL.
-        mock_janitor.return_value.get_approval.return_value = {
-            "id": self.approval_id,
-            "application_id": str(other_app.id),
-            "approver_scope": {"allow_agent_approver": False},
-        }
+        # Approval belongs to a sibling application — the janitor's
+        # `getForApplication` returns 404 when the URL's application_id
+        # doesn't match the approval's owner. The view must propagate
+        # that as 404; otherwise an admin on team A could decide
+        # approvals on any agent in the same janitor DB just by mutating
+        # the URL.
+        mock_janitor.return_value.get_approval.side_effect = JanitorClientError(404, "not found")
         resp = self.client.post(
             self.url_decide,
             {"decision": "approve"},
