@@ -9,15 +9,6 @@ feature: metrics
 url_prefix: /metrics
 ui_apps: {}
 tools:
-    event-definitions-metrics-retrieve:
-        operation: event_definitions_metrics_retrieve
-        enabled: false
-    event-filter-metrics-retrieve:
-        operation: event_filter_metrics_retrieve
-        enabled: false
-    event-filter-metrics-totals-retrieve:
-        operation: event_filter_metrics_totals_retrieve
-        enabled: false
     metric-names-list:
         operation: metrics_values_retrieve
         enabled: true
