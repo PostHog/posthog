@@ -3,6 +3,7 @@ from datetime import timedelta
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -265,6 +266,31 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         assert ids == [str(r_p0.id), str(r_p2.id)]
+
+    # --- status filter ---
+
+    def test_filter_by_resolved_status(self):
+        resolved = self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        self._create_report(title="Ready", status=SignalReport.Status.READY)
+
+        response = self.client.get(self._list_url(status="resolved"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert ids == {str(resolved.id)}
+
+    @parameterized.expand(
+        [
+            ("garbage", "bogus_status"),
+            ("mixed_valid_and_invalid", "ready,bogus_status"),
+            ("deleted_not_filterable", "deleted"),
+        ]
+    )
+    def test_filter_status_invalid_value_returns_400(self, _name, raw):
+        response = self.client.get(self._list_url(status=raw))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["attr"] == "status"
+        assert body["code"] == "invalid_input"
 
     # --- ordering ---
 
@@ -586,10 +612,49 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["source_products"] == []
 
-    def test_source_products_empty_on_retrieve(self):
+    def test_source_products_empty_on_retrieve_without_signals(self):
         report = self._create_report()
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_products"] == []
+
+    def test_source_products_present_on_retrieve(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={str(report.id): ["zendesk", "github"]},
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["source_products"] == ["zendesk", "github"]
+
+    def test_source_products_present_on_signals_action(self):
+        report = self._create_report()
+
+        with (
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                return_value={str(report.id): ["zendesk"]},
+            ),
+            patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/signals/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["report"]["source_products"] == ["zendesk"]
+
+    def test_source_products_resilient_to_clickhouse_failure_on_retrieve(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
 
@@ -693,6 +758,42 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert content["note"] == expected_note
         assert content["user_id"] == self.user.id
         assert content["user_uuid"] == str(self.user.uuid)
+
+    def test_state_transition_response_includes_source_products(self):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={str(report.id): ["zendesk"]},
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["source_products"] == ["zendesk"]
+
+    def test_state_transition_resilient_to_clickhouse_failure(self):
+        # A ClickHouse hiccup during best-effort enrichment must not 500 an already-committed
+        # state change — the transition is persisted and the response degrades to empty.
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            side_effect=Exception("clickhouse timeout"),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["source_products"] == []
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
 
     @parameterized.expand(
         [

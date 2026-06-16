@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,8 +35,9 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.RESEND,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Resend",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Resend API key to pull your Resend data into the PostHog Data warehouse.
 
 You can create an API key in your [Resend API keys settings](https://resend.com/api-keys).

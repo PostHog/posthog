@@ -41,6 +41,14 @@ SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
     "app was uninstalled. Please reconnect your Shopify integration."
 )
 
+# Substring of the GraphQL error Shopify returns when the connected access token lacks the
+# scope needed to read a field, e.g. "Access denied for fulfillmentOrders field." or
+# "Access denied for paymentTerms field. Required access: `read_payment_terms` access scope."
+# Retrying can't grant the missing scope — the user must reconnect with expanded permissions —
+# so `ShopifySource.get_non_retryable_errors` matches this substring to fail the job fast.
+# The field name varies, so the match anchors on the stable leading phrase.
+SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
+
 
 @dataclasses.dataclass
 class ShopifyResumeConfig:

@@ -16,7 +16,9 @@ class NotebooksConfig(AppConfig):
         from posthog.models.activity_logging.model_activity import is_impersonated_session
         from posthog.models.user import User
 
-        from products.notebooks.backend.api.notebook import log_notebook_activity
+        # Lives in its own module: the API module's imports reach the kernel runtime and the
+        # tasks sandbox (modal SDK), which must stay off the django.setup() path.
+        from products.notebooks.backend.activity_logging import log_notebook_activity
 
         register_file_system_type(
             "notebook",

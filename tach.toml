@@ -52,6 +52,8 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
+    "products.replay_vision",
+    "products.skills",
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
@@ -77,10 +79,8 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
-    "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
-    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -88,14 +88,10 @@ depends_on = [
     "products.growth",
     "products.legal_documents",
     "products.links",
-    "products.live_debugger",
     "products.ai_observability",
     "products.logs",
-    "products.managed_migrations",
     "products.marketing_analytics",
-    "products.mcp_store",
     "products.messaging",
-    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
@@ -106,15 +102,14 @@ depends_on = [
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
+    "products.streamlit_apps",
     "products.surveys",
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
-    "products.visual_review",
     "products.mcp_analytics",
     "products.warehouse_sources_queue",
     "products.web_analytics",
-    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
@@ -130,6 +125,13 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.agent_platform"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -174,7 +176,6 @@ layer = "modules"
 path = "products.cohorts"
 depends_on = [
     "products.actions",
-    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -198,7 +199,6 @@ depends_on = [
     "products.error_tracking",
     "products.mcp_analytics",
     "products.product_analytics",
-    "products.annotations",
 ]
 layer = "modules"
 
@@ -429,6 +429,7 @@ layer = "modules"
 path = "products.streamlit_apps"
 depends_on = [
     "posthog",
+    "products.tasks",
 ]
 layer = "modules"
 
@@ -526,10 +527,22 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.skills",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
-    "products.workflows",
+    "products.workflows", "products.business_knowledge",
+]
+layer = "modules"
+
+[[modules]]
+# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# temporary coupling from the standalone-product extraction, slated for cleanup.
+path = "products.skills"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.ai_observability",
 ]
 layer = "modules"
 
@@ -563,6 +576,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.notebooks",
+    "products.notifications",
     "products.product_analytics",
 ]
 layer = "modules"
@@ -608,7 +622,6 @@ depends_on = [
     "ee",
     "posthog",
     "products.ai_observability",
-    "products.exports",
 ]
 layer = "modules"
 
@@ -634,6 +647,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -673,16 +687,16 @@ from = [
     "products.experiments",
 ]
 
-# Temporal worker registration lives in posthog/management/commands/start_temporal_worker.py, which imports
-# ACTIVITIES and WORKFLOWS from each product's backend.temporal package. Eight peer products do the same
-# thing, but experiments is the first isolated product to register a workflow, so the canonical interface
-# doesn't cover it yet. Narrowly expose just the registration symbols rather than widening every isolated
-# product's surface.
+# Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
+# doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
+# schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
 
 [[interfaces]]
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.recalculation_metrics.*",
+    "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
 ]
 from = [
     "products.experiments",
@@ -831,7 +845,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]
@@ -852,4 +866,9 @@ layer = "modules"
 [[modules]]
 path = "products.annotations"
 depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+layer = "modules"
+
+[[modules]]
+path = "products.field_notes"
+depends_on = ["posthog"]
 layer = "modules"

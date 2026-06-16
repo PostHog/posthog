@@ -1,5 +1,7 @@
 """Tests for survey summarization module."""
 
+import json
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -122,3 +124,41 @@ class TestSummarizeWithGemini:
         assert isinstance(result.summary, SurveySummaryResponse)
         assert result.trace_id is not None
         assert len(result.trace_id) == 36  # UUID format
+
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
+    @patch("products.surveys.backend.llm.client.create_gemini_client")
+    def test_generation_is_tagged_billable(self, mock_create_client):
+        mock_client = MagicMock()
+        mock_create_client.return_value = mock_client
+        valid_response = {
+            "overview": "Users want better performance",
+            "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
+            "key_insight": "Focus on performance",
+        }
+        mock_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
+
+        summarize_with_gemini("What do you want?", ["Make it faster"], team_id=42)
+
+        call_kwargs = mock_client.models.generate_content.call_args.kwargs
+        properties = call_kwargs["posthog_properties"]
+        assert properties["$ai_billable"] is True
+        assert properties["team_id"] == 42
+        assert properties["ai_product"] == "surveys"
+        assert properties["ai_feature"] == "survey_summary"
+        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
+
+    @patch("products.surveys.backend.llm.client.create_gemini_client")
+    def test_generation_not_billable_without_team_id(self, mock_create_client):
+        mock_client = MagicMock()
+        mock_create_client.return_value = mock_client
+        valid_response = {
+            "overview": "Users want better performance",
+            "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
+            "key_insight": "Focus on performance",
+        }
+        mock_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
+
+        summarize_with_gemini("What do you want?", ["Make it faster"])
+
+        properties = mock_client.models.generate_content.call_args.kwargs["posthog_properties"]
+        assert "$ai_billable" not in properties

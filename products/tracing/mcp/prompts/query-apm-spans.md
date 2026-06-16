@@ -24,7 +24,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Span property types are:
-  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code).
+  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `apm-attributes-list` to discover available attribute keys** before building filters.
@@ -53,7 +53,7 @@ Filter by service names. Use `apm-services-list` to discover available services.
 
 ## query.statusCodes
 
-Filter by HTTP status codes (list of integers).
+Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.
 
 ## query.orderBy
 
@@ -101,7 +101,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 ```json
 {
   "query": {
-    "statusCodes": [500, 503]
+    "statusCodes": [2]
   }
 }
 ```

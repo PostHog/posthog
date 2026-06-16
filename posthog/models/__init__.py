@@ -2,6 +2,7 @@
 # You should try and make them alphabetically sorted manually if possible
 # isort: skip_file
 from ..session_recordings.models.session_recording import SessionRecording
+from ..session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
@@ -27,8 +28,10 @@ from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .role_external_reference import RoleExternalReference
 from .file_system.file_system import FileSystem
+from .file_system.folder_context_generation import FileSystemFolderContextGeneration
 from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
+from .file_system.persisted_folder import PersistedFolder
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
@@ -112,8 +115,10 @@ __all__ = [
     "EventProperty",
     "RoleExternalReference",
     "FileSystem",
+    "FileSystemFolderContextGeneration",
     "FileSystemFolderInstructions",
     "FileSystemViewLog",
+    "PersistedFolder",
     "Filter",
     "Group",
     "GroupUsageMetric",
@@ -161,6 +166,7 @@ __all__ = [
     "SchemaPropertyGroupProperty",
     "SessionRecording",
     "SessionRecordingPlaylist",
+    "SessionRecordingExternalReference",
     "SessionRecordingPlaylistItem",
     "SharePassword",
     "SharingConfiguration",

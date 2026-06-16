@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GIT_LAB,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitLab",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Sync issues, merge requests, commits, pipelines, and more from a GitLab project.
@@ -49,7 +51,6 @@ Create a personal access token in your GitLab **User settings > Access tokens** 
 For self-managed GitLab, set the instance URL (for example `https://gitlab.example.com`); leave it as `https://gitlab.com` for GitLab.com.""",
             iconPath="/static/services/gitlab.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/gitlab",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [

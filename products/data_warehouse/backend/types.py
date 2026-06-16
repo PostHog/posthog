@@ -266,6 +266,13 @@ class ExternalDataSourceType(models.TextChoices):
     SAPSUCCESSFACTORS = "SapSuccessFactors", "SapSuccessFactors"
     ORACLEEBS = "OracleEbs", "OracleEbs"
     ORACLEFUSION = "OracleFusion", "OracleFusion"
+    AMAZONSNS = "AmazonSNS", "AmazonSNS"
+    AMAZONEVENTBRIDGE = "AmazonEventBridge", "AmazonEventBridge"
+    AMAZONSQS = "AmazonSQS", "AmazonSQS"
+    AMAZONKINESIS = "AmazonKinesis", "AmazonKinesis"
+    AMAZONCLOUDWATCH = "AmazonCloudWatch", "AmazonCloudWatch"
+    OPENAIADS = "OpenAIAds", "OpenAIAds"
+    GRAFANA = "Grafana", "Grafana"
     CUSTOM = "Custom", "Custom"
 
 
