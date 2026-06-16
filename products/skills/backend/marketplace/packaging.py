@@ -13,8 +13,10 @@ the spec serialization and tree assembly unit-testable without booting the app.
 """
 
 import io
+import re
 import json
 import zipfile
+import mimetypes
 from dataclasses import dataclass, field
 
 import yaml
@@ -24,6 +26,13 @@ from .git_smart_http import FileTree
 # Spec caps (https://agentskills.io/specification). Description is 1024 in the spec
 # but stored at 4096 today — export validates rather than silently truncating.
 SPEC_DESCRIPTION_MAX_LENGTH = 1024
+
+# Matches a leading YAML frontmatter block: ``---`` line, body until a closing ``---`` line.
+_FRONTMATTER_RE = re.compile(r"\A---[^\n]*\n(.*?)\n---[^\n]*\n?(.*)\Z", re.DOTALL)
+
+
+class SkillImportError(Exception):
+    """Raised when an uploaded zip / SKILL.md can't be parsed into a skill."""
 
 
 @dataclass(frozen=True)
@@ -111,6 +120,94 @@ def build_skill_zip(skill: SkillExport) -> bytes:
         for rel_path, content in build_skill_tree(skill).items():
             archive.writestr(f"{skill.name}/{rel_path}", content)
     return buffer.getvalue()
+
+
+def parse_skill_md(content: str) -> dict:
+    """Parse a SKILL.md string into spec fields (inverse of ``render_skill_md``).
+
+    Returns the frontmatter fields mapped to storage shape (``allowed-tools`` space-string ->
+    list, the platform-owned ``metadata.version`` dropped) plus the markdown ``body``.
+    """
+    match = _FRONTMATTER_RE.match(content)
+    if not match:
+        raise SkillImportError("SKILL.md is missing its YAML frontmatter block.")
+    try:
+        frontmatter = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as err:
+        raise SkillImportError(f"SKILL.md frontmatter is not valid YAML: {err}")
+    if not isinstance(frontmatter, dict):
+        raise SkillImportError("SKILL.md frontmatter must be a key/value mapping.")
+
+    name = frontmatter.get("name")
+    if not name or not isinstance(name, str):
+        raise SkillImportError("SKILL.md frontmatter is missing a 'name'.")
+
+    body = match.group(2)
+    if body.startswith("\n"):  # render_skill_md joins frontmatter and body with a single newline
+        body = body[1:]
+
+    raw_metadata = frontmatter.get("metadata")
+    metadata = (
+        {str(k): str(v) for k, v in raw_metadata.items() if str(k) != "version"}
+        if isinstance(raw_metadata, dict)
+        else {}
+    )
+    allowed = frontmatter.get("allowed-tools", "")
+    allowed_tools = allowed.split() if isinstance(allowed, str) else [str(x) for x in (allowed or [])]
+
+    return {
+        "name": name,
+        "description": str(frontmatter.get("description") or ""),
+        "license": str(frontmatter.get("license") or ""),
+        "compatibility": str(frontmatter.get("compatibility") or ""),
+        "metadata": metadata,
+        "allowed_tools": allowed_tools,
+        "body": body,
+    }
+
+
+def parse_skill_zip(data: bytes) -> SkillExport:
+    """Parse a spec-compliant skill zip (the inverse of ``build_skill_zip``) into a SkillExport.
+
+    Finds the single ``SKILL.md`` (at the zip root or one directory deep), parses its frontmatter,
+    and collects sibling files under the same directory as bundled files (content type guessed
+    from the path). Text (UTF-8) content only — bundled files are stored as text.
+    """
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile:
+        raise SkillImportError("The uploaded file is not a valid zip archive.")
+
+    with archive:
+        members = [n for n in archive.namelist() if not n.endswith("/")]
+        skill_md_members = [n for n in members if n.rsplit("/", 1)[-1] == "SKILL.md"]
+        if not skill_md_members:
+            raise SkillImportError("The zip does not contain a SKILL.md file.")
+        if len(skill_md_members) > 1:
+            raise SkillImportError("The zip contains multiple SKILL.md files; expected exactly one.")
+
+        skill_md_name = skill_md_members[0]
+        prefix = skill_md_name[: -len("SKILL.md")]  # "" (root) or "<dir>/"
+
+        fields = parse_skill_md(_read_zip_text(archive, skill_md_name, "SKILL.md"))
+
+        files: list[SkillFileExport] = []
+        for member in members:
+            if member == skill_md_name or not member.startswith(prefix):
+                continue
+            rel_path = member[len(prefix) :]
+            content = _read_zip_text(archive, member, rel_path)
+            content_type = mimetypes.guess_type(rel_path)[0] or "text/plain"
+            files.append(SkillFileExport(path=rel_path, content=content, content_type=content_type))
+
+    return SkillExport(version=1, files=files, **fields)
+
+
+def _read_zip_text(archive: zipfile.ZipFile, member: str, label: str) -> str:
+    try:
+        return archive.read(member).decode("utf-8")
+    except UnicodeDecodeError:
+        raise SkillImportError(f"'{label}' must be UTF-8 text; binary files are not supported.")
 
 
 def compute_plugin_version(latest_change_epoch_millis: int) -> str:

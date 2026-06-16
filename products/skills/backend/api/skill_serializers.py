@@ -492,6 +492,12 @@ class LLMSkillVersionSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LLMSkillImportSerializer(serializers.Serializer):
+    file = serializers.FileField(
+        help_text="A spec-compliant skill .zip (a SKILL.md plus optional bundled files under scripts/, references/, assets/).",
+    )
+
+
 class LLMSkillDuplicateSerializer(serializers.Serializer):
     new_name = serializers.CharField(
         max_length=64,

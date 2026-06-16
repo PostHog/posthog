@@ -21,8 +21,11 @@ unit-testable against the real `git` binary without booting the app
 
 ## Endpoints
 
-- **Zip** — `GET /api/projects/:team/llm_skills/name/:name/export` → `application/zip`, one
-  spec-compliant skill directory nested under `:name/` (web-authenticated, `llm_skill:read`).
+- **Zip export** — `GET /api/projects/:team/llm_skills/name/:name/export` → `application/zip`,
+  one spec-compliant skill directory nested under `:name/` (web-authenticated, `llm_skill:read`).
+- **Zip import** — `POST /api/projects/:team/llm_skills/import` (multipart `file` field, a spec
+  skill `.zip`) → creates the skill (web-authenticated, `llm_skill:write`). The inverse of
+  export: `parse_skill_zip` reads `SKILL.md` frontmatter + bundled files. Round-trips with export.
 - **Marketplace** — `…/llm_skills/marketplace.git/info/refs` + `…/git-upload-pack`. The repo
   root is `…/llm_skills/marketplace.git`; `git` appends the rest. One plugin per team
   (`posthog-skills`).

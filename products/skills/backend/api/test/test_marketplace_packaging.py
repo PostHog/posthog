@@ -10,10 +10,12 @@ from products.skills.backend.marketplace.git_smart_http import GitSynthesisError
 from products.skills.backend.marketplace.packaging import (
     SkillExport,
     SkillFileExport,
+    SkillImportError,
     build_marketplace_tree,
     build_skill_tree,
     build_skill_zip,
     compute_plugin_version,
+    parse_skill_zip,
     render_frontmatter,
     render_skill_md,
     validate_for_export,
@@ -141,6 +143,34 @@ class TestPluginVersion:
 
     def test_same_change_time_yields_same_version(self):
         assert compute_plugin_version(1700000000) == compute_plugin_version(1700000000)
+
+
+class TestZipImport:
+    def test_round_trips_through_build_and_parse(self):
+        skill = _skill()
+        parsed = parse_skill_zip(build_skill_zip(skill))
+        assert parsed.name == skill.name
+        assert parsed.description == skill.description
+        assert parsed.body == skill.body
+        assert parsed.license == skill.license
+        assert parsed.allowed_tools == skill.allowed_tools
+        assert {(f.path, f.content) for f in parsed.files} == {(f.path, f.content) for f in skill.files}
+
+    def test_platform_version_dropped_user_metadata_kept(self):
+        parsed = parse_skill_zip(build_skill_zip(_skill(version=9, metadata={"author": "posthog"})))
+        assert "version" not in parsed.metadata
+        assert parsed.metadata.get("author") == "posthog"
+
+    def test_zip_without_skill_md_raises(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("nope/readme.txt", "x")
+        with pytest.raises(SkillImportError):
+            parse_skill_zip(buffer.getvalue())
+
+    def test_non_zip_raises(self):
+        with pytest.raises(SkillImportError):
+            parse_skill_zip(b"not a zip")
 
 
 class TestGitTreeSafety:

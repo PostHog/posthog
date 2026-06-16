@@ -9,6 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
 from rest_framework import serializers, status
@@ -21,6 +22,7 @@ from posthog.models.utils import hash_key_value
 from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill
 from ...marketplace.adapters import build_team_marketplace_tree
+from ...marketplace.packaging import SkillExport, build_skill_zip
 from ...models.skills import LLMSkill, LLMSkillFile
 
 # Real PSAK tokens are alphanumeric after the phs_ prefix (no underscores/hyphens).
@@ -80,6 +82,55 @@ class TestSkillZipExport(APIBaseTest):
 
     def test_export_missing_skill_404(self, _mock_flag):
         assert self.client.get(self._url("nope")).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_export_then_reimport_round_trip(self, _mock_flag):
+        skill = LLMSkill.objects.create(
+            team=self.team,
+            name="round-trip",
+            description="Round trip me.",
+            body="# round-trip\n\nbody here.\n",
+            version=1,
+            is_latest=True,
+            allowed_tools=["Bash", "Write"],
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(
+            skill=skill, path="scripts/x.py", content="print(1)\n", content_type="text/x-python"
+        )
+
+        export = self.client.get(self._url("round-trip"))
+        assert export.status_code == status.HTTP_200_OK
+        zip_bytes = export.content
+
+        # Free the name so the re-import recreates it cleanly.
+        archive_skill(self.team, "round-trip")
+
+        upload = SimpleUploadedFile("round-trip.zip", zip_bytes, content_type="application/zip")
+        imported = self.client.post(
+            f"/api/environments/{self.team.id}/llm_skills/import", {"file": upload}, format="multipart"
+        )
+        assert imported.status_code == status.HTTP_201_CREATED, imported.content
+        data = imported.json()
+        assert data["name"] == "round-trip"
+        assert data["description"] == "Round trip me."
+        assert data["body"] == "# round-trip\n\nbody here.\n"
+        assert data["allowed_tools"] == ["Bash", "Write"]
+        assert any(f["path"] == "scripts/x.py" for f in data["files"])
+
+    def test_import_missing_file_is_400(self, _mock_flag):
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_skills/import", {}, format="multipart")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_import_duplicate_name_is_400(self, _mock_flag):
+        LLMSkill.objects.create(
+            team=self.team, name="dupe", description="d", body="b", version=1, is_latest=True, created_by=self.user
+        )
+        export = SkillExport(name="dupe", description="A dupe.", body="# dupe\n", version=1)
+        upload = SimpleUploadedFile("dupe.zip", build_skill_zip(export), content_type="application/zip")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_skills/import", {"file": upload}, format="multipart"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_export_rejects_spec_invalid_description(self, _mock_flag):
         # Stored limit is 4096 but the spec caps description at 1024 — export must refuse rather

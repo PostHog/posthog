@@ -33,7 +33,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.adapters import load_skill_export
-from ..marketplace.packaging import build_skill_zip, validate_for_export
+from ..marketplace.packaging import SkillImportError, build_skill_zip, parse_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
     LLMSkillCreateSerializer,
@@ -43,6 +43,7 @@ from .skill_serializers import (
     LLMSkillFileDeleteQuerySerializer,
     LLMSkillFileRenameSerializer,
     LLMSkillFileSerializer,
+    LLMSkillImportSerializer,
     LLMSkillListQuerySerializer,
     LLMSkillListSerializer,
     LLMSkillPublishSerializer,
@@ -50,6 +51,8 @@ from .skill_serializers import (
     LLMSkillResolveResponseSerializer,
     LLMSkillSerializer,
     LLMSkillVersionSummarySerializer,
+    validate_skill_file_path,
+    validate_skill_name_value,
 )
 from .skill_services import (
     LLMSkillDuplicateNameConflictError,
@@ -61,6 +64,7 @@ from .skill_services import (
     LLMSkillVersionConflictError,
     LLMSkillVersionLimitError,
     archive_skill,
+    create_skill,
     create_skill_file,
     delete_skill_file,
     duplicate_skill,
@@ -75,6 +79,10 @@ from .skill_services import (
 logger = structlog.get_logger(__name__)
 
 LLM_SKILL_FEATURE_FLAG = "llm-analytics-skills"
+
+# Generous ceiling for an uploaded skill zip — per-skill content (body, 50 files × 1 MB) is
+# already bounded by create_skill, this just caps the upload before we read it into memory.
+MAX_IMPORT_ZIP_BYTES = 10_000_000
 
 
 def _file_extension(path: str) -> str:
@@ -501,6 +509,98 @@ class LLMSkillViewSet(
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
         return response
+
+    @extend_schema(request=LLMSkillImportSerializer, responses={201: LLMSkillSerializer})
+    @action(methods=["POST"], detail=False, url_path="import", required_scopes=["llm_skill:write"])
+    @llma_track_latency("llma_skills_import")
+    @monitor(feature=None, endpoint="llma_skills_import", method="POST")
+    def import_skill(self, request: Request, **kwargs) -> Response:
+        auth_error = self._ensure_web_authenticated(request)
+        if auth_error is not None:
+            return auth_error
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response(
+                {"detail": "Attach the skill .zip as multipart form field 'file'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if upload.size and upload.size > MAX_IMPORT_ZIP_BYTES:
+            return Response(
+                {"detail": f"Zip must be {MAX_IMPORT_ZIP_BYTES} bytes or fewer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            skill_export = parse_skill_zip(upload.read())
+        except SkillImportError as err:
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
+
+        problems = self._import_problems(skill_export)
+        if problems:
+            return Response(
+                {"detail": "Zip is not a valid, spec-compliant skill.", "problems": problems},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            skill = create_skill(
+                self.team,
+                user=cast(User, request.user),
+                name=skill_export.name,
+                description=skill_export.description,
+                body=skill_export.body,
+                license=skill_export.license,
+                compatibility=skill_export.compatibility,
+                allowed_tools=skill_export.allowed_tools,
+                metadata=skill_export.metadata,
+                files=[
+                    {"path": f.path, "content": f.content, "content_type": f.content_type} for f in skill_export.files
+                ],
+            )
+        except LLMSkillDuplicateNameConflictError:
+            return Response(
+                {"attr": "name", "detail": f"A skill named '{skill_export.name}' already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except LLMSkillFilePathConflictError:
+            return Response({"detail": "Duplicate bundled file paths in the zip."}, status=status.HTTP_400_BAD_REQUEST)
+        except LLMSkillFileLimitError as err:
+            return Response(
+                {"detail": f"Skill exceeds the maximum of {err.max_count} bundled files."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        props = {**_skill_analytics_props(skill), "imported": True}
+        logger.info("llma_skill_imported", team_id=self.team.id, user_id=cast(User, request.user).id, **props)
+        report_user_action(cast(User, request.user), "llma skill imported", props, team=self.team, request=request)
+        return Response(self._serialize_skill(skill), status=status.HTTP_201_CREATED)
+
+    def _import_problems(self, skill_export) -> list[str]:
+        problems: list[str] = list(validate_for_export(skill_export))
+        try:
+            validate_skill_name_value(skill_export.name)
+        except serializers.ValidationError as err:
+            problems.append(f"name: {self._first_error(err)}")
+
+        seen_lower: set[str] = set()
+        for skill_file in skill_export.files:
+            try:
+                validate_skill_file_path(skill_file.path)
+            except serializers.ValidationError as err:
+                problems.append(f"file '{skill_file.path}': {self._first_error(err)}")
+            lowered = skill_file.path.lower()
+            if lowered in seen_lower:
+                problems.append(f"file '{skill_file.path}': collides with another file (case-insensitive)")
+            seen_lower.add(lowered)
+        return problems
+
+    @staticmethod
+    def _first_error(err: serializers.ValidationError) -> str:
+        detail = err.detail
+        if isinstance(detail, list) and detail:
+            return str(detail[0])
+        return str(detail)
 
     @extend_schema(request=None, responses={204: None})
     @action(
