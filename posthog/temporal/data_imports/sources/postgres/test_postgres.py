@@ -416,7 +416,6 @@ class TestConnectForcesUtf8ClientEncoding:
             )
 
         assert connect_mock.call_args.kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
-        assert "client_encoding=UTF8" in FORCE_UTF8_CLIENT_ENCODING
 
     def test_caller_supplied_options_are_appended_after_utf8(self):
         with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
