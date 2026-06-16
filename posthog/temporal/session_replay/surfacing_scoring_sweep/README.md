@@ -166,42 +166,31 @@ Defaults in `constants.py` are `chunk_size=10_000`, `of_chunks=20`. Tweak
 XGBoost on Linux uses `libgomp`; on macOS it uses `libomp`. Both are OpenMP
 runtimes controlled by `OMP_NUM_THREADS`.
 
-The single most important worker config: **don't oversubscribe cores.**
-
-Recommended worker container env:
+Surfacing scoring runs on the **session-replay worker** (the queue is aliased:
+`SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE`), alongside the
+worker's other replay work (LLM/CH/S3). XGBoost predict is the only OpenMP user
+there, so the worker pins:
 
 ```bash
-# Inside the worker pod, set OMP_NUM_THREADS to (CPU limit - 1) so libomp
-# doesn't contend with the asyncio reactor and Temporal SDK threads.
-OMP_NUM_THREADS=$(($(getconf _NPROCESSORS_ONLN) - 1))
+OMP_NUM_THREADS=1          # one thread per predict; parallelism comes from
+MAX_CONCURRENT_ACTIVITIES=15   # concurrent activities, not libomp fan-out
 ```
 
-Pair with **low Temporal concurrency** so each predict gets the whole CPU:
-
-```python
-Worker(
-    ...,
-    task_queue=settings.SURFACING_SCORING_SWEEP_TASK_QUEUE,
-    max_concurrent_activities=2,        # not 32 — let libomp do the parallelism
-    max_concurrent_workflow_tasks=20,
-)
-```
-
-The other valid setup is the inverse — `OMP_NUM_THREADS=1` and
-`max_concurrent_activities=$(nproc)`. Pick one parallelism layer; the bug
-that gets you in production is leaving both at default and finding 32×N
-threads fighting for N cores.
+`OMP_NUM_THREADS=1` stops libomp from fanning out × `MAX_CONCURRENT_ACTIVITIES`
+and fighting the asyncio reactor / Temporal SDK threads for cores. Predict on
+tabular features is cheap (the bottleneck is fetch + write, not score), so a
+single predict thread is enough and doesn't starve the other replay activities.
 
 ### Containers + cgroups gotcha
 
-`os.cpu_count()` returns the host's CPU count, not the pod's CPU limit. Set
-`OMP_NUM_THREADS` explicitly from the pod's allocated quota (or read
-`/sys/fs/cgroup/cpu.max`).
+`os.cpu_count()` returns the host's CPU count, not the pod's CPU limit — which is
+why the chart sets `OMP_NUM_THREADS` explicitly rather than deriving it from
+`nproc`.
 
 ## Model file
 
 S3 is the **single source of truth** — no bundled fallback, no local-file
-override. `SESSION_INTERESTINGNESS_MODEL_S3_URI` (`s3://bucket/key`) is
+override. `SESSION_SURFACING_MODEL_S3_URI` (`s3://bucket/key`) is
 required on every surfacing worker. Prod, staging, and local dev (against
 MinIO) all use the same code path: fetch once per pod, cache to a
 tempfile, roll pods to pick up new models.
@@ -231,7 +220,7 @@ validates the `.ubj` before upload (`--skip-validate` to bypass).
 Then on the worker pod, roll to pick up the new model:
 
 ```bash
-SESSION_INTERESTINGNESS_MODEL_S3_URI=s3://<bucket>/surfacing-scoring/surfacing_score_xgb_v1.ubj
+SESSION_SURFACING_MODEL_S3_URI=s3://<bucket>/surfacing-scoring/surfacing_score_xgb_v1.ubj
 ```
 
 Plain `aws s3 cp` works too.
