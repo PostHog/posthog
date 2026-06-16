@@ -392,7 +392,7 @@ EVENTS_COLUMNS = """
 """
 
 # Expected columns in the duckling's events table for schema validation
-EXPECTED_DUCKLAKE_COLUMNS = {
+EXPECTED_DUCKLAKE_EVENTS_COLUMNS = {
     "uuid",
     "event",
     "properties",
@@ -927,7 +927,7 @@ def validate_duckling_schema(
         cur.execute(f"DESCRIBE {alias}.posthog.events")
         ducklake_columns = {row[0] for row in cur.fetchall()}
 
-    missing_in_ducklake = EXPECTED_DUCKLAKE_COLUMNS - ducklake_columns
+    missing_in_ducklake = EXPECTED_DUCKLAKE_EVENTS_COLUMNS - ducklake_columns
     if missing_in_ducklake:
         context.log.warning(
             f"Duckling events table is missing columns that we export: {missing_in_ducklake}. "
@@ -940,19 +940,19 @@ def validate_duckling_schema(
             missing_columns=list(missing_in_ducklake),
         )
 
-    extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_COLUMNS
+    extra_in_ducklake = ducklake_columns - EXPECTED_DUCKLAKE_EVENTS_COLUMNS
     if extra_in_ducklake:
         context.log.info(f"Duckling has additional columns not in our export: {extra_in_ducklake}")
 
     context.log.info(
         f"Schema validation passed. Duckling has {len(ducklake_columns)} columns, "
-        f"we export {len(EXPECTED_DUCKLAKE_COLUMNS)} columns."
+        f"we export {len(EXPECTED_DUCKLAKE_EVENTS_COLUMNS)} columns."
     )
     logger.info(
         "duckling_schema_validation_passed",
         team_id=catalog.team_id,
         ducklake_columns=len(ducklake_columns),
-        export_columns=len(EXPECTED_DUCKLAKE_COLUMNS),
+        export_columns=len(EXPECTED_DUCKLAKE_EVENTS_COLUMNS),
     )
 
 
