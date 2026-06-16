@@ -40,14 +40,16 @@ export function FunnelLineTooltip({
                     id: idx,
                     dataIndex: context.dataIndex,
                     datasetIndex: idx,
-                    // Each breakdown series is a single conversion-rate line, so they all share one
-                    // tooltip value column. Distinct orders would split them across columns the
-                    // inverted layout never renders, leaving every series but the first showing "–".
+                    // Each conversion-rate line is a single value, so every series shares one tooltip
+                    // value column. The inverted layout instead separates them into rows keyed by
+                    // breakdown_value/compare_label. Distinct orders would split them across columns
+                    // the layout never renders, leaving every series but the first showing "–".
                     order: 0,
                     label: entry.series.label,
                     color: entry.color,
                     count: entry.value,
                     breakdown_value: meta.breakdown_value,
+                    compare_label: meta.compare_label,
                     date_label: meta.days?.[context.dataIndex],
                 }
             }),
