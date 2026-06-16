@@ -6,6 +6,7 @@ import { getCookie } from 'lib/api'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -23,7 +24,7 @@ import { signupLogic } from '../../signupForm/signupLogic'
 
 const NOTES: Record<number, string[]> = {
     0: ['// create an account', '// 1M events free, every month'],
-    1: ['// secure your account', '// make it a good one'],
+    1: ['// step 2 of 2', '// make it a good one'],
     2: ['// almost there', '// last step'],
 }
 
@@ -81,7 +82,14 @@ function SignupEmailPanel(): JSX.Element {
                         </Link>
                     </p>
                 )}
-                <LemonButton type="primary" fullWidth htmlType="submit" loading={isSignupPanelEmailSubmitting}>
+                <LemonButton
+                    type="primary"
+                    size="large"
+                    center
+                    fullWidth
+                    htmlType="submit"
+                    loading={isSignupPanelEmailSubmitting}
+                >
                     Continue
                 </LemonButton>
             </Form>
@@ -101,9 +109,8 @@ function SignupEmailPanel(): JSX.Element {
                 </button>
                 {showJoinOrg && (
                     <p className="PaperDesk__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
-                        You'll need your invite link. When a teammate invites you, we email you a personal link — that's
-                        the only way in to their organization. Didn't get one? Check spam, or ask them to resend it from
-                        their members settings.
+                        You'll need your invite link. When a teammate invites you, we email you a personal link. Didn't
+                        get one? Check spam, or ask them to resend it from their members settings.
                     </p>
                 )}
             </div>
@@ -138,13 +145,15 @@ function PendingInvitePanel(): JSX.Element {
                 <div className="flex flex-col gap-2.5">
                     <LemonButton
                         type="primary"
+                        size="large"
+                        center
                         fullWidth
                         loading={isPendingInviteResending}
                         onClick={() => resendPendingInvite(signupPanelEmail.email)}
                     >
                         Resend invite email
                     </LemonButton>
-                    <LemonButton fullWidth onClick={() => dismissPendingInvite()}>
+                    <LemonButton size="large" center fullWidth onClick={() => dismissPendingInvite()}>
                         I'd rather create my own organization
                     </LemonButton>
                 </div>
@@ -167,14 +176,27 @@ function SignupAuthPanel(): JSX.Element {
     const { registerPasskey, setPanel } = useActions(signupLogic)
 
     const footer = (
-        <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            <Link
-                onClick={() => setPanel(0)}
-                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-            >
-                ← Use a different email
-            </Link>
-        </p>
+        <>
+            <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
+                By creating an account, you agree to our{' '}
+                <Link to="https://posthog.com/terms" target="_blank">
+                    Terms of Service ↗
+                </Link>{' '}
+                and{' '}
+                <Link to="https://posthog.com/privacy" target="_blank">
+                    Privacy Policy ↗
+                </Link>
+                .
+            </p>
+            <p className="mt-3 mb-0 text-sm text-secondary text-center">
+                <Link
+                    onClick={() => setPanel(0)}
+                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                >
+                    ← Use a different email
+                </Link>
+            </p>
+        </>
     )
 
     return (
@@ -198,7 +220,14 @@ function SignupAuthPanel(): JSX.Element {
                         Passkey registered. Continue below.
                     </div>
                 ) : (
-                    <LemonButton fullWidth onClick={registerPasskey} disabled={isPasskeyRegistering}>
+                    <LemonButton
+                        type="secondary"
+                        size="large"
+                        fullWidth
+                        icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                        onClick={registerPasskey}
+                        disabled={isPasskeyRegistering}
+                    >
                         Sign up with a passkey
                     </LemonButton>
                 ))}
@@ -237,6 +266,8 @@ function SignupAuthPanel(): JSX.Element {
                 )}
                 <LemonButton
                     type="primary"
+                    size="large"
+                    center
                     fullWidth
                     htmlType="submit"
                     loading={isSignupPanelAuthSubmitting}
@@ -244,7 +275,7 @@ function SignupAuthPanel(): JSX.Element {
                         !passkeyRegistered && validatedPassword.feedback ? validatedPassword.feedback : undefined
                     }
                 >
-                    Continue
+                    Create account
                 </LemonButton>
             </Form>
         </PaperDeskCard>
@@ -344,7 +375,14 @@ function SignupProfilePanel(): JSX.Element {
                         email={signupPanelEmail.email}
                     />
                 ) : (
-                    <LemonButton type="primary" fullWidth htmlType="submit" loading={isSignupPanelOnboardingSubmitting}>
+                    <LemonButton
+                        type="primary"
+                        size="large"
+                        center
+                        fullWidth
+                        htmlType="submit"
+                        loading={isSignupPanelOnboardingSubmitting}
+                    >
                         Create account
                     </LemonButton>
                 )}
