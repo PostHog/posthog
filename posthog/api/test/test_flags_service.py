@@ -51,7 +51,7 @@ class TestBatchEvaluateFlagForTeam(SimpleTestCase):
     def test_5xx_still_raises_for_status(self, mock_post):
         response = MagicMock()
         response.status_code = 503
-        response.raise_for_status.side_effect = requests.HTTPError("503 Server Error")
+        response.raise_for_status.side_effect = requests.HTTPError("503 Server Error", response=response)
         mock_post.return_value = response
 
         with self.assertRaises(requests.HTTPError):
