@@ -202,7 +202,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
+            # Postgres timestamps span year 4713 BC to 294276 AD, but Python's `datetime` only
+            # covers years 1–9999, so psycopg's loader raises `DataError: timestamp too small` /
+            # `timestamp too large (after year 10K)` for values outside that range (usually
+            # sentinel/garbage dates in the source). The value is fixed in the source row, so
+            # retrying re-reads the same row and fails identically — surface it instead.
             "timestamp too small": None,
+            "timestamp too large": None,
             "QueryTimeoutException": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
