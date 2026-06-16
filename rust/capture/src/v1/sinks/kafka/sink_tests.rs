@@ -17,7 +17,7 @@ use crate::v1::test_utils::{self, WrappedEventMut};
 
 use super::mock::MockProducer;
 use super::producer::ProduceError;
-use super::sink::KafkaSink;
+use super::sink::{KafkaSink, SCATTER_GATHER_MIN_BATCH};
 
 /// All-None CapturedEventHeaders for stubbing FakeEvent. `CapturedEventHeaders`
 /// does not derive `Default` in common_types; keep the literal here so the
@@ -152,8 +152,6 @@ impl TestHarness {
             ack_delay: None,
             not_ready: false,
             liveness: None,
-            enqueue_retry_max: None,
-            enqueue_poll_ms: None,
         }
     }
 }
@@ -166,8 +164,6 @@ struct HarnessBuilder {
     ack_delay: Option<Duration>,
     not_ready: bool,
     liveness: Option<(Duration, Duration)>,
-    enqueue_retry_max: Option<u32>,
-    enqueue_poll_ms: Option<u32>,
 }
 
 impl HarnessBuilder {
@@ -203,16 +199,6 @@ impl HarnessBuilder {
 
     fn with_liveness(mut self, deadline: Duration, poll_interval: Duration) -> Self {
         self.liveness = Some((deadline, poll_interval));
-        self
-    }
-
-    fn enqueue_retry_max(mut self, n: u32) -> Self {
-        self.enqueue_retry_max = Some(n);
-        self
-    }
-
-    fn enqueue_poll_ms(mut self, ms: u32) -> Self {
-        self.enqueue_poll_ms = Some(ms);
         self
     }
 
@@ -255,13 +241,7 @@ impl HarnessBuilder {
 
         let producer = Arc::new(mock);
 
-        let mut kafka_config = crate::v1::test_utils::test_kafka_config();
-        if let Some(n) = self.enqueue_retry_max {
-            kafka_config.enqueue_retry_max = n;
-        }
-        if let Some(ms) = self.enqueue_poll_ms {
-            kafka_config.enqueue_poll_ms = ms;
-        }
+        let kafka_config = crate::v1::test_utils::test_kafka_config();
 
         let config = Config {
             produce_timeout: self.produce_timeout,
@@ -383,7 +363,6 @@ async fn send_error_retriable_queue_full() {
         .send_error(|| ProduceError::Kafka {
             code: RDKafkaErrorCode::QueueFull,
         })
-        .enqueue_retry_max(0)
         .build();
     let event = FakeEvent::ok("evt-1");
     let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
@@ -392,81 +371,6 @@ async fn send_error_retriable_queue_full() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::RetriableError);
-    assert_eq!(results[0].cause(), Some("queue_full"));
-    assert_eq!(h.producer.record_count(), 0);
-}
-
-// ---------------------------------------------------------------------------
-// 5b. QueueFull retry succeeds after drain
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn queue_full_retry_succeeds_after_drain() {
-    let h = TestHarness::builder()
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .send_error_count(2)
-        .enqueue_retry_max(3)
-        .enqueue_poll_ms(1)
-        .build();
-    let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::Success);
-    assert_eq!(h.producer.record_count(), 1);
-}
-
-// ---------------------------------------------------------------------------
-// 5c. QueueFull retry exhausted
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn queue_full_retry_exhausted() {
-    let h = TestHarness::builder()
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .enqueue_retry_max(2)
-        .enqueue_poll_ms(1)
-        .build();
-    let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].key(), event.parsed_uuid);
-    assert_eq!(results[0].outcome(), Outcome::RetriableError);
-    assert_eq!(results[0].cause(), Some("queue_full"));
-    assert_eq!(h.producer.record_count(), 0);
-}
-
-// ---------------------------------------------------------------------------
-// 5d. QueueFull retry disabled (enqueue_retry_max = 0)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn queue_full_retry_zero_max_disables_retry() {
-    let h = TestHarness::builder()
-        .send_error(|| ProduceError::Kafka {
-            code: RDKafkaErrorCode::QueueFull,
-        })
-        .send_error_count(1)
-        .enqueue_retry_max(0)
-        .enqueue_poll_ms(1)
-        .build();
-    let event = FakeEvent::ok("evt-1");
-    let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
-
-    let results = h.sink.publish_batch(&h.ctx, &events).await;
-
-    assert_eq!(results.len(), 1);
     assert_eq!(results[0].outcome(), Outcome::RetriableError);
     assert_eq!(results[0].cause(), Some("queue_full"));
     assert_eq!(h.producer.record_count(), 0);
@@ -806,11 +710,9 @@ fn health_harness(mode: &FailureMode) -> TestHarness {
             b = b.ack_delay(Duration::from_secs(10));
         }
         FailureMode::SendError => {
-            b = b
-                .send_error(|| ProduceError::Kafka {
-                    code: RDKafkaErrorCode::QueueFull,
-                })
-                .enqueue_retry_max(0);
+            b = b.send_error(|| ProduceError::Kafka {
+                code: RDKafkaErrorCode::QueueFull,
+            });
         }
         FailureMode::AckError => {
             b = b.ack_error(|| ProduceError::DeliveryCancelled);
@@ -1093,7 +995,6 @@ async fn mixed_send_error_and_ack_error_in_batch() {
             code: RDKafkaErrorCode::QueueFull,
         })
         .send_error_count(1)
-        .enqueue_retry_max(0)
         .ack_error(|| ProduceError::DeliveryCancelled)
         .build();
     let e1 = FakeEvent::ok("evt-1");
@@ -1132,7 +1033,6 @@ async fn partial_timeout_with_send_error() {
             code: RDKafkaErrorCode::QueueFull,
         })
         .send_error_count(1)
-        .enqueue_retry_max(0)
         .ack_delay(Duration::from_secs(60))
         .produce_timeout(Duration::from_millis(50))
         .build();
@@ -1327,5 +1227,141 @@ async fn realistic_force_disable_pp_null_partition_key() {
     assert_eq!(results[0].outcome(), Outcome::Success);
     h.producer.with_records(|records| {
         assert!(records[0].key.is_none());
+    });
+}
+
+// ===========================================================================
+// Parallel batch prep (scatter-gather)
+//
+// Batches >= SCATTER_GATHER_MIN_BATCH prep in parallel; enqueue stays serial.
+// multi_thread flavor required for block_in_place.
+// ===========================================================================
+
+/// N events with distinct, order-revealing partition keys (`phc_test:evt-NNN`).
+fn ordered_events(n: usize) -> Vec<FakeEvent> {
+    (0..n)
+        .map(|i| FakeEvent::ok(&format!("evt-{i:03}")))
+        .collect()
+}
+
+fn as_dyn(events: &[FakeEvent]) -> Vec<&(dyn Event + Send + Sync)> {
+    let mut refs: Vec<&(dyn Event + Send + Sync)> = Vec::with_capacity(events.len());
+    for e in events {
+        refs.push(e);
+    }
+    refs
+}
+
+/// Below-threshold batches stay serial and preserve input order.
+#[tokio::test]
+async fn serial_prep_below_threshold_preserves_order() {
+    let n = SCATTER_GATHER_MIN_BATCH - 1;
+    let h = TestHarness::new();
+    let owned = ordered_events(n);
+    let events = as_dyn(&owned);
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), n);
+    for r in &results {
+        assert_eq!(r.outcome(), Outcome::Success);
+    }
+    assert_eq!(h.producer.record_count(), n);
+    h.producer.with_records(|records| {
+        let keys: Vec<&str> = records.iter().map(|r| r.key.as_deref().unwrap()).collect();
+        let expected: Vec<String> = (0..n).map(|i| format!("phc_test:evt-{i:03}")).collect();
+        assert_eq!(
+            keys,
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+    });
+}
+
+/// At-threshold batches take the parallel path; all events succeed and
+/// enqueue order matches input order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_prep_at_threshold_all_succeed() {
+    let n = SCATTER_GATHER_MIN_BATCH;
+    let h = TestHarness::new();
+    let owned = ordered_events(n);
+    let events = as_dyn(&owned);
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), n);
+    for r in &results {
+        assert_eq!(r.outcome(), Outcome::Success);
+    }
+    assert_eq!(h.producer.record_count(), n);
+    h.producer.with_records(|records| {
+        let keys: Vec<&str> = records.iter().map(|r| r.key.as_deref().unwrap()).collect();
+        let expected: Vec<String> = (0..n).map(|i| format!("phc_test:evt-{i:03}")).collect();
+        assert_eq!(
+            keys,
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+    });
+}
+
+/// Above-threshold parallel prep preserves input (= serial) enqueue order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_prep_above_threshold_preserves_order_and_outcomes() {
+    let n = SCATTER_GATHER_MIN_BATCH + 4;
+    let h = TestHarness::new();
+    let owned = ordered_events(n);
+    let events = as_dyn(&owned);
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), n);
+    for r in &results {
+        assert_eq!(r.outcome(), Outcome::Success);
+    }
+    assert_eq!(h.producer.record_count(), n);
+    h.producer.with_records(|records| {
+        let keys: Vec<&str> = records.iter().map(|r| r.key.as_deref().unwrap()).collect();
+        let expected: Vec<String> = (0..n).map(|i| format!("phc_test:evt-{i:03}")).collect();
+        assert_eq!(
+            keys,
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+    });
+}
+
+/// A mid-batch serialization failure on the parallel path drops only that
+/// event (FatalError) and preserves order + outcomes for the rest.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn parallel_prep_mid_batch_serialization_failure_drops_only_that_event() {
+    let n = SCATTER_GATHER_MIN_BATCH + 2;
+    let bad_idx = n / 2;
+    let h = TestHarness::new();
+    let mut owned = ordered_events(n);
+    owned[bad_idx] = FakeEvent::ok(&format!("evt-{bad_idx:03}")).with_payload(Err("boom".into()));
+    let events = as_dyn(&owned);
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), n);
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+    for (i, ev) in owned.iter().enumerate() {
+        let r = by_key[&ev.parsed_uuid];
+        if i == bad_idx {
+            assert_eq!(r.outcome(), Outcome::FatalError);
+            assert_eq!(r.cause(), Some("serialization_failed"));
+        } else {
+            assert_eq!(r.outcome(), Outcome::Success);
+        }
+    }
+    assert_eq!(h.producer.record_count(), n - 1);
+    h.producer.with_records(|records| {
+        let keys: Vec<&str> = records.iter().map(|r| r.key.as_deref().unwrap()).collect();
+        let expected: Vec<String> = (0..n)
+            .filter(|&i| i != bad_idx)
+            .map(|i| format!("phc_test:evt-{i:03}"))
+            .collect();
+        assert_eq!(
+            keys,
+            expected.iter().map(String::as_str).collect::<Vec<_>>()
+        );
     });
 }

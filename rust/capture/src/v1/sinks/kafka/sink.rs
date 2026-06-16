@@ -1,14 +1,16 @@
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use metrics::{counter, histogram};
+use metrics::{counter, gauge, histogram};
+use rayon::prelude::*;
 use tracing::Level;
 use uuid::Uuid;
 
@@ -22,6 +24,66 @@ use crate::v1::sinks::{Config, SinkName};
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
+
+/// Minimum batch size for parallel prep on the rayon pool; smaller batches
+/// stay serial because scatter-gather overhead exceeds per-event savings.
+pub(crate) const SCATTER_GATHER_MIN_BATCH: usize = 8;
+
+/// Fixed prep pool size — bounded to avoid oversubscribing the cgroup.
+const PREP_POOL_THREADS: usize = 4;
+
+/// In-flight prep batches — saturation proxy since rayon doesn't expose
+/// queue depth. Values sustained above `PREP_POOL_THREADS` = oversubscribed.
+static PREP_POOL_INFLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Shared rayon pool for parallel batch prep, built once on first use.
+fn prep_pool() -> &'static rayon::ThreadPool {
+    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(PREP_POOL_THREADS)
+            .thread_name(|i| format!("v1-kafka-prep-{i}"))
+            .build()
+            .expect("failed to build v1 kafka prep thread pool")
+    })
+}
+
+/// RAII guard for `PREP_POOL_INFLIGHT` — gauge updated on enter and drop.
+struct PrepPoolGuard;
+
+impl PrepPoolGuard {
+    fn enter() -> Self {
+        let inflight = PREP_POOL_INFLIGHT.fetch_add(1, Ordering::Relaxed) + 1;
+        gauge!("capture_v1_kafka_prep_pool_inflight").set(inflight as f64);
+        Self
+    }
+}
+
+impl Drop for PrepPoolGuard {
+    fn drop(&mut self) {
+        let inflight = PREP_POOL_INFLIGHT
+            .fetch_sub(1, Ordering::Relaxed)
+            .saturating_sub(1);
+        gauge!("capture_v1_kafka_prep_pool_inflight").set(inflight as f64);
+    }
+}
+
+/// Enqueue-ready event with its input index for restoring order after
+/// parallel prep.
+struct Prepared<'a> {
+    idx: usize,
+    uuid: Uuid,
+    dest_tag: &'static str,
+    record: ProduceRecord<'a>,
+}
+
+/// `Ok(Prepared)` = enqueue-ready, `Err(result)` = serialization failure.
+/// Skipped events are filtered to `None` upstream.
+type PrepOutcome<'a> = Result<Prepared<'a>, Box<dyn SinkResult>>;
+
+/// Output of `prepare_one`: an enqueue-ready record before its batch index is
+/// attached (`prep_outcome` wraps this into a `Prepared`). `None` = skipped.
+type ReadyRecord<'a> = (Uuid, &'static str, ProduceRecord<'a>);
 
 /// Null the partition key when person processing is force-disabled for
 /// Main/Overflow destinations — spreads load across partitions instead of
@@ -144,150 +206,287 @@ type AckFuture = Pin<
 >;
 
 impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
-    /// Phase 1: serialize and enqueue events to the producer sequentially,
-    /// preserving per-partition ordering. Returns early results for
-    /// serialization / send failures and collects ack futures for events
-    /// that were successfully enqueued.
-    #[allow(clippy::too_many_arguments)]
-    async fn enqueue_events(
+    /// Serialize one event into a `ProduceRecord`. Returns `Ok(None)` for
+    /// skipped/dropped events, `Err` for serialization failures.
+    /// Safe to call concurrently (reads only, panic-free by construction).
+    fn prepare_one<'a>(
+        &'a self,
+        ctx: &Context,
+        event: &'a (dyn Event + Send + Sync),
+        labels: &MetricLabels,
+        enqueued_at: DateTime<Utc>,
+    ) -> Result<Option<ReadyRecord<'a>>, Box<dyn SinkResult>> {
+        if !event.should_publish() {
+            return Ok(None);
+        }
+
+        let uuid = event.uuid();
+        let dest_tag = event.destination().as_tag();
+
+        let topic = match self.config.kafka.topic_for(event.destination()) {
+            Some(t) => t,
+            None => return Ok(None),
+        };
+
+        let mut payload = String::with_capacity(4096);
+        if let Err(e) = event.serialize_into(ctx, &mut payload) {
+            crate::ctx_log!(
+                Level::ERROR,
+                ctx,
+                sink = labels.sink,
+                event_uuid = %uuid,
+                error = %e,
+                "event serialization failed, dropping event"
+            );
+            counter!(
+                "capture_v1_kafka_publish_total",
+                "mode" => labels.mode,
+                "cluster" => labels.sink,
+                "outcome" => Outcome::FatalError.as_tag(),
+                "path" => labels.path,
+                "attempt" => labels.attempt,
+                "destination" => dest_tag,
+            )
+            .increment(1);
+            return Err(Box::new(KafkaResult::err(
+                uuid,
+                KafkaSinkError::SerializationFailed(format!("{e:#}")),
+                enqueued_at,
+            )));
+        }
+
+        let captured_headers = event.headers(ctx);
+
+        let mut key_buf = String::with_capacity(128);
+        event.partition_key(ctx, &mut key_buf);
+        let key = effective_partition_key(
+            &key_buf,
+            captured_headers
+                .force_disable_person_processing
+                .unwrap_or(false),
+            event.destination(),
+        )
+        .map(str::to_owned);
+
+        let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
+
+        Ok(Some((
+            uuid,
+            dest_tag,
+            ProduceRecord {
+                topic,
+                key,
+                payload,
+                headers,
+            },
+        )))
+    }
+
+    /// Stamp input index onto a prepared event; folds skips into `None`.
+    fn prep_outcome<'a>(
+        &'a self,
+        idx: usize,
+        ctx: &Context,
+        event: &'a (dyn Event + Send + Sync),
+        labels: &MetricLabels,
+        enqueued_at: DateTime<Utc>,
+    ) -> Option<PrepOutcome<'a>> {
+        match self.prepare_one(ctx, event, labels, enqueued_at) {
+            Ok(Some((uuid, dest_tag, record))) => Some(Ok(Prepared {
+                idx,
+                uuid,
+                dest_tag,
+                record,
+            })),
+            Ok(None) => None,
+            Err(early) => Some(Err(early)),
+        }
+    }
+
+    /// Parallel prep on the rayon pool. Returns `None` on prep-task panic
+    /// (defensive — `prepare_one` is panic-free by construction).
+    fn prepare_parallel<'a>(
+        &'a self,
+        ctx: &Context,
+        events: &'a [&'a (dyn Event + Send + Sync)],
+        labels: &MetricLabels,
+        enqueued_at: DateTime<Utc>,
+    ) -> Option<Vec<PrepOutcome<'a>>> {
+        let _guard = PrepPoolGuard::enter();
+        let pool = prep_pool();
+        // Yield tokio worker; catch_unwind converts panic into batch failure.
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tokio::task::block_in_place(|| {
+                pool.install(|| {
+                    events
+                        .par_iter()
+                        .enumerate()
+                        .filter_map(|(idx, event)| {
+                            self.prep_outcome(idx, ctx, *event, labels, enqueued_at)
+                        })
+                        .collect::<Vec<PrepOutcome<'a>>>()
+                })
+            })
+        }));
+
+        match outcome {
+            Ok(outcomes) => Some(outcomes),
+            Err(_) => {
+                counter!(
+                    "capture_v1_kafka_prep_panic_total",
+                    "mode" => labels.mode,
+                    "cluster" => labels.sink,
+                )
+                .increment(1);
+                None
+            }
+        }
+    }
+
+    /// Fail entire batch as retriable on prep-pool panic.
+    fn fail_batch_prep_panic(
         &self,
         ctx: &Context,
         events: &[&(dyn Event + Send + Sync)],
         labels: &MetricLabels,
         enqueued_at: DateTime<Utc>,
         results: &mut Vec<Box<dyn SinkResult>>,
+    ) {
+        crate::ctx_log!(
+            Level::ERROR,
+            ctx,
+            sink = labels.sink,
+            mode = labels.mode,
+            "parallel batch prep panicked — failing batch as retriable"
+        );
+        for event in events {
+            if !event.should_publish() || self.config.kafka.topic_for(event.destination()).is_none()
+            {
+                continue;
+            }
+            let dest_tag = event.destination().as_tag();
+            counter!(
+                "capture_v1_kafka_publish_total",
+                "mode" => labels.mode,
+                "cluster" => labels.sink,
+                "outcome" => Outcome::RetriableError.as_tag(),
+                "path" => labels.path,
+                "attempt" => labels.attempt,
+                "destination" => dest_tag,
+            )
+            .increment(1);
+            results.push(Box::new(KafkaResult::err(
+                event.uuid(),
+                KafkaSinkError::TaskPanicked,
+                enqueued_at,
+            )));
+        }
+    }
+
+    /// Prepare + enqueue the batch. Prep is parallel for large batches;
+    /// enqueue is always serial to preserve per-partition ordering.
+    #[allow(clippy::too_many_arguments)]
+    async fn enqueue_events<'a>(
+        &'a self,
+        ctx: &Context,
+        events: &'a [&'a (dyn Event + Send + Sync)],
+        labels: &MetricLabels,
+        enqueued_at: DateTime<Utc>,
+        results: &mut Vec<Box<dyn SinkResult>>,
         pending: &mut FuturesUnordered<AckFuture>,
         enqueued_keys: &mut Vec<(Uuid, &'static str, Instant)>,
     ) {
-        let mut payload_buf = String::with_capacity(4096);
-        let mut key_buf = String::with_capacity(128);
-
-        for event in events {
-            if !event.should_publish() {
-                continue;
-            }
-
-            let uuid = event.uuid();
-            let dest_tag = event.destination().as_tag();
-
-            let topic = match self.config.kafka.topic_for(event.destination()) {
-                Some(t) => t,
-                None => continue,
-            };
-
-            payload_buf.clear();
-            if let Err(e) = event.serialize_into(ctx, &mut payload_buf) {
-                crate::ctx_log!(
-                    Level::ERROR,
-                    ctx,
-                    sink = labels.sink,
-                    event_uuid = %uuid,
-                    error = %e,
-                    "event serialization failed, dropping event"
-                );
-                counter!(
-                    "capture_v1_kafka_publish_total",
-                    "mode" => labels.mode,
-                    "cluster" => labels.sink,
-                    "outcome" => Outcome::FatalError.as_tag(),
-                    "path" => labels.path,
-                    "attempt" => labels.attempt,
-                    "destination" => dest_tag,
-                )
-                .increment(1);
-                results.push(Box::new(KafkaResult::err(
-                    uuid,
-                    KafkaSinkError::SerializationFailed(format!("{e:#}")),
-                    enqueued_at,
-                )));
-                continue;
-            }
-
-            let captured_headers = event.headers(ctx);
-
-            key_buf.clear();
-            event.partition_key(ctx, &mut key_buf);
-            let key = effective_partition_key(
-                &key_buf,
-                captured_headers
-                    .force_disable_person_processing
-                    .unwrap_or(false),
-                event.destination(),
-            );
-
-            let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
-
-            let mut record = ProduceRecord {
-                topic,
-                key,
-                payload: &payload_buf,
-                headers,
-            };
-
-            let enqueue_retry_max = self.config.kafka.enqueue_retry_max;
-            let enqueue_poll = Duration::from_millis(self.config.kafka.enqueue_poll_ms as u64);
-            let mut hit_queue_full = false;
-
-            for enqueue_attempt in 0..=enqueue_retry_max {
-                if enqueue_attempt > 0 {
-                    tokio::time::sleep(enqueue_poll).await;
+        // -- Prep phase: serialize + build records (parallel for big batches) --
+        let serialize_start = Instant::now();
+        let outcomes: Vec<PrepOutcome<'a>> = if events.len() >= SCATTER_GATHER_MIN_BATCH {
+            match self.prepare_parallel(ctx, events, labels, enqueued_at) {
+                Some(outcomes) => outcomes,
+                None => {
+                    // Prep panic — fail whole batch retriably, skip enqueue.
+                    self.fail_batch_prep_panic(ctx, events, labels, enqueued_at, results);
+                    histogram!(
+                        "capture_v1_kafka_serialize_duration_seconds",
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                    )
+                    .record(serialize_start.elapsed().as_secs_f64());
+                    return;
                 }
+            }
+        } else {
+            events
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, event)| self.prep_outcome(idx, ctx, *event, labels, enqueued_at))
+                .collect()
+        };
 
-                match self.producer.send(record) {
-                    Ok(ack_future) => {
-                        if hit_queue_full {
-                            counter!(
-                                "capture_v1_kafka_queue_full_retries_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "result" => "recovered",
-                            )
-                            .increment(1);
-                        }
-                        let sent_at = Instant::now();
-                        enqueued_keys.push((uuid, dest_tag, sent_at));
-                        pending.push(Box::pin(async move {
-                            let result = ack_future.await;
-                            let ack_latency = sent_at.elapsed();
-                            (uuid, dest_tag, Utc::now(), ack_latency, result)
-                        }));
-                        break;
-                    }
-                    Err((e, returned_record))
-                        if e.is_queue_full() && enqueue_attempt < enqueue_retry_max =>
-                    {
-                        hit_queue_full = true;
-                        record = returned_record;
-                        continue;
-                    }
-                    Err((e, _)) => {
-                        if hit_queue_full || e.is_queue_full() {
-                            counter!(
-                                "capture_v1_kafka_queue_full_retries_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "result" => "exhausted",
-                            )
-                            .increment(1);
-                        }
-                        let sink_err = KafkaSinkError::Produce(e);
-                        let outcome = sink_err.outcome();
-                        counter!(
-                            "capture_v1_kafka_publish_total",
-                            "mode" => labels.mode,
-                            "cluster" => labels.sink,
-                            "outcome" => outcome.as_tag(),
-                            "path" => labels.path,
-                            "attempt" => labels.attempt,
-                            "destination" => dest_tag,
-                        )
-                        .increment(1);
-                        results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
-                        break;
-                    }
+        let mut prepared: Vec<Prepared<'a>> = Vec::with_capacity(outcomes.len());
+        for outcome in outcomes {
+            match outcome {
+                Ok(p) => prepared.push(p),
+                Err(early) => results.push(early),
+            }
+        }
+        // Restore input order for serial enqueue (no-op for serial prep path,
+        // required after parallel prep to preserve per-partition ordering).
+        prepared.sort_unstable_by_key(|p| p.idx);
+        histogram!(
+            "capture_v1_kafka_serialize_duration_seconds",
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+        )
+        .record(serialize_start.elapsed().as_secs_f64());
+
+        // -- Enqueue phase: serial, original event order (ordering invariant) --
+        let enqueue_start = Instant::now();
+        for Prepared {
+            idx: _,
+            uuid,
+            dest_tag,
+            record,
+        } in prepared
+        {
+            // QueueFull → RetriableError immediately; no app-level retry loop.
+            match self.producer.send(record) {
+                Ok(ack_future) => {
+                    let sent_at = Instant::now();
+                    enqueued_keys.push((uuid, dest_tag, sent_at));
+                    pending.push(Box::pin(async move {
+                        let result = ack_future.await;
+                        let ack_latency = sent_at.elapsed();
+                        (uuid, dest_tag, Utc::now(), ack_latency, result)
+                    }));
+                }
+                Err((e, _)) => {
+                    let sink_err = KafkaSinkError::Produce(e);
+                    let outcome = sink_err.outcome();
+                    counter!(
+                        "capture_v1_kafka_publish_total",
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome.as_tag(),
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
+                    )
+                    .increment(1);
+                    results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
                 }
             }
         }
+        histogram!(
+            "capture_v1_kafka_enqueue_duration_seconds",
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+        )
+        .record(enqueue_start.elapsed().as_secs_f64());
     }
 
     /// Phase 2: drain ack futures with a per-sink deadline. Dropping remaining
@@ -451,8 +650,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let mut pending: FuturesUnordered<AckFuture> = FuturesUnordered::new();
         let mut enqueued_keys: Vec<(Uuid, &'static str, Instant)> = Vec::new();
 
-        // Enqueue wall-time, isolated from per-event broker-ack latency.
-        let enqueue_start = Instant::now();
+        // Prep + enqueue (metrics emitted inside).
         self.enqueue_events(
             ctx,
             events,
@@ -463,14 +661,6 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             &mut enqueued_keys,
         )
         .await;
-        histogram!(
-            "capture_v1_kafka_enqueue_duration_seconds",
-            "mode" => labels.mode,
-            "cluster" => labels.sink,
-            "path" => labels.path,
-            "attempt" => labels.attempt,
-        )
-        .record(enqueue_start.elapsed().as_secs_f64());
 
         let resolved_keys = self
             .drain_acks(&labels, enqueued_at, &mut results, &mut pending)

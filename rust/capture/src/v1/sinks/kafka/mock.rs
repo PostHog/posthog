@@ -20,22 +20,12 @@ pub struct OwnedProduceRecord {
     pub payload: String,
 }
 
-impl<'a> From<ProduceRecord<'a>> for OwnedProduceRecord {
-    fn from(r: ProduceRecord<'a>) -> Self {
-        Self {
-            topic: r.topic.to_owned(),
-            key: r.key.map(str::to_owned),
-            payload: r.payload.to_owned(),
-        }
-    }
-}
-
 impl<'a> From<&ProduceRecord<'a>> for OwnedProduceRecord {
     fn from(r: &ProduceRecord<'a>) -> Self {
         Self {
             topic: r.topic.to_owned(),
-            key: r.key.map(str::to_owned),
-            payload: r.payload.to_owned(),
+            key: r.key.clone(),
+            payload: r.payload.clone(),
         }
     }
 }

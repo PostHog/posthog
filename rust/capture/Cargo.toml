@@ -38,6 +38,7 @@ opentelemetry-proto = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true }
+rayon = "1.11.0"
 rdkafka = { workspace = true }
 redis = { workspace = true }
 serde = { workspace = true }

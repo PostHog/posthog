@@ -47,15 +47,6 @@ impl ProduceError {
         }
     }
 
-    pub fn is_queue_full(&self) -> bool {
-        matches!(
-            self,
-            Self::Kafka {
-                code: RDKafkaErrorCode::QueueFull,
-            }
-        )
-    }
-
     /// Stable, low-cardinality tag for metrics and log aggregation.
     pub fn as_tag(&self) -> &'static str {
         match self {
@@ -70,11 +61,14 @@ impl ProduceError {
 // ProduceRecord
 // ---------------------------------------------------------------------------
 
+/// Produce record with a borrowed topic and owned payload/key.
+/// Topic borrows a config or `Destination::Custom` string that outlives the
+/// batch; payload/key are owned so events coexist across parallel prep.
 #[derive(Debug)]
 pub struct ProduceRecord<'a> {
     pub topic: &'a str,
-    pub key: Option<&'a str>,
-    pub payload: &'a str,
+    pub key: Option<String>,
+    pub payload: String,
     pub headers: OwnedHeaders,
 }
 
@@ -229,23 +223,35 @@ impl super::KafkaProducerTrait for KafkaProducer {
         &self,
         record: ProduceRecord<'a>,
     ) -> Result<SendHandle, (ProduceError, ProduceRecord<'a>)> {
-        match self.inner.send_result(FutureRecord {
-            topic: record.topic,
-            payload: Some(record.payload),
+        let ProduceRecord {
+            topic,
+            key,
+            payload,
+            headers,
+        } = record;
+
+        let future_record = FutureRecord {
+            topic,
+            payload: Some(payload.as_str()),
             partition: None,
-            key: record.key,
+            key: key.as_deref(),
             timestamp: None,
-            headers: Some(record.headers),
-        }) {
+            headers: Some(headers),
+        };
+
+        match self.inner.send_result(future_record) {
             Ok(future) => Ok(SendHandle { inner: future }),
             Err((e, returned)) => {
-                let returned_record = ProduceRecord {
-                    topic: returned.topic,
-                    key: returned.key,
-                    payload: returned.payload.unwrap_or(""),
-                    headers: returned.headers.unwrap_or_else(OwnedHeaders::new),
-                };
-                Err((produce_error_from_kafka(e), returned_record))
+                let headers = returned.headers.unwrap_or_else(OwnedHeaders::new);
+                Err((
+                    produce_error_from_kafka(e),
+                    ProduceRecord {
+                        topic,
+                        key,
+                        payload,
+                        headers,
+                    },
+                ))
             }
         }
     }

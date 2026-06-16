@@ -1781,6 +1781,7 @@ dependencies = [
  "opentelemetry_sdk 0.22.1",
  "prost 0.13.5",
  "rand 0.8.5",
+ "rayon",
  "rdkafka",
  "redis",
  "reqwest 0.12.28",

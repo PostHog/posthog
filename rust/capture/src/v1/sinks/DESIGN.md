@@ -438,20 +438,20 @@ corresponds 1:1 to a published event.
   └──────────────────────────┬───────────────────────────────────────┘
                              │
   ┌──────────────────────────▼───────────────────────────────────────┐
-  │ Phase 1: Enqueue (sequential, per-partition ordering preserved)  │
+  │ Phase 1: Prepare (serial < 8, else parallel) then serial enqueue │
   │                                                                 │
-  │   for each event:                                               │
+  │   prep each event (parallel on rayon pool for big batches):     │
   │     ├── should_publish()? → skip if false                       │
   │     ├── topic_for(destination)? → skip if Drop/None             │
-  │     ├── serialize_into(ctx, payload_buf)                        │
-  │     ├── event.headers(ctx) → CapturedEventHeaders               │
-  │     ├── event.partition_key(ctx, key_buf)                       │
-  │     ├── effective_partition_key(key, headers, dest) → key/None  │
-  │     ├── CapturedEventHeaders → OwnedHeaders (via From)          │
+  │     ├── serialize_into → owned payload                          │
+  │     ├── headers(ctx) + partition_key(ctx); null key per policy  │
+  │     └── build owned ProduceRecord (Err → serialization result)  │
+  │   sort prepared records by input index                          │
+  │   enqueue SERIALLY in input order (ordering invariant):         │
   │     └── producer.send(ProduceRecord)                            │
   │           ├── Ok(ack_future) → push to FuturesUnordered         │
-  │           ├── Err(QueueFull) + retries left → sleep, retry      │
-  │           └── Err(final) → results.push(KafkaResult err)        │
+  │           └── Err(e) → results.push(KafkaResult err)            │
+  │                 (QueueFull → RetriableError; no app-level retry) │
   └──────────────────────────┬───────────────────────────────────────┘
                              │
   ┌──────────────────────────▼───────────────────────────────────────┐
@@ -490,17 +490,29 @@ corresponds 1:1 to a published event.
                      Vec<Box<dyn SinkResult>>
 ```
 
-### Phase 1 — Enqueue
+### Phase 1 — Prepare + enqueue
 
-Events are sent sequentially to preserve per-partition ordering. Two
-reusable `String` buffers (`payload_buf`, `key_buf`) are cleared and
-rewritten each iteration, amortizing allocations to zero after the first
-event.
+Each event is first **prepared**: `serialize_into` produces an owned
+payload, `partition_key`/`headers` build the key and headers, and an owned
+`ProduceRecord` is assembled (`prepare_one`). Prep runs serially for
+batches below `SCATTER_GATHER_MIN_BATCH` (8) and in parallel on a
+dedicated, bounded rayon pool (under `block_in_place`) at or above it — v0
+proved this scatter-gather is a net win at batch scale. Prepared records
+carry their input index and are sorted back into input order before a
+strictly **serial enqueue** loop, which preserves per-partition on-wire
+ordering (librdkafka orders by `send_result` call order). A prep-pool panic
+is caught, counted (`capture_v1_kafka_prep_panic_total`), and fails the
+batch as retriable; `prepare_one` is panic-free by construction. Prep and
+enqueue wall-times are recorded separately
+(`capture_v1_kafka_serialize_duration_seconds`,
+`capture_v1_kafka_enqueue_duration_seconds`).
 
-If `producer.send()` returns `QueueFull`, the sink retries up to
-`enqueue_retry_max` times with `enqueue_poll_ms` pauses. This gives
-rdkafka's background thread time to drain in-flight deliveries. Metrics
-track recovery vs exhaustion via `capture_v1_kafka_queue_full_retries_total`.
+If `producer.send()` fails, the result is surfaced immediately as a
+`KafkaResult` error and the event is not enqueued. `QueueFull` is treated
+like any other retriable produce error (`Outcome::RetriableError` →
+`EventResult::Retry`), matching v0: there is no app-level enqueue retry
+loop. Backpressure is handled by librdkafka's own producer queue plus the
+client-side retry on a retriable response.
 
 After serialization and header construction, `effective_partition_key()`
 (`kafka/sink.rs`) decides whether the partition key should be nulled.
@@ -673,8 +685,6 @@ only needs to specify hosts and topics.
 | `retry_backoff_max_ms` | `1000` | `retry.backoff.max.ms` | Upper bound on exponential retry backoff |
 | `socket_send_buffer_bytes` | `0` | `socket.send.buffer.bytes` | TCP send buffer size; 0 = OS default |
 | `socket_receive_buffer_bytes` | `0` | `socket.receive.buffer.bytes` | TCP receive buffer size; 0 = OS default |
-| `enqueue_retry_max` | `3` | _(application-level)_ | QueueFull backpressure retries |
-| `enqueue_poll_ms` | `33` | _(application-level)_ | Pause between QueueFull retries |
 | `topic_main` | _(required)_ | — | Analytics main topic |
 | `topic_historical` | _(required)_ | — | Historical migration topic |
 | `topic_overflow` | _(required)_ | — | Overflow topic |
@@ -766,16 +776,23 @@ Constructed by `KafkaProducer::new(sink, &KafkaConfig, handle, capture_mode)`:
 ```rust
 pub struct ProduceRecord<'a> {
     pub topic: &'a str,
-    pub key: Option<&'a str>,
-    pub payload: &'a str,
+    pub key: Option<String>,
+    pub payload: String,
     pub headers: OwnedHeaders,
 }
 ```
 
+`topic` borrows either a config `String` (built-in destinations) or
+`Destination::Custom(String)` — both outlive the prep+enqueue scope so
+borrowing avoids a per-event clone. `payload` and `key` are owned because
+each event's serialized bytes must coexist across the batch (prerequisite
+for parallel prep).
+
 `send()` converts this to a `FutureRecord` and calls `send_result()`.
 On success it returns a `SendHandle` wrapping rdkafka's `DeliveryFuture`.
-On failure it returns the `ProduceRecord` back to the caller (enabling
-the QueueFull retry loop without reallocating the message).
+On failure it returns the `ProduceRecord` back to the caller alongside the
+`ProduceError`; the sink discards it and surfaces the error immediately
+(QueueFull included — see Phase 1).
 
 `SendHandle` implements `Future` and maps rdkafka delivery outcomes:
 
@@ -905,8 +922,10 @@ request-level context (`path`, `attempt`).
 |---|---|---|---|
 | `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
 | `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Per-event broker-ack latency (successful send → ack resolution), including `outcome="timeout"` for acks that miss `produce_timeout` |
-| `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch enqueue wall-time (the `enqueue_events` call), isolated from broker-ack latency |
-| `capture_v1_kafka_queue_full_retries_total` | counter | `mode`, `cluster`, `result` | QueueFull retry (`result` = `recovered` or `exhausted`) |
+| `capture_v1_kafka_serialize_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch prep wall-time (serialize + record build), serial or parallel |
+| `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch serial enqueue-loop wall-time, isolated from broker-ack latency |
+| `capture_v1_kafka_prep_panic_total` | counter | `mode`, `cluster` | Parallel prep pool panicked (batch failed retriable); should stay 0 |
+| `capture_v1_kafka_prep_pool_inflight` | gauge | _(none — shared pool)_ | Concurrent `publish_batch` calls inside the parallel prep pool (saturation proxy) |
 
 Cardinality note: the `destination` label is bounded at 9 values
 (`Destination::as_tag()` collapses all `Custom(_)` topics to `custom`)
@@ -1204,8 +1223,6 @@ Builder options include:
 | `ack_delay(d)` | Simulate slow acks / timeouts |
 | `not_ready()` | Producer health gate fails |
 | `with_liveness(deadline, poll)` | Custom liveness timing for health tests |
-| `enqueue_retry_max(n)` | QueueFull retry budget |
-| `enqueue_poll_ms(ms)` | QueueFull retry pause |
 
 ### Analytics event serialization tests
 
