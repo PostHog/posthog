@@ -360,6 +360,18 @@ class TestFetchAverageRowSize:
         cursor.execute.side_effect = [None, RuntimeError("boom")]
         assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
 
+    def test_does_not_report_whole_row_reference_failure(self, impl, cursor, logger):
+        # Redshift rejects the `pg_column_size(t)` whole-row reference with this exact error on every
+        # table. It's a best-effort probe that falls back to the default chunk size, so it must not be
+        # reported to error tracking (the source of the noise this fix addresses).
+        cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn('column "t" does not exist in t')]
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
+
+        assert result is None
+        mock_capture.assert_not_called()
+
 
 class TestHasDuplicatePrimaryKeys:
     def test_returns_false_when_no_pks(self, impl, cursor, logger):

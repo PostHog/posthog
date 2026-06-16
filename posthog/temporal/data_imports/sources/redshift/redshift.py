@@ -894,6 +894,10 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         already bound — no separate `inner_query_args` is interpolated
         here, mirroring how the rest of the Redshift driver builds
         queries.
+
+        Best-effort only: Redshift rejects the `pg_column_size(t)` whole-row reference, so this
+        currently returns None on every table and the caller falls back to the default chunk size.
+        Failures are swallowed rather than reported — see the except block below.
         """
         try:
             query = sql.SQL("""
@@ -915,8 +919,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # Best-effort sampling: any failure falls back to the default chunk size, so it must not
+            # be reported to error tracking. Redshift has no portable whole-row size — `pg_column_size(t)`
+            # (like Postgres' `octet_length(t::text)`) relies on a composite whole-row reference that
+            # Redshift rejects with `UndefinedColumn: column "t" does not exist in t`, so this fails on
+            # every table. Mirrors the sibling Postgres `_get_table_chunk_size` and `_explain_query` here,
+            # both of which treat this as expected, non-actionable noise.
             logger.debug(f"fetch_average_row_size: Error: {e}", exc_info=e)
-            capture_exception(e)
             return None
 
     # ------------------------------------------------------------------
