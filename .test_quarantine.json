@@ -1,4 +1,23 @@
 {
     "version": 1,
-    "entries": []
+    "entries": [
+        {
+            "id": "posthog/test/test_quarantine_smoke.py::test_quarantine_run_mode_should_xfail",
+            "runner": "pytest",
+            "reason": "throwaway: validate quarantine run-mode xfail in CI (#62737)",
+            "owner": "@raul",
+            "added": "2026-06-16",
+            "expires": "2026-06-23",
+            "mode": "run"
+        },
+        {
+            "id": "posthog/test/test_quarantine_smoke.py::test_quarantine_skip_mode_should_not_run",
+            "runner": "pytest",
+            "reason": "throwaway: validate quarantine skip-mode in CI (#62737)",
+            "owner": "@raul",
+            "added": "2026-06-16",
+            "expires": "2026-06-23",
+            "mode": "skip"
+        }
+    ]
 }
