@@ -3,6 +3,7 @@
 //! Both sides share `window_days`. Alignment picks the more recent window start and sums
 //! element-wise.
 
+use crate::stage1::bucket_tz::now_day_for_window;
 use crate::stage1::daily::slide_window_forward;
 
 /// Align two dense bucket arrays to the more recent window and sum element-wise (saturating).
@@ -18,7 +19,7 @@ pub fn align_and_sum(
     window_days: u32,
 ) -> (Vec<u32>, i32) {
     let target_start = old_window_start_day.max(new_window_start_day);
-    let target_now = target_start + window_days as i32;
+    let target_now = now_day_for_window(target_start, window_days);
 
     let mut old_aligned = old_buckets.to_vec();
     let mut old_start = old_window_start_day;

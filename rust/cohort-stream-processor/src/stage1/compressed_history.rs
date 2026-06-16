@@ -6,7 +6,7 @@
 
 use chrono_tz::Tz;
 
-use crate::stage1::bucket_tz::start_of_day_ms_in_tz;
+use crate::stage1::bucket_tz::{now_day_for_window, window_leave_day_ms, window_start_for_now};
 
 /// Insert or increment `day`'s count (saturating), keeping entries sorted with no zero-count entries.
 /// The caller must slide the window before calling; `day` must be within the current window.
@@ -25,11 +25,11 @@ pub(crate) fn slide_window_forward(
     window_days: u32,
     target_now_day: i32,
 ) {
-    let cur_now_day = *window_start_day + window_days as i32;
+    let cur_now_day = now_day_for_window(*window_start_day, window_days);
     if target_now_day <= cur_now_day {
         return;
     }
-    let new_window_start_day = target_now_day - window_days as i32;
+    let new_window_start_day = window_start_for_now(target_now_day, window_days);
     let dropped = entries.partition_point(|&(day, _)| day < new_window_start_day);
     entries.drain(..dropped);
     *window_start_day = new_window_start_day;
@@ -51,7 +51,7 @@ pub(crate) fn compressed_eviction_deadline(
     tz: Tz,
 ) -> i64 {
     match entries.first() {
-        Some(&(oldest_day, _)) => start_of_day_ms_in_tz(oldest_day + window_days as i32 + 1, tz),
+        Some(&(oldest_day, _)) => window_leave_day_ms(oldest_day, window_days, tz),
         None => i64::MAX,
     }
 }
@@ -194,6 +194,37 @@ mod tests {
     #[test]
     fn deadline_of_an_empty_set_never_evicts() {
         assert_eq!(compressed_eviction_deadline(&[], 365, UTC), i64::MAX);
+    }
+
+    #[test]
+    fn deadline_saturates_for_an_astronomical_window_instead_of_panicking() {
+        // `window_days` is unbounded `u32` user input. The old `oldest_day + window_days as i32 + 1`
+        // either panics in debug (when the sum exceeds i32::MAX — the case below) or, at u32::MAX,
+        // silently wraps to a near-epoch instant (flapping entered/left). The arithmetic is now
+        // total: an effectively infinite window never evicts → i64::MAX.
+        let entries = [(1_000, 1_u32)];
+        // `1_000 + 2_147_483_000 + 1` overflows i32 → unfixed code panics here.
+        assert_eq!(
+            compressed_eviction_deadline(&entries, 2_147_483_000, UTC),
+            i64::MAX,
+        );
+        assert_eq!(
+            compressed_eviction_deadline(&entries, u32::MAX, UTC),
+            i64::MAX,
+            "u32::MAX (which casts to -1) must not wrap to a near-epoch deadline",
+        );
+    }
+
+    #[test]
+    fn slide_with_an_astronomical_window_never_evicts_and_does_not_panic() {
+        // `window_start_day + window_days` (cur "now") overflows i32 for a large anchor + huge
+        // window; the unfixed `as i32` add panics in debug. With saturation the window already
+        // covers any realistic target, so the slide is a no-op (nothing drops, anchor unchanged).
+        let entries = vec![(2_000_000_000, 9), (2_000_000_100, 2)];
+        // `2_000_000_000 + 200_000_000` overflows i32 → unfixed code panics in `slide_window_forward`.
+        let (after, start) = slide(entries.clone(), 2_000_000_000, 200_000_000, i32::MAX);
+        assert_eq!(after, entries, "an essentially infinite window never slides out");
+        assert_eq!(start, 2_000_000_000, "window anchor unchanged");
     }
 
     #[test]

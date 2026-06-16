@@ -49,7 +49,43 @@ pub fn start_of_day_ms_in_tz(day: DayIdx, tz: Tz) -> i64 {
 /// The first day-bucket of the rolling window ending at `now_ms`. Returns `now_day − N` (the
 /// inclusive lower bound), matching the existing `event_day >= now_day − N` predicate.
 pub fn window_start_day(now_ms: i64, effective_window_days: u32, tz: Tz) -> DayIdx {
-    day_idx_in_tz(now_ms, tz) - effective_window_days as DayIdx
+    window_start_for_now(day_idx_in_tz(now_ms, tz), effective_window_days)
+}
+
+/// The window's "now" day given its start: `window_start_day + window_days`, **saturating** to
+/// [`DayIdx::MAX`]. `window_days` is unbounded `u32` user input, so a naïve `as i32` add would wrap
+/// for an astronomical window and snap the window backward; saturating instead means a huge window's
+/// "now" sits at the far future, so the window effectively never slides — the correct reading of an
+/// essentially infinite window.
+pub fn now_day_for_window(window_start_day: DayIdx, window_days: u32) -> DayIdx {
+    match i64::from(window_start_day) + i64::from(window_days) {
+        day if day > i64::from(DayIdx::MAX) => DayIdx::MAX,
+        day => day as DayIdx,
+    }
+}
+
+/// The window's start day given its "now": `now_day − window_days`, **saturating** to [`DayIdx::MIN`].
+/// Mirrors [`now_day_for_window`] on the lower bound — a huge `window_days` would underflow a naïve
+/// `as i32` subtract and wrap positive; saturating instead pins the start at the far past, so the
+/// window covers everything and never evicts (the correct reading of an essentially infinite window).
+pub fn window_start_for_now(now_day: DayIdx, window_days: u32) -> DayIdx {
+    match i64::from(now_day) - i64::from(window_days) {
+        day if day < i64::from(DayIdx::MIN) => DayIdx::MIN,
+        day => day as DayIdx,
+    }
+}
+
+/// The epoch-ms (team tz, local midnight) at which a day-`oldest_day` bucket/entry leaves an
+/// `N`-day window — the start of day `oldest_day + N + 1`. Computed in `i64` and, mirroring
+/// [`super::pick_state::EvictionWindow::earliest_eviction_at_ms`], returns [`i64::MAX`] (never
+/// evict) when the leave-day overflows [`DayIdx`] for an astronomical window rather than wrapping
+/// to a near-epoch instant (which would flap entered/left).
+pub fn window_leave_day_ms(oldest_day: DayIdx, window_days: u32, tz: Tz) -> i64 {
+    let leave_day = i64::from(oldest_day) + i64::from(window_days) + 1;
+    match DayIdx::try_from(leave_day) {
+        Ok(day) => start_of_day_ms_in_tz(day, tz),
+        Err(_) => i64::MAX,
+    }
 }
 
 /// The calendar-day index of a tz-naive [`NaiveDate`] — days since 1970-01-01, with no zone applied.
@@ -336,5 +372,37 @@ mod tests {
         assert_eq!(daily_bucket_len(7), 8);
         assert_eq!(daily_bucket_len(30), 31);
         assert_eq!(daily_bucket_len(0), 1);
+    }
+
+    #[test]
+    fn window_bound_helpers_match_plain_arithmetic_for_realistic_windows() {
+        // Saturation only changes behavior at astronomical windows; for any realistic window the
+        // helpers are bit-identical to the `+ window_days` / `− window_days` they replace.
+        for window_days in [0_u32, 1, 7, 30, 180, 365, 3_650] {
+            assert_eq!(
+                now_day_for_window(19_500, window_days),
+                19_500 + window_days as i32,
+            );
+            assert_eq!(
+                window_start_for_now(19_500, window_days),
+                19_500 - window_days as i32,
+            );
+            assert_eq!(
+                window_leave_day_ms(19_500, window_days, UTC),
+                start_of_day_ms_in_tz(19_500 + window_days as i32 + 1, UTC),
+            );
+        }
+    }
+
+    #[test]
+    fn window_bound_helpers_saturate_at_the_day_index_bounds() {
+        // A huge window pushes "now" to the far future (never slides) and "start" to the far past
+        // (covers everything) rather than wrapping an `i32` cast.
+        assert_eq!(now_day_for_window(1_000, u32::MAX), DayIdx::MAX);
+        assert_eq!(now_day_for_window(DayIdx::MAX, 1), DayIdx::MAX);
+        assert_eq!(window_start_for_now(-1_000, u32::MAX), DayIdx::MIN);
+        assert_eq!(window_start_for_now(DayIdx::MIN, 1), DayIdx::MIN);
+        // The leave-day instant overflows `i32`, so the deadline pins at i64::MAX (never evict).
+        assert_eq!(window_leave_day_ms(1_000, u32::MAX, UTC), i64::MAX);
     }
 }

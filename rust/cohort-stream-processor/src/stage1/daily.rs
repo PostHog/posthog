@@ -5,7 +5,7 @@
 
 use chrono_tz::Tz;
 
-use crate::stage1::bucket_tz::start_of_day_ms_in_tz;
+use crate::stage1::bucket_tz::{now_day_for_window, window_leave_day_ms};
 
 /// Slide the dense window forward to `target_now_day`, zeroing the vacated tail. No-op when the
 /// window already covers `target_now_day`; the window only moves forward, never back.
@@ -16,7 +16,7 @@ pub(crate) fn slide_window_forward(
     target_now_day: i32,
 ) {
     let len = buckets.len();
-    let cur_now_day = *window_start_day + window_days as i32;
+    let cur_now_day = now_day_for_window(*window_start_day, window_days);
     if target_now_day <= cur_now_day {
         return;
     }
@@ -46,7 +46,7 @@ pub(crate) fn daily_eviction_deadline(
     match buckets.iter().position(|&count| count > 0) {
         Some(oldest) => {
             let oldest_day = window_start_day + oldest as i32;
-            start_of_day_ms_in_tz(oldest_day + window_days as i32 + 1, tz)
+            window_leave_day_ms(oldest_day, window_days, tz)
         }
         None => i64::MAX,
     }
@@ -155,6 +155,20 @@ mod tests {
     #[test]
     fn deadline_of_an_all_zero_window_never_evicts() {
         assert_eq!(daily_eviction_deadline(&[0, 0, 0], 100, 2, UTC), i64::MAX);
+    }
+
+    #[test]
+    fn deadline_saturates_for_an_astronomical_window_instead_of_panicking() {
+        // The daily variant is only chosen for window_days ≤ 180 (`pick_state_variant`), so this
+        // pairing is structurally unreachable in production, but the day arithmetic is total
+        // regardless: `oldest_day + window_days + 1` overflows `i32` for a huge window. The window
+        // below makes that sum exceed i32::MAX → unfixed code panics in debug; saturation gives
+        // "never evict" → i64::MAX.
+        assert_eq!(
+            daily_eviction_deadline(&[1], 1_000, 2_147_483_000, UTC),
+            i64::MAX,
+        );
+        assert_eq!(daily_eviction_deadline(&[1], 1_000, u32::MAX, UTC), i64::MAX);
     }
 
     #[test]

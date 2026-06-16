@@ -18,7 +18,9 @@ use crate::observability::metrics::{
     STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
     STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
-use crate::stage1::bucket_tz::{daily_bucket_len, day_idx_in_tz};
+use crate::stage1::bucket_tz::{
+    daily_bucket_len, day_idx_in_tz, now_day_for_window, window_start_for_now,
+};
 use crate::stage1::compressed_history;
 use crate::stage1::daily::{daily_eviction_deadline, slide_window_forward};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
@@ -580,15 +582,14 @@ fn mutate_behavioral_daily(
     let predicate_before = daily_predicate(&buckets, op);
 
     let event_day = day_idx_in_tz(event_ms, tz);
-    let window_days_idx = window_days as i32;
     let mut window_start_day = if buckets.is_empty() {
         buckets = vec![0; len];
-        event_day - window_days_idx
+        window_start_for_now(event_day, window_days)
     } else {
         prior_window_start_day
     };
 
-    let cur_now_day = window_start_day + window_days_idx;
+    let cur_now_day = now_day_for_window(window_start_day, window_days);
     if event_day > cur_now_day {
         slide_window_forward(&mut buckets, &mut window_start_day, window_days, event_day);
         let last = len - 1;
@@ -708,14 +709,13 @@ fn mutate_behavioral_compressed(
     let predicate_before = compressed_predicate(&entries, op);
 
     let event_day = day_idx_in_tz(event_ms, tz);
-    let window_days_idx = window_days as i32;
     let mut window_start_day = if first_write {
-        event_day - window_days_idx
+        window_start_for_now(event_day, window_days)
     } else {
         prior_window_start_day
     };
 
-    let cur_now_day = window_start_day + window_days_idx;
+    let cur_now_day = now_day_for_window(window_start_day, window_days);
     if event_day > cur_now_day {
         compressed_history::slide_window_forward(
             &mut entries,

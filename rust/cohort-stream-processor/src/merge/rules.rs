@@ -13,7 +13,7 @@ use crate::filters::reverse_index::LeafStateMeta;
 use crate::merge::bucket_align::align_and_sum;
 use crate::merge::compressed_concat::union_by_day;
 use crate::observability::metrics::MERGE_LEAVES_DROPPED_TOTAL;
-use crate::stage1::bucket_tz::daily_bucket_len;
+use crate::stage1::bucket_tz::{daily_bucket_len, now_day_for_window};
 use crate::stage1::compressed_history::{compressed_eviction_deadline, slide_window_forward};
 use crate::stage1::daily::daily_eviction_deadline;
 use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
@@ -198,7 +198,7 @@ fn merge_behavioral_pair(
             // the daily arm's `align_and_sum`. Without this the count is inflated until the next sweep.
             let (entries, window_start_day) = match meta.window_days {
                 Some(window_days) => {
-                    let target_now_day = (*old_start).max(*new_start) + window_days as i32;
+                    let target_now_day = now_day_for_window((*old_start).max(*new_start), window_days);
                     let mut old_entries = old_entries.clone();
                     let mut old_start = *old_start;
                     slide_window_forward(&mut old_entries, &mut old_start, window_days, target_now_day);
