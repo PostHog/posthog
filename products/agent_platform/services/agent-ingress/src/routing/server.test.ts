@@ -551,16 +551,19 @@ describe('ingress HTTP server (path mode)', () => {
         const sid = create.body.session_id as string
 
         // Every write/stream path on agent B must refuse A's session as not-found.
-        const sendB = await request(app).post('/agents/agent-b/send').send({ session_id: sid, message: 'pwn' })
-        expect(sendB.status).toBe(404)
-        const cancelB = await request(app).post('/agents/agent-b/cancel').send({ session_id: sid })
-        expect(cancelB.status).toBe(404)
-        const listenB = await request(app).get('/agents/agent-b/listen').query({ session_id: sid })
-        expect(listenB.status).toBe(404)
-        const ctrB = await request(app)
-            .post('/agents/agent-b/client_tool_result')
-            .send({ session_id: sid, call_id: 'c1', result: {} })
-        expect(ctrB.status).toBe(404)
+        const crossAgentCases: Array<() => Promise<{ status: number }>> = [
+            () => request(app).post('/agents/agent-b/send').send({ session_id: sid, message: 'pwn' }),
+            () => request(app).post('/agents/agent-b/cancel').send({ session_id: sid }),
+            () => request(app).get('/agents/agent-b/listen').query({ session_id: sid }),
+            () =>
+                request(app)
+                    .post('/agents/agent-b/client_tool_result')
+                    .send({ session_id: sid, call_id: 'c1', result: {} }),
+            () => request(app).get('/agents/agent-b/mcp/stream').query({ session_id: sid }),
+        ]
+        for (const makeRequest of crossAgentCases) {
+            expect((await makeRequest()).status).toBe(404)
+        }
 
         // The owning agent still drives its own session.
         const sendA = await request(app).post('/agents/agent-a/send').send({ session_id: sid, message: 'ok' })

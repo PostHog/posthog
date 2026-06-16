@@ -329,7 +329,11 @@ async function mcpStreamHandler(ctx: AuthedRouteCtx): Promise<void> {
     }
     const { session_id: sessionId } = parsed.data
     const existing = await deps.queue.get(sessionId)
-    if (!existing) {
+    // Bind the session to the resolved agent before anything else — a leaked
+    // anonymous session UUID must not be subscribable via another public
+    // agent's /mcp/stream (same cross-tenant guard as the chat handlers and the
+    // tools/call + resources/read paths above). Mismatch reads as not-found.
+    if (!existing || existing.application_id !== ctx.resolved.application.id) {
         res.status(404).json({ error: 'session_not_found' })
         return
     }
