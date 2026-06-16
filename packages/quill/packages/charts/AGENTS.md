@@ -68,7 +68,7 @@ Charts fill their container and need a parent with real dimensions — a `0`-hei
 - `ValueLabels` formatter gets `(value, seriesIndex, dataIndex, context)`; in percent layouts `value` is a 0–1 fraction — use `context.rawValue` for the original.
 - `Legend` is presentational: pass `items`, `onItemClick`, `hiddenKeys` — filtering series is the caller's state. `LegendItem.secondaryLabel` shows muted trailing text (e.g. a slope chart's per-series change).
 - `SlopeChart` config: `showSeriesLabels` (name beside each end point; steepest line wins label collisions), `showStartLabels`/`showEndLabels` (defaults overridable per series via `meta.showStartLabel`/`showEndLabel`), `legend` (`{ show, position }`, rows carry the formatted change), `valueFormatter`/`deltaFormatter`. The value axis is hidden by default — the start/end labels are the readout.
-- y-axis `format`: `numeric | short | percentage | percentage_scaled | currency | duration | duration-ms`, plus `prefix`/`suffix`.
+- y-axis `format`: `numeric | short | percentage | percentage_scaled | currency | duration | duration_ms`, plus `prefix`/`suffix`.
 
 ## Maintenance
 

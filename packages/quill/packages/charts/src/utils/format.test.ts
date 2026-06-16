@@ -92,6 +92,7 @@ describe('format helpers', () => {
             ['negative thousands', -1500, `-1.5${NBSP}K`],
             ['rounded to 3 sig figs', 12345, `12.3${NBSP}K`],
             ['zero', 0, '0'],
+            ['caps at largest suffix instead of rendering undefined', 1e27, `1000${NBSP}Y`],
         ] as const)('%s', (_, value, expected) => {
             expect(compactNumber(value)).toBe(expected)
         })

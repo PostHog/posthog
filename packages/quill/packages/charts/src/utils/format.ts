@@ -109,7 +109,8 @@ export function compactNumber(value: number | null): string {
     }
     value = parseFloat(value.toPrecision(3))
     let magnitude = 0
-    while (Math.abs(value) >= 1000) {
+    const maxMagnitude = COMPACT_NUMBER_MAGNITUDES.length - 1
+    while (Math.abs(value) >= 1000 && magnitude < maxMagnitude) {
         magnitude++
         value /= 1000
     }

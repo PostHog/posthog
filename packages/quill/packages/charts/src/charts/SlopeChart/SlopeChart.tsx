@@ -12,7 +12,7 @@ import type {
     TooltipContext,
     ValueDomain,
 } from '../../core/types'
-import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
+import { measureLabelWidth } from '../../utils/text-measure'
 import { LineChart } from '../LineChart/LineChart'
 import {
     defaultDeltaFormatter,
@@ -23,12 +23,12 @@ import {
     type SlopeSeriesMeta,
 } from './slope-data'
 import { slopeLegendItems } from './slope-legend'
+import { SLOPE_LABEL_FONT } from './SlopeLabel'
 import { SlopeSeriesLabels } from './SlopeSeriesLabels'
 import { SlopeValueLabels } from './SlopeValueLabels'
 
 export type { SlopeSeriesMeta } from './slope-data'
 
-const LABEL_FONT = `600 12px ${FONT_FAMILY}`
 const VALUE_GAP = 8
 const NAME_GAP = 8
 const EDGE_PAD = 8
@@ -84,7 +84,7 @@ export function SlopeChart<Meta = SlopeSeriesMeta>({ onError, ...rest }: SlopeCh
 }
 
 function maxLabelWidth(texts: string[]): number {
-    return texts.reduce((max, t) => Math.max(max, measureLabelWidth(t, LABEL_FONT)), 0)
+    return texts.reduce((max, t) => Math.max(max, measureLabelWidth(t, SLOPE_LABEL_FONT)), 0)
 }
 
 function SlopeChartInner<Meta = SlopeSeriesMeta>({
