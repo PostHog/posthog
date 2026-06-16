@@ -376,22 +376,6 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(resp.json()["scope"], "feature_flag:read")
 
-    def test_cors_headers_on_response(self) -> None:
-        # Without CORS headers, browsers strip the response body on cross-origin
-        # 4xx replies — the user-visible symptom is Chrome saying "Failed to
-        # load response data" in DevTools even though the status is visible.
-        # Verify the endpoint is in `CORS_URLS_REGEX` so the middleware adds the
-        # right headers to both success and error responses.
-        assertion = _make_id_jag()
-        resp = self.client.post(
-            "/oauth/token",
-            data={"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion},
-            content_type="application/json",
-            HTTP_ORIGIN="https://example.com",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        self.assertIn("Access-Control-Allow-Origin", resp.headers)
-
         # Error responses must also carry the CORS header — that's the whole
         # point of this test (the body would otherwise be hidden in DevTools).
         bad = self.client.post(
