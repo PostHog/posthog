@@ -6,14 +6,19 @@ import {
     IconCloud,
     IconCreditCard,
     IconDocument,
+    IconEye,
     IconGlobe,
+    IconList,
     IconMemory,
     IconNotebook,
     IconNotification,
     IconPeople,
+    IconPencil,
     IconPlug,
+    IconPlus,
     IconSearch,
     IconShuffle,
+    IconTrash,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -168,6 +173,58 @@ function skillStatusFormatter(
 }
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
+    list_actions: {
+        name: 'List actions',
+        description: 'List actions in the project',
+        icon: <IconList />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Listed actions',
+                pendingLabel: 'Listing actions',
+            }),
+    },
+    get_action: {
+        name: 'Get action',
+        description: 'Get action details',
+        icon: <IconEye />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Got action',
+                pendingLabel: 'Getting action',
+            }),
+    },
+    create_action: {
+        name: 'Create action',
+        description: 'Create action from trigger conditions',
+        icon: <IconPlus />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Created action',
+                pendingLabel: 'Creating action',
+                nameArgKey: 'name',
+            }),
+    },
+    update_action: {
+        name: 'Update action',
+        description: 'Update action name, description, or steps',
+        icon: <IconPencil />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Updated action',
+                pendingLabel: 'Updating action',
+                nameArgKey: 'name',
+            }),
+    },
+    delete_action: {
+        name: 'Delete action',
+        description: 'Delete action by ID',
+        icon: <IconTrash />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Deleted action',
+                pendingLabel: 'Deleting action',
+            }),
+    },
     call_mcp_server: {
         name: 'Call an MCP server',
         description: 'Call an MCP server',
