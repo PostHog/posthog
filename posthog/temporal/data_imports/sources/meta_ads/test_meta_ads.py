@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 from typing import Any
 
 import pytest
@@ -8,9 +9,11 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
+    META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
     MetaAdsResumeConfig,
+    _earliest_supported_since,
     _is_permanent_auth_error,
     _iter_simple_pagination,
     _iter_time_range_pagination,
@@ -18,8 +21,11 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     _override_limit,
     _strip_access_token,
     get_integration,
+    meta_ads_source,
 )
 from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _mock_response(status: int, body: dict) -> mock.MagicMock:
@@ -817,6 +823,86 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+class TestTimeRangeClamping:
+    """Meta rejects insights time ranges starting beyond ~37 months (error 3018).
+
+    The `since` we build must stay inside Meta's supported window, even when it is
+    derived from an aged incremental cursor.
+    """
+
+    def _capture_time_range(self, monkeypatch, **source_kwargs: Any) -> dict | None:
+        integration = mock.MagicMock()
+        integration.access_token = "token"
+        monkeypatch.setattr(meta_ads_module, "get_integration", lambda config, team_id: integration)
+
+        captured: dict[str, Any] = {}
+
+        def fake_request(url, params, access_token, time_range, resumable_source_manager):
+            captured["time_range"] = time_range
+            yield from ()
+
+        monkeypatch.setattr(meta_ads_module, "_make_paginated_api_request", fake_request)
+
+        config = mock.MagicMock()
+        config.account_id = "act_123"
+        config.meta_ads_integration_id = 1
+        config.sync_lookback_days = source_kwargs.pop("sync_lookback_days", None)
+
+        response = meta_ads_source(
+            resource_name="campaign_stats",
+            config=config,
+            team_id=1,
+            resumable_source_manager=_build_manager(),
+            **source_kwargs,
+        )
+        list(response.items())
+        return captured["time_range"]
+
+    def test_aged_incremental_cursor_is_clamped_to_supported_window(self, monkeypatch) -> None:
+        today = dt.date.today()
+        # A dormant account's stored cursor has aged past Meta's 37-month limit.
+        aged_cursor = today - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS + 200)
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=aged_cursor,
+        )
+
+        assert time_range is not None
+        assert time_range["since"] == _earliest_supported_since(today).strftime("%Y-%m-%d")
+        assert time_range["until"] == today.strftime("%Y-%m-%d")
+
+    def test_recent_incremental_cursor_is_left_untouched(self, monkeypatch) -> None:
+        today = dt.date.today()
+        recent_cursor = today - dt.timedelta(days=5)
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=recent_cursor,
+        )
+
+        assert time_range is not None
+        assert time_range["since"] == recent_cursor.strftime("%Y-%m-%d")
+
+    def test_stats_lookback_is_clamped_to_supported_window(self, monkeypatch) -> None:
+        today = dt.date.today()
+
+        time_range = self._capture_time_range(
+            monkeypatch,
+            sync_lookback_days=10_000,  # capped to META_ADS_MAX_HISTORY_DAYS upstream
+            should_use_incremental_field=False,
+        )
+
+        assert time_range is not None
+        assert time_range["since"] == _earliest_supported_since(today).strftime("%Y-%m-%d")
 
 
 class TestGetIntegration:
