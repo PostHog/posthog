@@ -40,6 +40,22 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     })
 
+    it('renders an injected per-widget top heading in place of the default date range', () => {
+        render(
+            <WidgetCardHeader
+                layout="dashboard_tile"
+                title="Recent recordings"
+                widgetTypeLabel="Session replay"
+                config={{ dateRange: { date_from: '-14d' }, savedFilterId: 'abc123' }}
+                headerMeta={{ showWidgetType: true, showDateRange: true }}
+                TopHeading={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
+            />
+        )
+
+        expect(screen.getByText('Session replay • My saved filter')).toBeInTheDocument()
+        expect(screen.queryByText('Last 14 days')).not.toBeInTheDocument()
+    })
+
     it('derives date-only top heading when widget type is hidden', () => {
         render(
             <WidgetCardHeader
