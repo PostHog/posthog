@@ -240,6 +240,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "connection timeout expired": None,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
+            # The server's TLS endpoint aborts the handshake with an ALPN alert ("SSL error: tlsv1
+            # alert no application protocol", OpenSSL alert 120). This only surfaces on the
+            # sslmode=prefer path (require_ssl=False) — libpq agreed to SSL and then the handshake
+            # itself failed, so it can't fall back to plaintext and it isn't converted to the
+            # require_ssl SSLRequiredError above. The alert is sent by the server deterministically
+            # because no application protocol was negotiated: the host/port points at a TLS proxy or
+            # service that isn't a plain PostgreSQL server, or the server's TLS is misconfigured.
+            # Every retry replays the identical handshake and gets the identical alert, so stop and
+            # ask the user to fix their connection details. Match the stable alert text; the IP/port
+            # in the surrounding message are volatile and excluded.
+            "tlsv1 alert no application protocol": (
+                "Your database server rejected the TLS/SSL handshake with a "
+                '"no application protocol" alert. This usually means the host and port point at a '
+                "TLS proxy or service that isn't a PostgreSQL server, or the server's TLS is "
+                "misconfigured. Double-check the host and port in your connection settings, then "
+                "re-enable the sync."
+            ),
             "Could not establish session to SSH gateway": None,
             # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
             # the pooler has *repeatedly* failed to log in to the backend database within its

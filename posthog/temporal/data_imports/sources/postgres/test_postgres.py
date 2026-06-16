@@ -395,6 +395,27 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — the IP/port vary.
+            'connection failed: connection to server at "37.16.27.102", port 6432 failed: SSL error: tlsv1 alert no application protocol',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: SSL error: tlsv1 alert no application protocol',
+        ],
+    )
+    def test_tls_alpn_handshake_alert_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"TLS ALPN handshake alert should be non-retryable: {error_msg}"
+
+    def test_tls_alpn_handshake_alert_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'connection failed: connection to server at "37.16.27.102", port 6432 failed: SSL error: tlsv1 alert no application protocol'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "TLS ALPN handshake alert should surface an actionable message"
+        assert "host and port" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "cannot call jsonb_each on a non-object",
             "InvalidParameterValue: cannot call jsonb_each on a non-object",
             "cannot call jsonb_each_text on a non-object",
