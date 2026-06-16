@@ -74,6 +74,39 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result.results[2][0], {"display_name": "org2.inc", "key": "org2"})
 
     @freeze_time("2025-01-01")
+    def test_groups_query_runner_with_numeric_name_property(self):
+        # Regression: a numeric `name` property type made coalesce(properties.name, key)
+        # resolve to Variant(Float64, String), which clickhouse_driver can't deserialize.
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="name",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+        for i in range(3):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org{i}",
+                properties={"name": i * 10},
+            )
+
+        query = GroupsQuery(group_type_index=0, limit=10, offset=0)
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 3)
+        self.assertEqual(result.columns, ["group_name"])
+        self.assertEqual(result.results[0][0], {"display_name": "0", "key": "org0"})
+        self.assertEqual(result.results[1][0], {"display_name": "10", "key": "org1"})
+        self.assertEqual(result.results[2][0], {"display_name": "20", "key": "org2"})
+
+    @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
     def test_groups_query_runner_with_offset(self):
         self.create_standard_test_groups()

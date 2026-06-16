@@ -26,7 +26,7 @@ from django.conf import settings
 import boto3
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import Forbidden, NotFound
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound
 from google.auth import (
     aws as google_auth_aws,
     credentials as google_auth_credentials,
@@ -63,7 +63,9 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 
 __all__ = [
     "BigQueryAuthInfo",
+    "BIGQUERY_TOKEN_RESPONSE_ERROR",
     "BigQueryImplementation",
+    "BigQueryTokenRefreshError",
     "bigquery_client",
     "bigquery_storage_read_client",
     "build_destination_table_prefix",
@@ -78,6 +80,24 @@ __all__ = [
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 BIGQUERY_SCOPES = ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
+
+# Stable, source-specific marker for a failed service-account OAuth token refresh.
+# Used both when raising below and when matching in `BigQuerySource.get_non_retryable_errors`,
+# so it must stay free of volatile data (urls, ids, timestamps).
+BIGQUERY_TOKEN_RESPONSE_ERROR = "BigQuery OAuth token endpoint returned an unexpected response"
+
+
+class BigQueryTokenRefreshError(Exception):
+    """Raised when the service-account OAuth token endpoint returns a non-JSON-object 200.
+
+    google-auth's `jwt_grant` reads `response_data["access_token"]` while guarding only
+    against `KeyError`. When the token endpoint replies 200 with a body that isn't a JSON
+    object — an intercepting proxy, or a misconfigured `token_uri` in the service-account
+    key file — `response_data` is a `str` and the lookup raises an opaque
+    `TypeError: string indices must be integers` instead of a `RefreshError`. We re-raise it
+    as this clear, non-retryable error so the sync stops hammering an endpoint that can't
+    authenticate us, and the user gets an actionable message.
+    """
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -472,6 +492,19 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
+    """True for BigQuery's `resourcesExceeded` query failures.
+
+    BigQuery raises this when a query can't run within a node's memory (for
+    example a large GROUP BY or sort over a big table). It's a property of the
+    customer's data volume, not something we can fix, so best-effort diagnostic
+    queries should degrade gracefully instead of treating it as an actionable
+    crash.
+    """
+    reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
+    return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
+
+
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
     if not primary_keys or len(primary_keys) == 0:
         return False
@@ -489,6 +522,20 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
 
         for _ in job.result():
             return True
+    except BadRequest as e:
+        if _is_bigquery_resource_exceeded(e):
+            # The duplicate-key probe runs a full GROUP BY over the table; on very large
+            # tables BigQuery can't sort it within a node's memory and raises
+            # `resourcesExceeded`. That's a data-volume limit we can't fix, and this check
+            # is best-effort, so skip it quietly rather than capturing non-actionable noise
+            # on every sync.
+            structlog.get_logger().warning(
+                "Skipping duplicate primary key check for BigQuery table %s.%s: query exceeded BigQuery memory limits",
+                table.dataset_id,
+                table.table_id,
+            )
+            return False
+        capture_exception(e)
     except Exception as e:
         capture_exception(e)
 
@@ -640,11 +687,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     ) -> dict[str, list[tuple[str, str, bool]]]:
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
-        query = conn.query(
-            f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-            project=_resolve_query_project(config),
-        )
         try:
+            # `conn.query()` eagerly creates the BigQuery job (POST .../jobs) and triggers the
+            # lazy service-account token refresh, so a `Forbidden` (e.g. missing
+            # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
+            # Both calls must sit inside the try so a permission-denied account degrades to
+            # "no new schemas" instead of crashing schema discovery.
+            query = conn.query(
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                project=_resolve_query_project(config),
+            )
             rows = query.result()
         except Forbidden:
             structlog.get_logger().warning(
@@ -652,6 +704,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 config.dataset_id,
             )
             return {}
+        except TypeError as e:
+            # See `BigQueryTokenRefreshError`: google-auth raises an opaque
+            # `TypeError: string indices must be integers` when the OAuth token endpoint
+            # returns a non-JSON-object 200. Anything else is a genuine bug — let it propagate.
+            if "string indices must be integers" not in str(e):
+                raise
+            raise BigQueryTokenRefreshError(
+                f"{BIGQUERY_TOKEN_RESPONSE_ERROR}. Please re-upload your service account key file and verify its token_uri."
+            ) from e
 
         for row in rows:
             schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
