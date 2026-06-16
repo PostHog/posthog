@@ -725,7 +725,7 @@ def run_attribute_names_query(
             WHERE time_bucket >= {date_from_start_of_interval}
             AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
             AND attribute_type = {attributeType}
-            AND attribute_key LIKE {search}
+            AND attribute_key ILIKE {search}
             GROUP BY team_id, attribute_key
             ORDER BY sum(attribute_count) desc, attribute_key asc
             OFFSET {offset}

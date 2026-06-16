@@ -99,3 +99,19 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         results = self._attributes({"attribute_type": "span_attribute", "search": "abc", "search_values": "true"})
         for entry in results:
             self.assertNotEqual(entry.get("matchedOn"), "value")
+
+    def test_key_search_is_case_insensitive(self):
+        # Keys are stored lowercase; an upper-case search term must still match them (ILIKE).
+        results = self._attributes({"attribute_type": "span_attribute", "search": "HTTP"})
+        names = {r["name"] for r in results}
+        self.assertIn("http.target", names)
+        self.assertIn("http.method", names)
+        self.assertTrue(all(r["matchedOn"] == "key" for r in results))
+
+    def test_key_search_case_insensitive_with_value_search(self):
+        # The value-search path matches keys case-insensitively too: "TRACE" matches the
+        # key "user.trace_id" and the values of http.target / custom.trace_ref.
+        results = self._attributes({"attribute_type": "span_attribute", "search": "TRACE", "search_values": "true"})
+        by_name = {r["name"]: r for r in results}
+        self.assertIn("user.trace_id", by_name)
+        self.assertEqual(by_name["user.trace_id"]["matchedOn"], "key")
