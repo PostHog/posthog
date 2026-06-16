@@ -23,6 +23,7 @@ import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../e
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { verifySlackSignature } from './slack-signature'
 import { SlackEventBodySchema } from './slack.schemas'
+import { getOwnedSession } from './session-access'
 import type { RouteCtx, TriggerDeps, TriggerModule } from './types'
 
 // Re-exported for backwards compatibility — the guard (mount.ts) is the
@@ -294,7 +295,10 @@ async function slackInteractivityHandler(ctx: RouteCtx): Promise<void> {
         return
     }
     const { sessionId, requestId, decision } = decoded
-    const session = await deps.queue.get(sessionId)
+    // The sessionId is decoded from the (attacker-influenceable) Slack action
+    // value — scope it to the resolved agent so an elevation decision can't be
+    // applied to another agent's session. Mismatch reads as not-found.
+    const session = await getOwnedSession(ctx, sessionId)
     if (!session) {
         res.status(404).json({ error: 'session_not_found' })
         return

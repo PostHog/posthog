@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { AgentSession, buildClientToolResultMarker } from '@posthog/agent-shared'
+import { buildClientToolResultMarker } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
@@ -24,23 +24,8 @@ import {
     ChatRunBodySchema,
     ChatSendBodySchema,
 } from './chat.schemas'
-import { defineRoute, type AuthedRouteCtx, type RouteCtx, type TriggerModule } from './types'
-
-/**
- * Fetch a session by client-supplied id, but only if it belongs to the agent
- * this request resolved to. A mismatch reads as "not found" — a session id is
- * a bare UUID, and for public agents every principal is `{kind:'anonymous'}`,
- * so `principalsMatch` alone would let a leaked id be driven through *any*
- * public agent's endpoint (cross-tenant). Binding to `resolved.application.id`
- * closes that, and doesn't reveal the session exists under another agent.
- */
-async function sessionForResolvedApp(ctx: RouteCtx, sessionId: string): Promise<AgentSession | null> {
-    const session = await ctx.deps.queue.get(sessionId)
-    if (!session || session.application_id !== ctx.resolved.application.id) {
-        return null
-    }
-    return session
-}
+import { getOwnedSession } from './session-access'
+import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 
 async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
@@ -82,7 +67,7 @@ async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>
 async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema>>): Promise<void> {
     const { res, deps, resolved } = ctx
     const { session_id: sessionId, message, client_tool_result } = ctx.parsed
-    const existing = await sessionForResolvedApp(ctx, sessionId)
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -159,7 +144,7 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
 async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySchema>>): Promise<void> {
     const { res, deps } = ctx
     const { session_id: sessionId } = ctx.parsed
-    const existing = await sessionForResolvedApp(ctx, sessionId)
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -180,7 +165,7 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
 async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {
     const { req, res, deps } = ctx
     const { session_id: sessionId } = ctx.parsed
-    const existing = await sessionForResolvedApp(ctx, sessionId)
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -207,7 +192,7 @@ async function clientToolResultHandler(
 ): Promise<void> {
     const { res, deps } = ctx
     const { session_id: sessionId, call_id, result, error } = ctx.parsed
-    const existing = await sessionForResolvedApp(ctx, sessionId)
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'no_session' })
         return

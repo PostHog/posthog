@@ -367,6 +367,49 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(missing).toBeNull()
     })
 
+    it('getForApplication scopes by (id, application_id) — null for another application', async () => {
+        if (!reachable) {
+            return
+        }
+        const queue = new PgSessionQueue(pool)
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'owner', name: 'Owner', description: '' })
+        const other = await revisions.createApplication({ team_id: 1, slug: 'other', name: 'Other', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const sessionId = '33333333-3333-3333-3333-333333333333'
+        await queue.enqueue({
+            id: sessionId,
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
+            state: 'queued',
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+        // Owning application resolves it; a different application (even in the
+        // same team) sees null — the cross-tenant guard lives in the SQL filter.
+        expect((await queue.getForApplication(sessionId, app.id))!.id).toBe(sessionId)
+        expect(await queue.getForApplication(sessionId, other.id)).toBeNull()
+        // Plain get is unscoped (trusted internal callers only).
+        expect((await queue.get(sessionId))!.id).toBe(sessionId)
+    })
+
     it('PgSessionQueue.reapStuckRunning bumps retry_count and poison-pills past threshold', async () => {
         if (!reachable) {
             return
