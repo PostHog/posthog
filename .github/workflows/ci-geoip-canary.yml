@@ -1,7 +1,7 @@
 # Canary against the live GeoLite2 database from mmdbcdn.posthog.net.
 #
 # PR and master jest runs resolve GeoIP lookups against a pinned MaxMind test
-# fixture (nodejs/jest.setup.env.ts), so they are deterministic but blind to
+# fixture (nodejs/jest.setup-env.ts), so they are deterministic but blind to
 # upstream breakage. This workflow is the safety net: it downloads the current
 # database — the same one baked into production images — and checks that known
 # IPs still resolve with usable city/postal data. It catches releases like the
@@ -19,6 +19,12 @@ on:
     schedule:
         - cron: '23 */6 * * *' # every 6 hours
     workflow_dispatch:
+
+env:
+    SLACK_CHANNEL: 'C0185UNBSJZ'
+
+permissions:
+    contents: read
 
 jobs:
     canary:
@@ -57,3 +63,35 @@ jobs:
               env:
                   GEOIP_LIVE_TEST: '1'
               run: cd nodejs && pnpm jest src/utils/geoip-live.test.ts --runInBand --forceExit
+
+            # A failure here means the live GeoLite2 build dropped location data for the
+            # anchor IPs — i.e. a bad MaxMind release is already baked into production
+            # images. On the schedule nobody is watching the run, so alert explicitly.
+            - name: Notify Slack on canary failure
+              if: failure()
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: GeoIP canary failed — live GeoLite2 database may be degraded"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *GeoIP canary failed* — anchor IPs no longer resolve usable city/postal data, so a bad MaxMind release may already be baked into production images."
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Trigger*\n${{ github.event_name }}"
+                            - type: "mrkdwn"
+                              text: "*Next step*\nCheck the run for the degraded IPs"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
