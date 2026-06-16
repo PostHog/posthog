@@ -451,9 +451,12 @@ class Person(models.Model):
             )
         )
         if len(response.splits) != len(distinct_ids):
-            raise ValueError(
-                f"split_person RPC returned {len(response.splits)} splits for "
-                f"{len(distinct_ids)} distinct_ids (team_id={self.team_id}, person_id={self.pk})"
+            logger.error(
+                "split_person RPC returned unexpected number of splits",
+                expected=len(distinct_ids),
+                actual=len(response.splits),
+                team_id=self.team_id,
+                person_id=self.pk,
             )
         return [
             SplitOutcome(

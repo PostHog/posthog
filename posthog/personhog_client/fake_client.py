@@ -627,9 +627,9 @@ class FakePersonHogClient:
 
             pdi_version = (mapping_by_did[did].version or 0) + 101
             mappings.remove(mapping_by_did[did])
-            self._distinct_ids.setdefault((request.team_id, new_person.id), []).append(
-                person_pb2.DistinctIdWithVersion(distinct_id=did, version=pdi_version)
-            )
+            target_mappings = self._distinct_ids.setdefault((request.team_id, new_person.id), [])
+            target_mappings[:] = [m for m in target_mappings if m.distinct_id != did]
+            target_mappings.append(person_pb2.DistinctIdWithVersion(distinct_id=did, version=pdi_version))
             self._persons_by_distinct_id[(request.team_id, did)] = new_person
 
             splits.append(
