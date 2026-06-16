@@ -522,6 +522,15 @@ class TestClickHouseSourceNonRetryableErrors:
             "Could not resolve the ClickHouse host",
             "Connection refused",
             "certificate verify failed",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 404",
+            # MEMORY_LIMIT_EXCEEDED (code 241) — server-wide OvercommitTracker kill
+            "HTTPDriver for https://host:8443 received ClickHouse error code 241\n Code: 241. "
+            "DB::Exception: (total) memory limit exceeded: would use 108.01 GiB, maximum: 108.00 GiB. "
+            "OvercommitTracker decision: Query was selected to stop by OvercommitTracker "
+            "(while reading column properties). (MEMORY_LIMIT_EXCEEDED)",
+            # MEMORY_LIMIT_EXCEEDED (code 241) — per-query `max_memory_usage` budget
+            "Code: 241. DB::Exception: Query memory limit exceeded: would use 3.73 GiB "
+            "(attempt to allocate chunk of 4.60 MiB), maximum: 3.73 GiB. (MEMORY_LIMIT_EXCEEDED)",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -535,6 +544,9 @@ class TestClickHouseSourceNonRetryableErrors:
             "Code: 159. DB::Exception: Timeout exceeded",  # query timeout — could be retried
             "Code: 999. DB::Exception: Keeper exception",  # transient zookeeper-style errors
             "Code: 209. DB::Exception: Socket timeout",
+            # Transient gateway errors must stay retryable — only 404 is permanent.
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 502",
+            "HTTPDriver for https://example.ngrok-free.dev:443 returned response code 503",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -591,6 +603,30 @@ class TestGetSchemas:
         events_cols = {c[0]: (c[1], c[2]) for c in schemas["events"]}
         assert events_cols["id"] == ("UInt64", False)
         assert events_cols["name"] == ("Nullable(String)", True)
+
+    def test_excludes_materialized_view_inner_tables(self):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        rows = [
+            ("events", "id", "UInt64"),
+            (".inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6", "id", "UInt64"),
+            (".inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6", "count", "UInt64"),
+            (".inner.my_legacy_mv", "value", "String"),
+        ]
+        mock_client = self._make_mock_client(rows)
+
+        with patch.object(ch_module, "_get_client", return_value=mock_client):
+            schemas = ch_module.get_schemas(
+                host="localhost",
+                port=8443,
+                database="default",
+                user="default",
+                password="",
+                secure=True,
+                verify=True,
+            )
+
+        assert set(schemas.keys()) == {"events"}
 
 
 class TestSourceClassValidateCredentials:
@@ -653,10 +689,47 @@ class TestHasDuplicatePrimaryKeys:
 
     def test_fails_safe_to_true_on_clickhouse_error(self):
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("Code: 241. Memory limit exceeded")
+        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
         # On error we must assume duplicates exist so the incremental merge is
         # blocked. Returning False here would silently corrupt the Delta table.
         assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+    def test_captures_unexpected_clickhouse_error(self):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+        mock_capture.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # max_memory_usage cap (code 241)
+            "HTTPDriver received ClickHouse error code 241\n Code: 241. DB::Exception: Query memory limit "
+            "exceeded: would use 958.14 MiB, maximum: 953.67 MiB: While executing AggregatingInOrderTransform. "
+            "(MEMORY_LIMIT_EXCEEDED)\n",
+            # max_execution_time cap (code 159)
+            "HTTPDriver received ClickHouse error code 159\n Code: 159. DB::Exception: Timeout exceeded: "
+            "elapsed 53343.4 ms, maximum: 30000 ms. (TIMEOUT_EXCEEDED)\n",
+        ],
+    )
+    def test_probe_budget_exhaustion_not_captured(self, error_msg):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(error_msg)
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            # Still assumes duplicates (safe append mode), but the probe hitting
+            # its own memory/time budget is the designed fallback — not error
+            # tracking noise.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+        mock_capture.assert_not_called()
 
     def test_passes_bounded_settings(self):
         client = MagicMock()
@@ -676,6 +749,36 @@ class TestHasDuplicatePrimaryKeys:
         assert settings["read_overflow_mode"] == "break"
         assert settings["max_execution_time"] == 30
         assert settings["max_memory_usage"] == 1_000_000_000
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # clickhouse-connect rejects readonly/unknown session settings
+            # client-side (ClickHouse Cloud, readonly user profiles).
+            "Setting max_memory_usage is unknown or readonly",
+            "Setting optimize_aggregation_in_order is unknown or readonly",
+            # Server-side memory cap below our probe's max_memory_usage.
+            "Code: 241. DB::Exception: Query memory limit exceeded ... (MEMORY_LIMIT_EXCEEDED)",
+        ],
+    )
+    def test_expected_probe_failures_not_captured(self, error_msg):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(error_msg)
+
+        with patch("posthog.temporal.data_imports.sources.clickhouse.clickhouse.capture_exception") as mock_capture:
+            # Still fails safe to True (force append mode), just without noise.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+        mock_capture.assert_not_called()
+
+    def test_unexpected_probe_failures_are_captured(self):
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("Code: 999. DB::Exception: Keeper exception")
+
+        with patch("posthog.temporal.data_imports.sources.clickhouse.clickhouse.capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+        mock_capture.assert_called_once()
 
 
 class TestGetIncrementalRowCount:

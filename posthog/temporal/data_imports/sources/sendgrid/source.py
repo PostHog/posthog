@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -108,6 +109,7 @@ class SendGridSource(ResumableSource[SendGridSourceConfig, SendGridResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SEND_GRID,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SendGrid",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your SendGrid API key to pull your SendGrid data into the PostHog Data warehouse.
