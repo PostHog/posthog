@@ -20,6 +20,12 @@ OBJ_COMMIT = 1
 OBJ_TREE = 2
 OBJ_BLOB = 3
 
+
+class GitSynthesisError(Exception):
+    """Raised when a file tree would produce a corrupt git object (empty or duplicate
+    tree-entry name, or a path used as both a file and a directory)."""
+
+
 # Fixed author/committer timestamp so identical content always hashes to the same
 # commit SHA — that determinism is what lets Claude Code decide "nothing changed".
 _FIXED_TIMESTAMP = "1700000000 +0000"
@@ -88,6 +94,14 @@ class _DirNode:
     dirs: dict[str, "_DirNode"]
 
 
+def _reject_bad_tree_entry(name: str, seen: set[str]) -> None:
+    if not name:
+        raise GitSynthesisError("empty tree-entry name (a file path is empty or ends in '/')")
+    if name in seen:
+        raise GitSynthesisError(f"path used as both a file and a directory: {name!r}")
+    seen.add(name)
+
+
 def synthesize_repo(files: FileTree, *, author: str, message: str) -> SynthesizedRepo:
     """Turn a ``path -> content`` map into the git objects of a single-commit repo."""
     objects: list[GitObject] = []
@@ -108,8 +122,17 @@ def synthesize_repo(files: FileTree, *, author: str, message: str) -> Synthesize
         node.files[filename] = blob_shas[path]
 
     def build_tree(node: _DirNode) -> str:
-        entries = [_TreeEntry(mode="100644", name=name, sha=sha) for name, sha in node.files.items()]
-        entries += [_TreeEntry(mode="40000", name=name, sha=build_tree(child)) for name, child in node.dirs.items()]
+        # Reject anything that would emit an invalid tree (empty name) or a tree with two
+        # entries of the same name (a path used as both a file and a directory) — real git
+        # refuses to unpack such a pack, which would break the clone for the whole team.
+        seen: set[str] = set()
+        entries: list[_TreeEntry] = []
+        for name, sha in node.files.items():
+            _reject_bad_tree_entry(name, seen)
+            entries.append(_TreeEntry(mode="100644", name=name, sha=sha))
+        for name, child in node.dirs.items():
+            _reject_bad_tree_entry(name, seen)
+            entries.append(_TreeEntry(mode="40000", name=name, sha=build_tree(child)))
         tree = _create_tree(entries)
         objects.append(tree)
         return tree.sha
@@ -185,11 +208,33 @@ def build_info_refs(head_sha: str) -> bytes:
     return bytes(out)
 
 
+def _parse_pkt_lines(body: bytes) -> list[bytes]:
+    """Split a Git pkt-line stream into its payloads (flush-pkts skipped). Stops at the
+    first malformed length rather than scanning raw bytes — so command detection matches
+    actual pkt-line commands, not substrings that merely appear in a ref name."""
+    lines: list[bytes] = []
+    offset = 0
+    total = len(body)
+    while offset + 4 <= total:
+        try:
+            length = int(body[offset : offset + 4], 16)
+        except ValueError:
+            break
+        if length == 0:  # flush-pkt
+            offset += 4
+            continue
+        if length < 4 or offset + length > total:
+            break
+        lines.append(body[offset + 4 : offset + length])
+        offset += length
+    return lines
+
+
 def build_upload_pack(request_body: bytes, repo: SynthesizedRepo) -> bytes:
     """Body for ``POST /git-upload-pack`` (negotiation result + packfile)."""
-    text = request_body.decode("utf-8", errors="ignore")
-    is_shallow = "deepen" in text
-    is_done = "done" in text
+    commands = _parse_pkt_lines(request_body)
+    is_shallow = any(line.startswith(b"deepen") for line in commands)
+    is_done = any(line.rstrip(b"\n") == b"done" for line in commands)
 
     out = bytearray()
     if is_shallow:

@@ -4,23 +4,27 @@ import base64
 import zipfile
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
 
+from ...api.skill_serializers import validate_skill_file_path
 from ...api.skill_services import archive_skill
 from ...marketplace.adapters import build_team_marketplace_tree
 from ...models.skills import LLMSkill, LLMSkillFile
 
-_PSAK_TOKEN = "phs_marketplace_token"
+# Real PSAK tokens are alphanumeric after the phs_ prefix (no underscores/hyphens).
+_PSAK_TOKEN = "phs_marketplacetoken123"
 
 
 def _basic_header(token: str) -> str:
@@ -77,6 +81,22 @@ class TestSkillZipExport(APIBaseTest):
     def test_export_missing_skill_404(self, _mock_flag):
         assert self.client.get(self._url("nope")).status_code == status.HTTP_404_NOT_FOUND
 
+    def test_export_rejects_spec_invalid_description(self, _mock_flag):
+        # Stored limit is 4096 but the spec caps description at 1024 — export must refuse rather
+        # than emit a spec-invalid SKILL.md.
+        LLMSkill.objects.create(
+            team=self.team,
+            name="too-long",
+            description="x" * 1025,
+            body="# too-long\n",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        response = self.client.get(self._url("too-long"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["problems"]
+
 
 class TestSkillMarketplaceGit(APIBaseTest):
     def setUp(self):
@@ -84,6 +104,9 @@ class TestSkillMarketplaceGit(APIBaseTest):
         # Git clients carry no session — clear the base-class force_login so the only
         # credential is the Basic header (or none), matching how `git clone` authenticates.
         self.client.logout()
+        # The synthesized repo is cached on team_id + content version; clear so cross-test
+        # state (LocMemCache isn't rolled back with the DB) can't leak between cases.
+        cache.clear()
 
     def _info_refs_url(self) -> str:
         return f"/api/projects/{self.team.id}/llm_skills/marketplace.git/info/refs"
@@ -157,7 +180,8 @@ class TestSkillMarketplaceGit(APIBaseTest):
         _mint_psak(self.team, scopes=["llm_skill:read"])
         response = self.client.post(
             self._upload_pack_url(),
-            data=b"0000000ddone\n",
+            # A valid pkt-line "done" command (0009 = length 9, payload "done\n") after a flush-pkt.
+            data=b"00000009done\n",
             content_type="application/x-git-upload-pack-request",
             # git sends this Accept; the passthrough renderer must satisfy content negotiation (no 406).
             HTTP_ACCEPT="application/x-git-upload-pack-result",
@@ -166,6 +190,20 @@ class TestSkillMarketplaceGit(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "application/x-git-upload-pack-result"
         assert len(response.content) > 0
+
+
+class TestSkillFilePathValidation:
+    @pytest.mark.parametrize(
+        "bad_path",
+        ["", "scripts/", "a//b.md", "..", "../x.md", "/abs.md", "SKILL.md", "skill.md", "a\x00b.md"],
+    )
+    def test_rejects_unsafe_paths(self, bad_path):
+        with pytest.raises(serializers.ValidationError):
+            validate_skill_file_path(bad_path)
+
+    @pytest.mark.parametrize("good_path", ["scripts/run.py", "references/guide.md", "a/b/c.md", "scripts/skill.md"])
+    def test_accepts_safe_paths(self, good_path):
+        assert validate_skill_file_path(good_path) == good_path
 
 
 class TestMarketplaceVersion(APIBaseTest):

@@ -27,21 +27,27 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
 
 from ..marketplace import git_smart_http as git
-from ..marketplace.adapters import build_team_marketplace_tree
+from ..marketplace.adapters import synthesize_team_marketplace_repo
 from ..marketplace.auth import MarketplaceGitBasicAuthentication
 from ..models.skills import LLMSkill
 
-_MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"
-_MARKETPLACE_AUTHOR = "PostHog"
+# git-upload-pack negotiation bodies are tiny (a handful of pkt-lines); cap the read so a
+# client can't make us buffer an arbitrarily large body the handler only substring-checks.
+_MAX_GIT_REQUEST_BYTES = 1_000_000
 
 
 class GitProtocolParser(BaseParser):
-    """Passthrough parser so DRF accepts git's request bodies (read back via ``request.data``)."""
+    """Passthrough parser so DRF accepts git's request bodies (read back via ``request.data``).
+
+    Returns a latin-1 ``str`` (lossless over any byte) rather than ``bytes`` so that fallback
+    authenticators in the stack — which probe ``"...key" in request.data`` — don't raise a
+    TypeError on a raw-bytes body; with a str the membership test cleanly returns False.
+    """
 
     media_type = "*/*"
 
-    def parse(self, stream, media_type=None, parser_context=None) -> bytes:
-        return stream.read()
+    def parse(self, stream, media_type=None, parser_context=None) -> str:
+        return stream.read(_MAX_GIT_REQUEST_BYTES).decode("latin-1")
 
 
 class GitProtocolRenderer(BaseRenderer):
@@ -91,8 +97,9 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         return [IsProjectSecretAPIKeyAuth(), APIScopePermission()]
 
     def _synthesize(self) -> git.SynthesizedRepo:
-        tree = build_team_marketplace_tree(self.team)
-        return git.synthesize_repo(tree, author=_MARKETPLACE_AUTHOR, message=_MARKETPLACE_COMMIT_MESSAGE)
+        # Cached on the content version, so info/refs polling and the two-request clone reuse
+        # one synthesis instead of rebuilding the whole repo each time.
+        return synthesize_team_marketplace_repo(self.team)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=False, url_path="info/refs")
@@ -109,12 +116,13 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="git-upload-pack")
     def marketplace_upload_pack(self, request: Request, **kwargs: Any) -> HttpResponse:
-        # GitProtocolParser already consumed the stream into request.data as raw bytes,
-        # so request.body is no longer readable — use the parsed bytes.
-        raw_body = request.data if isinstance(request.data, bytes | bytearray) else b""
+        # GitProtocolParser consumed the stream into request.data (a latin-1 str), so request.body
+        # is no longer readable — recover the raw bytes from the parsed value.
+        parsed = request.data
+        body = parsed.encode("latin-1") if isinstance(parsed, str) else bytes(parsed or b"")
         repo = self._synthesize()
         return HttpResponse(
-            git.build_upload_pack(bytes(raw_body), repo),
+            git.build_upload_pack(body, repo),
             content_type=git.UPLOAD_PACK_CONTENT_TYPE,
             headers={"Cache-Control": "no-cache"},
         )

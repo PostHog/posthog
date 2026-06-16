@@ -13,6 +13,9 @@ from products.ai_observability.backend.markdown_outline import get_markdown_outl
 from ..models.skills import LLMSkill, LLMSkillFile
 
 RESERVED_SKILL_NAMES = {"new"}
+# Bundled-file paths that would collide with generated artifacts in the exported skill
+# tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
+RESERVED_SKILL_FILE_PATHS = {"skill.md"}
 DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_SKILL_BODY_BYTES = 1_000_000
 MAX_SKILL_FILE_BYTES = 1_000_000
@@ -46,12 +49,22 @@ def validate_skill_name_value(value: str) -> str:
 
 
 def validate_skill_file_path(value: str) -> str:
+    # Paths become git tree entries (and zip/marketplace paths), so anything that would
+    # produce an empty or ambiguous entry name must be rejected — otherwise a single bad
+    # path synthesizes a corrupt git tree and breaks the whole team's marketplace clone.
     normalized = value.replace("\\", "/")
-    parts = normalized.split("/")
-    if any(part == ".." for part in parts):
-        raise serializers.ValidationError("File paths must not contain '..' traversal segments.")
+    if not normalized or normalized != normalized.strip():
+        raise serializers.ValidationError("File path must be a non-empty, trimmed relative path.")
     if normalized.startswith("/"):
         raise serializers.ValidationError("File paths must be relative, not absolute.")
+    if normalized.endswith("/"):
+        raise serializers.ValidationError("File paths must not end with a slash.")
+    if any(part in ("", ".", "..") for part in normalized.split("/")):
+        raise serializers.ValidationError("File paths must not contain empty, '.', or '..' segments.")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in normalized):
+        raise serializers.ValidationError("File paths must not contain control characters.")
+    if normalized.lower() in RESERVED_SKILL_FILE_PATHS:
+        raise serializers.ValidationError(f"'{value}' is a reserved file path and cannot be used.")
     return value
 
 

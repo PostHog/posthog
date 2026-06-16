@@ -46,8 +46,10 @@ store, not in Claude Code's plaintext config.
 ## Versioning / auto-update
 
 Claude Code re-pulls when the `version` in `marketplace.json` / `plugin.json` changes. We
-derive it from team content (`compute_plugin_version` keyed on the latest skill change time)
-so any publish bumps it forward monotonically with zero manual semver.
+derive it from team content (`compute_plugin_version` keyed on the latest skill change time, in
+milliseconds) so any publish/archive bumps it forward monotonically with zero manual semver.
+The synthesized repo is cached on `team_id` + that version, so repeated clones and auto-update
+polls reuse one synthesis and the cache invalidates automatically on any change.
 
 > **Open question (the spike answers it):** whether Claude Code re-pulls on any version
 > *difference* or only strictly-greater, and whether background auto-update reliably re-auths

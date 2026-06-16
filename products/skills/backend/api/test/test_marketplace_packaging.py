@@ -2,8 +2,11 @@ import io
 import json
 import zipfile
 
+import pytest
+
 import yaml
 
+from products.skills.backend.marketplace.git_smart_http import GitSynthesisError, synthesize_repo
 from products.skills.backend.marketplace.packaging import (
     SkillExport,
     SkillFileExport,
@@ -55,7 +58,9 @@ class TestFrontmatter:
         assert parsed["metadata"]["author"] == "posthog"
 
     def test_blank_optional_fields_are_omitted(self):
-        parsed = yaml.safe_load(render_frontmatter(_skill(license="", compatibility="", allowed_tools=[])).strip().strip("-"))
+        parsed = yaml.safe_load(
+            render_frontmatter(_skill(license="", compatibility="", allowed_tools=[])).strip().strip("-")
+        )
         assert "license" not in parsed
         assert "compatibility" not in parsed
         assert "allowed-tools" not in parsed
@@ -132,3 +137,24 @@ class TestPluginVersion:
 
     def test_same_change_time_yields_same_version(self):
         assert compute_plugin_version(1700000000) == compute_plugin_version(1700000000)
+
+
+class TestGitTreeSafety:
+    def _synth(self, files: dict[str, str]):
+        return synthesize_repo(files, author="PostHog", message="m")
+
+    def test_valid_nested_tree_synthesizes(self):
+        assert self._synth({"SKILL.md": "a", "scripts/x.sh": "b"}).head_sha
+
+    @pytest.mark.parametrize(
+        "files",
+        [
+            {"a/": "x"},  # trailing slash → empty filename
+            {"a//b.md": "x"},  # empty path segment
+            {"scripts": "a", "scripts/x.sh": "b"},  # path used as both a file and a directory
+        ],
+    )
+    def test_corrupt_tree_is_rejected(self, files):
+        # A bad path must raise rather than emit a corrupt tree that breaks the whole team's clone.
+        with pytest.raises(GitSynthesisError):
+            self._synth(files)

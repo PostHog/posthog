@@ -22,7 +22,7 @@ from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.request import Request
 
-from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import _SECRET_API_KEY_RE, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 
@@ -71,7 +71,12 @@ class MarketplaceGitBasicAuthentication(ProjectSecretAPIKeyAuthentication):
             return None
         username, _, password = decoded.partition(":")
         # Prefer the password field (the credential-helper convention), fall back to username.
-        return password or username or None
+        token = password or username
+        # Only attempt a lookup for values shaped like a PSAK token, reusing the same regex as the
+        # Bearer path's `_extract_phs_token` — avoids hashing arbitrary Basic credentials.
+        if token and _SECRET_API_KEY_RE.match(token):
+            return token
+        return None
 
     def authenticate_header(self, request: Union[HttpRequest, Request]) -> str:
         # A Basic challenge makes git retry through its credential helper instead of failing hard.

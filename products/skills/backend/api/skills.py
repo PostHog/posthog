@@ -33,7 +33,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.adapters import load_skill_export
-from ..marketplace.packaging import build_skill_zip
+from ..marketplace.packaging import build_skill_zip, validate_for_export
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_serializers import (
     LLMSkillCreateSerializer,
@@ -489,7 +489,15 @@ class LLMSkillViewSet(
         if skill is None:
             return self._skill_not_found_response(skill_name)
 
-        zip_bytes = build_skill_zip(load_skill_export(skill))
+        export = load_skill_export(skill)
+        problems = validate_for_export(export)
+        if problems:
+            return Response(
+                {"detail": "Skill is not export-ready under the Agent Skills spec.", "problems": problems},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        zip_bytes = build_skill_zip(export)
         response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{skill.name}.zip"'
         return response

@@ -112,16 +112,17 @@ def build_skill_zip(skill: SkillExport) -> bytes:
     return buffer.getvalue()
 
 
-def compute_plugin_version(latest_change_epoch_seconds: int) -> str:
+def compute_plugin_version(latest_change_epoch_millis: int) -> str:
     """Content-derived, monotonic plugin version so auto-update fires on any change.
 
-    Keyed off the most recent change time across all of a team's skill rows (see
-    ``adapters._team_plugin_version``): publishes and file edits add/refresh a row's
+    Keyed off the most recent change time (in epoch milliseconds) across all of a team's skill
+    rows (see ``adapters._team_plugin_version``): publishes and file edits add/refresh a row's
     ``updated_at``, and archive bumps it too, so this advances on every change and never
-    regresses. Whether Claude Code re-pulls on any version *difference* vs. strictly-greater
-    is the open question the auto-update spike answers — this scheme is safe for either.
+    regresses. Millisecond resolution keeps two edits within the same second distinct. Whether
+    Claude Code re-pulls on any version *difference* vs. strictly-greater is the open question
+    the auto-update spike answers — this scheme is safe for either.
     """
-    return f"1.0.{latest_change_epoch_seconds}"
+    return f"1.0.{latest_change_epoch_millis}"
 
 
 def build_marketplace_tree(

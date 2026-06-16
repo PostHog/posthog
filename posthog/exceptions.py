@@ -145,7 +145,9 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
         view_challenge = getattr(context.get("view"), "www_authenticate_challenge", None)
         if view_challenge:
-            response["WWW-Authenticate"] = view_challenge
+            # Strip CR/LF defensively — this is a view-supplied value, so never let it inject
+            # additional response headers even if a future view derives it from request data.
+            response["WWW-Authenticate"] = view_challenge.replace("\r", "").replace("\n", "")
         else:
             # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
             # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
