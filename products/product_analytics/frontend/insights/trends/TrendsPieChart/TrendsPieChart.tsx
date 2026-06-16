@@ -1,3 +1,5 @@
+import './TrendsPieChart.scss'
+
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
