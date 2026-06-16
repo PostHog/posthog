@@ -33,8 +33,8 @@ def test_interactive_default_is_ten_minutes():
 
 
 @override_settings(TASKS_INACTIVITY_TIMEOUT_SECONDS=30)
-def test_generic_override_collapses_all_modes():
-    # The testing-only override forces a fast shutdown for every mode, so interactive
-    # no longer gets its own (shorter) window — both resolve to INACTIVITY_TIMEOUT.
-    assert resolve_inactivity_timeout("interactive") == INACTIVITY_TIMEOUT
-    assert resolve_inactivity_timeout("interactive") == resolve_inactivity_timeout("background")
+def test_background_override_does_not_affect_interactive():
+    # TASKS_INACTIVITY_TIMEOUT_SECONDS governs background runs only — interactive keeps
+    # its own window even when the background override is set.
+    assert resolve_inactivity_timeout("interactive") == INTERACTIVE_INACTIVITY_TIMEOUT
+    assert resolve_inactivity_timeout("interactive") != resolve_inactivity_timeout("background")

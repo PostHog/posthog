@@ -57,16 +57,15 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Override the process_task workflow's inactivity timeout (default 2 hours).
-# Set this to e.g. 30 for local testing of the shutdown / resume flow. When
-# set, the CI-follow-up floor is also bypassed so the timer actually fires
-# fast.
+# Override the inactivity timeout for BACKGROUND runs (default 2 hours). Set this to
+# e.g. 30 for local testing; when set, the CI-follow-up floor is also bypassed so the
+# timer fires fast. Background only — interactive runs use the setting below.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
 # Override the inactivity timeout for interactive (PostHog AI) runs (default 10
 # minutes). These are short, user-attended chats, so the sandbox is reclaimed sooner
-# than for background runs. Set low (e.g. 30) for local testing. The generic
-# TASKS_INACTIVITY_TIMEOUT_SECONDS above wins for all modes when set.
+# than for background runs. Set low (e.g. 30) to fast-test the interactive shutdown /
+# resume flow locally. Independent of the background setting above.
 TASKS_INTERACTIVE_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env(
     "TASKS_INTERACTIVE_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int
 )
