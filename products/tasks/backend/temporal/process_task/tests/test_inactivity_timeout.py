@@ -32,8 +32,13 @@ class TestResolveInactivityTimeout(SimpleTestCase):
             self.assertEqual(result, timedelta(seconds=INACTIVITY_TIMEOUT_TEST_SECONDS))
 
     @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=42)
-    def test_env_override_wins_over_everything(self):
+    def test_per_task_override_wins_over_env_override(self):
         result = resolve_inactivity_timeout(is_user_origin=True, state={"inactivity_timeout_seconds": 999})
+        self.assertEqual(result, timedelta(seconds=999))
+
+    @override_settings(TEST=False, TASKS_INACTIVITY_TIMEOUT_SECONDS=42)
+    def test_env_override_applies_when_state_has_no_per_task_override(self):
+        result = resolve_inactivity_timeout(is_user_origin=True, state={})
         self.assertEqual(result, timedelta(seconds=42))
 
     @override_settings(TEST=True, TASKS_INACTIVITY_TIMEOUT_SECONDS=0)

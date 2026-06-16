@@ -27,18 +27,19 @@ MAX_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60  # 2 hours
 def resolve_inactivity_timeout(*, is_user_origin: bool = False, state: dict | None = None) -> timedelta:
     """Effective inactivity timeout for a task run, in priority order.
 
-    1. The `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var (global override, e.g.
+    1. A per-task override stored at creation time (`inactivity_timeout_seconds`),
+       clamped to `MAX_INACTIVITY_TIMEOUT_SECONDS`. An explicit per-task value is the
+       most specific signal, so it wins even over the global env override.
+    2. The `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var (global fallback, e.g.
        `=30` to force a fast shutdown for local resume-flow testing).
-    2. A per-task override stored at creation time (`inactivity_timeout_seconds`),
-       clamped to `MAX_INACTIVITY_TIMEOUT_SECONDS`.
     3. The test default (short, so orphaned runs don't pin a worker).
     4. The origin-aware production default (longer for user-driven runs).
     """
-    if settings.TASKS_INACTIVITY_TIMEOUT_SECONDS:
-        return timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS)
     per_task = (state or {}).get("inactivity_timeout_seconds")
     if isinstance(per_task, int | float) and not isinstance(per_task, bool) and per_task > 0:
         return timedelta(seconds=int(min(per_task, MAX_INACTIVITY_TIMEOUT_SECONDS)))
+    if settings.TASKS_INACTIVITY_TIMEOUT_SECONDS:
+        return timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS)
     if settings.TEST:
         return timedelta(seconds=INACTIVITY_TIMEOUT_TEST_SECONDS)
     return timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS if is_user_origin else INACTIVITY_TIMEOUT_DEFAULT_SECONDS)
