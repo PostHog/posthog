@@ -7,7 +7,6 @@ from django.core.cache import cache as django_cache
 from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
-from posthoganalytics import capture_exception
 from pydantic import BaseModel, Field, create_model
 
 from posthog.schema import (
@@ -42,7 +41,7 @@ from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.account import AccountContext
 from ee.hogai.context.activity_log.context import ActivityLogContext
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+from ee.hogai.context.dashboard.context import DashboardContext, load_dashboard_insights_from_db
 from ee.hogai.context.error_tracking import ErrorTrackingIssueContext
 from ee.hogai.context.experiment import ExperimentContext
 from ee.hogai.context.feature_flag import FeatureFlagContext
@@ -67,7 +66,6 @@ from ee.hogai.tools.read_data.prompts import (
 from ee.hogai.utils.feature_flags import has_business_knowledge_feature_flag, has_customer_analytics_mode_feature_flag
 from ee.hogai.utils.helpers import sanitize_for_system_reminder
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
 
 
@@ -512,68 +510,18 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
     async def _read_dashboard(self, dashboard_id: str, execute: bool) -> tuple[str, ToolMessagesArtifact | None]:
         try:
-            dashboard = (
-                await Dashboard.objects.select_related("team")
-                .prefetch_related("tiles__insight")
-                .aget(id=int(dashboard_id), team=self._team, deleted=False)
+            dashboard, insights_data = await load_dashboard_insights_from_db(
+                self._team, dashboard_id, additional_properties=self._get_debug_props(self._config)
             )
         except (Dashboard.DoesNotExist, ValueError):
             raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
         await self.check_object_access(dashboard, "viewer", action="read")
 
-        dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
-        tiles = [
-            tile
-            async for tile in dashboard.tiles.exclude(insight__deleted=True)
-            .exclude(deleted=True)
-            .select_related("insight")
-        ]
-
-        # Build DashboardInsightContext models for all tiles
-        insights_data: list[DashboardInsightContext] = []
-        for tile in tiles:
-            insight = tile.insight
-            if not insight or not insight.query:
-                continue
-
-            # Parse and validate the query
-            query = insight.query
-            if isinstance(query, dict):
-                # Handle wrapped queries
-                if query.get("source"):
-                    query = query.get("source")
-                if not query:
-                    continue
-                # Convert dict to proper query model
-
-                try:
-                    query = validate_assistant_query(query)
-                except Exception as e:
-                    capture_exception(
-                        e,
-                        distinct_id=self._user.distinct_id,
-                        properties=self._get_debug_props(self._config),
-                    )
-                    continue
-
-            insight_name = insight.name or insight.derived_name or f"Insight {insight.short_id}"
-            insights_data.append(
-                DashboardInsightContext(
-                    query=query,
-                    name=insight_name,
-                    description=insight.description,
-                    short_id=insight.short_id,
-                    db_id=insight.id,
-                    layout=tile.layouts,
-                )
-            )
-
-        # Create DashboardContext and execute or format schema
         dashboard_ctx = DashboardContext(
             team=self._team,
             insights_data=insights_data,
-            name=dashboard_name,
+            name=dashboard.name or f"Dashboard {dashboard_id}",
             description=dashboard.description,
             dashboard_id=dashboard_id,
         )

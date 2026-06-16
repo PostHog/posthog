@@ -7,9 +7,12 @@ from pydantic import BaseModel
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
+
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.utils.helpers import build_dashboard_url
 from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyPydanticModelQuery
 
 from .prompts import DASHBOARD_RESULT_TEMPLATE
@@ -26,6 +29,52 @@ class DashboardInsightContext(BaseModel, Generic[AnyPydanticModelQuery]):
     filters_override: dict | None = None
     variables_override: dict | None = None
     layout: dict | None = None
+
+
+async def load_dashboard_insights_from_db(
+    team: Team, dashboard_id: int | str, *, additional_properties: dict | None = None
+) -> tuple[Dashboard, list[DashboardInsightContext]]:
+    """Load a dashboard and its insight queries from the DB, team-scoped.
+
+    Shared by the read_data tool and the UI-context builder so a dashboard can be hydrated from
+    just its id — the source of truth — rather than depending on a (possibly still-loading) client
+    snapshot. Raises Dashboard.DoesNotExist / ValueError if the id is unknown for the team; the
+    caller is responsible for any further object-level access check. `additional_properties` is
+    attached to any query-validation exception captured here so the caller keeps its error context.
+    """
+    dashboard = await Dashboard.objects.select_related("team").aget(id=int(dashboard_id), team=team, deleted=False)
+
+    insights_data: list[DashboardInsightContext] = []
+    async for tile in dashboard.tiles.exclude(insight__deleted=True).exclude(deleted=True).select_related("insight"):
+        insight = tile.insight
+        if not insight or not insight.query:
+            continue
+
+        query = insight.query
+        if isinstance(query, dict):
+            # Unwrap {"source": ...} envelopes before validation.
+            if query.get("source"):
+                query = query.get("source")
+            if not query:
+                continue
+            try:
+                query = validate_assistant_query(query)
+            except Exception as e:
+                capture_exception(e, additional_properties=additional_properties)
+                continue
+
+        insights_data.append(
+            DashboardInsightContext(
+                query=query,
+                name=insight.name or insight.derived_name or f"Insight {insight.short_id}",
+                description=insight.description,
+                short_id=insight.short_id,
+                db_id=insight.id,
+                layout=tile.layouts,
+            )
+        )
+
+    return dashboard, insights_data
 
 
 class DashboardContext:

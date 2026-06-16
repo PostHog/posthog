@@ -186,6 +186,17 @@ export const createMaxContextHelpers = {
         },
     }),
 
+    // Eager reference for when the dashboard's tiles haven't loaded yet: carries just the id so the
+    // first message to Max always says which dashboard is open. The backend hydrates the insights
+    // (and name) from the id; once tiles load, the full `dashboard()` context replaces this.
+    // `filters` is required by the compiled MaxDashboardContext schema, so send an empty filter set.
+    dashboardReference: (id: number): MaxDashboardContextInput => ({
+        type: MaxContextType.DASHBOARD,
+        // Only the fields dashboardToMaxContext reads (id/tiles/filters) are needed here, so cast
+        // through unknown rather than fabricating the rest of a DashboardType.
+        data: { id, tiles: [], filters: {} } as unknown as DashboardType<InsightWithQuery>,
+    }),
+
     insight: (
         insight: InsightWithQuery,
         {

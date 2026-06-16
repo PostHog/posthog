@@ -698,6 +698,15 @@ describe('maxContextLogic', () => {
             expect(dashboardToMaxContext(dashboardWithoutTiles).insights).toEqual([])
         })
 
+        it('createMaxContextHelpers.dashboardReference emits just the id (used before the dashboard loads)', () => {
+            // While dashboardLogic.dashboard is still null, the scene exposes only the dashboard id so
+            // the first message to Max still says which dashboard is open; the backend hydrates insights.
+            const ref = createMaxContextHelpers.dashboardReference(mockDashboard.id)
+            expect(dashboardToMaxContext(ref.data)).toEqual(
+                partial({ id: mockDashboard.id, type: 'dashboard', insights: [] })
+            )
+        })
+
         it('passes the open dashboard to Max even before its tiles have loaded', async () => {
             // Simulate the dashboard scene being active, mirroring how dashboardLogic.maxContext
             // builds its context from the (not yet fully loaded) dashboard value.

@@ -2,7 +2,7 @@ import datetime
 from typing import cast
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -38,6 +38,10 @@ from posthog.schema import (
 )
 
 from posthog.models.organization import OrganizationMembership
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.utils.types import AssistantState
@@ -189,6 +193,80 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("Dashboard insights:", result)
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
+
+    async def _create_db_dashboard_with_insight(self) -> Dashboard:
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="DB Dashboard", description="from db")
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            name="DB Insight",
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight)
+        return dashboard
+
+    @parameterized.expand([("access_granted", True, 1), ("access_denied", False, 0)])
+    @patch("ee.hogai.context.context.UserAccessControl")
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_format_ui_context_hydrates_dashboard_reference_respecting_access(
+        self, _name, has_access, expected_insight_count, MockDashboardContext, MockUserAccessControl
+    ):
+        # Eager reference: the frontend sent only the dashboard id (tiles still loading client-side).
+        # The insights are hydrated from the DB, but only when the user may read the dashboard.
+        dashboard = await self._create_db_dashboard_with_insight()
+        MockUserAccessControl.return_value.check_access_level_for_object.return_value = has_access
+        MockDashboardContext.return_value.execute_and_format = AsyncMock(return_value="results")
+
+        ui_context = MaxUIContext(
+            dashboards=[MaxDashboardContext(id=dashboard.id, insights=[], filters=DashboardFilter())]
+        )
+
+        await self.context_manager._format_ui_context(ui_context)
+
+        call_kwargs = MockDashboardContext.call_args.kwargs
+        self.assertEqual(len(call_kwargs["insights_data"]), expected_insight_count)
+        if has_access:
+            self.assertEqual(call_kwargs["name"], "DB Dashboard")
+            self.assertEqual(call_kwargs["description"], "from db")
+        else:
+            # No access → nothing from the DB leaks into the context.
+            self.assertEqual(call_kwargs["name"], f"Dashboard {dashboard.id}")
+            self.assertIsNone(call_kwargs["description"])
+
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_format_ui_context_with_unknown_dashboard_reference_stays_empty(self, MockDashboardContext):
+        MockDashboardContext.return_value.execute_and_format = AsyncMock(return_value="results")
+
+        ui_context = MaxUIContext(
+            dashboards=[MaxDashboardContext(id=999999999, insights=[], filters=DashboardFilter())]
+        )
+
+        await self.context_manager._format_ui_context(ui_context)
+
+        self.assertEqual(MockDashboardContext.call_args.kwargs["insights_data"], [])
+
+    @patch("ee.hogai.context.context.UserAccessControl")
+    @patch("ee.hogai.context.context.DashboardContext")
+    async def test_format_ui_context_does_not_hydrate_when_insights_already_present(
+        self, MockDashboardContext, MockUserAccessControl
+    ):
+        # When the client already sent the dashboard's insights, the DB is not touched.
+        dashboard = await self._create_db_dashboard_with_insight()
+        MockDashboardContext.return_value.execute_and_format = AsyncMock(return_value="results")
+
+        ui_context = MaxUIContext(
+            dashboards=[
+                MaxDashboardContext(
+                    id=dashboard.id,
+                    insights=[MaxInsightContext(id="1", name="Client", query=TrendsQuery(series=[]))],
+                    filters=DashboardFilter(),
+                )
+            ]
+        )
+
+        await self.context_manager._format_ui_context(ui_context)
+
+        MockUserAccessControl.assert_not_called()
+        self.assertEqual(len(MockDashboardContext.call_args.kwargs["insights_data"]), 1)
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_with_markdown_notebook_insertion_context(self, mock_from_short_id):

@@ -26,9 +26,16 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
+from products.dashboards.backend.models.dashboard import Dashboard
+
+from ee.hogai.context.dashboard.context import (
+    DashboardContext,
+    DashboardInsightContext,
+    load_dashboard_insights_from_db,
+)
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT
 from ee.hogai.core.mixins import AssistantContextMixin
@@ -220,12 +227,19 @@ class AssistantContextManager(AssistantContextMixin):
                         )
                     )
 
+                # Hydrate from the DB when the client sent a reference-only dashboard (id, no insights
+                # yet) — see _hydrate_dashboard_from_db.
+                db_name: str | None = None
+                db_description: str | None = None
+                if not insights_data and dashboard.id is not None:
+                    insights_data, db_name, db_description = await self._hydrate_dashboard_from_db(dashboard.id)
+
                 # Create DashboardContext and execute
                 dashboard_ctx = DashboardContext(
                     team=self._team,
                     insights_data=insights_data,
-                    name=dashboard.name or f"Dashboard {dashboard.id}",
-                    description=dashboard.description,
+                    name=dashboard.name or db_name or f"Dashboard {dashboard.id}",
+                    description=dashboard.description or db_description,
                     dashboard_id=str(dashboard.id) if dashboard.id else None,
                     dashboard_filters=dashboard_filters,
                 )
@@ -354,6 +368,30 @@ class AssistantContextManager(AssistantContextMixin):
                 evaluations_context,
             )
         return None
+
+    async def _hydrate_dashboard_from_db(
+        self, dashboard_id: int | str
+    ) -> tuple[list[DashboardInsightContext], str | None, str | None]:
+        """Load a UI-context dashboard's insights from the DB when the client sent only a reference.
+
+        Returns ([], None, None) if the dashboard is unknown or the user lacks read access — so a
+        dashboard id injected into ui_context can never surface a dashboard the user can't see.
+        """
+        try:
+            dashboard, insights_data = await load_dashboard_insights_from_db(
+                self._team, dashboard_id, additional_properties=self._get_debug_props(self._config)
+            )
+        except (Dashboard.DoesNotExist, ValueError):
+            return [], None, None
+
+        access_control = UserAccessControl(
+            user=self._user, team=self._team, organization_id=str(self._team.organization_id)
+        )
+        has_access = await database_sync_to_async(access_control.check_access_level_for_object)(dashboard, "viewer")
+        if not has_access:
+            return [], None, None
+
+        return insights_data, dashboard.name, dashboard.description
 
     def _format_markdown_notebook_context(self, notebook: MaxNotebookContext) -> str:
         title = _sanitize_inline_prompt_value(notebook.name or f"Notebook {notebook.id}")
