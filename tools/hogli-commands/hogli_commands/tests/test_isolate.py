@@ -268,6 +268,29 @@ def test_build_move_plan_relocates_whole_api_subtree(tmp_path: Path, monkeypatch
     assert plan.module_renames["products.wa.backend.serializers"] == "products.wa.backend.presentation.serializers"
 
 
+def test_build_move_plan_flags_api_modules_already_in_presentation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(iso, "PRODUCTS_DIR", tmp_path)
+    backend = tmp_path / "et" / "backend"
+    (backend / "api").mkdir(parents=True)
+    (backend / "presentation").mkdir(parents=True)
+    # both packages carry an __init__.py — the marker mirror must NOT count as a conflict
+    (backend / "api" / "__init__.py").write_text("")
+    (backend / "presentation" / "__init__.py").write_text("")
+    # api/external_references.py is a compat shim; presentation/ already has the real module
+    (backend / "api" / "external_references.py").write_text("from ..presentation.external_references import X\n")
+    (backend / "presentation" / "external_references.py").write_text("class X:\n    pass\n")
+    # a genuinely un-migrated viewset alongside it
+    (backend / "api" / "issues.py").write_text(
+        "from rest_framework import viewsets\nclass IssuesViewSet(viewsets.ViewSet):\n    pass\n"
+    )
+
+    plan = build_move_plan("et")
+
+    assert plan.presentation_conflicts == [backend / "api" / "external_references.py"]
+
+
 def test_build_move_plan_views_override_keeps_subdir_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(iso, "PRODUCTS_DIR", tmp_path)
     backend = tmp_path / "wa" / "backend"

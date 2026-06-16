@@ -245,7 +245,10 @@ in `facade/api.py` with the viewset deferred.
      production helper subpackages (e.g. `destination_tests/`) keep their structure under
      `presentation/views/` and ride the prefix rename, while test subpackages (`test/`,
      `tests/`) relocate to `backend/tests/api/` — they leave the api namespace, so a naive
-     prefix rewrite can't follow them.
+     prefix rewrite can't follow them. The move **refuses** if an `api/` module is already
+     mirrored at `presentation/<stem>.py` — that means a prior hand-migration left a compat
+     shim, and moving it would duplicate the module; delete the shim and repoint its callers
+     first, then re-run for the rest (error_tracking is the worked example).
    - Rewriting is a deliberate two-tool split, mirroring the model-migration tooling rather
      than reinventing it: **absolute** fully-qualified paths and string references
      (`@patch(...)` mock paths) go through guarded word-boundary regex (lexically

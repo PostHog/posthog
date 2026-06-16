@@ -374,6 +374,10 @@ class MovePlan:
     # api/ test subpackages relocate out of the api namespace into the product's
     # own test dir, so they can't ride the api -> presentation.views prefix rename.
     test_moves: list[tuple[Path, Path]] = field(default_factory=list)
+    # api/ modules whose stem already exists at presentation/<stem>.py — almost
+    # always a compat shim for a module already migrated by hand. Moving it would
+    # duplicate the module, so the move refuses until it's resolved (see execute).
+    presentation_conflicts: list[Path] = field(default_factory=list)
 
 
 _TEST_DIRS = ("test", "tests")
@@ -384,6 +388,7 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
     target_dir = backend_dir / "presentation" / "views"
     view_moves: list[tuple[Path, Path]] = []
     test_moves: list[tuple[Path, Path]] = []
+    presentation_conflicts: list[Path] = []
     renames: dict[str, str] = {}
 
     if views:
@@ -410,12 +415,19 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
             # namespace for the product's test dir, so they get their own rename
             # and their relative imports are absolutized at move time.
             tests_target = backend_dir / "tests" / "api"
+            presentation_dir = backend_dir / "presentation"
             for p in sorted(api_dir.rglob("*.py")):
                 rel = p.relative_to(api_dir)
                 if rel.parts[0] in _TEST_DIRS:
                     test_moves.append((p, tests_target / Path(*rel.parts[1:])))
                 else:
                     view_moves.append((p, target_dir / rel))
+                    # A top-level api module already mirrored at presentation/<stem>.py
+                    # is a compat shim for an already-migrated module — moving it would
+                    # leave the canonical module and a stray shim side by side. The
+                    # package marker is always mirrored, so it is not a conflict.
+                    if len(rel.parts) == 1 and p.name != "__init__.py" and (presentation_dir / p.name).is_file():
+                        presentation_conflicts.append(p)
             renames[f"products.{name}.backend.api"] = f"products.{name}.backend.presentation.views"
             for tdir in _TEST_DIRS:
                 if (api_dir / tdir).is_dir():
@@ -438,6 +450,7 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
         tasks_move=tasks_move,
         serializers_move=serializers_move,
         test_moves=test_moves,
+        presentation_conflicts=presentation_conflicts,
     )
 
 
@@ -496,6 +509,11 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
         log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)} (celery names pinned)")
     for old, new in plan.module_renames.items():
         log.append(f"rewrite {old} -> {new} (imports and string references, repo-wide)")
+    for p in plan.presentation_conflicts:
+        log.append(
+            f"BLOCKED {p.relative_to(repo_root)}: presentation/{p.name} already exists "
+            "(likely a compat shim for an already-migrated module — resolve by hand)"
+        )
     if dry_run:
         return log
 
@@ -510,6 +528,17 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
     if collisions:
         joined = ", ".join(str(c.relative_to(repo_root)) for c in collisions)
         raise ValueError(f"test moves collide with existing files: {joined} — merge them into the test dir by hand")
+
+    # An api module already mirrored under presentation/ is a compat shim for code
+    # migrated by hand — moving it would duplicate the module. The right fix is manual
+    # (delete the shim, repoint its callers), so refuse before mutating.
+    if plan.presentation_conflicts:
+        joined = ", ".join(str(p.relative_to(repo_root)) for p in plan.presentation_conflicts)
+        raise ValueError(
+            f"api modules already mirrored under presentation/ ({joined}) — almost certainly compat "
+            "shims for already-migrated modules. Delete each shim and point its callers at the "
+            "presentation module, then re-run the move on the rest."
+        )
 
     # __init__ files an api/ subpackage brings with it are move targets — don't
     # pre-create those, or the git mv collides with the scaffolded file.
