@@ -99,6 +99,20 @@ describe('patchSessionReplayWidgetFilterFields', () => {
         expect(next.dateRange).toEqual({ date_from: '-30d' })
         expect(next.widgetFilters?.['qf-1']).toMatchObject({ value: 'Chrome' })
     })
+
+    it('sets and clears the saved filter without dropping other tile filters', () => {
+        const config = sessionReplayWidgetConfigSchema.parse({ dateRange: { date_from: '-7d' } })
+
+        const withSavedFilter = patchSessionReplayWidgetFilterFields(config, { savedFilterId: 'abc123' })
+        expect(withSavedFilter.savedFilterId).toBe('abc123')
+
+        const dateChanged = patchSessionReplayWidgetFilterFields(withSavedFilter, { dateFrom: '-30d' })
+        expect(dateChanged.savedFilterId).toBe('abc123')
+
+        const cleared = patchSessionReplayWidgetFilterFields(dateChanged, { savedFilterId: null })
+        expect(cleared.savedFilterId).toBeNull()
+        expect(cleared.dateRange).toEqual({ date_from: '-30d' })
+    })
 })
 
 describe('parseSessionReplayWidgetConfigApiError', () => {

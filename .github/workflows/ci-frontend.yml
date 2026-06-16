@@ -496,14 +496,8 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript with strict
+            - name: Run typescript check (tsgo)
               run: pnpm --filter=@posthog/frontend typescript:check
-              env:
-                  NODE_OPTIONS: --max-old-space-size=16384
-
-            - name: Run tsgo (shadow, non-blocking)
-              run: pnpm --filter=@posthog/frontend typescript:check:tsgo
-              continue-on-error: true
 
             - name: Check if schema.json and validators.js are up to date
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
