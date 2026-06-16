@@ -2735,17 +2735,7 @@ jobs:
         timeout-minutes: 30
         continue-on-error: true
         env:
-            SECRET_KEY: '6b01eee4f945ca25b6187571bc417b7a'
-            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-            REDIS_URL: 'redis://localhost'
-            CLICKHOUSE_HOST: 'localhost'
-            CLICKHOUSE_SECURE: 'False'
-            CLICKHOUSE_VERIFY: 'False'
-            TEST: 1
-            OBJECT_STORAGE_ENABLED: 'True'
             OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             TEMPORAL_TASK_QUEUE: 'test-task-queue'
             TEMPORAL_HOST: 'localhost'
             TEMPORAL_PORT: '7233'
