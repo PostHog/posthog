@@ -174,6 +174,26 @@ def _with_auth(spec: dict) -> dict:
             "limits_max_output_tokens",
             {"model": "x", "limits": {"max_output_tokens": 16384}},
         ),
+        # Bare-string secrets keep parsing (back-compat path); the runtime
+        # http-request refuses to substitute them, but the spec itself is
+        # still valid.
+        (
+            "secrets_bare_string",
+            {"model": "x", "secrets": ["GITHUB_TOKEN"]},
+        ),
+        # Object-form secret with allowed_hosts — the egress-binding shape.
+        (
+            "secrets_with_allowed_hosts",
+            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
+        ),
+        # Mixed bare + object forms in the same spec — common during migration.
+        (
+            "secrets_mixed_forms",
+            {
+                "model": "x",
+                "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
+            },
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
@@ -261,6 +281,23 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             "cron_missing_name",
             {"model": "x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
             "triggers.0",
+        ),
+        # spec.secrets[] object form must declare allowed_hosts. An object
+        # without it is rejected so a half-migrated entry can't quietly
+        # behave as "name only, no binding" — the bare-string form is the
+        # explicit way to say that.
+        (
+            "secrets_object_missing_allowed_hosts",
+            {"model": "x", "secrets": [{"name": "GH_PAT"}]},
+            "secrets",
+        ),
+        # An empty allowed_hosts means "bound to nothing" — not what an
+        # author meant. Force them to either pin a host or drop to the
+        # bare-string form.
+        (
+            "secrets_empty_allowed_hosts",
+            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
+            "secrets",
         ),
     ],
 )

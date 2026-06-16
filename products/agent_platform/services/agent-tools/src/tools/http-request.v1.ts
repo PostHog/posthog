@@ -26,35 +26,105 @@
  * API."
  */
 
-import { defineNativeTool, type ToolContext, Type } from '@posthog/agent-shared'
+import { defineNativeTool, secretHostMatches, type ToolContext, Type } from '@posthog/agent-shared'
 
 import { parseFetchableUrl } from './http-url'
 
 const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
 
 /**
- * Replace `${SECRET_NAME}` placeholders with resolved values from `ctx.secret`.
- * Missing names throw so the agent gets a clear `secret_not_resolved: NAME`
- * error rather than silently sending a literal `${NAME}` to the upstream
- * (which would 401 with a confusing error from the remote).
+ * Resolve a `${NAME}` reference to its plaintext value, gated by the secret's
+ * declared host binding. The `host` argument is the FINAL URL host the request
+ * will land on after URL substitution; we validate every secret reference
+ * against it before substituting, so a prompt-injected attacker URL can't
+ * exfiltrate a credential the model has been told to "send to slack.com."
+ *
+ * Failure modes (all surfaced as throw, never silent):
+ *   - `secret_not_resolved`     — name isn't in `spec.secrets[]` at all.
+ *   - `secret_no_host_binding`  — name is a bare-string entry (declared but
+ *                                 not pinned to any host).
+ *   - `secret_host_not_allowed` — host isn't in the secret's allowlist.
+ *
+ * The bare-string refusal mirrors `mcp-clients.ts`'s unwired-validator
+ * branch: declared-but-unbound credentials fail closed.
  */
-function substituteSecrets(input: string, ctx: ToolContext): string {
-    return input.replace(SECRET_REF, (_match, name: string) => {
+function resolveSecretForHost(name: string, host: string, ctx: ToolContext): string {
+    const value = ctx.secret(name)
+    if (value === undefined) {
+        throw new Error(`secret_not_resolved: ${name}`)
+    }
+    const allowed = ctx.secretAllowedHosts(name)
+    if (allowed === null) {
+        throw new Error(`secret_no_host_binding: ${name}`)
+    }
+    if (allowed === undefined) {
+        throw new Error(`secret_not_resolved: ${name}`)
+    }
+    if (!allowed.some((pattern) => secretHostMatches(pattern, host))) {
+        throw new Error(`secret_host_not_allowed: ${name} -> ${host}`)
+    }
+    return value
+}
+
+function substituteSecrets(input: string, host: string, ctx: ToolContext): string {
+    return input.replace(SECRET_REF, (_match, name: string) => resolveSecretForHost(name, host, ctx))
+}
+
+/**
+ * URL substitution is the chicken-and-egg case — we need the FINAL host to
+ * validate any secrets used, but a secret may itself appear inside the host
+ * (e.g. `https://${TENANT}.example.com/api`). Two-pass:
+ *   1. Compute the post-substitution URL using the secret values WITHOUT
+ *      validating allowed_hosts yet (we don't know the host yet).
+ *   2. Parse the final URL, extract its host, and revalidate: for each secret
+ *      referenced, the resolved host must be in that secret's allowlist.
+ *
+ * The first pass still enforces existence (`secret_not_resolved`) and rejects
+ * bare-string declarations (`secret_no_host_binding`) — those errors don't
+ * depend on knowing the host. Only the host-allowlist check is deferred.
+ */
+function substituteUrlAndExtractHost(
+    template: string,
+    ctx: ToolContext
+): { url: string; host: string; referenced: ReadonlySet<string> } {
+    const referenced = new Set<string>()
+    const substituted = template.replace(SECRET_REF, (_match, name: string) => {
+        referenced.add(name)
         const value = ctx.secret(name)
         if (value === undefined) {
             throw new Error(`secret_not_resolved: ${name}`)
         }
+        const allowed = ctx.secretAllowedHosts(name)
+        if (allowed === null) {
+            throw new Error(`secret_no_host_binding: ${name}`)
+        }
+        if (allowed === undefined) {
+            throw new Error(`secret_not_resolved: ${name}`)
+        }
         return value
     })
+    const parsed = parseFetchableUrl(substituted)
+    const host = parsed.host
+    for (const name of referenced) {
+        const allowed = ctx.secretAllowedHosts(name) as readonly string[]
+        if (!allowed.some((pattern) => secretHostMatches(pattern, host))) {
+            throw new Error(`secret_host_not_allowed: ${name} -> ${host}`)
+        }
+    }
+    return { url: substituted, host, referenced }
 }
 
-function substituteHeaders(headers: Record<string, string> | undefined, ctx: ToolContext): Record<string, string> {
+function substituteHeaders(
+    headers: Record<string, string> | undefined,
+    host: string,
+    ctx: ToolContext
+): Record<string, string> {
     if (!headers) {
         return {}
     }
     const out: Record<string, string> = {}
     for (const [k, v] of Object.entries(headers)) {
-        out[k] = substituteSecrets(v, ctx)
+        out[k] = substituteSecrets(v, host, ctx)
     }
     return out
 }
@@ -71,17 +141,18 @@ function substituteHeaders(headers: Record<string, string> | undefined, ctx: Too
 function serializeBody(
     body: string | Record<string, unknown> | undefined,
     headers: Record<string, string>,
+    host: string,
     ctx: ToolContext
 ): { body: string | undefined; headers: Record<string, string> } {
     if (body === undefined) {
         return { body: undefined, headers }
     }
     if (typeof body === 'string') {
-        return { body: substituteSecrets(body, ctx), headers }
+        return { body: substituteSecrets(body, host, ctx), headers }
     }
     const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
     const finalHeaders = hasContentType ? headers : { ...headers, 'Content-Type': 'application/json; charset=utf-8' }
-    return { body: substituteSecrets(JSON.stringify(body), ctx), headers: finalHeaders }
+    return { body: substituteSecrets(JSON.stringify(body), host, ctx), headers: finalHeaders }
 }
 
 const DEFAULT_MAX_RESPONSE_BYTES = 1_000_000
@@ -104,7 +175,9 @@ export const httpRequestV1 = defineNativeTool({
     args: Type.Object({
         url: Type.String({
             format: 'uri',
-            description: 'Target URL. May contain `${NAME}` placeholders that resolve from spec.secrets.',
+            description:
+                'Target URL. May contain `${NAME}` placeholders that resolve from spec.secrets. ' +
+                "Secrets only substitute when the URL host is in that secret's declared `allowed_hosts`.",
         }),
         method: Type.Optional(
             Type.Union(
@@ -157,17 +230,17 @@ export const httpRequestV1 = defineNativeTool({
     requires: { integrations: [], scopes: ['web:fetch'] },
     cost_hint: 'medium',
     async run(args, ctx) {
-        const url = substituteSecrets(args.url, ctx)
+        // URL is substituted first so we know the FINAL host; every secret
+        // referenced in url/headers/body is then validated against that host
+        // via `spec.secrets[].allowed_hosts`. Refuses if the URL parses to a
+        // non-http(s) scheme (same guard as before — smokescreen owns host /
+        // IP filtering).
+        const { url, host } = substituteUrlAndExtractHost(args.url, ctx)
         const method = args.method ?? 'GET'
-        const headersIn = substituteHeaders(args.headers, ctx)
-        const { body, headers: finalHeaders } = serializeBody(args.body, headersIn, ctx)
+        const headersIn = substituteHeaders(args.headers, host, ctx)
+        const { body, headers: finalHeaders } = serializeBody(args.body, headersIn, host, ctx)
         const maxBytes = args.max_response_bytes ?? DEFAULT_MAX_RESPONSE_BYTES
         const timeoutMs = args.timeout_ms ?? DEFAULT_TIMEOUT_MS
-
-        // Validate the URL parses and uses an http/https scheme. SSRF host
-        // filtering is smokescreen's job; this guards the scheme so a model
-        // can't point the tool at file://, gopher://, etc.
-        parseFetchableUrl(url)
 
         const controller = new AbortController()
         const abortTimer = setTimeout(() => controller.abort(), timeoutMs)

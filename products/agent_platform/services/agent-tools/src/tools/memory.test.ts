@@ -24,6 +24,7 @@ function makeCtx(store: S3MemoryStore | undefined): ToolContext {
         sessionId: 'sess-1',
         integrations: {},
         secret: () => undefined,
+        secretAllowedHosts: () => undefined,
         log: () => undefined,
         memoryStore: store,
         http: new HttpClient(),

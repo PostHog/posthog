@@ -434,7 +434,35 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             },
         },
         "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
-        "secrets": {"default": [], "type": "array", "items": {"type": "string"}},
+        # Two accepted forms — mirrors `SecretRefSchema` in
+        # services/agent-shared/src/spec/spec.ts. The bare-string form
+        # declares a resolvable name without authority to be sent over the
+        # wire by `@posthog/http-request`; the object form pins the secret
+        # to a fixed set of hosts (`allowed_hosts`), and only then does the
+        # runner substitute it into outbound URL/headers/body. Keep this in
+        # lockstep with the zod schema; the runner is the source of truth.
+        "secrets": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "oneOf": [
+                    {"type": "string", "minLength": 1},
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "allowed_hosts": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                        },
+                        "required": ["name", "allowed_hosts"],
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+        },
         "limits": {
             "default": {
                 "max_turns": 50,

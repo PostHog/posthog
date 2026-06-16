@@ -11,6 +11,7 @@ export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
         sessionId: 'test-session',
         integrations: {},
         secret: (_name: string) => undefined,
+        secretAllowedHosts: (_name: string) => undefined,
         log: (level, msg, meta) => {
             logs.push({ level, msg, meta })
         },
@@ -33,6 +34,7 @@ export function makeCapturingCtx(): {
         sessionId: 'test-session',
         integrations: {},
         secret: () => undefined,
+        secretAllowedHosts: () => undefined,
         log: (level, msg, meta) => {
             logs.push({ level, msg, meta })
         },

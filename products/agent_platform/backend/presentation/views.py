@@ -1885,7 +1885,18 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     available_keys = {str(k) for k in env_map}
             except (ValueError, TypeError):
                 pass
-        for i, secret_name in enumerate(revision.spec.get("secrets") or []):
+        for i, secret_entry in enumerate(revision.spec.get("secrets") or []):
+            # spec.secrets[] entries are either bare strings (back-compat,
+            # resolvable but no host binding) or {name, allowed_hosts}.
+            # Both forms carry a name that must exist in encrypted_env.
+            if isinstance(secret_entry, str):
+                secret_name = secret_entry
+            elif isinstance(secret_entry, dict):
+                secret_name = secret_entry.get("name") or ""
+            else:
+                secret_name = ""
+            if not secret_name:
+                continue
             if secret_name not in available_keys:
                 errors.append(
                     {

@@ -106,7 +106,9 @@ export function AgentOverview({
         ? (spec.triggers as Array<{ type: string; config?: Record<string, unknown> }>)
         : []
     const model = typeof spec.model === 'string' ? spec.model : null
-    const secrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
+    // spec.secrets[] entries are either bare strings (back-compat) or
+    // {name, allowed_hosts}; this view only needs the count.
+    const secrets = Array.isArray(spec.secrets) ? (spec.secrets as Array<unknown>) : []
 
     return (
         <div className="space-y-4">

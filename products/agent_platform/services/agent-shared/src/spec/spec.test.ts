@@ -1,4 +1,11 @@
-import { AgentSpec, AgentSpecSchema, AuthConfigSchema, principalsMatch } from './spec'
+import {
+    AgentSpec,
+    AgentSpecSchema,
+    AuthConfigSchema,
+    getSecretAllowedHosts,
+    principalsMatch,
+    secretHostMatches,
+} from './spec'
 
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
@@ -616,35 +623,101 @@ describe('AgentSpecSchema', () => {
         })
     })
 
-    describe('principalsMatch — shared_secret per-caller binding', () => {
-        type SS = { kind: 'shared_secret'; team_id: number; caller_id?: string }
+    describe('secrets[] — host-binding union', () => {
+        it('accepts a bare-string entry (back-compat; resolvable but unbound)', () => {
+            const spec = AgentSpecSchema.parse({ model: 'x', secrets: ['ACME_KEY'] })
+            expect(spec.secrets).toEqual(['ACME_KEY'])
+        })
+
+        it('accepts the object form with allowed_hosts', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                secrets: [{ name: 'SLACK_BOT_TOKEN', allowed_hosts: ['slack.com'] }],
+            })
+            expect(spec.secrets).toEqual([{ name: 'SLACK_BOT_TOKEN', allowed_hosts: ['slack.com'] }])
+        })
+
+        it('accepts a mix of bare-string and object entries in the same spec', () => {
+            // Common during migration: existing bare-string secrets stay
+            // declared (so the env-var lookup keeps working) while new ones
+            // ship with host bindings. http-request only refuses egress on
+            // the bare-string entries at substitution time.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                secrets: ['LEGACY', { name: 'GH_PAT', allowed_hosts: ['api.github.com'] }],
+            })
+            expect(spec.secrets).toHaveLength(2)
+        })
+
+        it('rejects an object entry with an empty allowed_hosts array', () => {
+            // Empty allowed_hosts is meaningless ("bound to nothing") and is
+            // never what an author meant; the bare-string form is the way to
+            // declare "no binding."
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    secrets: [{ name: 'X', allowed_hosts: [] }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects an object entry missing the name', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    secrets: [{ allowed_hosts: ['x.example'] }],
+                })
+            ).toThrow()
+        })
+    })
+
+    describe('getSecretAllowedHosts', () => {
+        const spec: AgentSpec = AgentSpecSchema.parse({
+            model: 'x',
+            secrets: ['LEGACY', { name: 'GH_PAT', allowed_hosts: ['api.github.com', '*.github.com'] }],
+        })
+
+        it('returns the allowed_hosts array for an object-form entry', () => {
+            expect(getSecretAllowedHosts(spec, 'GH_PAT')).toEqual(['api.github.com', '*.github.com'])
+        })
+
+        it('returns null for a bare-string entry (declared but unbound)', () => {
+            // null is the load-bearing "fail-closed" signal: declared but
+            // not authorised for any host — http-request refuses egress.
+            expect(getSecretAllowedHosts(spec, 'LEGACY')).toBeNull()
+        })
+
+        it("returns undefined when the name isn't in spec.secrets[]", () => {
+            expect(getSecretAllowedHosts(spec, 'UNKNOWN')).toBeUndefined()
+        })
+    })
+
+    describe('secretHostMatches', () => {
+        it.each([
+            ['slack.com', 'slack.com', true],
+            ['slack.com', 'SLACK.COM', true],
+            ['slack.com', 'evil.com', false],
+            ['slack.com', 'attacker.example', false],
+            ['*.example.com', 'foo.example.com', true],
+            ['*.example.com', 'a.b.example.com', true],
+            ['*.example.com', 'example.com', false],
+            ['*.example.com', 'evil-example.com', false],
+        ])('pattern %s vs host %s -> %s', (pattern, host, expected) => {
+            expect(secretHostMatches(pattern, host)).toBe(expected)
+        })
+    })
+
+    describe('principalsMatch — shared_secret', () => {
+        type SS = { kind: 'shared_secret'; team_id: number }
         it.each<[string, SS, SS, boolean]>([
             [
-                'two secret holders with no caller_id match (single-principal default)',
+                'two secret holders for the same team match (one secret == one principal)',
                 { kind: 'shared_secret', team_id: 7 },
                 { kind: 'shared_secret', team_id: 7 },
                 true,
             ],
             [
-                'a session bound to a caller_id rejects a different caller',
-                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
-                { kind: 'shared_secret', team_id: 7, caller_id: 'bob' },
-                false,
-            ],
-            [
-                'a caller can resume their own caller_id-bound session',
-                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
-                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
-                true,
-            ],
-            [
-                'an unbound stored session does not match a caller_id-bearing request',
-                { kind: 'shared_secret', team_id: 7 },
-                { kind: 'shared_secret', team_id: 7, caller_id: 'alice' },
-                false,
-            ],
-            [
-                'still isolates across teams',
+                'isolates across teams',
                 { kind: 'shared_secret', team_id: 7 },
                 { kind: 'shared_secret', team_id: 8 },
                 false,

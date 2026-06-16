@@ -51,7 +51,14 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
         issuer_secret_ref: z.string().min(1),
     }),
     /** Shared secret in a named header. Expected value lives in `encrypted_env`
-     *  under `secret_ref`; the spec never carries the secret itself. */
+     *  under `secret_ref`; the spec never carries the secret itself.
+     *
+     *  Trust model: one secret == one trust principal. Every holder of the
+     *  secret is the same principal — you cannot derive forge-resistant
+     *  per-caller identity from a credential the holder fully owns. Mint a
+     *  distinct secret per upstream integration. For per-caller isolation
+     *  among many distinct callers (embedded chat, multi-tenant), use `jwt`
+     *  (the upstream signs `sub`, which `principalsMatch` discriminates on). */
     z.object({
         type: z.literal('shared_secret'),
         header: z.string().min(1),
@@ -532,6 +539,31 @@ export const SkillRefSchema = z.object({
     version: z.number().int().nonnegative().optional(),
 })
 
+/**
+ * A `spec.secrets[]` entry. The bare-string form names a secret that's
+ * resolvable (its value lives in `encrypted_env`) but carries NO authority to
+ * be sent over the wire by `@posthog/http-request` — substitution refuses at
+ * runtime with `secret_no_host_binding`. To grant network-egress authority,
+ * use the object form and pin the secret to a fixed set of hosts.
+ *
+ * `allowed_hosts[]` entries:
+ *   - `"slack.com"` — exact host match (lowercase, no port).
+ *   - `"*.example.com"` — suffix wildcard: matches `foo.example.com`,
+ *     `a.b.example.com`, but NOT bare `example.com`.
+ *
+ * Bound this way, a model-injected `${SLACK_BOT_TOKEN}` against
+ * `https://attacker.example/x` is refused before the request goes out — the
+ * secret is bound to `slack.com`, not the attacker host. Mirrors the
+ * per-integration host binding `mcp-clients.ts` enforces on OAuth bearers.
+ */
+export const SecretRefSchema = z.union([
+    z.string().min(1),
+    z.object({
+        name: z.string().min(1),
+        allowed_hosts: z.array(z.string().min(1)).min(1),
+    }),
+])
+
 export const SpecLimitsSchema = z.object({
     max_turns: z.number().int().positive().default(50),
     max_tool_calls: z.number().int().positive().default(200),
@@ -640,7 +672,7 @@ export const AgentSpecSchema = z.object({
     mcps: z.array(McpRefSchema).default([]),
     skills: z.array(SkillRefSchema).default([]),
     integrations: z.array(z.string()).default([]),
-    secrets: z.array(z.string()).default([]),
+    secrets: z.array(SecretRefSchema).default([]),
     limits: SpecLimitsSchema.default({
         max_turns: 50,
         max_tool_calls: 200,
@@ -671,6 +703,55 @@ export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
 export type ApproverScope = z.infer<typeof ApproverScopeSchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type McpToolEntry = z.infer<typeof McpToolEntrySchema>
+export type SecretRef = z.infer<typeof SecretRefSchema>
+
+/** Extract the secret name from a `spec.secrets[]` entry regardless of form. */
+export function secretRefName(ref: SecretRef): string {
+    return typeof ref === 'string' ? ref : ref.name
+}
+
+/**
+ * Resolve a secret's `allowed_hosts` binding by name. Returns:
+ *   - `string[]` when the secret is declared in object form with hosts.
+ *   - `null` when the secret is declared as a bare string (no host binding —
+ *     refused by `@posthog/http-request` at substitution time).
+ *   - `undefined` when the name isn't declared in `spec.secrets[]` at all.
+ *
+ * The three-way return is load-bearing: the runtime treats `null` (declared
+ * but unbound) as "fail-closed" — same shape as `mcp-clients.ts` refuses an
+ * `auth.integration` ref when its host validator isn't wired.
+ */
+export function getSecretAllowedHosts(spec: AgentSpec, name: string): readonly string[] | null | undefined {
+    for (const ref of spec.secrets) {
+        if (typeof ref === 'string') {
+            if (ref === name) {
+                return null
+            }
+        } else if (ref.name === name) {
+            return ref.allowed_hosts
+        }
+    }
+    return undefined
+}
+
+/**
+ * Match a URL host against a `spec.secrets[].allowed_hosts[]` entry. Two forms:
+ *   - exact: `slack.com` matches `slack.com` only (case-insensitive).
+ *   - suffix wildcard: `*.example.com` matches `foo.example.com`,
+ *     `a.b.example.com`; does NOT match bare `example.com`.
+ *
+ * Comparison is lowercase + ASCII. `host` is expected to be the parsed
+ * `URL.host` (no port, no userinfo); strip those at the call site if needed.
+ */
+export function secretHostMatches(pattern: string, host: string): boolean {
+    const p = pattern.toLowerCase()
+    const h = host.toLowerCase()
+    if (p.startsWith('*.')) {
+        const suffix = p.slice(1) // ".example.com"
+        return h.endsWith(suffix) && h.length > suffix.length
+    }
+    return p === h
+}
 
 /**
  * Strict principal match: same kind + same identifying key. Used at the
@@ -710,15 +791,10 @@ export function principalsMatch(stored: SessionPrincipal | null, incoming: Sessi
         case 'posthog_internal':
             return incoming.kind === 'posthog_internal' && stored.team_id === incoming.team_id
         case 'shared_secret':
-            // `caller_id` is the per-caller discriminator (undefined on both
-            // sides when the agent didn't opt into `caller_id_header`, which
-            // preserves the single-principal behaviour). A session created
-            // with a caller_id can only be resumed by the same caller.
-            return (
-                incoming.kind === 'shared_secret' &&
-                stored.team_id === incoming.team_id &&
-                stored.caller_id === incoming.caller_id
-            )
+            // One secret == one trust principal. Per-caller isolation is the
+            // `jwt` mode's job (forge-resistant `sub`); a self-asserted header
+            // here would be a false security boundary.
+            return incoming.kind === 'shared_secret' && stored.team_id === incoming.team_id
         case 'service':
             return (
                 incoming.kind === 'service' &&
@@ -815,10 +891,13 @@ export type SessionPrincipal =
       }
     /** Internal / service-to-service caller (PostHog backend → ingress). */
     | { kind: 'posthog_internal'; team_id?: number }
-    /** Shared-secret bearer (webhook-style). `caller_id` is the value of the
-     *  conventional `x-posthog-caller-id` header, present only when the caller
-     *  opts into per-caller isolation; absent it behaves as a single principal. */
-    | { kind: 'shared_secret'; team_id?: number; caller_id?: string }
+    /** Shared-secret bearer (webhook-style). One secret == one trust principal —
+     *  every holder of the agent's secret is the same principal, and they share
+     *  a single session space within the agent. The `x-external-key` header
+     *  routes a request to an existing session by correlation id; it is a
+     *  routing tag, NOT a credential, so do NOT treat it as a security
+     *  boundary. Use `jwt` mode when you need per-caller isolation. */
+    | { kind: 'shared_secret'; team_id?: number }
     /** Cron / scheduler / other system principals. */
     | { kind: 'service'; team_id?: number; id?: string }
 

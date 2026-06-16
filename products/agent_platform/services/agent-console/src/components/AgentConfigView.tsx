@@ -190,7 +190,22 @@ export function AgentConfigView({
 
     const spec = useMemo(() => (selected?.spec ?? {}) as Record<string, unknown>, [selected])
     const declaredSecrets = useMemo(() => {
-        const set = new Set<string>(Array.isArray(spec.secrets) ? (spec.secrets as string[]) : [])
+        // spec.secrets[] entries are either bare strings (back-compat) or
+        // {name, allowed_hosts: string[]}; collect the names from either form.
+        const set = new Set<string>()
+        if (Array.isArray(spec.secrets)) {
+            for (const entry of spec.secrets) {
+                if (typeof entry === 'string') {
+                    set.add(entry)
+                } else if (
+                    entry &&
+                    typeof entry === 'object' &&
+                    typeof (entry as { name?: unknown }).name === 'string'
+                ) {
+                    set.add((entry as { name: string }).name)
+                }
+            }
+        }
         for (const req of getTriggerRequiredSecrets(spec)) {
             set.add(req.key)
         }

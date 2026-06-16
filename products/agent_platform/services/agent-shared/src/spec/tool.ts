@@ -61,6 +61,21 @@ export interface ToolContext {
     integrations: Record<string, IntegrationCredentials>
     /** Fetch resolved secret value for a name from spec.secrets. */
     secret(name: string): string | undefined
+    /**
+     * Per-secret host binding declared in `spec.secrets[]`. Returns:
+     *   - `string[]` when the secret is the object form with `allowed_hosts`.
+     *   - `null` when the secret is the bare-string form (declared but
+     *     UNBOUND — `@posthog/http-request` refuses substitution).
+     *   - `undefined` when the name isn't declared in `spec.secrets[]` at all.
+     *
+     * Fail-closed by design: the bare-string `null` return is the same shape
+     * as `mcp-clients.ts` refusing an `auth.integration` ref when its host
+     * validator isn't wired. Authors who want to call out to a service with
+     * a secret MUST pin that secret to the destination host(s) — a prompt-
+     * injected `${TOKEN}` against an attacker URL then refuses before fetch
+     * rather than leaking the credential.
+     */
+    secretAllowedHosts(name: string): readonly string[] | null | undefined
     /** Structured log out of the tool — surfaces in the session log. */
     log(level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>): void
     /**

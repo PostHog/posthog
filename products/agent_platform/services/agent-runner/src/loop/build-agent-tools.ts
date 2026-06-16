@@ -33,6 +33,7 @@ import {
     AgentSession,
     BundleStore,
     CredentialBroker,
+    getSecretAllowedHosts,
     HttpFetcher,
     IntegrationCredentials,
     MemoryStore,
@@ -443,6 +444,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
         sessionId,
         integrations: deps.integrations,
         secret: (name) => deps.secrets[name],
+        secretAllowedHosts: (name) => getSecretAllowedHosts(deps.rev.spec, name),
         log: deps.log,
         skillIndex: deps.rev.spec.skills.map((s) => ({ id: s.id, description: s.description, path: s.path })),
         readBundleFile: async (path: string): Promise<string | null> => {
