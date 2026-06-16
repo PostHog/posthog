@@ -2,9 +2,19 @@
 
 ## Overview
 
-The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, Zendesk, and the headless **Signals agent** itself (a scheduled scout that emits cross-source findings into the same pipeline) — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
+The **Signals** product is a signal grouping and report-generation pipeline. Signals from multiple products and integrations — including session replay, AI observability, error tracking, GitHub, Linear, Zendesk, and a **fleet of headless scout agents** (scheduled per-team scouts — a generalist plus per-surface watchers for AI observability, logs, error tracking, revenue, surveys, observability gaps, and CSP violations — that proactively probe each product and emit cross-source findings into the same pipeline) — are emitted into a shared ClickHouse embeddings table, grouped into **SignalReports** via embedding similarity + LLM matching, and then optionally promoted into an agentic report-research flow.
 
 Today the active ingestion path is **emitter → buffer → grouping v2**. The summary path is no longer a simple "summarize signals" LLM step: it runs a report-level safety judge, selects a repository, then performs sandbox-backed multi-turn research that produces findings, actionability, priority, title, summary, and suggested reviewers. Reports that are immediately actionable can automatically start a Tasks coding run via the **autonomy** system.
+
+### Pipeline shape in practice
+
+The pipeline is a funnel that narrows sharply, and the _proportions_ matter more than the absolute counts when reasoning about behavior and cost. On PostHog's own heaviest dogfooding project the live shape looks like this:
+
+1. **Most signals merge; few create.** Every safe signal is assigned to a report — drops (safety-filter blocks plus the occasional processing error) are negligible. But the large majority fold into an _existing_ report, bumping its `total_weight` and `signal_count`; only a minority (very roughly one in ten) create a _new_ report. So a "reports created per day" metric tracks the new-report rate, **not** the total signal volume — the bulk of grouping work is merge work, and the signals that don't spawn a report are not discarded, they cluster into existing ones.
+2. **Almost every report is researched.** Because `SIGNAL_WEIGHT_THRESHOLD` is low (`1.0`) and `signals_at_run` defaults to `0`, a fresh report promotes to `candidate` almost immediately. In practice nearly every report reaches the agentic research step at least once — which is why the runtime is framed as a fleet of _responder_ agents rather than a triage queue that researches only a lucky few.
+3. **Research runs outnumber new reports.** Re-promotion (see [Re-promotion](#re-promotion)) means a single report can be researched several times as new evidence accrues, so the count of research runs is _higher_ than the count of newly created reports — not lower. Promotion and report-creation are distinct events that merely happen to be similar in magnitude; do not read one as a proxy for the other.
+
+**Cost shape.** The per-signal grouping steps (embed → generate 1–3 search queries → embed → semantic search → match LLM) run on _every_ signal, but each is cheap — on the order of a cent. The agentic research step (repository selection + multi-turn sandbox research) runs only on promoted reports yet dominates total spend by a wide margin. Even multiplied across the full signal volume, the cheap grouping steps stay a small fraction of cost, so optimization effort targets the research step rather than the grouping path.
 
 ---
 
