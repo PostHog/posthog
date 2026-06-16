@@ -304,10 +304,10 @@ class Person(models.Model):
         ignored. This is the "partial split" path — useful to surgically extract IDs
         that were over-merged into a mega-person.
 
-        When ``distinct_ids_to_split`` is None, the legacy behavior applies: every
-        distinct_id except ``main_distinct_id`` is split off (or only the last
-        ``max_splits`` of them). If ``main_distinct_id`` is also None, properties are
-        wiped from the original person and the first distinct_id becomes the main.
+        When ``distinct_ids_to_split`` is None, every distinct_id except
+        ``main_distinct_id`` is split off (or only the first ``max_splits`` of them).
+        If ``main_distinct_id`` is also None, the first distinct_id is kept. The
+        original person always retains its properties.
         """
         from posthog.personhog_client.client import get_personhog_client
         from posthog.personhog_client.proto import GetPersonRequest
@@ -375,7 +375,6 @@ class Person(models.Model):
         """
         from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest
 
-        properties_wiped = False
         splits_done = 0
         # +1 so the main_distinct_id can appear in the page without eating a split slot
         fetch_limit = PERSONHOG_SPLIT_BATCH_SIZE + 1
@@ -395,13 +394,6 @@ class Person(models.Model):
 
             if not main_distinct_id:
                 main_distinct_id = page[0]
-                if not properties_wiped:
-                    Person.objects.filter(
-                        team_id=self.team_id, pk=self.pk
-                    ).update(  # nosemgrep: no-direct-persons-db-orm
-                        properties={}
-                    )
-                    properties_wiped = True
 
             to_split = [did for did in page if did != main_distinct_id]
 

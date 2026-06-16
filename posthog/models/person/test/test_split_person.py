@@ -95,7 +95,7 @@ class TestSplitPerson(BaseTest):
             assert pdi.person_id == person.id
         assert Person.objects.filter(team_id=self.team.id).count() == 1
 
-    def test_split_without_main_distinct_id_clears_properties(self, mock_create_pdi, mock_create_person):
+    def test_split_without_main_distinct_id_keeps_properties(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client() as fake:
             person = self._setup_person(
                 fake,
@@ -114,7 +114,7 @@ class TestSplitPerson(BaseTest):
             assert split_ids == {"id2"}
 
         person.refresh_from_db()
-        assert person.properties == {}
+        assert person.properties == {"email": "test@example.com"}
 
     def test_split_with_max_splits(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client() as fake:
@@ -309,7 +309,7 @@ class TestSplitPerson(BaseTest):
         mock_create_pdi.assert_not_called()
         mock_create_person.assert_not_called()
 
-    def test_split_from_stub_person_clears_properties(self, mock_create_pdi, mock_create_person):
+    def test_split_from_stub_person_keeps_properties(self, mock_create_pdi, mock_create_person):
         """Verify split works when called on a stub Person(pk=..., team_id=...)
         rather than a DB-fetched instance — this is how the Celery task invokes it."""
         with fake_personhog_client() as fake:
@@ -328,7 +328,7 @@ class TestSplitPerson(BaseTest):
             assert list(split_calls[0].request.distinct_ids_to_split) == ["id2"]
 
         person.refresh_from_db()
-        assert person.properties == {}
+        assert person.properties == {"email": "test@example.com"}
 
     def test_split_person_not_found_in_personhog(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client():

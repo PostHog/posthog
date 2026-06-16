@@ -917,9 +917,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             self.assertEqual(list(split_calls[0].request.distinct_ids_to_split), ["2", "3"])
             self.assertEqual(fake._persons_by_distinct_id[(self.team.id, "1")].id, person1.pk)
 
-        # Without a main_distinct_id the original person's properties are wiped
+        # Properties are always kept on the original person
         person1.refresh_from_db()
-        self.assertEqual(person1.properties, {})
+        self.assertEqual(person1.properties, {"$browser": "whatever", "$os": "Mac OS X"})
         self.assertTrue(response.json()["success"])
 
     def test_split_people_partial_moves_only_specified_ids(self) -> None:
