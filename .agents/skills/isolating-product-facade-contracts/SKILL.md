@@ -240,8 +240,12 @@ in `facade/api.py` with the viewset deferred.
      when it empties them.
    - The mechanical share is one command: `hogli product:isolate:move <name>` (run
      `--dry-run` first) moves the ViewSet modules into `presentation/views/` (auto-detected,
-     `--views` to override), `tasks.py` into a `tasks/` package with celery names pinned,
-     and rewrites the dotted paths repo-wide. A `backend/api/` subpackage moves whole:
+     `--views` to override), `tasks.py` into a `tasks/` package with celery names pinned
+     (it re-exports the module's public surface, and warns when a _private_ tasks name is
+     reached through the package path — e.g. a `@patch("...backend.tasks._helper")` target
+     — since those need repointing to `...backend.tasks.tasks._helper` by hand; auto-rewriting
+     them would corrupt the pinned `name=` strings), and rewrites the dotted paths
+     repo-wide. A `backend/api/` subpackage moves whole:
      production helper subpackages (e.g. `destination_tests/`) keep their structure under
      `presentation/views/` and ride the prefix rename, while test subpackages (`test/`,
      `tests/`) relocate to `backend/tests/api/` — they leave the api namespace, so a naive

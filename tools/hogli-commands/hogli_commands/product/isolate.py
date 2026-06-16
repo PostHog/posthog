@@ -625,6 +625,24 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
                 f"from products.{name}.backend.tasks.tasks import {', '.join(sorted(task_names))}  # noqa: F401"
             )
         (dst.parent / "__init__.py").write_text("\n".join(init_lines) + "\n")
+        # The re-export exposes public names only; a private name (and any @patch
+        # target of a module-internal name) reached through the package path breaks
+        # once the module is a level deeper. Auto-rewriting these is unsafe — it would
+        # corrupt the pinned `name="...tasks.<fn>"` strings — so flag them for manual
+        # repointing to products.<name>.backend.tasks.tasks.<name>.
+        private_refs = subprocess.run(
+            ["git", "grep", "-lE", rf"products\.{re.escape(name)}\.backend\.tasks\._"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if private_refs:
+            files = ", ".join(private_refs.splitlines())
+            log.append(
+                f"WARNING private names of the moved tasks module are referenced through the package path "
+                f"({files}) — the re-export can't expose them; repoint these (e.g. @patch targets) to "
+                f"products.{name}.backend.tasks.tasks.<name> by hand"
+            )
 
     if plan.module_renames:
         changed = 0
