@@ -151,7 +151,7 @@ def _bot_udf_label_lookup(attr: str, default: str, empty_ua_value: str) -> str:
 
 
 BOT_DEFINITION_UDF_NAMES = [
-    "isBot",
+    "isLikelyBot",
     "getBotName",
     "getBotCategory",
     "getBotTrafficType",
@@ -161,7 +161,7 @@ BOT_DEFINITION_UDF_NAMES = [
 # CREATE OR REPLACE so a later BOT_DEFINITIONS change re-creates the functions idempotently via a
 # follow-up migration. Defaults mirror the inline HogQL builder (traffic_type.py).
 BOT_DEFINITION_UDFS_SQL = [
-    f"CREATE OR REPLACE FUNCTION isBot AS (ua) -> multiMatchAny(ifNull(ua, ''), {_BOT_UDF_PATTERNS})",
+    f"CREATE OR REPLACE FUNCTION isLikelyBot AS (ua) -> multiMatchAny(ifNull(ua, ''), {_BOT_UDF_PATTERNS})",
     f"CREATE OR REPLACE FUNCTION getBotName AS (ua) -> {_bot_udf_label_lookup('name', '', '')}",
     f"CREATE OR REPLACE FUNCTION getBotCategory AS (ua) -> {_bot_udf_label_lookup('category', 'regular', 'no_user_agent')}",
     f"CREATE OR REPLACE FUNCTION getBotTrafficType AS (ua) -> {_bot_udf_label_lookup('traffic_type', 'Regular', 'Automation')}",

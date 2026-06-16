@@ -157,12 +157,12 @@ class TestBotDefinitionUDFs:
             assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
 
     def test_isbot_uses_cheapest_multimatchany(self):
-        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "isBot" in s)
+        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "isLikelyBot" in s)
         assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index lookup
 
     # Derive the attribute UDFs from the canonical name list so a newly added UDF can't be
     # silently skipped (it gets parametrized automatically).
-    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "isBot"])
+    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "isLikelyBot"])
     def test_attribute_udf_uses_multimatchanyindex(self, udf_name):
         sql = next(s for s in BOT_DEFINITION_UDFS_SQL if udf_name in s)
         assert "multiMatchAnyIndex(ifNull(ua, '')," in sql
@@ -177,10 +177,10 @@ class TestBotDefinitionUDFs:
         assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
 
     def test_isbot_equivalent_to_traffic_type_not_regular(self):
-        # isBot is multiMatchAny (any pattern matches). That equals the dict's
+        # isLikelyBot is multiMatchAny (any pattern matches). That equals the dict's
         # "traffic_type != 'Regular'" only if every defined bot is non-Regular — assert it holds.
         for pattern, bot in BOT_DEFINITIONS.items():
-            assert bot.traffic_type != "Regular", f"{pattern} has Regular traffic_type; isBot would diverge"
+            assert bot.traffic_type != "Regular", f"{pattern} has Regular traffic_type; isLikelyBot would diverge"
 
     def test_drop_statements_cover_every_udf(self):
         assert len(DROP_BOT_DEFINITION_UDFS_SQL) == len(BOT_DEFINITION_UDF_NAMES)
@@ -189,7 +189,7 @@ class TestBotDefinitionUDFs:
 
     def test_patterns_match_inline_hogql_path(self):
         # The UDF patterns must be exactly the inline HogQL path's patterns (parity): bot keys + ^$.
-        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "isBot" in s)
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "isLikelyBot" in s)
         for pattern in BOT_DEFINITIONS:
             assert pattern.replace("\\", "\\\\").replace("'", "''") in bot_name_sql
         assert "'^$'" in bot_name_sql
