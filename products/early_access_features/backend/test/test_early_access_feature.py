@@ -1356,22 +1356,20 @@ class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTes
         self.key.save()
         return feature_id
 
-    def test_create_is_denied(self):
-        response = self._create_feature()
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert "feature_flag:write" in response.json()["detail"]
-
-    def test_create_with_feature_flag_write_is_allowed(self):
-        self.key.scopes = ["early_access_feature:write", "feature_flag:write"]
+    @parameterized.expand(
+        [
+            ("eaf_write_only", ["early_access_feature:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["early_access_feature:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
         self.key.save()
         response = self._create_feature()
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_create_with_wildcard_scope_is_allowed(self):
-        self.key.scopes = ["*"]
-        self.key.save()
-        response = self._create_feature()
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
 
     def test_update_stage_change_is_denied(self):
         feature_id = self._create_feature_as_admin()

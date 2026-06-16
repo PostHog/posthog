@@ -7129,27 +7129,25 @@ class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest
         self.key.save()
         return survey_id
 
-    def test_create_with_targeting_flag_filters_is_denied(self):
+    @parameterized.expand(
+        [
+            ("survey_write_only", ["survey:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["survey:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_with_targeting_flag_filters_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
+        self.key.save()
         response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-        assert "feature_flag:write" in response.json()["detail"]
-        assert Survey.objects.filter(name=self.SURVEY_PAYLOAD["name"]).count() == 0
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
+            assert Survey.objects.filter(name=self.SURVEY_PAYLOAD["name"]).count() == 0
 
     def test_create_without_targeting_flag_filters_is_allowed(self):
         # Regression guard: plain survey create only touches the internal flag, which stays ungated.
         response = self._create_survey()
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_create_with_feature_flag_write_is_allowed(self):
-        self.key.scopes = ["survey:write", "feature_flag:write"]
-        self.key.save()
-        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_create_with_wildcard_scope_is_allowed(self):
-        self.key.scopes = ["*"]
-        self.key.save()
-        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_update_targeting_flag_filters_is_denied(self):
