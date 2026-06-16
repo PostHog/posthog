@@ -55,7 +55,7 @@ class TestProtoGroupTypeMappingToDict:
                     "group_type_index": 0,
                     "name_singular": "Organization",
                     "name_plural": "Organizations",
-                    "detail_dashboard_id": 42,
+                    "detail_dashboard": 42,
                     "default_columns": ["name", "industry"],
                     "created_at": datetime.fromtimestamp(1700000000, tz=UTC),
                 },
@@ -69,7 +69,7 @@ class TestProtoGroupTypeMappingToDict:
                     "group_type_index": 1,
                     "name_singular": None,
                     "name_plural": None,
-                    "detail_dashboard_id": None,
+                    "detail_dashboard": None,
                     "default_columns": None,
                     "created_at": None,
                 },
@@ -90,7 +90,7 @@ class TestProtoGroupTypeMappingToDict:
                     "group_type_index": 2,
                     "name_singular": None,
                     "name_plural": None,
-                    "detail_dashboard_id": None,
+                    "detail_dashboard": None,
                     "default_columns": None,
                     "created_at": None,
                 },
@@ -107,7 +107,7 @@ class TestProtoGroupTypeMappingToDict:
                     "group_type_index": 3,
                     "name_singular": None,
                     "name_plural": None,
-                    "detail_dashboard_id": None,
+                    "detail_dashboard": None,
                     "default_columns": ["revenue", "size"],
                     "created_at": None,
                 },
@@ -336,14 +336,7 @@ class TestGroupTypeMappingDictKeysParity:
         )
         result = proto_group_type_mapping_to_dict(proto)  # type: ignore[arg-type]
 
-        expected_keys = set()
-        for field in GROUP_TYPE_MAPPING_SERIALIZER_FIELDS:
-            if field == "detail_dashboard":
-                expected_keys.add("detail_dashboard_id")
-            else:
-                expected_keys.add(field)
-
-        assert set(result.keys()) == expected_keys
+        assert set(result.keys()) == set(GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
 
     def test_converter_malformed_default_columns_raises(self):
         proto = _make_proto_mapping(

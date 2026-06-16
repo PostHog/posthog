@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -29,6 +30,23 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TEMPORALIO
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # rustls surfaces mTLS rejections as TLS alert names inside the tonic transport
+        # error. These are credential problems — retrying can never recover.
+        return {
+            "received fatal alert: UnknownCA": "Temporal rejected this source's client certificate because it is not signed by a certificate authority the namespace trusts. This usually means the namespace's CA certificates were rotated — update the source with a client certificate and key signed by the current CA.",
+            "received fatal alert: CertificateExpired": "This source's client certificate has expired. Update the source with a renewed client certificate and key.",
+            "received fatal alert: CertificateRevoked": "This source's client certificate has been revoked. Update the source with a new client certificate and key.",
+            "received fatal alert: BadCertificate": "Temporal rejected this source's client certificate as invalid. Update the source with a valid client certificate and key.",
+            "received fatal alert: CertificateUnknown": "Temporal rejected this source's client certificate. Update the source with a valid client certificate and key.",
+            "invalid peer certificate": "The Temporal server's certificate could not be verified. Check the host and port point at your Temporal namespace's gRPC endpoint.",
+            # tonic/rustls raises CertificateParseError when one of the PEM credential blobs cannot be
+            # decoded at all (vs the alerts above, which reject an otherwise-parseable cert). The blobs
+            # come straight from the source config, so this is a malformed-credential problem — retrying
+            # can never recover.
+            "CertificateParseError": "PostHog could not parse the TLS certificate or key configured for this source. Check that the client certificate, client private key, and server client root CA are valid PEM and were pasted in full, including the BEGIN and END lines.",
+        }
 
     def get_schemas(
         self,
@@ -76,6 +94,8 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            keywords=["temporal"],
             label="Temporal.io",
             iconPath="/static/services/temporal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/temporal",

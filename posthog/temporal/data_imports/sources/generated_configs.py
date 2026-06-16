@@ -233,7 +233,7 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AttentiveSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -352,7 +352,9 @@ class ChartMogulSourceConfig(config.Config):
 
 @config.config
 class CheckoutComSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -368,7 +370,8 @@ class CircleCISourceConfig(config.Config):
 
 @config.config
 class ClariSourceConfig(config.Config):
-    pass
+    api_key: str
+    forecast_id: str
 
 
 @config.config
@@ -402,7 +405,7 @@ class CloseSourceConfig(config.Config):
 
 @config.config
 class CloudflareSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -461,7 +464,9 @@ class CosmosDBSourceConfig(config.Config):
 
 @config.config
 class CoupaSourceConfig(config.Config):
-    pass
+    instance_url: str
+    client_id: str
+    client_secret: str
 
 
 @config.config
@@ -476,7 +481,9 @@ class CrunchbaseSourceConfig(config.Config):
 
 @config.config
 class CultureAmpSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    account_id: str
 
 
 @config.config
@@ -514,7 +521,7 @@ class Db2SourceConfig(config.Config):
 
 @config.config
 class DeelSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -529,7 +536,7 @@ class DisplayVideo360SourceConfig(config.Config):
 
 @config.config
 class DixaSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -641,7 +648,9 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GladlySourceConfig(config.Config):
-    pass
+    organization: str
+    agent_email: str
+    api_token: str
 
 
 @config.config
@@ -670,7 +679,8 @@ class GoogleAdsSourceConfig(config.Config):
 
 @config.config
 class GoogleAnalyticsSourceConfig(config.Config):
-    pass
+    property_id: str
+    google_analytics_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -699,6 +709,11 @@ class GorgiasSourceConfig(config.Config):
     gorgias_domain: str
     email: str
     api_key: str
+
+
+@config.config
+class GrafanaSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -734,7 +749,8 @@ class HelpScoutSourceConfig(config.Config):
 
 @config.config
 class HiBobSourceConfig(config.Config):
-    pass
+    service_user_id: str
+    service_user_token: str
 
 
 @config.config
@@ -805,7 +821,8 @@ class LeverSourceConfig(config.Config):
 
 @config.config
 class LightspeedRetailSourceConfig(config.Config):
-    pass
+    domain_prefix: str
+    api_token: str
 
 
 @config.config
@@ -860,7 +877,9 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MatomoSourceConfig(config.Config):
-    pass
+    host: str
+    site_id: str
+    api_token: str
 
 
 @config.config
@@ -938,6 +957,11 @@ class OneDriveSourceConfig(config.Config):
 
 
 @config.config
+class OpenAIAdsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class OpsgenieSourceConfig(config.Config):
     pass
 
@@ -970,7 +994,8 @@ class OrttoSourceConfig(config.Config):
 
 @config.config
 class OutbrainSourceConfig(config.Config):
-    pass
+    username: str
+    password: str
 
 
 @config.config
@@ -1318,7 +1343,9 @@ class SurveyMonkeySourceConfig(config.Config):
 
 @config.config
 class TaboolaSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    account_id: str
 
 
 @config.config
@@ -1434,7 +1461,17 @@ class ZoomSourceConfig(config.Config):
 
 @config.config
 class ZuoraSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str
+    environment: Literal[
+        "us_production",
+        "us_api_sandbox",
+        "us_cloud_production",
+        "us_cloud_sandbox",
+        "eu_production",
+        "eu_sandbox",
+        "central_sandbox",
+    ] = config.value(default="us_production")
 
 
 def get_config_for_source(source: ExternalDataSourceType):
@@ -1545,6 +1582,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
+        ExternalDataSourceType.GRAFANA: GrafanaSourceConfig,
         ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
         ExternalDataSourceType.GREENHOUSE: GreenhouseSourceConfig,
         ExternalDataSourceType.GURU: GuruSourceConfig,
@@ -1586,6 +1624,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.OKTA: OktaSourceConfig,
         ExternalDataSourceType.OMNISEND: OmnisendSourceConfig,
         ExternalDataSourceType.ONEDRIVE: OneDriveSourceConfig,
+        ExternalDataSourceType.OPENAIADS: OpenAIAdsSourceConfig,
         ExternalDataSourceType.OPSGENIE: OpsgenieSourceConfig,
         ExternalDataSourceType.OPTIMIZELY: OptimizelySourceConfig,
         ExternalDataSourceType.ORACLE: OracleSourceConfig,

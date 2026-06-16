@@ -79,13 +79,6 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
                     </div>
                 )}
 
-                {details.rawName && details.rawName !== details.title && (
-                    <div className="flex flex-col gap-0.5 border-t pt-2">
-                        <div className="text-xxs uppercase tracking-wide text-secondary">Sent as</div>
-                        <code className="text-xs break-all font-mono">{details.rawName}</code>
-                    </div>
-                )}
-
                 {isAction && <ActionMatchGroups item={entry.item} />}
             </div>
         </ScrollArea>
@@ -140,6 +133,12 @@ function PreviewHeader({ details, viewUrl, entry }: PreviewHeaderProps): JSX.Ele
             <div className="flex flex-col gap-1">
                 <div className="text-xxs uppercase tracking-wide text-secondary">{details.groupLabel}</div>
                 <div className="text-base font-semibold leading-tight break-words">{details.title}</div>
+                {details.rawName && details.rawName !== details.title && (
+                    <div className="flex items-baseline gap-1 text-xs text-secondary">
+                        <span>Sent as</span>
+                        <code className="break-all font-mono text-tertiary">{details.rawName}</code>
+                    </div>
+                )}
                 <VerificationBadge entry={entry} className="mt-1 self-start" />
             </div>
             <Separator />

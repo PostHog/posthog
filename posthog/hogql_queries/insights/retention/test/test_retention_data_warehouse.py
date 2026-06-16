@@ -709,3 +709,369 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    def _first_time_dwh_query(self, *, table_name: str, retention_type: str) -> dict[str, Any]:
+        return {
+            "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+            "retentionFilter": {
+                "period": "Day",
+                "totalIntervals": 4,
+                "retentionType": retention_type,
+                "targetEntity": {
+                    "id": table_name,
+                    "name": table_name,
+                    "type": "data_warehouse",
+                    "table_name": table_name,
+                    "aggregation_target_field": "person_id",
+                    "timestamp_field": "occurred_at",
+                    "properties": [
+                        {"key": "activity_type", "value": "signed_up", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+                "returningEntity": {
+                    "id": table_name,
+                    "name": table_name,
+                    "type": "data_warehouse",
+                    "table_name": table_name,
+                    "aggregation_target_field": "person_id",
+                    "timestamp_field": "occurred_at",
+                    "properties": [
+                        {"key": "activity_type", "value": "renewed", "operator": "exact", "type": "data_warehouse"}
+                    ],
+                },
+            },
+        }
+
+    def test_retention_first_time_vs_first_ever_dwh_same_table(self):
+        # user-1's first row in the table ("browsed") does not match the start filter ("signed_up"); a later
+        # row does. So under first_time (first occurrence matching filters) user-1 cohorts on the first signed_up
+        # row, but under first_ever_occurrence user-1 is excluded because their first-ever row isn't a match.
+        person_ids = self._create_people()
+        activity_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_time_activity.csv",
+            table_name="warehouse_first_time_activity",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "browsed", "2025-01-01 09:00:00"],
+                [2, person_ids["user-1"], "signed_up", "2025-01-02 09:00:00"],
+                [3, person_ids["user-1"], "renewed", "2025-01-03 12:00:00"],
+                [4, person_ids["user-2"], "signed_up", "2025-01-01 10:00:00"],
+                [5, person_ids["user-2"], "renewed", "2025-01-02 12:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        first_time_result = self.run_query(
+            query=self._first_time_dwh_query(table_name=activity_table_name, retention_type="retention_first_time")
+        )
+        # user-2 cohorts on day 0 (first signed_up), user-1 on day 1 (first signed_up, after the non-matching
+        # "browsed" row); each renews one interval later.
+        self.assertEqual(
+            pluck(first_time_result, "values", "count"),
+            pad([[1, 1, 0, 0], [1, 1, 0], [0, 0], [0], [0]]),
+        )
+
+        first_ever_result = self.run_query(
+            query=self._first_time_dwh_query(
+                table_name=activity_table_name, retention_type="retention_first_ever_occurrence"
+            )
+        )
+        # user-1's first-ever row is "browsed", not "signed_up", so they are excluded entirely; only user-2
+        # (whose first-ever row is "signed_up") is cohorted, on day 0.
+        self.assertEqual(
+            pluck(first_ever_result, "values", "count"),
+            pad([[1, 1, 0, 0], [0, 0, 0], [0, 0], [0], [0]]),
+        )
+
+    def test_retention_first_time_dwh_excludes_anchor_before_window(self):
+        # The first-time anchor scans the whole table (all time), so a user whose first matching row is before
+        # date_from is cohorted on that out-of-window interval and therefore excluded — even though they have a
+        # later matching row inside the window. (Reading the recurring within-window set would wrongly cohort
+        # them on the in-window row.)
+        person_ids = self._create_people()
+        activity_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_time_before_window.csv",
+            table_name="warehouse_first_time_before_window",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", "2024-12-30 09:00:00"],  # before window — the true anchor
+                [2, person_ids["user-1"], "signed_up", "2025-01-02 09:00:00"],  # in window, but not the first
+                [3, person_ids["user-1"], "renewed", "2025-01-03 12:00:00"],
+                [4, person_ids["user-2"], "signed_up", "2025-01-01 10:00:00"],
+                [5, person_ids["user-2"], "renewed", "2025-01-02 12:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        result = self.run_query(
+            query=self._first_time_dwh_query(table_name=activity_table_name, retention_type="retention_first_time")
+        )
+        # user-1's first signed_up is before date_from, so they are excluded; only user-2 cohorts (day 0).
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad([[1, 1, 0, 0], [0, 0, 0], [0, 0], [0], [0]]),
+        )
+
+    def test_retention_first_ever_dwh_start_events_return(self):
+        # Cross-table: data warehouse start entity, events return entity. The first-ever anchor is resolved on the
+        # data warehouse table (all time), so user-1 — whose first signup row is before the window — is excluded.
+        person_ids = self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_ever_signups.csv",
+            table_name="warehouse_first_ever_signups",
+            header=["id", "person_id", "signed_up_at"],
+            rows=[
+                [1, person_ids["user-1"], "2024-12-29 09:00:00"],  # before window — first-ever anchor, excludes user-1
+                [2, person_ids["user-1"], "2025-01-01 09:00:00"],
+                [3, person_ids["user-2"], "2025-01-01 10:00:00"],
+                [4, person_ids["user-3"], "2025-01-02 09:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        for distinct_id, timestamp in [
+            ("user-1", "2025-01-02T12:00:00Z"),  # user-1 is excluded by the anchor, regardless of returns
+            ("user-2", "2025-01-02T12:00:00Z"),
+            ("user-3", "2025-01-03T12:00:00Z"),
+        ]:
+            _create_event(team=self.team, event="$pageview", distinct_id=distinct_id, timestamp=timestamp)
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": "retention_first_ever_occurrence",
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                },
+            }
+        )
+        # user-2 cohorts day 0 (returns day 1), user-3 cohorts day 1 (returns day 2); user-1 excluded.
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad([[1, 1, 0, 0], [1, 1, 0], [0, 0], [0], [0]]),
+        )
+
+    def test_retention_first_ever_events_start_dwh_return(self):
+        # Cross-table: events start entity, data warehouse return entity. The first-ever anchor is resolved on the
+        # events table (all time), so user-1 — whose first signup event is before the window — is excluded.
+        person_ids = self._create_people()
+        for distinct_id, timestamp in [
+            ("user-1", "2024-12-29T09:00:00Z"),  # before window — first-ever anchor, excludes user-1
+            ("user-1", "2025-01-01T09:00:00Z"),
+            ("user-2", "2025-01-01T10:00:00Z"),
+            ("user-3", "2025-01-02T09:00:00Z"),
+        ]:
+            _create_event(team=self.team, event="$user_signed_up", distinct_id=distinct_id, timestamp=timestamp)
+        flush_persons_and_events()
+
+        renewals_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_ever_renewals.csv",
+            table_name="warehouse_first_ever_renewals",
+            header=["id", "person_id", "renewed_at"],
+            rows=[
+                [1, person_ids["user-1"], "2025-01-02 12:00:00"],  # user-1 excluded by the anchor, regardless
+                [2, person_ids["user-2"], "2025-01-02 12:00:00"],
+                [3, person_ids["user-3"], "2025-01-03 12:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "renewed_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": "retention_first_ever_occurrence",
+                    "targetEntity": {"id": "$user_signed_up", "name": "$user_signed_up", "type": "events"},
+                    "returningEntity": {
+                        "id": renewals_table_name,
+                        "name": renewals_table_name,
+                        "type": "data_warehouse",
+                        "table_name": renewals_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "renewed_at",
+                    },
+                },
+            }
+        )
+        # user-2 cohorts day 0 (returns day 1), user-3 cohorts day 1 (returns day 2); user-1 excluded.
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad([[1, 1, 0, 0], [1, 1, 0], [0, 0], [0], [0]]),
+        )
+
+    def test_retention_first_time_vs_first_ever_dwh_property_aggregation_same_entity(self):
+        # Property aggregation × first-time on a single data warehouse entity. user-1's first-ever purchase is
+        # "basic" (not the "pro" the filter requires), so first_ever excludes them while first_time cohorts them
+        # on their first "pro" purchase — and the per-interval aggregated amounts follow the chosen anchor.
+        person_ids = self._create_people()
+        purchases_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_time_purchases.csv",
+            table_name="warehouse_first_time_purchases",
+            header=["id", "person_id", "tier", "occurred_at", "amount"],
+            rows=[
+                [1, person_ids["user-1"], "basic", "2025-01-01 09:00:00", 10],  # first-ever row excludes user-1
+                [2, person_ids["user-1"], "pro", "2025-01-02 09:00:00", 100],
+                [3, person_ids["user-1"], "pro", "2025-01-03 09:00:00", 50],
+                [4, person_ids["user-2"], "pro", "2025-01-01 10:00:00", 30],
+                [5, person_ids["user-2"], "pro", "2025-01-02 10:00:00", 70],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "tier": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+                "amount": "Float64",
+            },
+        )
+
+        def query_for(retention_type: str) -> dict[str, Any]:
+            pro_entity = {
+                "id": purchases_table_name,
+                "name": purchases_table_name,
+                "type": "data_warehouse",
+                "table_name": purchases_table_name,
+                "aggregation_target_field": "person_id",
+                "timestamp_field": "occurred_at",
+                "properties": [{"key": "tier", "value": "pro", "operator": "exact", "type": "data_warehouse"}],
+            }
+            return {
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": retention_type,
+                    "targetEntity": pro_entity,
+                    "returningEntity": pro_entity,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "amount",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+
+        first_time_result = self.run_query(query=query_for("retention_first_time"))
+        # user-2 cohorts day 0 (start value 30, returns 70 on day 1); user-1 cohorts day 1 (start value 100,
+        # returns 50 on day 2).
+        self.assertEqual(
+            pluck(first_time_result, "values", "count"),
+            pad([[1, 1, 0, 0], [1, 1, 0], [0, 0], [0], [0]]),
+        )
+        self.assertEqual(
+            pluck(first_time_result, "values", "aggregation_value"),
+            pad([[30, 70, 0, 0], [100, 50, 0], [0, 0], [0], [0]]),
+        )
+
+        first_ever_result = self.run_query(query=query_for("retention_first_ever_occurrence"))
+        # user-1's first-ever purchase is "basic", so they are excluded; only user-2 cohorts (day 0).
+        self.assertEqual(
+            pluck(first_ever_result, "values", "count"),
+            pad([[1, 1, 0, 0], [0, 0, 0], [0, 0], [0], [0]]),
+        )
+        self.assertEqual(
+            pluck(first_ever_result, "values", "aggregation_value"),
+            pad([[30, 70, 0, 0], [0, 0, 0], [0, 0], [0], [0]]),
+        )
+
+    def test_retention_first_time_dwh_property_aggregation_different_events(self):
+        # first-time × property aggregation across two different events in the same table. Each user signs up
+        # once, so first_time cohorts on that signup (identical cohorts to recurring) while the start event
+        # contributes a zero-valued interval-0 marker and aggregated amounts come from the "payment" return rows.
+        person_ids = self._create_people()
+        activity_table_name = self._create_data_warehouse_table(
+            filename="warehouse_first_time_agg_activity.csv",
+            table_name="warehouse_first_time_agg_activity",
+            header=["id", "person_id", "activity_type", "occurred_at", "amount"],
+            rows=[
+                [1, person_ids["user-1"], "signup", "2025-01-01 09:00:00", 0],
+                [2, person_ids["user-1"], "payment", "2025-01-01 12:00:00", 50],
+                [3, person_ids["user-1"], "payment", "2025-01-02 12:00:00", 100],
+                [4, person_ids["user-2"], "payment", "2025-01-01 08:00:00", 999],
+                [5, person_ids["user-2"], "signup", "2025-01-01 10:00:00", 0],
+                [6, person_ids["user-2"], "payment", "2025-01-01 11:00:00", 30],
+                [7, person_ids["user-3"], "signup", "2025-01-02 09:00:00", 0],
+                [8, person_ids["user-3"], "payment", "2025-01-03 13:00:00", 200],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": "DateTime64(3, 'UTC')",
+                "amount": "Float64",
+            },
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": "retention_first_time",
+                    "targetEntity": {
+                        "id": activity_table_name,
+                        "name": activity_table_name,
+                        "type": "data_warehouse",
+                        "table_name": activity_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "occurred_at",
+                        "properties": [
+                            {"key": "activity_type", "value": "signup", "operator": "exact", "type": "data_warehouse"}
+                        ],
+                    },
+                    "returningEntity": {
+                        "id": activity_table_name,
+                        "name": activity_table_name,
+                        "type": "data_warehouse",
+                        "table_name": activity_table_name,
+                        "aggregation_target_field": "person_id",
+                        "timestamp_field": "occurred_at",
+                        "properties": [
+                            {"key": "activity_type", "value": "payment", "operator": "exact", "type": "data_warehouse"}
+                        ],
+                    },
+                    "aggregationType": "sum",
+                    "aggregationProperty": "amount",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+        )
+        # Each user signs up once → first_time cohorts identically to recurring (same values as the recurring
+        # different-events aggregation test).
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad([[2, 1, 0, 0], [1, 1, 0], [0, 0], [0], [0]]),
+        )
+        self.assertEqual(
+            pluck(result, "values", "aggregation_value"),
+            pad([[80, 100, 0, 0], [0, 200, 0], [0, 0], [0], [0]]),
+        )
