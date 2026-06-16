@@ -1,14 +1,13 @@
 from typing import Any
 
 import pydantic
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from drf_spectacular.utils import extend_schema_field
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.models import Task
@@ -67,7 +66,7 @@ async def aget_conversation_state(
     # A CONVERTED conversation (now sandbox, but kept its legacy checkpoint) falls through so its
     # legacy thread still renders above the "history was converted" divider.
     if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
-        has_checkpoint = await database_sync_to_async(conversation.checkpoints.exists)()
+        has_checkpoint = await sync_to_async(conversation.checkpoints.exists)()
         if not has_checkpoint:
             return None, False, {}
 

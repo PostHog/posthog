@@ -4,6 +4,7 @@ attached context. See `ContextService`.
 The template lives only here, in Python — the frontend never builds it.
 """
 
+import json
 import time
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, get_args
@@ -178,22 +179,37 @@ class ContextService:
         return f"<posthog_context>{RESUMED_CONTEXT_PREFIX}\n{transcript}</posthog_context>"
 
     def _render_legacy_transcript(self, messages: Sequence[Any]) -> str:
-        """Render windowed legacy messages to a plain `User:` / `Assistant:` transcript.
+        """Render windowed legacy messages to a plain-text transcript for the resumed prompt.
 
-        Tool calls and visualizations are intentionally dropped — the resumed block only needs the
-        conversational gist for continuity; the full legacy thread is still rendered in the UI above
-        the conversion divider.
+        Covers user turns, assistant prose, tool calls + results, thinking/reasoning, and context
+        messages so the new agent sees the substance of the legacy turn — not just the chat text.
+        Visualization/notebook cards degrade to a short label; types with no useful text are skipped.
         """
-        from posthog.schema import AssistantMessage, HumanMessage  # noqa: PLC0415 — large schema module
-
-        from ee.hogai.utils.helpers import should_output_assistant_message  # noqa: PLC0415 — pulls ee.hogai
+        from posthog.schema import (  # noqa: PLC0415 — large schema module
+            AssistantMessage,
+            AssistantToolCallMessage,
+            ContextMessage,
+            HumanMessage,
+            ReasoningMessage,
+        )
 
         lines: list[str] = []
         for message in messages:
-            if not should_output_assistant_message(message):
-                continue
-            if isinstance(message, HumanMessage) and message.content:
-                lines.append(f"User: {message.content}")
-            elif isinstance(message, AssistantMessage) and message.content:
-                lines.append(f"Assistant: {message.content}")
+            if isinstance(message, HumanMessage):
+                if message.content:
+                    lines.append(f"User: {message.content}")
+            elif isinstance(message, ReasoningMessage):
+                if message.content:
+                    lines.append(f"Thinking: {message.content}")
+            elif isinstance(message, ContextMessage):
+                if message.content:
+                    lines.append(f"Context: {message.content}")
+            elif isinstance(message, AssistantMessage):
+                if message.content:
+                    lines.append(f"Assistant: {message.content}")
+                for tool_call in message.tool_calls or []:
+                    lines.append(f"Tool call {tool_call.name}({json.dumps(tool_call.args, default=str)})")
+            elif isinstance(message, AssistantToolCallMessage):
+                if message.content:
+                    lines.append(f"Tool result: {message.content}")
         return "\n".join(lines)

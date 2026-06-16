@@ -124,7 +124,7 @@ class MessageRoutingService(BaseSandboxService):
         self.conversation = conversation
 
     def handle(
-        self, data: Mapping[str, Any], *, resumed_context: str | None = None, is_conversion: bool = False
+        self, data: Mapping[str, Any], *, resumed_context: str | None = None, convert_to_acp: bool = False
     ) -> SandboxRouteResult:
         content = data.get("content")
         if not isinstance(content, str) or not content.strip():
@@ -134,14 +134,14 @@ class MessageRoutingService(BaseSandboxService):
         attached_context = self._validate_attached_context(data.get("attached_context"))
 
         if self.conversation.task_id is None:
-            # `resumed_context` / `is_conversion` only apply to the conversion event, which is
+            # `resumed_context` / `convert_to_acp` only apply to the conversion event, which is
             # always a first message (the gate requires `task_id is None`).
             return self._handle_first_message(
                 content=content,
                 trace_id=trace_id,
                 attached_context=attached_context,
                 resumed_context=resumed_context,
-                is_conversion=is_conversion,
+                convert_to_acp=convert_to_acp,
             )
 
         current_run = self.conversation.current_run
@@ -381,7 +381,7 @@ class MessageRoutingService(BaseSandboxService):
         trace_id: str | None,
         attached_context: list[AttachedContext],
         resumed_context: str | None = None,
-        is_conversion: bool = False,
+        convert_to_acp: bool = False,
     ) -> SandboxRouteResult:
         context_service = ContextService()
         # First turn — the prior-seen set is empty, so dedupe is a no-op.
@@ -435,14 +435,14 @@ class MessageRoutingService(BaseSandboxService):
             task_run.save(update_fields=["state"])
             locked.task = task
             update_fields = ["task", "updated_at"]
-            if is_conversion:
+            if convert_to_acp:
                 locked.agent_runtime = Conversation.AgentRuntime.SANDBOX
                 update_fields = ["task", "agent_runtime", "updated_at"]
             locked.save(update_fields=update_fields)
 
         # Mirror the committed writes onto the in-memory instance for the response + the rollback below.
         self.conversation.task = task
-        if is_conversion:
+        if convert_to_acp:
             self.conversation.agent_runtime = Conversation.AgentRuntime.SANDBOX
 
         # Start the run after the commit. `posthog_mcp_scopes="full"` mirrors the legacy
@@ -463,7 +463,7 @@ class MessageRoutingService(BaseSandboxService):
         except Exception:
             self.conversation.task = None
             revert_fields = ["task", "updated_at"]
-            if is_conversion:
+            if convert_to_acp:
                 self.conversation.agent_runtime = Conversation.AgentRuntime.LANGGRAPH
                 revert_fields = ["task", "agent_runtime", "updated_at"]
             self.conversation.save(update_fields=revert_fields)

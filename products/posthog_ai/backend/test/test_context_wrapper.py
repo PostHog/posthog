@@ -3,7 +3,14 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import (
+    AssistantMessage,
+    AssistantToolCall,
+    AssistantToolCallMessage,
+    ContextMessage,
+    HumanMessage,
+    ReasoningMessage,
+)
 
 from products.posthog_ai.backend.context_wrapper import AttachedContext, ContextService
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -170,6 +177,29 @@ class TestResumedLegacyContext(APIBaseTest):
         assert block is not None
         assert "old" not in block
         assert block.endswith("User: current</posthog_context>")
+
+    def test_renders_tool_calls_thinking_and_context(self):
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="why did checkout drop?", id="h1"),
+                ContextMessage(content="user is on the growth plan", id="c1"),
+                ReasoningMessage(content="let me query the funnel", id="r1"),
+                AssistantMessage(
+                    content="checking",
+                    id="a1",
+                    tool_calls=[AssistantToolCall(id="tc1", name="query_runner", args={"q": "funnel"})],
+                ),
+                AssistantToolCallMessage(content="3 steps, 40% drop at payment", id="t1", tool_call_id="tc1"),
+            ]
+        )
+        block, _ = self._build(state)
+        assert block is not None
+        assert "User: why did checkout drop?" in block
+        assert "Context: user is on the growth plan" in block
+        assert "Thinking: let me query the funnel" in block
+        assert "Assistant: checking" in block
+        assert 'Tool call query_runner({"q": "funnel"})' in block
+        assert "Tool result: 3 steps, 40% drop at payment" in block
 
     def test_returns_none_when_no_state(self):
         block, m_capture = self._build(None)

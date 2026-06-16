@@ -426,11 +426,6 @@ class ConversationViewSet(
         context["user"] = cast(User, self.request.user)
         return context
 
-    def retrieve(self, request: Request, *args, **kwargs):
-        conversation = self.get_object()
-        serializer = self.get_serializer(conversation)
-        return Response(serializer.data)
-
     def create(self, request: Request, *args, **kwargs):
         """
         Unified endpoint that handles both conversation creation and streaming.
@@ -500,7 +495,7 @@ class ConversationViewSet(
         # atomically. Gated on `phai-sandbox-mode` only; the legacy thread itself is kept and still
         # rendered (above the conversion divider).
         resumed_context: str | None = None
-        is_conversion = bool(
+        convert_to_acp = bool(
             not is_new_conversation
             and conversation.agent_runtime == Conversation.AgentRuntime.LANGGRAPH
             and conversation.task_id is None
@@ -508,7 +503,7 @@ class ConversationViewSet(
             and has_message
             and has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
         )
-        if is_conversion:
+        if convert_to_acp:
             try:
                 resumed_context = asgi_async_to_sync(ContextService().abuild_resumed_legacy_context)(
                     conversation, self.team, cast(User, request.user)
@@ -525,7 +520,7 @@ class ConversationViewSet(
             or conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
             # A converting thread is still LangGraph here (the flip happens in the routing service),
             # so route it through the sandbox path explicitly.
-            or is_conversion
+            or convert_to_acp
         )
 
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
@@ -552,7 +547,7 @@ class ConversationViewSet(
                 conversation.title = serializer.validated_data["content"][:80]
                 conversation.save(update_fields=["title"])
             return self._route_sandbox_message(
-                request, conversation, resumed_context=resumed_context, is_conversion=is_conversion
+                request, conversation, resumed_context=resumed_context, convert_to_acp=convert_to_acp
             )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
@@ -747,11 +742,11 @@ class ConversationViewSet(
         conversation: Conversation,
         *,
         resumed_context: str | None = None,
-        is_conversion: bool = False,
+        convert_to_acp: bool = False,
     ) -> Response:
         user = cast(User, request.user)
         result = MessageRoutingService(conversation, user).handle(
-            request.data, resumed_context=resumed_context, is_conversion=is_conversion
+            request.data, resumed_context=resumed_context, convert_to_acp=convert_to_acp
         )
         report_user_action(
             user,
@@ -761,7 +756,7 @@ class ConversationViewSet(
                 "conversation_id": str(conversation.id),
                 "execution_type": "sandbox",
                 "agent_runtime": "sandbox",
-                "is_conversion": is_conversion,
+                "converted_to_acp": convert_to_acp,
                 "just_created_run": result.just_created_run,
                 "has_attached_context": result.attached_context_count > 0,
                 "attached_context_count": result.attached_context_count,

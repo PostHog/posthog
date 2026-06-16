@@ -646,17 +646,17 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
     def _block(self) -> str:
         return "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
 
-    def _handle(self, *, resumed_context=None, is_conversion=False, content="continue here"):
+    def _handle(self, *, resumed_context=None, convert_to_acp=False, content="continue here"):
         with patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow:
             result = MessageRoutingService(self.conversation, self.user).handle(
                 {"content": content, "trace_id": "t"},
                 resumed_context=resumed_context,
-                is_conversion=is_conversion,
+                convert_to_acp=convert_to_acp,
             )
         return result, m_workflow
 
     def test_first_message_conversion_flips_runtime_and_links_task(self):
-        result, m_workflow = self._handle(resumed_context=self._block(), is_conversion=True)
+        result, m_workflow = self._handle(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
         assert self.conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
@@ -672,11 +672,11 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
 
     def test_first_message_conversion_does_not_seed_s3_log(self):
         with patch.object(TaskRun, "append_log") as m_append:
-            self._handle(resumed_context=self._block(), is_conversion=True)
+            self._handle(resumed_context=self._block(), convert_to_acp=True)
         m_append.assert_not_called()
 
     def test_first_message_conversion_prepends_window_context(self):
-        self._handle(resumed_context=self._block(), is_conversion=True)
+        self._handle(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
         run = self.conversation.task.runs.first()
@@ -697,7 +697,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
         Conversation.objects.filter(id=self.conversation.id).update(task=other_task)
 
         with self.assertRaises(Conflict):
-            self._handle(resumed_context=self._block(), is_conversion=True)
+            self._handle(resumed_context=self._block(), convert_to_acp=True)
 
         self.conversation.refresh_from_db()
         assert self.conversation.task_id == other_task.id
@@ -708,7 +708,7 @@ class TestSandboxFirstMessageConversion(APIBaseTest):
                 MessageRoutingService(self.conversation, self.user).handle(
                     {"content": "continue here", "trace_id": "t"},
                     resumed_context=self._block(),
-                    is_conversion=True,
+                    convert_to_acp=True,
                 )
 
         # A failed start leaves a clean idle LangGraph conversation the user can retry.

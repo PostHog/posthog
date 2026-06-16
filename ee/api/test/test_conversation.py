@@ -1638,7 +1638,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
 
     def test_create_first_message_converts_and_injects_window_context(self):
         # First message on an idle LangGraph thread (sandbox flag on) routes through the sandbox
-        # handler with is_conversion=True and the legacy window block as resumed_context.
+        # handler with convert_to_acp=True and the legacy window block as resumed_context.
         conversation = self._langgraph_conversation()
         block = "<posthog_context>This session was resumed from the legacy implementation.\nUser: hi</posthog_context>"
         with (
@@ -1654,7 +1654,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_routing.return_value.handle.assert_called_once()
         kwargs = m_routing.return_value.handle.call_args.kwargs
-        self.assertTrue(kwargs["is_conversion"])
+        self.assertTrue(kwargs["convert_to_acp"])
         self.assertEqual(kwargs["resumed_context"], block)
 
     def test_create_resumed_context_read_failure_degrades(self):
@@ -1674,7 +1674,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_capture.assert_called_once()
         kwargs = m_routing.return_value.handle.call_args.kwargs
-        self.assertTrue(kwargs["is_conversion"])
+        self.assertTrue(kwargs["convert_to_acp"])
         self.assertIsNone(kwargs["resumed_context"])
 
     def test_create_born_sandbox_routes_without_conversion(self):
@@ -1692,7 +1692,7 @@ class TestConversationLegacyHistoryConversion(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         m_ctx.return_value.abuild_resumed_legacy_context.assert_not_called()
         kwargs = m_routing.return_value.handle.call_args.kwargs
-        self.assertFalse(kwargs["is_conversion"])
+        self.assertFalse(kwargs["convert_to_acp"])
         self.assertIsNone(kwargs["resumed_context"])
 
     def test_create_no_sandbox_flag_streams_langgraph(self):
