@@ -40,7 +40,7 @@ If neither `product.yaml` nor CODEOWNERS resolves it, consult the [feature-owner
 
 ## Even-last-er resort: ask Slack
 
-If even the handbook comes up empty and you have the Slack MCP available, search Slack — or ask in a relevant channel — to track down who owns it. This is the final fallback and the least authoritative source: ad-hoc opinions and stale threads, not a maintained mapping. Verify anything it surfaces against the repo files, and flag the answer as Slack-sourced.
+If even the handbook fails and the Slack MCP is available, search Slack or ask in a channel. It's the least authoritative source (opinions, stale threads), so verify against the repo files and flag the answer as Slack-sourced.
 
 ## Slug vs handle
 
