@@ -18,9 +18,13 @@ export type ActivityEventsWidgetEvent = {
 export function ActivityEventsWidgetRowSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-1 px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-                <LemonSkeleton className="h-4 w-40" />
-                <LemonSkeleton className="h-4 w-24 shrink-0" />
+            <div className="flex items-center gap-2">
+                <LemonSkeleton className="h-4 flex-1" />
+                <div className="flex w-56 shrink-0 items-center gap-2">
+                    <LemonSkeleton className="size-5 shrink-0 rounded-full" />
+                    <LemonSkeleton className="h-4 flex-1" />
+                    <LemonSkeleton className="h-4 w-16 shrink-0" />
+                </div>
             </div>
             <LemonSkeleton className="h-3 w-56" />
         </div>
@@ -36,11 +40,12 @@ export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidget
             className="@container flex flex-col gap-0.5 px-3 py-2 hover:bg-surface-secondary focus-visible:outline-offset-[-2px]"
             data-attr="activity-events-widget-row"
         >
-            <div className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-sm font-medium">
+            <div className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm font-medium">
                     <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} disablePopover />
                 </span>
-                <div className="flex shrink-0 items-center gap-2 text-xs">
+                {/* Fixed-width column keeps the avatar at a consistent x across rows (as on Activity > Explore). */}
+                <div className="flex w-56 shrink-0 items-center gap-2 text-xs">
                     {event.person ? (
                         <PersonDisplay
                             person={{
@@ -49,12 +54,15 @@ export function ActivityEventsWidgetRow({ event }: { event: ActivityEventsWidget
                                 properties: {},
                             }}
                             displayName={event.person.display_name}
+                            className="flex min-w-0 flex-1 [&>span]:min-w-0"
                             withIcon
                             noLink
                             noPopover
                         />
-                    ) : null}
-                    <span className="whitespace-nowrap text-muted">
+                    ) : (
+                        <span className="flex-1" />
+                    )}
+                    <span className="shrink-0 whitespace-nowrap text-muted">
                         <TZLabel time={event.timestamp} />
                     </span>
                 </div>
