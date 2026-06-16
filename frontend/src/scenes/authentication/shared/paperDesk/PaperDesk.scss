@@ -9,6 +9,9 @@
     --primary-3000-button-border: var(--primary-3000-button-border-light);
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
 
+    // Links use the bright brand amber, not the darker text-contrast warning token.
+    --color-text-warning: var(--warning);
+
     &::before {
         position: absolute;
         inset: 0;
@@ -24,11 +27,6 @@
         pointer-events: none;
         content: '';
         background: radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 5%), transparent 70%);
-    }
-
-    .LemonButton--primary {
-        --lemon-button-color: var(--color-white);
-        --lemon-button-border-width: 4px;
     }
 }
 
