@@ -1,4 +1,4 @@
-import './autocapture-previews.scss'
+import './autocapture-preview-image.scss'
 
 import posthog from 'posthog-js'
 
@@ -68,7 +68,7 @@ function AutocaptureImage({ img }: { img: AutocapturedImage }): JSX.Element | nu
         return (
             <div className="flex bg-primary items-center justify-center relative border-2">
                 {/* Transparent grid background */}
-                <div className="ImagePreview__background absolute h-full w-full" />
+                <div className="AutocaptureImage__grid-background absolute h-full w-full" />
 
                 <img
                     className="relative z-10 max-h-100 object-contain"
