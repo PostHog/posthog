@@ -252,7 +252,7 @@ class TestValidateCredentials:
         assert "reconnect your Google Ads account" in (message or "")
 
 
-def _google_ads_exception(request_error: RequestErrorEnum.RequestError) -> GoogleAdsException:
+def _google_ads_exception(request_error: int) -> GoogleAdsException:
     failure = GoogleAdsFailure(
         errors=[
             GoogleAdsError(
@@ -269,7 +269,7 @@ def _google_ads_exception(request_error: RequestErrorEnum.RequestError) -> Googl
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
-        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,
+        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,  # type: ignore[arg-type]
         is_repeatable=False,
         type_url="",
     )
@@ -327,16 +327,17 @@ class _FakeResumableManager:
 
 
 class TestInvalidPageTokenDetection:
-    def test_detects_invalid_page_token(self):
-        exc = _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
-        assert _is_invalid_page_token_error(exc) is True
-
-    def test_ignores_other_request_errors(self):
-        exc = _google_ads_exception(RequestErrorEnum.RequestError.RESOURCE_NAME_MISSING)
-        assert _is_invalid_page_token_error(exc) is False
-
-    def test_ignores_missing_failure(self):
-        assert _is_invalid_page_token_error(SimpleNamespace(failure=None)) is False  # type: ignore[arg-type]
+    @pytest.mark.parametrize(
+        "exc, expected",
+        [
+            (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), True),
+            (_google_ads_exception(RequestErrorEnum.RequestError.RESOURCE_NAME_MISSING), False),
+            # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
+            (SimpleNamespace(failure=None), False),
+        ],
+    )
+    def test_is_invalid_page_token_error(self, exc, expected):
+        assert _is_invalid_page_token_error(exc) is expected
 
 
 class TestSearchPageTokenResumption:
@@ -393,7 +394,7 @@ class TestSearchPageTokenResumption:
             always_failing.calls.append(request["page_token"])
             raise _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
 
-        always_failing.search = _always_raise  # type: ignore[attr-defined]
+        always_failing.search = _always_raise
         manager = _FakeResumableManager(saved_token=None)
 
         with pytest.raises(GoogleAdsException):
