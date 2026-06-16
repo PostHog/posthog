@@ -40,7 +40,11 @@ export function FunnelLineTooltip({
                     id: idx,
                     dataIndex: context.dataIndex,
                     datasetIndex: idx,
-                    order: meta.order ?? idx,
+                    // Funnel-trends results carry no `order` (one conversion series per breakdown), so
+                    // every series belongs to the single value column. Falling back to `idx` makes
+                    // InsightTooltip's `find(s => s.order === colIdx)` miss for all but the first
+                    // breakdown row, rendering `–`. Default to 0, mirroring the legacy LineGraph path.
+                    order: meta.order ?? 0,
                     label: entry.series.label,
                     color: entry.color,
                     count: entry.value,

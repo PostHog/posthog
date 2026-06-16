@@ -61,6 +61,24 @@ describe('FunnelLineChart', () => {
             expect(tooltip.textContent).toContain('Spike')
             expect(tooltip.textContent).toContain('Bramble')
         })
+
+        it('shows each breakdown row’s conversion percentage in the tooltip, not a dash', async () => {
+            // Funnel-trends results carry no `order`, so every breakdown series must collapse onto
+            // the single value column. A regression here renders `–` for all but the first row.
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+            const tooltip = await waitForHogChartTooltip()
+            // At index 2: Spike data[2]=50, Bramble data[2]=30, both shown as percentages.
+            expect(tooltip.textContent).toContain('50%')
+            expect(tooltip.textContent).toContain('30%')
+            expect(tooltip.textContent).not.toContain('–')
+        })
     })
 
     describe('click → persons modal', () => {
