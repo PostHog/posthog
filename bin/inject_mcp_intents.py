@@ -123,6 +123,7 @@ def main() -> None:
     updated = 0
     for session_id in qs.values_list("id", flat=True):
         intent = rng.choice(pool)
+        # nosemgrep: idor-lookup-without-team -- local-dev seed script intentionally spans all teams
         MCPSession.objects.unscoped().filter(id=session_id).update(intent=intent)
         updated += 1
         if updated % 100 == 0:
