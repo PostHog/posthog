@@ -245,6 +245,35 @@ def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
         _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)
 
 
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Rotated/revoked service account private key.
+        "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+        # Deleted service account.
+        "('invalid_grant: Invalid grant: account not found', {'error': 'invalid_grant', 'error_description': 'Invalid grant: account not found'})",
+    ],
+)
+def test_non_retryable_errors_match_rejected_credentials(observed_error):
+    """A `RefreshError` carrying the OAuth2 `invalid_grant` code means Google rejected the
+    service account grant — retrying can't recover, so the sync must be disabled."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "transient_error",
+    [
+        # A token refresh that failed for a transient reason must stay retryable.
+        "RefreshError: ('Failed to retrieve token', {'error': 'internal_failure'})",
+        "RefreshError: HTTPError 503 Service Unavailable",
+    ],
+)
+def test_non_retryable_errors_does_not_match_transient_refresh_failures(transient_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert not any(key in transient_error for key in non_retryable_errors)
+
+
 def _run_delete_all_temp_destination_tables(side_effect, logger):
     bq = mock.MagicMock()
     bq.list_tables.side_effect = side_effect
