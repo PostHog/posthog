@@ -569,6 +569,7 @@ mod tests {
         #[case(Some("posthog-flutter/4.0.0"), "posthog-flutter")]
         #[case(Some("posthog-python/1.4.0"), "posthog-python")]
         #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
+        #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
         #[case(Some("posthog-php/3.0.0"), "posthog-php")]
         #[case(Some("posthog-java/1.0.0"), "posthog-java")]
         #[case(Some("posthog-go/0.1.0"), "posthog-go")]
