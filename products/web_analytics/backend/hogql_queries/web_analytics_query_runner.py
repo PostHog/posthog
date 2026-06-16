@@ -613,8 +613,8 @@ WHERE
             else n / self._sample_rate.numerator
         )
 
-    def get_cache_key(self, include_access_control: bool = True) -> str:
-        original = super().get_cache_key(include_access_control=include_access_control)
+    def get_cache_key(self) -> str:
+        original = super().get_cache_key()
         return f"{original}_{self.team.path_cleaning_filters}"
 
     def _events_prefilter_date_bounds(self) -> tuple[str, str]:

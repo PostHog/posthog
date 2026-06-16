@@ -39,9 +39,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
                     return None  # Uncacheable query-based insight
                 if dashboard is not None and dashboard.filters:
                     query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
-                # InsightCachingState is one row per insight, so its key must not carry the per-user
-                # access-control partition (which would diverge userless-vs-user and break staleness).
-                return query_runner.get_cache_key(include_access_control=False)
+                return query_runner.get_cache_key()
 
             if insight.filters:
                 return generate_insight_filters_hash(insight, dashboard)
