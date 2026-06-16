@@ -1530,3 +1530,33 @@ class OAuthAuthorizationServerMetadataView(APIView):
             metadata.update(region_info)
 
         return JsonResponse(metadata)
+
+
+class OAuthProtectedResourceMetadataView(APIView):
+    """
+    OAuth 2.0 Protected Resource Metadata (RFC 9728).
+
+    PostHog already points agents at this document via the
+    `WWW-Authenticate: Bearer resource_metadata=...` header on 401 responses
+    (see posthog/exceptions.py). This serves the document it promises, letting
+    a client that hit a 401 discover which authorization server issues tokens
+    for this API, which scopes exist, and how to present the token.
+    """
+
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request, *args, **kwargs):
+        base_url = request.build_absolute_uri("/").rstrip("/")
+
+        metadata = {
+            # Required by RFC 9728
+            "resource": base_url,
+            # The same PostHog instance is its own authorization server
+            "authorization_servers": [base_url],
+            "scopes_supported": get_oauth_scopes_supported(),
+            "bearer_methods_supported": ["header"],
+            "resource_documentation": "https://posthog.com/docs/api",
+        }
+
+        return JsonResponse(metadata)
