@@ -1494,9 +1494,9 @@ class OAuthAuthorizationServerMetadataView(APIView):
 
     def get(self, request, *args, **kwargs):
         # Pin to SITE_URL rather than the request Host header so the advertised
-        # endpoints can't be steered to an attacker-controlled origin via Host on
-        # permissive ALLOWED_HOSTS, and so issuer matches the protected resource
-        # metadata's authorization_servers.
+        # endpoints (including the agent_auth discovery URLs) can't be steered to
+        # an attacker-controlled origin via Host on permissive ALLOWED_HOSTS, and
+        # so issuer matches the protected resource metadata's authorization_servers.
         base_url = absolute_uri().rstrip("/")
 
         all_scopes = get_oauth_scopes_supported()
@@ -1603,11 +1603,12 @@ class OAuthClientManifestView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        base_url = request.build_absolute_uri("/").rstrip("/")
+        # Pin to SITE_URL, not the request Host header (see the metadata views).
+        base_url = absolute_uri().rstrip("/")
 
         descriptions = get_scope_descriptions()
         scope_lines = "\n".join(
-            f"- `{scope}` — {descriptions.get(scope) or _OIDC_SCOPE_DESCRIPTIONS.get(scope, scope)}"
+            f"- `{scope}` — {descriptions[scope] if scope in descriptions else _OIDC_SCOPE_DESCRIPTIONS.get(scope, scope)}"
             for scope in get_oauth_scopes_supported()
         )
 

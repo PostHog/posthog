@@ -3992,7 +3992,8 @@ class TestOAuthClientManifest(APIBaseTest):
         body = response.content.decode()
 
         for scope in get_oauth_scopes_supported():
-            self.assertIn(f"`{scope}`", body)
+            with self.subTest(scope=scope):
+                self.assertIn(f"`{scope}`", body)
 
     def test_manifest_accessible_without_authentication(self):
         self.client.logout()
