@@ -25,12 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRLifecycleEventKind,
     PRState,
 )
-from products.engineering_analytics.backend.logic import (
-    build_ci_cards,
-    build_pr_lifecycle,
-    build_pull_request_list,
-    build_workflow_health,
-)
+from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
@@ -148,7 +143,7 @@ class TestPRLifecycleMapping(BaseTest):
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
         with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
         assert lifecycle.metric_quality == MetricQuality.PARTIAL
@@ -166,20 +161,20 @@ class TestPRLifecycleMapping(BaseTest):
 
     def test_returns_none_when_not_found(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
-            assert build_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
+            assert api.get_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
 
     @parameterized.expand(["PostHog", "PostHog/", "/posthog", "/"])
     def test_malformed_repo_raises_before_querying(self, repo: str) -> None:
         # A half-specified repo must fail loudly, not silently drop the filter and
         # return a PR from the wrong repo. Raises in _split_repo before any query.
         with self.assertRaises(ValueError):
-            build_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
+            api.get_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
 
     def test_passes_through_view_derived_fields(self) -> None:
         # is_bot and state come from the curated query as columns; the logic layer does not re-derive them.
         header = _header("closed", merged_at=None, closed_at=_dt("2026-01-12T15:00:00"), is_bot=True, head_sha="")
         with mock.patch(_RUN_QUERY, return_value=_resp([header])):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo=None)
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo=None)
 
         assert lifecycle is not None
         assert lifecycle.pull_request.state == PRState.CLOSED
@@ -196,7 +191,7 @@ class TestPRLifecycleMapping(BaseTest):
     def test_state_passthrough(self, state: str, expected: PRState) -> None:
         merged_at = _dt("2026-01-12T15:00:00") if state == "merged" else None
         with mock.patch(_RUN_QUERY, return_value=_resp([_header(state, merged_at=merged_at, head_sha="")])):
-            lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo=None)
+            lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo=None)
 
         assert lifecycle is not None
         assert lifecycle.pull_request.state == expected
@@ -213,7 +208,7 @@ class TestEndpointMapping(BaseTest):
 
     def test_ci_cards_maps_counts(self) -> None:
         with mock.patch(_RUN_QUERY, return_value=_resp([(5, 2, 1, 1)])):
-            cards = build_ci_cards(team=self.team)
+            cards = api.get_ci_cards(team=self.team)
         assert (cards.open_prs, cards.repos, cards.stuck, cards.failing_ci) == (5, 2, 1, 1)
 
     def test_pull_request_list_maps_row(self) -> None:
@@ -237,7 +232,7 @@ class TestEndpointMapping(BaseTest):
             0,
         )
         with mock.patch(_RUN_QUERY, return_value=_resp([row])):
-            result = build_pull_request_list(team=self.team, date_from="-30d")
+            result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is False
         assert len(result.items) == 1
@@ -273,7 +268,7 @@ class TestEndpointMapping(BaseTest):
             0,
         )
         with mock.patch(f"{_PR_LIST}._LIMIT", 2), mock.patch(_RUN_QUERY, return_value=_resp([row, row, row])):
-            result = build_pull_request_list(team=self.team, date_from="-30d")
+            result = api.list_pull_requests(team=self.team, date_from="-30d")
 
         assert result.truncated is True
         assert result.limit == 2
@@ -288,7 +283,7 @@ class TestEndpointMapping(BaseTest):
         # Must be inside the -30d window, which is relative to now.
         daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7)]
         with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
-            items = build_workflow_health(team=self.team, date_from="-30d", date_to=None)
+            items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
         assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
@@ -348,7 +343,7 @@ class TestResolveGitHubTables(BaseTest):
     def test_build_raises_without_a_github_source(self) -> None:
         # The orchestrator surfaces the resolver's error so the viewset can map it to a 400.
         with self.assertRaises(GitHubSourceNotConnectedError):
-            build_ci_cards(team=self.team)
+            api.get_ci_cards(team=self.team)
 
     @parameterized.expand(
         [
@@ -435,7 +430,7 @@ class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
             [_run_row(2001, "CI", "sha10", "completed", "success", "2026-01-11 09:00:00", "2026-01-11 12:00:00")],
         )
 
-        lifecycle = build_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
+        lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
         assert lifecycle.pull_request.state == PRState.MERGED
@@ -453,8 +448,11 @@ class TestPRLifecycleWarehouse(_WarehouseMixin, BaseTest):
 class TestWorkflowHealthWindowCap(BaseTest):
     @parameterized.expand(["2000-01-01", "-500d"])
     def test_rejects_windows_beyond_a_year(self, date_from: str) -> None:
+        # The window cap is build_workflow_health's own guard, reached before it reads any data; a
+        # stub handle exposing the team (for timezone) is all it needs, so no source/storage setup.
+        curated = SimpleNamespace(team=self.team)
         with pytest.raises(ValueError, match="the maximum is 366"):
-            build_workflow_health(team=self.team, date_from=date_from)
+            build_workflow_health(curated=curated, date_from=date_from)
 
 
 class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):

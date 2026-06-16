@@ -44,6 +44,11 @@ class CuratedGitHubSource:
         self._team = team
         self._tables = tables
 
+    @property
+    def team(self) -> Team:
+        """The team this handle reads for — query builders need it for timezone-aware date parsing."""
+        return self._team
+
     @classmethod
     def for_team(
         cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None

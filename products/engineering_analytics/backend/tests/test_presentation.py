@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
+from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
 
 _VIEWS = "products.engineering_analytics.backend.presentation.views.api"
 
@@ -65,6 +66,13 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
 
 
 class TestEngineeringAnalyticsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Source resolution precedes input validation, so the non-mocked bad-input tests below
+        # (window too large, malformed repo) need a connected source for those errors to surface
+        # rather than the no-source error. The mocked tests bypass resolution entirely.
+        connect_github_source_without_data(self.team, prefix="presentation")
+
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/engineering_analytics/{action}/"
 

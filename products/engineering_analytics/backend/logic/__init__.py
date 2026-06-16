@@ -8,7 +8,6 @@ only in canonical types.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse
@@ -25,9 +24,6 @@ from products.engineering_analytics.backend.logic.queries.pr_lifecycle import qu
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 
-if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
-
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
 _DEFAULT_WINDOW = "-30d"
@@ -37,58 +33,31 @@ _DEFAULT_WINDOW = "-30d"
 _MAX_WINDOW_DAYS = 366
 
 
-# Inputs are validated before the GitHub source is resolved, so a bad date or malformed
-# repo fails with its own clear error rather than being masked by the no-source error.
-# CuratedGitHubSource.for_team resolves the warehouse tables exactly once per request.
-def build_pr_lifecycle(
-    *,
-    team: Team,
-    pr_number: int,
-    repo: str | None,
-    source_id: str | None = None,
-    user_access_control: "UserAccessControl | None" = None,
-) -> PRLifecycle | None:
+# Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
+# warehouse access control happen once at the facade, which hands these builders the authorized
+# handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
+def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
-    curated = CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
     return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
-def build_ci_cards(
-    *, team: Team, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
-) -> CICardSummary:
-    return query_ci_cards(
-        curated=CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
-    )
+def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
+    return query_ci_cards(curated=curated)
 
 
-def build_pull_request_list(
-    *,
-    team: Team,
-    date_from: str | None = None,
-    source_id: str | None = None,
-    user_access_control: "UserAccessControl | None" = None,
-) -> PullRequestList:
-    parsed_from = _parse_date(team, date_from or _DEFAULT_WINDOW)
-    return query_pull_request_list(
-        curated=CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control),
-        date_from=parsed_from,
-    )
+def build_pull_request_list(*, curated: CuratedGitHubSource, date_from: str | None = None) -> PullRequestList:
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    return query_pull_request_list(curated=curated, date_from=parsed_from)
 
 
 def build_workflow_health(
-    *,
-    team: Team,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    source_id: str | None = None,
-    user_access_control: "UserAccessControl | None" = None,
+    *, curated: CuratedGitHubSource, date_from: str | None = None, date_to: str | None = None
 ) -> list[WorkflowHealthItem]:
-    parsed_from = _parse_date(team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(team, date_to) if date_to else None
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
     if span_days > _MAX_WINDOW_DAYS:
         raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
-    curated = CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
     return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to)
 
 
