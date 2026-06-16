@@ -1495,12 +1495,29 @@ def _get_partition_settings(
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
+    except psycopg.errors.UndefinedTable as e:
+        # The selected table was dropped or renamed in the source between schema discovery and
+        # this best-effort partition-sizing probe. That's a user/upstream condition we already
+        # tolerate here (return None -> no partitioning), and the real extraction query — which
+        # shares this FROM clause — hits the same missing relation and surfaces it through the
+        # normal non-retryable path ("does not exist"). Capturing it here too would only flood
+        # error tracking with handled duplicates, so mirror `_get_rows_to_sync` and log at debug.
+        logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
+        return None
     except Exception as e:
-        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
-        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
-        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
-        # unexpected failures are still captured.
-        if not _is_recovery_conflict_error(e):
+        # Partition sizing is best-effort: on failure we return None and the sync proceeds
+        # unpartitioned. Two handled conditions must not flood error tracking:
+        #   - A read replica can cancel this sizing query with a recovery conflict
+        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
+        #     replicas, and the row-streaming reader retries it in-process.
+        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
+        #     partition detection) can hit that transient condition and leave the transaction in
+        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
+        #     downstream symptom.
+        # Both resurface (and are classified through the normal retryable/non-retryable path) via
+        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
+        # captured.
+        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
@@ -1922,7 +1939,12 @@ def postgres_source(
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
         while True:
-            connection = _open_setup_connection()
+            # Opening the setup connection can itself hit a transient drop ("server closed the
+            # connection unexpectedly", idle cull, failover) — the same class of error the read
+            # path already recovers from. Retry the connect in-process with bounded backoff,
+            # mirroring `offset_chunking`, so a momentary blip during setup doesn't fail the whole
+            # activity. Permanent errors (auth failures, SSL-required) re-raise immediately.
+            connection = _connect_with_dropped_retry(_open_setup_connection, logger)
             try:
                 with connection:
                     with connection.cursor() as cursor:

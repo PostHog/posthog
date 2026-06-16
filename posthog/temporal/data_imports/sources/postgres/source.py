@@ -191,7 +191,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "password authentication failed for user": None,
             "No primary key defined for table": None,
             "failed: timeout expired": None,
-            "SSL connection has been closed unexpectedly": None,
+            # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
+            # It denotes an established SSL connection being dropped mid-stream (idle cull by a
+            # pooler, failover, network blip) — a transient condition that recovers on a fresh
+            # attempt. It is the SSL-flavoured sibling of the "consuming input failed" drops handled
+            # by `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. Marking it non-retryable
+            # permanently disabled syncs on a transient blip during schema discovery, which has no
+            # in-process reconnect. A genuinely unsupported-SSL source fails at connect time with a
+            # different message and is caught via "SSLRequiredError" / "SSL/TLS connection is required".
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
@@ -404,7 +411,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                                     pk_columns_by_table[display_name] = pk_columns
                         tables_with_pks = set(pk_columns_by_table.keys())
                     except Exception as e:
-                        capture_exception(e)
+                        # Best-effort, like the foreign-key and index lookups: some
+                        # Postgres-wire-compatible engines reject our `pg_catalog` PK query
+                        # (e.g. a DuckDB/DuckLake backend can't bind `ANY(indkey)` →
+                        # "Binder Error: UNNEST not supported here"). Losing the `supports_cdc`
+                        # hint is harmless, so warn rather than capturing it as an exception.
+                        structlog.get_logger().warning(
+                            "Failed to detect primary key columns for Postgres schemas", exc_info=e
+                        )
                         pk_columns_by_table = {}
                         tables_with_pks = set()
 

@@ -20643,6 +20643,7 @@
                 "AmazonKinesis",
                 "AmazonCloudWatch",
                 "OpenAIAds",
+                "Grafana",
                 "Custom"
             ],
             "type": "string"
@@ -24123,6 +24124,7 @@
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-analytics",
                 "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
@@ -39908,7 +39910,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "im:history", "mpim:read"],
+            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
             "type": "string"
         },
         "SlashCommandName": {
