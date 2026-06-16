@@ -167,6 +167,25 @@ impl CohortStore {
         self.get(Cf::Stage2, &key.encode())
     }
 
+    /// Batch-read several `cf_stage2` values in one call, preserving input order.
+    pub fn multi_get_stage2(&self, keys: &[Stage2Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        let handle = self.cf(Cf::Stage2)?;
+        let encoded: Vec<_> = keys.iter().map(Stage2Key::encode).collect();
+        self.db
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())))
+            .into_iter()
+            .map(|result| {
+                result.map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+                    StoreError::Backend {
+                        op: OP_MULTI_GET,
+                        source,
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// A missing key decodes to an empty vec.
     pub fn get_person_index(&self, key: &PersonIndexKey) -> Result<Vec<LeafStateKey>, StoreError> {
         Ok(self
@@ -594,6 +613,45 @@ mod tests {
 
         assert!(
             store.multi_get_stage1(&[]).unwrap().is_empty(),
+            "an empty key set reads no values",
+        );
+    }
+
+    #[test]
+    fn multi_get_stage2_preserves_order_and_reports_absent_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+
+        let present = |person: u128, cohort: u64| Stage2Key {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id: cohort,
+            person_id: Uuid::from_u128(person),
+        };
+        let a = present(1, 100);
+        let b = present(2, 200);
+        let absent = present(9, 999);
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(&a, b"alpha");
+                batch.put_stage2(&b, b"bravo");
+            })
+            .unwrap();
+
+        // Order: present, absent, present — the absent key must surface as a `None` hole, not shift
+        // the others.
+        let results = store.multi_get_stage2(&[a, absent, b]).unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0].as_deref(), Some(b"alpha".as_slice()));
+        assert_eq!(results[1], None);
+        assert_eq!(results[2].as_deref(), Some(b"bravo".as_slice()));
+
+        assert!(
+            store.multi_get_stage2(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
         );
     }

@@ -28,7 +28,6 @@ use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
 use crate::stage1::key::{LeafStateKey, Stage1Key};
 use crate::stage1::state::StatefulRecord;
 use crate::stage1::transition::LeafTransition;
-use crate::stage2::CohortEligibility;
 use crate::store::{
     CohortStore, IndexOp, MergeDrainKey, PendingTransferKey, PersonIndexKey, Stage2Key, StoreError,
     TombstoneKey,
@@ -325,12 +324,106 @@ fn slow_path(
     Ok(DrainOutcome::Drained { transfer })
 }
 
-/// The team's `Stage2Composable` cohort ids (the only cohorts that write `cf_stage2` rows).
+/// The team's cohort ids that write `cf_stage2` rows (both composable classes). See
+/// [`writes_cf_stage2`](crate::stage2::CohortEligibility::writes_cf_stage2).
 fn composable_cohort_ids(filters: &TeamFilters) -> impl Iterator<Item = CohortId> + '_ {
     filters
         .eligibility
         .iter()
-        .filter_map(|(&cohort_id, eligibility)| {
-            matches!(eligibility, CohortEligibility::Stage2Composable).then_some(cohort_id)
+        .filter_map(|(&cohort_id, eligibility)| eligibility.writes_cf_stage2().then_some(cohort_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono_tz::UTC;
+    use serde_json::{json, Value};
+
+    use crate::filters::TeamFiltersBuilder;
+    use crate::stage2::CohortEligibility;
+
+    fn behavioral(time_value: i64) -> Value {
+        json!({
+            "type": "behavioral", "value": "performed_event", "key": "$pageview",
+            "time_value": time_value, "time_interval": "day",
+            "conditionHash": "0123456789abcdef",
+            "bytecode": ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11],
         })
+    }
+
+    fn person() -> Value {
+        json!({
+            "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+            "conditionHash": "fedcba9876543210",
+            "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+        })
+    }
+
+    fn cohort_ref(target: i32) -> Value {
+        json!({ "type": "cohort", "value": target, "negation": false })
+    }
+
+    fn cohort(values: Vec<Value>) -> Value {
+        json!({ "properties": { "type": "AND", "values": values } })
+    }
+
+    #[test]
+    fn composable_cohort_ids_enumerates_both_composable_classes_for_row_deletion() {
+        let mut builder = TeamFiltersBuilder::default();
+        // 2: single-leaf referent — does NOT write cf_stage2.
+        builder
+            .add_cohort(CohortId(2), TeamId(7), &cohort(vec![behavioral(7)]))
+            .unwrap();
+        // 1: own leaf + ref to 2 → Stage2ComposableRef — writes cf_stage2.
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &cohort(vec![person(), cohort_ref(2)]),
+            )
+            .unwrap();
+        // 3: plain composable — writes cf_stage2.
+        builder
+            .add_cohort(
+                CohortId(3),
+                TeamId(7),
+                &cohort(vec![behavioral(7), person()]),
+            )
+            .unwrap();
+        let filters = builder.freeze_with(UTC, true);
+
+        assert_eq!(
+            filters.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+        );
+        let mut ids: Vec<i32> = composable_cohort_ids(&filters).map(|c| c.0).collect();
+        ids.sort_unstable();
+        assert_eq!(
+            ids,
+            vec![1, 3],
+            "a Stage2ComposableRef writer is enumerated alongside Stage2Composable; the SingleLeaf referent is not",
+        );
+    }
+
+    #[test]
+    fn composable_cohort_ids_gate_off_drops_the_still_excluded_ref_cohort() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(2), TeamId(7), &cohort(vec![behavioral(7)]))
+            .unwrap();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &cohort(vec![person(), cohort_ref(2)]),
+            )
+            .unwrap();
+        let filters = builder.freeze_with(UTC, false);
+
+        let ids: Vec<i32> = composable_cohort_ids(&filters).map(|c| c.0).collect();
+        assert!(
+            ids.is_empty(),
+            "gate off keeps the ref cohort Excluded(HasCohortRef), which writes no cf_stage2 row",
+        );
+    }
 }

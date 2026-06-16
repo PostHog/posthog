@@ -91,7 +91,10 @@ async fn async_main(config: Config) -> Result<()> {
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
-    let catalog = Arc::new(CatalogHandle::with_allowlist(config.team_allowlist.clone()));
+    let catalog = Arc::new(CatalogHandle::with_allowlist(
+        config.team_allowlist.clone(),
+        config.cohort_cascade_enabled,
+    ));
     match catalog.refresh(&pool).await {
         Ok(stats) => info!(
             teams = stats.teams,
@@ -374,6 +377,7 @@ fn log_startup(config: &Config) {
         filter_catalog_refresh_secs = config.filter_catalog_refresh_secs,
         filter_catalog_refresh_jitter_secs = config.filter_catalog_refresh_jitter_secs,
         team_allowlist = ?config.team_allowlist,
+        cohort_cascade_enabled = config.cohort_cascade_enabled,
         "starting cohort-stream-processor",
     );
 }

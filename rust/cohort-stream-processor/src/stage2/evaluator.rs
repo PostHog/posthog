@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use metrics::counter;
 
 use crate::filters::reverse_index::LeafStateMeta;
-use crate::filters::tree::{BoolOp, FilterNode};
+use crate::filters::tree::{BoolOp, CohortLeaf, FilterNode};
+use crate::filters::CohortId;
 use crate::observability::metrics::{STAGE2_STATE_DECODE_ERROR, STAGE2_UNEXPECTED_COHORT_REF};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::predicate::{compressed_predicate, daily_predicate, predicate};
@@ -39,24 +40,38 @@ pub fn leaf_membership(state: Option<&Stage1State>, meta: &LeafStateMeta) -> boo
     }
 }
 
-/// Fold a cohort's filter tree into one membership bit.
-pub fn evaluate_tree(node: &FilterNode, membership: &HashMap<LeafStateKey, bool>) -> bool {
+/// Fold a cohort's filter tree into one membership bit. State-keyed leaves read `membership`,
+/// cohort-reference leaves read `ref_membership`; an absent entry reads `false`, then the leaf's
+/// negation applies (so a negated absent leaf reads `true`).
+pub fn evaluate_tree(
+    node: &FilterNode,
+    membership: &HashMap<LeafStateKey, bool>,
+    ref_membership: &HashMap<CohortId, bool>,
+) -> bool {
     match node {
         FilterNode::Group { op, children } => match op {
             BoolOp::And => children
                 .iter()
-                .all(|child| evaluate_tree(child, membership)),
+                .all(|child| evaluate_tree(child, membership, ref_membership)),
             BoolOp::Or => children
                 .iter()
-                .any(|child| evaluate_tree(child, membership)),
+                .any(|child| evaluate_tree(child, membership, ref_membership)),
         },
-        FilterNode::Leaf(leaf) => match leaf.leaf_state_key() {
-            Some(lsk) => membership.get(&lsk).copied().unwrap_or(false) ^ leaf.negated(),
-            None => {
+        FilterNode::Leaf(CohortLeaf::CohortRef(config)) => {
+            let referent = ref_membership.get(&config.referenced_cohort_id).copied();
+            if referent.is_none() {
+                // The caller fills `ref_membership` for every ref leaf, so a miss signals a bug.
                 counter!(STAGE2_UNEXPECTED_COHORT_REF).increment(1);
-                false
             }
-        },
+            referent.unwrap_or(false) ^ config.negation
+        }
+        FilterNode::Leaf(leaf) => {
+            let bit = leaf
+                .leaf_state_key()
+                .and_then(|lsk| membership.get(&lsk).copied())
+                .unwrap_or(false);
+            bit ^ leaf.negated()
+        }
     }
 }
 
@@ -91,10 +106,19 @@ mod tests {
     }
 
     fn cohort_ref_leaf() -> FilterNode {
+        cohort_ref_leaf_neg(CohortId(99), false)
+    }
+
+    fn cohort_ref_leaf_neg(referenced: CohortId, negation: bool) -> FilterNode {
         FilterNode::Leaf(CohortLeaf::CohortRef(CohortRefLeafConfig {
-            referenced_cohort_id: CohortId(99),
-            negation: false,
+            referenced_cohort_id: referenced,
+            negation,
         }))
+    }
+
+    /// An empty cohort-reference map for ref-free trees.
+    fn no_refs() -> HashMap<CohortId, bool> {
+        HashMap::new()
     }
 
     fn group(op: BoolOp, children: Vec<FilterNode>) -> FilterNode {
@@ -232,9 +256,9 @@ mod tests {
         let tree = group(BoolOp::And, vec![person_leaf(lsk(1)), person_leaf(lsk(2))]);
         let both = HashMap::from([(lsk(1), true), (lsk(2), true)]);
         let one = HashMap::from([(lsk(1), true), (lsk(2), false)]);
-        assert!(evaluate_tree(&tree, &both));
+        assert!(evaluate_tree(&tree, &both, &no_refs()));
         assert!(
-            !evaluate_tree(&tree, &one),
+            !evaluate_tree(&tree, &one, &no_refs()),
             "AND fails when either leaf is false"
         );
     }
@@ -245,10 +269,10 @@ mod tests {
         let one = HashMap::from([(lsk(1), false), (lsk(2), true)]);
         let neither = HashMap::from([(lsk(1), false), (lsk(2), false)]);
         assert!(
-            evaluate_tree(&tree, &one),
+            evaluate_tree(&tree, &one, &no_refs()),
             "OR holds when either leaf is true"
         );
-        assert!(!evaluate_tree(&tree, &neither));
+        assert!(!evaluate_tree(&tree, &neither, &no_refs()));
     }
 
     #[test]
@@ -263,19 +287,22 @@ mod tests {
         );
         let sat = HashMap::from([(lsk(1), false), (lsk(2), true), (lsk(3), true)]);
         let c_false = HashMap::from([(lsk(1), true), (lsk(2), true), (lsk(3), false)]);
-        assert!(evaluate_tree(&tree, &sat));
-        assert!(!evaluate_tree(&tree, &c_false), "the outer AND needs c");
+        assert!(evaluate_tree(&tree, &sat, &no_refs()));
+        assert!(
+            !evaluate_tree(&tree, &c_false, &no_refs()),
+            "the outer AND needs c"
+        );
     }
 
     #[test]
     fn evaluate_empty_group_identities() {
         let membership = HashMap::new();
         assert!(
-            evaluate_tree(&group(BoolOp::And, vec![]), &membership),
+            evaluate_tree(&group(BoolOp::And, vec![]), &membership, &no_refs()),
             "an empty AND is the conjunction identity (true)",
         );
         assert!(
-            !evaluate_tree(&group(BoolOp::Or, vec![]), &membership),
+            !evaluate_tree(&group(BoolOp::Or, vec![]), &membership, &no_refs()),
             "an empty OR is the disjunction identity (false)",
         );
     }
@@ -285,27 +312,100 @@ mod tests {
         // AND(L, L) ≡ AND(L): the membership map collapses the duplicate to one key, and the leaf's
         // bit decides the whole cohort.
         let tree = group(BoolOp::And, vec![person_leaf(lsk(1)), person_leaf(lsk(1))]);
-        assert!(evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])));
-        assert!(!evaluate_tree(&tree, &HashMap::from([(lsk(1), false)])));
+        assert!(evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(1), true)]),
+            &no_refs()
+        ));
+        assert!(!evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(1), false)]),
+            &no_refs()
+        ));
     }
 
     #[test]
     fn evaluate_absent_leaf_reads_false() {
         // lsk(2) is not in the map (its state was absent / undecodable): the AND fails.
         let tree = group(BoolOp::And, vec![person_leaf(lsk(1)), person_leaf(lsk(2))]);
-        assert!(!evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])));
+        assert!(!evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(1), true)]),
+            &no_refs()
+        ));
     }
 
     #[test]
-    fn evaluate_unexpected_cohort_ref_reads_false() {
+    fn cohort_ref_leaf_reads_the_referent_bit_from_ref_membership() {
         let tree = group(BoolOp::Or, vec![person_leaf(lsk(1)), cohort_ref_leaf()]);
+        let off = HashMap::from([(lsk(1), false)]);
         assert!(
-            evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])),
-            "the OR still holds on the real leaf",
+            evaluate_tree(&tree, &off, &HashMap::from([(CohortId(99), true)])),
+            "referent 99 is a member → OR(false, ref) holds",
         );
         assert!(
-            !evaluate_tree(&tree, &HashMap::from([(lsk(1), false)])),
-            "the cohort ref reads false, so OR(false, ref) is false",
+            !evaluate_tree(&tree, &off, &HashMap::from([(CohortId(99), false)])),
+            "referent 99 is a non-member → OR(false, ref) is false",
+        );
+    }
+
+    #[test]
+    fn cohort_ref_leaf_absent_referent_reads_false() {
+        let tree = group(BoolOp::Or, vec![person_leaf(lsk(1)), cohort_ref_leaf()]);
+        assert!(!evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(1), false)]),
+            &no_refs(),
+        ));
+        assert!(
+            evaluate_tree(&tree, &HashMap::from([(lsk(1), true)]), &no_refs()),
+            "the real leaf still carries the OR",
+        );
+    }
+
+    #[test]
+    fn negated_cohort_ref_absent_referent_reads_true() {
+        let tree = group(
+            BoolOp::And,
+            vec![person_leaf(lsk(1)), cohort_ref_leaf_neg(CohortId(99), true)],
+        );
+        assert!(
+            evaluate_tree(&tree, &HashMap::from([(lsk(1), true)]), &no_refs()),
+            "absent negated referent reads true via false ^ true",
+        );
+    }
+
+    #[test]
+    fn negated_cohort_ref_present_member_reads_false() {
+        let tree = group(
+            BoolOp::And,
+            vec![person_leaf(lsk(1)), cohort_ref_leaf_neg(CohortId(99), true)],
+        );
+        assert!(
+            !evaluate_tree(
+                &tree,
+                &HashMap::from([(lsk(1), true)]),
+                &HashMap::from([(CohortId(99), true)]),
+            ),
+            "referent is a member → ¬member = false → AND fails",
+        );
+    }
+
+    #[test]
+    fn cohort_ref_and_state_keyed_leaf_compose_in_one_tree() {
+        let tree = group(BoolOp::And, vec![person_leaf(lsk(1)), cohort_ref_leaf()]);
+        assert!(evaluate_tree(
+            &tree,
+            &HashMap::from([(lsk(1), true)]),
+            &HashMap::from([(CohortId(99), true)]),
+        ));
+        assert!(
+            !evaluate_tree(
+                &tree,
+                &HashMap::from([(lsk(1), true)]),
+                &HashMap::from([(CohortId(99), false)]),
+            ),
+            "the referent being a non-member fails the AND",
         );
     }
 
@@ -324,7 +424,7 @@ mod tests {
         for ((a, b), expected) in cases {
             let map = HashMap::from([(lsk(1), a), (lsk(2), b)]);
             assert_eq!(
-                evaluate_tree(&tree, &map),
+                evaluate_tree(&tree, &map, &no_refs()),
                 expected,
                 "AND(A={a}, ¬B={b}) should be {expected}",
             );
@@ -338,7 +438,7 @@ mod tests {
             vec![person_leaf(lsk(1)), person_leaf_neg(lsk(2), true)],
         );
         assert!(
-            evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])),
+            evaluate_tree(&tree, &HashMap::from([(lsk(1), true)]), &no_refs()),
             "absent negated leaf reads true via false ^ true",
         );
     }
@@ -351,11 +451,11 @@ mod tests {
             vec![person_leaf(lsk(1)), person_leaf_neg(lsk(1), true)],
         );
         assert!(
-            !evaluate_tree(&tree, &HashMap::from([(lsk(1), true)])),
+            !evaluate_tree(&tree, &HashMap::from([(lsk(1), true)]), &no_refs()),
             "true AND (true ^ true = false) = false",
         );
         assert!(
-            !evaluate_tree(&tree, &HashMap::from([(lsk(1), false)])),
+            !evaluate_tree(&tree, &HashMap::from([(lsk(1), false)]), &no_refs()),
             "false AND (false ^ true = true) = false",
         );
     }
@@ -376,16 +476,19 @@ mod tests {
         assert!(evaluate_tree(
             &tree,
             &HashMap::from([(lsk(3), true), (lsk(1), false), (lsk(2), false)]),
+            &no_refs(),
         ));
         // C=true, A=false, B=true → OR(false, false) = false → AND(true, false) = false.
         assert!(!evaluate_tree(
             &tree,
             &HashMap::from([(lsk(3), true), (lsk(1), false), (lsk(2), true)]),
+            &no_refs(),
         ));
         // C=false → AND fails regardless.
         assert!(!evaluate_tree(
             &tree,
             &HashMap::from([(lsk(3), false), (lsk(1), true), (lsk(2), false)]),
+            &no_refs(),
         ));
     }
 
@@ -404,7 +507,7 @@ mod tests {
                 let tree = group(op, vec![leaf.clone()]);
                 if !condition_negation(&tree) {
                     assert!(
-                        !evaluate_tree(&tree, &empty),
+                        !evaluate_tree(&tree, &empty, &no_refs()),
                         "depth=1, op={op:?}, neg={neg}",
                     );
                 }
@@ -420,7 +523,7 @@ mod tests {
                     let tree = group(op, vec![a.clone(), b.clone()]);
                     if !condition_negation(&tree) {
                         assert!(
-                            !evaluate_tree(&tree, &empty),
+                            !evaluate_tree(&tree, &empty, &no_refs()),
                             "depth=1, op={op:?}, neg_a={neg_a}, neg_b={neg_b}",
                         );
                     }
@@ -443,7 +546,7 @@ mod tests {
                             );
                             if !condition_negation(&tree) {
                                 assert!(
-                                    !evaluate_tree(&tree, &empty),
+                                    !evaluate_tree(&tree, &empty, &no_refs()),
                                     "depth=2, outer={outer_op:?}, inner={inner_op:?}, \
                                      neg=({neg_a},{neg_b},{neg_c})",
                                 );

@@ -159,8 +159,16 @@ impl TeamFiltersBuilder {
         Ok(())
     }
 
-    /// Freeze into an immutable [`TeamFilters`].
+    /// Freeze into an immutable [`TeamFilters`] with cascade composition disabled. Delegates to
+    /// [`Self::freeze_with`].
     pub fn freeze(self, timezone: Tz) -> TeamFilters {
+        self.freeze_with(timezone, false)
+    }
+
+    /// Freeze into an immutable [`TeamFilters`]. When `cascade_enabled`, resolvable cycle-free
+    /// ref-bearing cohorts become [`CohortEligibility::Stage2ComposableRef`] and join the composable
+    /// emit-map by their own leaves; otherwise they stay `Excluded(HasCohortRef)`.
+    pub fn freeze_with(self, timezone: Tz, cascade_enabled: bool) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
         let mut person_property_conditions = HashSet::new();
@@ -180,7 +188,7 @@ impl TeamFiltersBuilder {
         let mut by_referenced_cohort: HashMap<CohortId, Vec<CohortId>> = HashMap::new();
         if self.flags.values().any(|flags| flags.has_cohort_ref) {
             let analysis = cohort_graph::analyze(&self.cohorts);
-            refine_ref_bearing(&mut eligibility, &analysis);
+            refine_ref_bearing(&mut eligibility, &analysis, cascade_enabled);
             // Invert the reference graph (referenced → [referrers]). Not filtered by eligibility, so
             // it stays populated even though referrers are excluded from composition.
             for (&referrer, targets) in &analysis.ref_targets {
@@ -225,7 +233,9 @@ impl TeamFiltersBuilder {
                         .or_default()
                         .push(tree.cohort_id);
                 }
-                CohortEligibility::Stage2Composable => {
+                // Both composable classes index their own state-keyed leaves; a pure-ref cohort has
+                // none, so it contributes nothing here.
+                CohortEligibility::Stage2Composable | CohortEligibility::Stage2ComposableRef => {
                     let mut leaf_keys = HashSet::new();
                     collect_leaf_state_keys(&tree.root, &mut leaf_keys);
                     for lsk in leaf_keys {
@@ -1188,6 +1198,152 @@ mod tests {
                 .values()
                 .all(|cohorts| !cohorts.contains(&CohortId(1))),
             "a ref-bearing cohort must not compose",
+        );
+    }
+
+    #[test]
+    fn cascade_on_pure_ref_cohort_is_composable_ref_but_indexes_no_lsk() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(2),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        // 1 is a pure cohort-ref to the single-leaf 2: no own state-keyed leaves.
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref_to(2)]))
+            .unwrap();
+        let frozen = builder.freeze_with(UTC, true);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+            "a resolvable, cycle-free ref cohort is promoted when the gate is on",
+        );
+        assert!(
+            frozen
+                .by_lsk_to_composable_cohorts
+                .values()
+                .all(|cohorts| !cohorts.contains(&CohortId(1))),
+            "a pure-ref cohort has no own leaves, so it joins no composable LSK",
+        );
+        assert_eq!(
+            frozen.cohorts_referencing(CohortId(2)),
+            [CohortId(1)].as_slice(),
+            "the reverse-reference index still points B's referrer back at A",
+        );
+    }
+
+    #[test]
+    fn cascade_on_ref_with_own_leaves_is_composable_ref_and_indexes_its_own_lsk() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(
+                CohortId(2),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![person_leaf(), cohort_ref_to(2)]),
+            )
+            .unwrap();
+        let frozen = builder.freeze_with(UTC, true);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+        );
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&per_lsk],
+            vec![CohortId(1)],
+            "the ref cohort's own person leaf re-triggers it on the event path",
+        );
+    }
+
+    #[test]
+    fn cascade_on_cycle_members_stay_excluded() {
+        let mut builder = TeamFiltersBuilder::default();
+        // 1 → 2 → 1 cycle.
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref_to(2)]))
+            .unwrap();
+        builder
+            .add_cohort(CohortId(2), TeamId(7), &wrap(vec![cohort_ref_to(1)]))
+            .unwrap();
+        let frozen = builder.freeze_with(UTC, true);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+        );
+        assert_eq!(
+            frozen.eligibility[&CohortId(2)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+        );
+    }
+
+    #[test]
+    fn cascade_on_unresolved_ref_stays_excluded() {
+        let mut builder = TeamFiltersBuilder::default();
+        // 99 is never added to the catalog.
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref_to(99)]))
+            .unwrap();
+        let frozen = builder.freeze_with(UTC, true);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+    }
+
+    #[test]
+    fn freeze_equals_freeze_with_false_on_a_ref_bearing_team() {
+        let build = || {
+            let mut builder = TeamFiltersBuilder::default();
+            builder
+                .add_cohort(
+                    CohortId(2),
+                    TeamId(7),
+                    &wrap(vec![behavioral_performed_event(7)]),
+                )
+                .unwrap();
+            builder
+                .add_cohort(
+                    CohortId(1),
+                    TeamId(7),
+                    &wrap(vec![person_leaf(), cohort_ref_to(2)]),
+                )
+                .unwrap();
+            builder
+        };
+        let via_freeze = build().freeze(UTC);
+        let via_freeze_with = build().freeze_with(UTC, false);
+
+        assert_eq!(via_freeze.eligibility, via_freeze_with.eligibility);
+        assert_eq!(
+            via_freeze.by_lsk_to_composable_cohorts,
+            via_freeze_with.by_lsk_to_composable_cohorts,
+        );
+        assert_eq!(
+            via_freeze.by_lsk_to_single_leaf_cohorts,
+            via_freeze_with.by_lsk_to_single_leaf_cohorts,
+        );
+        assert_eq!(
+            via_freeze.by_referenced_cohort,
+            via_freeze_with.by_referenced_cohort,
+        );
+        assert_eq!(
+            via_freeze.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+            "gate off leaves the resolvable ref cohort excluded, not promoted",
         );
     }
 }

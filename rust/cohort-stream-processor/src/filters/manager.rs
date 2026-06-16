@@ -76,20 +76,24 @@ pub struct CatalogHandle {
     loaded_notify: Notify,
     /// Cohorts for teams outside this allowlist never enter the catalog.
     allowlist: TeamAllowlist,
+    /// Whether each refresh freezes with cohort-cascade composition enabled.
+    cascade_enabled: bool,
 }
 
 impl CatalogHandle {
     pub fn new() -> Self {
-        Self::with_allowlist(TeamAllowlist::All)
+        Self::with_allowlist(TeamAllowlist::All, false)
     }
 
-    /// The production constructor: gate refreshes to `allowlist`.
-    pub fn with_allowlist(allowlist: TeamAllowlist) -> Self {
+    /// The production constructor: gate refreshes to `allowlist`, and freeze with cascade composition
+    /// when `cascade_enabled`.
+    pub fn with_allowlist(allowlist: TeamAllowlist, cascade_enabled: bool) -> Self {
         Self {
             catalog: ArcSwap::from_pointee(FilterCatalog::new()),
             loaded: AtomicBool::new(false),
             loaded_notify: Notify::new(),
             allowlist,
+            cascade_enabled,
         }
     }
 
@@ -144,7 +148,7 @@ impl CatalogHandle {
                 "filter catalog dropped cohort rows outside REALTIME_COHORT_TEAM_ALLOWLIST",
             );
         }
-        let catalog = build_catalog_from_rows(rows);
+        let catalog = build_catalog_from_rows(rows, self.cascade_enabled);
         let stats = CatalogStats {
             teams: catalog.team_count(),
             unique_conditions: catalog.total_unique_conditions(),

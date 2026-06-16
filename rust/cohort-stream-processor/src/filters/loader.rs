@@ -53,7 +53,7 @@ pub(crate) fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllo
 /// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
 /// rather than poisoning the rest of the catalog. Stays DB-free so the grouping logic is unit-tested
 /// without Postgres.
-pub fn build_catalog_from_rows(rows: Vec<CohortRow>) -> FilterCatalog {
+pub fn build_catalog_from_rows(rows: Vec<CohortRow>, cascade_enabled: bool) -> FilterCatalog {
     let mut builders: HashMap<TeamId, (TeamFiltersBuilder, Tz)> = HashMap::new();
 
     for row in rows {
@@ -81,7 +81,7 @@ pub fn build_catalog_from_rows(rows: Vec<CohortRow>) -> FilterCatalog {
     FilterCatalog::from_teams(
         builders
             .into_iter()
-            .map(|(team, (builder, tz))| (team, builder.freeze(tz))),
+            .map(|(team, (builder, tz))| (team, builder.freeze_with(tz, cascade_enabled))),
     )
 }
 
@@ -140,7 +140,7 @@ mod tests {
 
     #[test]
     fn empty_rows_build_an_empty_catalog() {
-        let catalog = build_catalog_from_rows(vec![]);
+        let catalog = build_catalog_from_rows(vec![], false);
         assert_eq!(catalog.team_count(), 0);
     }
 
@@ -151,7 +151,7 @@ mod tests {
             row_with_tz(1, 7, behavioral_cohort(), "America/New_York"),
             row_with_tz(2, 9, behavioral_cohort(), "not a real zone"),
         ];
-        let catalog = build_catalog_from_rows(rows);
+        let catalog = build_catalog_from_rows(rows, false);
         assert_eq!(catalog.team(TeamId(7)).expect("team 7").timezone, New_York);
         assert_eq!(
             catalog.team(TeamId(9)).expect("team 9").timezone,
@@ -166,12 +166,39 @@ mod tests {
             row(1, 7, json!({ "bogus": true })),
             row(2, 7, behavioral_cohort()),
         ];
-        let catalog = build_catalog_from_rows(rows);
+        let catalog = build_catalog_from_rows(rows, false);
 
         let team = catalog.team(TeamId(7)).expect("team present");
         assert!(team.cohorts.contains_key(&CohortId(2)));
         assert!(!team.cohorts.contains_key(&CohortId(1)));
         assert_eq!(team.unique_condition_hashes.len(), 1);
+    }
+
+    #[test]
+    fn build_catalog_threads_the_cascade_gate_into_freeze() {
+        use crate::stage2::{CohortEligibility, ExcludedReason};
+
+        let referrer = json!({
+            "properties": {
+                "type": "AND",
+                "values": [{ "type": "cohort", "value": 2, "negation": false }],
+            }
+        });
+        let rows = || vec![row(2, 7, behavioral_cohort()), row(1, 7, referrer.clone())];
+
+        let off = build_catalog_from_rows(rows(), false);
+        assert_eq!(
+            off.team(TeamId(7)).unwrap().eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+            "gate off keeps the ref cohort excluded",
+        );
+
+        let on = build_catalog_from_rows(rows(), true);
+        assert_eq!(
+            on.team(TeamId(7)).unwrap().eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+            "gate on promotes the resolvable ref cohort",
+        );
     }
 
     #[test]

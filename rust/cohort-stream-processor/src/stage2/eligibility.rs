@@ -59,6 +59,9 @@ pub enum CohortEligibility {
     SingleLeaf(LeafStateKey),
     /// ≥2 positive, state-keyed, cohort-ref-free leaves.
     Stage2Composable,
+    /// A resolvable, cycle-free ref-bearing cohort promoted to composition when `cohort_cascade_enabled`;
+    /// composes from each referent's stored membership and persists a `cf_stage2` bit.
+    Stage2ComposableRef,
     /// Not emitted; see [`ExcludedReason`].
     Excluded(ExcludedReason),
 }
@@ -69,8 +72,15 @@ impl CohortEligibility {
         match self {
             Self::SingleLeaf(_) => "single_leaf",
             Self::Stage2Composable => "stage2_composable",
+            Self::Stage2ComposableRef => "stage2_composable_ref",
             Self::Excluded(reason) => reason.metric_class(),
         }
+    }
+
+    /// Whether this class persists a `cf_stage2` row — both composable classes do; single-leaf
+    /// membership lives in `cf_stage1` and excluded cohorts persist nothing.
+    pub fn writes_cf_stage2(self) -> bool {
+        matches!(self, Self::Stage2Composable | Self::Stage2ComposableRef)
     }
 }
 
@@ -118,11 +128,16 @@ pub fn classify(tree: &CohortTree, flags: &CohortParseFlags) -> CohortEligibilit
     }
 }
 
-/// Refine each `Excluded(HasCohortRef)` cohort against the reference graph. Cycle members become
-/// `CycleDetected`; cohorts with unresolvable targets become `UnresolvedRef`.
+/// Refine each `Excluded(HasCohortRef)` cohort: cycle members → `CycleDetected`, an unresolvable
+/// target → `UnresolvedRef`, else promote to [`Stage2ComposableRef`] when `cascade_enabled` (kept
+/// `Excluded(HasCohortRef)` otherwise).
+///
+/// Targets are refined before referrers, so a referrer reads its target's final class — including a
+/// target already promoted to `Stage2ComposableRef`.
 pub(crate) fn refine_ref_bearing(
     eligibility: &mut HashMap<CohortId, CohortEligibility>,
     analysis: &RefGraphAnalysis,
+    cascade_enabled: bool,
 ) {
     for &cohort_id in &analysis.refinement_order {
         if !matches!(
@@ -132,27 +147,31 @@ pub(crate) fn refine_ref_bearing(
             continue;
         }
         let refined = if analysis.in_cycle.contains(&cohort_id) {
-            ExcludedReason::CycleDetected
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected)
         } else if analysis
             .ref_targets
             .get(&cohort_id)
             .is_some_and(|targets| targets.iter().any(|&t| !is_resolvable(eligibility, t)))
         {
-            ExcludedReason::UnresolvedRef
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef)
+        } else if cascade_enabled {
+            CohortEligibility::Stage2ComposableRef
         } else {
-            ExcludedReason::HasCohortRef
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef)
         };
-        eligibility.insert(cohort_id, CohortEligibility::Excluded(refined));
+        eligibility.insert(cohort_id, refined);
     }
 }
 
-/// Whether a reference target is resolvable (present, not cycle/unresolved/structural-excluded).
+/// Whether a reference target is resolvable (present, not cyclic/unresolved/structurally-excluded).
+/// `Excluded(HasCohortRef)` still counts — it can be read, it just doesn't itself compose.
 fn is_resolvable(eligibility: &HashMap<CohortId, CohortEligibility>, target: CohortId) -> bool {
     matches!(
         eligibility.get(&target),
         Some(
             CohortEligibility::SingleLeaf(_)
                 | CohortEligibility::Stage2Composable
+                | CohortEligibility::Stage2ComposableRef
                 | CohortEligibility::Excluded(ExcludedReason::HasCohortRef)
         )
     )
@@ -646,7 +665,7 @@ mod tests {
     fn refine_cycle_member_is_cycle_detected() {
         let mut elig =
             eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
-        refine_ref_bearing(&mut elig, &analysis(&[1], &[1], &[(1, &[1])]));
+        refine_ref_bearing(&mut elig, &analysis(&[1], &[1], &[(1, &[1])]), false);
         assert_eq!(
             elig[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::CycleDetected),
@@ -657,7 +676,7 @@ mod tests {
     fn refine_missing_target_is_unresolved_ref() {
         let mut elig =
             eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
-        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]));
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]), false);
         assert_eq!(
             elig[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
@@ -670,7 +689,7 @@ mod tests {
             (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
             (2, CohortEligibility::Excluded(ExcludedReason::EmptyGroup)),
         ]);
-        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[2])]));
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[2])]), false);
         assert_eq!(
             elig[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
@@ -683,7 +702,11 @@ mod tests {
             (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
             (2, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
         ]);
-        refine_ref_bearing(&mut elig, &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[99])]));
+        refine_ref_bearing(
+            &mut elig,
+            &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[99])]),
+            false,
+        );
         assert_eq!(
             elig[&CohortId(2)],
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
@@ -704,6 +727,7 @@ mod tests {
         refine_ref_bearing(
             &mut elig,
             &analysis(&[1, 2], &[1, 2, 4], &[(4, &[1]), (1, &[2]), (2, &[1])]),
+            false,
         );
         assert_eq!(
             elig[&CohortId(1)],
@@ -720,13 +744,17 @@ mod tests {
     }
 
     #[test]
-    fn refine_resolvable_chain_stays_has_cohort_ref() {
+    fn refine_resolvable_chain_stays_has_cohort_ref_when_cascade_off() {
         let mut elig = eligibility_map(&[
             (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
             (2, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
             (3, CohortEligibility::SingleLeaf(LeafStateKey(HASH_A))),
         ]);
-        refine_ref_bearing(&mut elig, &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[3])]));
+        refine_ref_bearing(
+            &mut elig,
+            &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[3])]),
+            false,
+        );
         assert_eq!(
             elig[&CohortId(2)],
             CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
@@ -738,15 +766,84 @@ mod tests {
     }
 
     #[test]
+    fn refine_resolvable_chain_promotes_to_composable_ref_when_cascade_on() {
+        // A(1) → B(2) → C(3, SingleLeaf). Both ref-bearing links resolve and sit in no cycle, so with
+        // the gate on both become Stage2ComposableRef — including the transitive A whose target B was
+        // itself just promoted (is_resolvable must accept Stage2ComposableRef).
+        let mut elig = eligibility_map(&[
+            (1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (2, CohortEligibility::Excluded(ExcludedReason::HasCohortRef)),
+            (3, CohortEligibility::SingleLeaf(LeafStateKey(HASH_A))),
+        ]);
+        refine_ref_bearing(
+            &mut elig,
+            &analysis(&[], &[2, 1], &[(1, &[2]), (2, &[3])]),
+            true,
+        );
+        assert_eq!(elig[&CohortId(2)], CohortEligibility::Stage2ComposableRef);
+        assert_eq!(elig[&CohortId(1)], CohortEligibility::Stage2ComposableRef);
+        assert_eq!(
+            elig[&CohortId(3)],
+            CohortEligibility::SingleLeaf(LeafStateKey(HASH_A)),
+            "the referent's own class is untouched",
+        );
+    }
+
+    #[test]
+    fn refine_cycle_stays_excluded_even_with_cascade_on() {
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(&mut elig, &analysis(&[1], &[1], &[(1, &[1])]), true);
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::CycleDetected),
+            "a cycle is never promoted, gate or no gate",
+        );
+    }
+
+    #[test]
+    fn refine_unresolved_stays_excluded_even_with_cascade_on() {
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]), true);
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+            "a missing target is never promoted, gate or no gate",
+        );
+    }
+
+    #[test]
     fn refine_never_touches_structural_exclusions() {
         let mut elig = eligibility_map(&[(
             1,
             CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
         )]);
-        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]));
+        refine_ref_bearing(&mut elig, &analysis(&[], &[1], &[(1, &[99])]), true);
         assert_eq!(
             elig[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::TopLevelNegation),
+            "the gate only refines HasCohortRef cohorts, never a structurally-excluded one",
+        );
+    }
+
+    #[test]
+    fn writes_cf_stage2_is_true_only_for_the_two_composable_classes() {
+        assert!(CohortEligibility::Stage2Composable.writes_cf_stage2());
+        assert!(CohortEligibility::Stage2ComposableRef.writes_cf_stage2());
+        assert!(!CohortEligibility::SingleLeaf(LeafStateKey(HASH_A)).writes_cf_stage2());
+        assert!(
+            !CohortEligibility::Excluded(ExcludedReason::HasCohortRef).writes_cf_stage2(),
+            "a still-excluded ref cohort persists no cf_stage2 row",
+        );
+        assert!(!CohortEligibility::Excluded(ExcludedReason::CycleDetected).writes_cf_stage2());
+    }
+
+    #[test]
+    fn composable_ref_metric_class_is_its_own_label() {
+        assert_eq!(
+            CohortEligibility::Stage2ComposableRef.metric_class(),
+            "stage2_composable_ref",
         );
     }
 }

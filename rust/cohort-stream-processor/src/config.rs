@@ -179,6 +179,11 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub cohort_cascade_fanout_cap: usize,
 
+    /// Promote resolvable, cycle-free cohort-of-cohort cohorts to composition. Default off:
+    /// ref-bearing cohorts stay excluded.
+    #[envconfig(from = "COHORT_CASCADE_ENABLED", default = "false")]
+    pub cohort_cascade_enabled: bool,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -465,6 +470,7 @@ mod tests {
             merge_gc_scan_limit: 10_000,
             cohort_cascade_depth_cap: 8,
             cohort_cascade_fanout_cap: 1000,
+            cohort_cascade_enabled: false,
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
@@ -688,10 +694,15 @@ mod tests {
         let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(defaults.cohort_cascade_depth_cap, 8);
         assert_eq!(defaults.cohort_cascade_fanout_cap, 1000);
+        assert!(
+            !defaults.cohort_cascade_enabled,
+            "the cascade gate defaults off",
+        );
 
         let env: std::collections::HashMap<String, String> = [
             ("COHORT_CASCADE_DEPTH_CAP", "3"),
             ("COHORT_CASCADE_FANOUT_CAP", "50"),
+            ("COHORT_CASCADE_ENABLED", "true"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -700,6 +711,7 @@ mod tests {
         let config = Config::init_from_hashmap(&env).unwrap();
         assert_eq!(config.cohort_cascade_depth_cap, 3);
         assert_eq!(config.cohort_cascade_fanout_cap, 50);
+        assert!(config.cohort_cascade_enabled);
     }
 
     #[test]

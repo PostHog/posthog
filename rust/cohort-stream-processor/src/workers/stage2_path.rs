@@ -11,7 +11,7 @@ use metrics::counter;
 use uuid::Uuid;
 
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::tree::{CohortTree, FilterNode};
+use crate::filters::tree::{CohortLeaf, CohortTree, FilterNode};
 use crate::filters::CohortId;
 use crate::observability::metrics::{
     STAGE2_COHORTS_EVALUATED, STAGE2_STATE_DECODE_ERROR, STAGE2_TRANSITIONS,
@@ -22,6 +22,7 @@ use crate::stage1::state::{Stage1State, StatefulRecord};
 use crate::stage1::transition::LeafTransition;
 use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
 use crate::stage2::state::Stage2State;
+use crate::stage2::CohortEligibility;
 use crate::store::{CohortStore, Stage2Key, StoreError};
 
 /// Re-evaluate every `Stage2Composable` cohort owning a flipped leaf, emit membership changes,
@@ -111,7 +112,8 @@ pub fn compose_stage2(
     Ok(changes)
 }
 
-/// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member.
+/// Compose one cohort for one person. A leaf with absent or undecodable state reads as non-member;
+/// a cohort-reference leaf reads the referenced cohort's stored membership (see [`resolve_ref_membership`]).
 fn evaluate_cohort(
     partition_id: u16,
     team_id: u64,
@@ -143,7 +145,84 @@ fn evaluate_cohort(
         membership.insert(*lsk, leaf_membership(state.as_ref(), meta));
     }
 
-    Ok(evaluate_tree(&tree.root, &membership))
+    let ref_membership =
+        resolve_ref_membership(partition_id, team_id, person_id, tree, filters, store)?;
+
+    Ok(evaluate_tree(&tree.root, &membership, &ref_membership))
+}
+
+/// Resolve each referenced cohort's membership for one person, keyed by referenced cohort id. The
+/// read source follows the referent's eligibility: a `SingleLeaf` referent from `cf_stage1` via
+/// [`leaf_membership`] (so its comparator applies), a composable referent from its stored `cf_stage2`
+/// bit, anything else as a non-member. One batched read per store.
+fn resolve_ref_membership(
+    partition_id: u16,
+    team_id: u64,
+    person_id: Uuid,
+    tree: &CohortTree,
+    filters: &TeamFilters,
+    store: &CohortStore,
+) -> Result<HashMap<CohortId, bool>, StoreError> {
+    let mut ref_ids = Vec::new();
+    collect_cohort_refs(&tree.root, &mut ref_ids);
+    if ref_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    ref_ids.sort_unstable();
+    ref_ids.dedup();
+
+    let mut ref_membership: HashMap<CohortId, bool> = HashMap::with_capacity(ref_ids.len());
+    let mut single_leaf_refs: Vec<(CohortId, LeafStateKey)> = Vec::new();
+    let mut composable_refs: Vec<CohortId> = Vec::new();
+    for ref_id in ref_ids {
+        match filters.eligibility.get(&ref_id) {
+            Some(CohortEligibility::SingleLeaf(lsk)) => single_leaf_refs.push((ref_id, *lsk)),
+            Some(elig) if elig.writes_cf_stage2() => composable_refs.push(ref_id),
+            // Excluded, cyclic, or absent from the catalog: non-member.
+            _ => {
+                ref_membership.insert(ref_id, false);
+            }
+        }
+    }
+
+    if !single_leaf_refs.is_empty() {
+        let keys: Vec<Stage1Key> = single_leaf_refs
+            .iter()
+            .map(|(_, lsk)| Stage1Key {
+                partition_id,
+                team_id,
+                leaf_state_key: *lsk,
+                person_id,
+            })
+            .collect();
+        let raw = store.multi_get_stage1(&keys)?;
+        for ((ref_id, lsk), bytes) in single_leaf_refs.iter().zip(raw) {
+            let bit = filters
+                .by_lsk
+                .get(lsk)
+                .map(|meta| leaf_membership(decode_stage1_state(bytes).as_ref(), meta))
+                .unwrap_or(false);
+            ref_membership.insert(*ref_id, bit);
+        }
+    }
+
+    if !composable_refs.is_empty() {
+        let keys: Vec<Stage2Key> = composable_refs
+            .iter()
+            .map(|ref_id| Stage2Key {
+                partition_id,
+                team_id,
+                cohort_id: ref_id.0 as u64,
+                person_id,
+            })
+            .collect();
+        let raw = store.multi_get_stage2(&keys)?;
+        for (ref_id, bytes) in composable_refs.iter().zip(raw) {
+            ref_membership.insert(*ref_id, decode_stage2_bit(bytes));
+        }
+    }
+
+    Ok(ref_membership)
 }
 
 /// Decode a `cf_stage1` value, or [`None`] for absent/undecodable rows.
@@ -160,14 +239,19 @@ fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State> {
 
 /// The stored `cf_stage2` membership bit for `key`, `false` when absent or undecodable.
 fn read_stage2_bit(store: &CohortStore, key: &Stage2Key) -> Result<bool, StoreError> {
-    let Some(bytes) = store.get_stage2(key)? else {
-        return Ok(false);
+    Ok(decode_stage2_bit(store.get_stage2(key)?))
+}
+
+/// Decode a `cf_stage2` value into its membership bit, `false` when absent or undecodable.
+fn decode_stage2_bit(bytes: Option<Vec<u8>>) -> bool {
+    let Some(bytes) = bytes else {
+        return false;
     };
     match Stage2State::decode(&bytes) {
-        Ok(state) => Ok(state.in_cohort),
+        Ok(state) => state.in_cohort,
         Err(_) => {
             counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
-            Ok(false)
+            false
         }
     }
 }
@@ -185,6 +269,20 @@ fn collect_leaf_state_keys(node: &FilterNode, out: &mut Vec<LeafStateKey>) {
                 out.push(lsk);
             }
         }
+    }
+}
+
+/// Collect referenced cohort ids (with duplicates; the caller dedups). Negation is left to
+/// `evaluate_tree`, so a referent referenced twice with opposite negation reads one bit.
+fn collect_cohort_refs(node: &FilterNode, out: &mut Vec<CohortId>) {
+    match node {
+        FilterNode::Group { children, .. } => {
+            for child in children {
+                collect_cohort_refs(child, out);
+            }
+        }
+        FilterNode::Leaf(CohortLeaf::CohortRef(config)) => out.push(config.referenced_cohort_id),
+        FilterNode::Leaf(_) => {}
     }
 }
 
@@ -653,5 +751,217 @@ mod tests {
         .unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].status, MembershipStatus::Left);
+    }
+
+    // --- Cohort-reference composition ---
+
+    use crate::stage2::CohortEligibility;
+
+    fn cohort_ref(target: i32) -> Value {
+        json!({ "type": "cohort", "value": target, "negation": false })
+    }
+
+    fn negated_cohort_ref(target: i32) -> Value {
+        json!({ "type": "cohort", "value": target, "negation": true })
+    }
+
+    /// Freeze several `(cohort_id, leaves)` cohorts into one team with the cascade gate set.
+    fn freeze_cascade(cohorts: Vec<(i32, Vec<Value>)>, cascade_enabled: bool) -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        for (id, values) in cohorts {
+            let cohort = json!({ "properties": { "type": "AND", "values": values } });
+            builder
+                .add_cohort(CohortId(id), TeamId(TEAM as i32), &cohort)
+                .unwrap();
+        }
+        builder.freeze_with(UTC, cascade_enabled)
+    }
+
+    fn write_stage2(store: &CohortStore, cohort: u64, who: Uuid, in_cohort: bool) {
+        let key = Stage2Key {
+            partition_id: PARTITION,
+            team_id: TEAM,
+            cohort_id: cohort,
+            person_id: who,
+        };
+        let state = Stage2State {
+            in_cohort,
+            last_evaluated_at_ms: EVENT_MS,
+        };
+        store
+            .write_batch(|b| b.put_stage2(&key, &state.encode()))
+            .unwrap();
+    }
+
+    fn single_leaf_lsk(filters: &TeamFilters, cohort: i32) -> LeafStateKey {
+        match filters.eligibility[&CohortId(cohort)] {
+            CohortEligibility::SingleLeaf(lsk) => lsk,
+            other => panic!("cohort {cohort} should be SingleLeaf, got {other:?}"),
+        }
+    }
+
+    /// Compose after flipping cohort 1's own person leaf.
+    fn compose_referrer_on_own_leaf(
+        store: &CohortStore,
+        filters: &TeamFilters,
+        who: Uuid,
+    ) -> Vec<CohortMembershipChange> {
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        compose_stage2(
+            PARTITION,
+            store,
+            filters,
+            &[transition(
+                per_lsk,
+                who,
+                PERSON_HASH,
+                TransitionKind::Entered,
+            )],
+            EVENT_MS,
+            TS,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn composable_ref_reads_a_single_leaf_referent_from_cf_stage1_via_its_op() {
+        let filters = freeze_cascade(
+            vec![
+                (2, vec![daily_leaf(7, "gte", 2)]),
+                (1, vec![person_leaf(), cohort_ref(2)]),
+            ],
+            true,
+        );
+        assert_eq!(
+            filters.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+        );
+        let ref2_lsk = single_leaf_lsk(&filters, 2);
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        // Count 2 ≥ gte 2: referent 2 is a member.
+        let (_dir, store) = temp_store();
+        write_stage1(&store, ref2_lsk, alice, daily_state(2));
+        write_stage1(&store, per_lsk, alice, person_state(true));
+        let entered = compose_referrer_on_own_leaf(&store, &filters, alice);
+        assert_eq!(entered.len(), 1);
+        assert_eq!(entered[0].cohort_id, 1);
+        assert_eq!(entered[0].status, MembershipStatus::Entered);
+
+        // Count 1 < gte 2: the referent's comparator applies, so it is a non-member.
+        let (_dir2, store2) = temp_store();
+        write_stage1(&store2, ref2_lsk, alice, daily_state(1));
+        write_stage1(&store2, per_lsk, alice, person_state(true));
+        let below = compose_referrer_on_own_leaf(&store2, &filters, alice);
+        assert!(
+            below.is_empty(),
+            "count 1 fails the referent's gte 2, so the referrer's AND is unsatisfied",
+        );
+    }
+
+    #[test]
+    fn composable_ref_reads_a_composable_referent_from_cf_stage2_verbatim() {
+        let filters = freeze_cascade(
+            vec![
+                // Two distinct leaves make cohort 2 composable, so its membership lives in cf_stage2.
+                (2, vec![behavioral_leaf(7), daily_leaf(30, "gte", 1)]),
+                (1, vec![person_leaf(), cohort_ref(2)]),
+            ],
+            true,
+        );
+        assert_eq!(
+            filters.eligibility[&CohortId(2)],
+            CohortEligibility::Stage2Composable,
+        );
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        let (_dir, store) = temp_store();
+        // cohort 2's cf_stage1 is left absent: a recompute would read non-member, so Entered proves
+        // the stored cf_stage2 bit is read.
+        write_stage2(&store, 2, alice, true);
+        write_stage1(&store, per_lsk, alice, person_state(true));
+
+        let entered = compose_referrer_on_own_leaf(&store, &filters, alice);
+        assert_eq!(entered.len(), 1);
+        assert_eq!(entered[0].cohort_id, 1);
+        assert_eq!(entered[0].status, MembershipStatus::Entered);
+    }
+
+    #[test]
+    fn composable_ref_absent_referent_reads_non_member() {
+        let filters = freeze_cascade(
+            vec![
+                (2, vec![daily_leaf(7, "gte", 2)]),
+                (1, vec![person_leaf(), cohort_ref(2)]),
+            ],
+            true,
+        );
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        let (_dir, store) = temp_store();
+        write_stage1(&store, per_lsk, alice, person_state(true));
+        let changes = compose_referrer_on_own_leaf(&store, &filters, alice);
+        assert!(
+            changes.is_empty(),
+            "an absent referent reads as a non-member, so the AND is unsatisfied",
+        );
+    }
+
+    #[test]
+    fn composable_ref_negated_absent_referent_enters() {
+        let filters = freeze_cascade(
+            vec![
+                (2, vec![daily_leaf(7, "gte", 2)]),
+                (1, vec![person_leaf(), negated_cohort_ref(2)]),
+            ],
+            true,
+        );
+        assert_eq!(
+            filters.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+        );
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        // Referent 2 absent → negated ref reads true → Entered.
+        let (_dir, store) = temp_store();
+        write_stage1(&store, per_lsk, alice, person_state(true));
+        let entered = compose_referrer_on_own_leaf(&store, &filters, alice);
+        assert_eq!(entered.len(), 1);
+        assert_eq!(entered[0].cohort_id, 1);
+        assert_eq!(entered[0].status, MembershipStatus::Entered);
+    }
+
+    #[test]
+    fn composable_ref_is_dormant_when_the_gate_is_off() {
+        // Gate off: cohort 1 stays Excluded(HasCohortRef), is absent from the composable map, and
+        // emits nothing even though both its own leaf and the referent are satisfied.
+        let filters = freeze_cascade(
+            vec![
+                (2, vec![daily_leaf(7, "gte", 2)]),
+                (1, vec![person_leaf(), cohort_ref(2)]),
+            ],
+            false,
+        );
+        let ref2_lsk = single_leaf_lsk(&filters, 2);
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        let alice = person(1);
+
+        let (_dir, store) = temp_store();
+        write_stage1(&store, ref2_lsk, alice, daily_state(2));
+        write_stage1(&store, per_lsk, alice, person_state(true));
+        let changes = compose_referrer_on_own_leaf(&store, &filters, alice);
+        assert!(
+            changes.is_empty(),
+            "gate off: the ref cohort is not in the composable map, so compose_stage2 skips it",
+        );
+        assert_eq!(
+            stage2_bit(&store, 1, alice),
+            None,
+            "no cf_stage2 bit written when the gate is off",
+        );
     }
 }
