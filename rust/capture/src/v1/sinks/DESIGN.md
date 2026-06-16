@@ -55,8 +55,8 @@ Key properties:
   WarpStream during a migration).
 - **Per-event results** — `publish_batch` returns one `Box<dyn SinkResult>`
   per published event, correlating outcomes back to request events by UUID.
-- **Buffer-reuse** — serialization and partition-key methods write into
-  caller-owned `String` buffers, eliminating per-event allocations.
+- **Owned-return API** — `serialize()` and `partition_key()` each return
+  a fresh `String`, keeping the trait simple and parallelism-ready.
 
 ---
 
@@ -210,8 +210,8 @@ pub trait Event: Send + Sync {
     fn should_publish(&self) -> bool;
     fn destination(&self) -> &Destination;
     fn headers(&self, ctx: &Context) -> CapturedEventHeaders;
-    fn partition_key(&self, ctx: &Context, buf: &mut String);
-    fn serialize_into(&self, ctx: &Context, buf: &mut String) -> anyhow::Result<()>;
+    fn partition_key(&self, ctx: &Context) -> String;
+    fn serialize(&self, ctx: &Context) -> anyhow::Result<String>;
 }
 ```
 
@@ -227,28 +227,16 @@ The analytics capture endpoint's `WrappedEvent` implements this trait
 Other capture endpoints (e.g. session replay, exceptions) provide
 their own `Event` implementations without changing any sink code.
 
-### Buffer-reuse pattern
+### Owned-return serialization
 
-`partition_key` and `serialize_into` write into caller-owned
-`String` buffers that are cleared between events. This eliminates
-per-event allocations after the first iteration — the buffers grow to
-high-water mark and stay there for the entire batch.
+`partition_key(ctx)` and `serialize(ctx)` each return a fresh owned
+`String`. This trades a small per-event allocation for a simpler trait
+contract that needs no shared mutable buffers — making the prep loop
+trivially parallelizable if needed in the future.
 
-```text
-  ┌──────────────────────────────────────────────┐
-  │ publish_batch                                │
-  │                                              │
-  │   payload_buf = String::with_capacity(4096)  │
-  │   key_buf     = String::with_capacity(128)   │
-  │                                              │
-  │   for event in events:                       │
-  │       payload_buf.clear()   ◄─ no alloc      │
-  │       key_buf.clear()       ◄─ no alloc      │
-  │       event.serialize_into(ctx, &payload_buf) │
-  │       event.partition_key(ctx, &key_buf)      │
-  │       producer.send(...)                     │
-  └──────────────────────────────────────────────┘
-```
+`WrappedEvent::serialize` pre-sizes its buffer via
+`String::with_capacity(data.len() + 512)` to minimize reallocations
+for typical payloads.
 
 ### Skip mechanisms
 
@@ -356,7 +344,7 @@ Captures every failure mode within a single configured sink:
 | Variant | Outcome | When |
 |---|---|---|
 | `SinkUnavailable` | `RetriableError` | Producer health gate failed |
-| `SerializationFailed(String)` | `FatalError` | `serialize_into` returned `Err` |
+| `SerializationFailed(String)` | `FatalError` | `serialize` returned `Err` |
 | `Produce(ProduceError)` | Depends on `ProduceError::is_retriable()` | rdkafka send or delivery error |
 | `Timeout` | `Timeout` | Ack not received within `produce_timeout` |
 | `TaskPanicked` | `RetriableError` | Ack task panicked (should not happen with `FuturesUnordered`) |
@@ -443,10 +431,10 @@ corresponds 1:1 to a published event.
   │   for each event:                                               │
   │     ├── should_publish()? → skip if false                       │
   │     ├── topic_for(destination)? → skip if Drop/None             │
-  │     ├── serialize_into(ctx, payload_buf)                        │
+  │     ├── event.serialize(ctx) → payload String                   │
   │     ├── event.headers(ctx) → CapturedEventHeaders               │
-  │     ├── event.partition_key(ctx, key_buf)                       │
-  │     ├── effective_partition_key(key, headers, dest) → key/None  │
+  │     ├── should_null_partition_key(headers, dest)?                │
+  │     │     └── false → event.partition_key(ctx) → Some(key)      │
   │     ├── CapturedEventHeaders → OwnedHeaders (via From)          │
   │     └── producer.send(ProduceRecord)                            │
   │           ├── Ok(ack_future) → push to FuturesUnordered         │
@@ -990,12 +978,12 @@ keeping the Sink trait unaware of topic names.
 Partition key construction is split between the `Event` implementation
 and the sink:
 
-1. **`Event::partition_key(ctx, buf)`** always writes a key into the
-   buffer. For analytics events (`WrappedEvent`):
+1. **`Event::partition_key(ctx)`** returns an owned key String.
+   For analytics events (`WrappedEvent`):
 
 ```text
   ┌───────────────────────────────────────────────────┐
-  │ partition_key(ctx, buf)                            │
+  │ partition_key(ctx) -> String                       │
   │                                                    │
   │   cookieless_mode?                                 │
   │   ├── yes, capture_internal → "token:127.0.0.1"   │
@@ -1004,7 +992,7 @@ and the sink:
   └───────────────────────────────────────────────────┘
 ```
 
-2. **`effective_partition_key()`** (`kafka/sink.rs`) decides whether
+2. **`should_null_partition_key()`** (`kafka/sink.rs`) decides whether
    the key should be nulled before sending to the producer:
 
 ```rust
@@ -1073,7 +1061,7 @@ expect.
   │  destination: Destination│
   │  force_disable_*        │
   └───────────┬─────────────┘
-              │ serialize_into(ctx, buf)
+              │ serialize(ctx)
               ▼
   ┌──────────────────────────────┐
   │  IngestionEvent (Kafka msg)  │
@@ -1148,7 +1136,7 @@ Fields intentionally omitted vs the legacy `RawEvent`:
 ### IP redaction
 
 `capture_internal` requests (PostHog's own telemetry) have their IP
-redacted to `127.0.0.1` in both `serialize_into` (the `ip` field on
+redacted to `127.0.0.1` in both `serialize` (the `ip` field on
 `IngestionEvent`) and `partition_key` (cookieless mode).
 
 ---
@@ -1206,7 +1194,7 @@ Builder options include:
 
 `v1::analytics::types` has a comprehensive test suite validating:
 
-- **Round-trip parity**: `WrappedEvent::serialize_into` output
+- **Round-trip parity**: `WrappedEvent::serialize` output
   deserializes as `common_types::CapturedEvent` + `RawEvent`, verifying
   field-by-field compatibility with legacy capture.
 - **Property injection**: all option fields are correctly injected into

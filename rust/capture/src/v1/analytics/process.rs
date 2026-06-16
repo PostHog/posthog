@@ -358,8 +358,6 @@ fn apply_historical_rerouting(
 }
 
 fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
-    let mut buf = String::with_capacity(128);
-
     for event in events.iter_mut() {
         if event.destination != Destination::AnalyticsMain {
             continue;
@@ -368,10 +366,9 @@ fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mu
             continue;
         }
 
-        buf.clear();
-        event.partition_key(ctx, &mut buf);
+        let key = event.partition_key(ctx);
 
-        match limiter.is_limited(&buf) {
+        match limiter.is_limited(&key) {
             OverflowLimiterResult::ForceLimited => {
                 event.destination = Destination::Overflow;
                 // Disables person processing AND nulls partition key at sink.
