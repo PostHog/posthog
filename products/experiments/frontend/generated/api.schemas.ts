@@ -246,6 +246,43 @@ export interface ExperimentParametersApi {
     rollout_percentage?: number | null
 }
 
+export type ConversionRateInputTypeApi = (typeof ConversionRateInputTypeApi)[keyof typeof ConversionRateInputTypeApi]
+
+export const ConversionRateInputTypeApi = {
+    Manual: 'manual',
+    Automatic: 'automatic',
+} as const
+
+export type ManualMetricTypeApi = (typeof ManualMetricTypeApi)[keyof typeof ManualMetricTypeApi]
+
+export const ManualMetricTypeApi = {
+    Funnel: 'funnel',
+    MeanCount: 'mean_count',
+    MeanSumOrAvg: 'mean_sum_or_avg',
+} as const
+
+export interface ExperimentExposureEstimateConfigApi {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: ConversionRateInputTypeApi
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number | null
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number | null
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: ManualMetricTypeApi | null
+}
+
+export interface ExperimentRunningTimeCalculationApi {
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfigApi | null
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number | null
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number | null
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number | null
+}
+
 export interface ExperimentToSavedMetricApi {
     readonly id: number
     experiment: number
@@ -531,8 +568,10 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
     parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     secondary_metrics?: unknown
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
     /**
@@ -631,8 +670,10 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
     parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     secondary_metrics?: unknown
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /**
