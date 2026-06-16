@@ -2440,6 +2440,7 @@ class NodeKind(StrEnum):
     TRACE_SPANS_AGGREGATION_QUERY = "TraceSpansAggregationQuery"
     TRACE_SPANS_TREE_QUERY = "TraceSpansTreeQuery"
     TRACE_SPANS_ATTRIBUTE_BREAKDOWN_QUERY = "TraceSpansAttributeBreakdownQuery"
+    TRACE_SPANS_SYMBOL_STATS_QUERY = "TraceSpansSymbolStatsQuery"
     SESSION_BATCH_EVENTS_QUERY = "SessionBatchEventsQuery"
     DATA_TABLE_NODE = "DataTableNode"
     DATA_VISUALIZATION_NODE = "DataVisualizationNode"
@@ -3146,6 +3147,11 @@ class SurveyWidgetType(StrEnum):
     BUTTON = "button"
     TAB = "tab"
     SELECTOR = "selector"
+
+
+class SymbolStatsGranularity(StrEnum):
+    LINE = "line"
+    SYMBOL = "symbol"
 
 
 class TaskExecutionStatus(StrEnum):

@@ -275,6 +275,129 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _SymbolStatsSymbolApi {
+    /**
+     * Opaque identifier (e.g. the function name) echoed back on the matching result row.
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * First line of the symbol's range, inclusive.
+     * @minimum 1
+     */
+    startLine: number
+    /**
+     * Last line of the symbol's range, inclusive.
+     * @minimum 1
+     */
+    endLine: number
+}
+
+export interface _SymbolStatsQueryBodyApi {
+    /** Repo-relative path of the source file to aggregate (e.g. 'src/flags/flag_matching.rs'). Matched as a path suffix against the recorded OTel code.file.path / code.filepath, so a recorded path carrying an extra crate/workspace prefix still matches. Separators are normalized. */
+    filePath: string
+    /** Current period to aggregate over; the prior equal-length window is the comparison. Defaults to last 24h. */
+    dateRange?: _TracingDateRangeApi
+    /** Optional symbol (function) line ranges, supplied by the client from its own AST/LSP. When given, each span is attributed to the smallest enclosing range (one row per symbol). When omitted (or an empty list), spans are aggregated per source line (one row per line); pass a single whole-file range for a file-level total. */
+    symbols?: _SymbolStatsSymbolApi[]
+}
+
+export interface _SymbolStatsRequestApi {
+    /** The symbol-stats per-symbol aggregation query to execute. */
+    query: _SymbolStatsQueryBodyApi
+}
+
+export interface _SymbolStatsPeriodApi {
+    /** Number of spans attributed to this symbol in the period. */
+    count: number
+    /** Spans whose OTel status is Error (status_code = 2). */
+    error_count: number
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: number
+    /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+}
+
+export interface _SymbolStatsRowApi {
+    /** Number of spans attributed to this symbol in the period. */
+    count: number
+    /** Spans whose OTel status is Error (status_code = 2). */
+    error_count: number
+    /** Total wall-clock span duration in the period, in nanoseconds (additive across spans). */
+    sum_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
+    p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
+    p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** Spans in the period carrying an active/busy time attribute. 0 means busy_* are not meaningful. */
+    busy_count: number
+    /** Median active (busy) time, in nanoseconds. Excludes awaiting children. */
+    p50_busy_nano: number
+    /** 95th-percentile active (busy) time, in nanoseconds. */
+    p95_busy_nano: number
+    /** 99th-percentile active (busy) time, in nanoseconds. */
+    p99_busy_nano: number
+    /** Bucket anchor: the source line (line mode) or the symbol's startLine (symbol mode). */
+    line: number
+    /**
+     * Echoed name from the requested symbol (symbol mode only).
+     * @nullable
+     */
+    name?: string | null
+    /**
+     * endLine of the matched symbol's range (symbol mode only).
+     * @nullable
+     */
+    end_line?: number | null
+    /** The same metrics over the immediately-preceding equal-length period. */
+    previous: _SymbolStatsPeriodApi
+    /**
+     * Percentage change in count vs the previous period (180 = +180%). Null when there is no baseline (previous count 0). Use `previous.count` — not a null here — to detect a new symbol.
+     * @nullable
+     */
+    count_pct_change: number | null
+    /**
+     * Percentage change in p95 duration vs the previous period (180 = +180%). Null when the previous p95 is 0 (no comparable baseline), which can occur even when previous.count > 0 — do not read null as 'new symbol'.
+     * @nullable
+     */
+    p95_duration_pct_change: number | null
+}
+
+/**
+ * * `line` - line
+ * * `symbol` - symbol
+ */
+export type GranularityEnumApi = (typeof GranularityEnumApi)[keyof typeof GranularityEnumApi]
+
+export const GranularityEnumApi = {
+    Line: 'line',
+    Symbol: 'symbol',
+} as const
+
+export interface _SymbolStatsResponseApi {
+    /** One row per bucket, ordered by line ascending. */
+    results: _SymbolStatsRowApi[]
+    /** Bucketing applied: 'line' when no symbols were supplied, 'symbol' otherwise.
+     *
+     * * `line` - line
+     * * `symbol` - symbol */
+    granularity: GranularityEnumApi
+}
+
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
     dateRange?: _TracingDateRangeApi
