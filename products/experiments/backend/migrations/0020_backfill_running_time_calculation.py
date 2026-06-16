@@ -36,8 +36,6 @@ def backfill_running_time_calculation(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("experiments", "0019_experiment_running_time_calculation"),
     ]
