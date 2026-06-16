@@ -22,11 +22,12 @@ import re
 import ast
 import shutil
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .ast_helpers import ast_parse_safe
 from .checks import CheckContext, MisplacedFilesCheck, RequiredRootFilesCheck
+from .cst_helpers import absolutize_relative_imports
 from .paths import PRODUCTS_DIR, REPO_ROOT, load_structure
 
 # ---------------------------------------------------------------------------
@@ -266,26 +267,6 @@ def rewrite_paths(text: str, renames: dict[str, str]) -> str:
     return text
 
 
-def absolutize_relative_imports(text: str, package: str) -> tuple[str, list[str]]:
-    """Rewrite level-1 relative imports to absolute ones before a module moves.
-
-    ``from .x import y`` means ``<package>.x`` only at the original depth;
-    after the move it would silently resolve elsewhere or break. Deeper
-    relative imports are reported, not guessed.
-    """
-    warnings: list[str] = []
-    out_lines = []
-    for line in text.splitlines(keepends=True):
-        if re.match(r"^\s*from\s+\.\.", line):
-            warnings.append(f"multi-level relative import left untouched: {line.strip()}")
-            out_lines.append(line)
-            continue
-        line = re.sub(r"^(\s*from\s+)\.(?=\s+import\s)", rf"\g<1>{package}", line)
-        line = re.sub(r"^(\s*from\s+)\.(?=\w)", rf"\g<1>{package}.", line)
-        out_lines.append(line)
-    return "".join(out_lines), warnings
-
-
 def _args_span(text: str, open_idx: int) -> int | None:
     """Index just past the ``)`` that balances the ``(`` at ``text[open_idx]``.
 
@@ -390,12 +371,19 @@ class MovePlan:
     module_renames: dict[str, str]
     tasks_move: tuple[Path, Path] | None
     serializers_move: tuple[Path, Path] | None = None
+    # api/ test subpackages relocate out of the api namespace into the product's
+    # own test dir, so they can't ride the api -> presentation.views prefix rename.
+    test_moves: list[tuple[Path, Path]] = field(default_factory=list)
+
+
+_TEST_DIRS = ("test", "tests")
 
 
 def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
     backend_dir = PRODUCTS_DIR / name / "backend"
     target_dir = backend_dir / "presentation" / "views"
     view_moves: list[tuple[Path, Path]] = []
+    test_moves: list[tuple[Path, Path]] = []
     renames: dict[str, str] = {}
 
     if views:
@@ -414,13 +402,26 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
             renames[f"products.{name}.backend.{p.stem}"] = f"products.{name}.backend.presentation.views.{p.stem}"
         api_dir = backend_dir / "api"
         if api_dir.is_dir():
-            # Relocate the whole api/ subpackage — viewsets, helpers, and its
-            # __init__ re-exports all move together, so one prefix rename
-            # (backend.api -> backend.presentation.views) covers every caller,
-            # including bare-package imports resolved through __init__.
-            for p in sorted(api_dir.glob("*.py")):
-                view_moves.append((p, target_dir / p.name))
+            # Relocate the whole api/ subtree, not just its top-level files —
+            # production helper subpackages (e.g. destination_tests/) are part of
+            # the package's surface and ride the prefix rename with everything
+            # else, so one rename (backend.api -> backend.presentation.views)
+            # covers them. Test subpackages can't ride it: they leave the api
+            # namespace for the product's test dir, so they get their own rename
+            # and their relative imports are absolutized at move time.
+            tests_target = backend_dir / "tests" / "api"
+            for p in sorted(api_dir.rglob("*.py")):
+                rel = p.relative_to(api_dir)
+                if rel.parts[0] in _TEST_DIRS:
+                    test_moves.append((p, tests_target / Path(*rel.parts[1:])))
+                else:
+                    view_moves.append((p, target_dir / rel))
             renames[f"products.{name}.backend.api"] = f"products.{name}.backend.presentation.views"
+            for tdir in _TEST_DIRS:
+                if (api_dir / tdir).is_dir():
+                    # Longer prefix, so rewrite_paths applies it before the api ->
+                    # presentation.views rename and test paths land in tests/api.
+                    renames[f"products.{name}.backend.api.{tdir}"] = f"products.{name}.backend.tests.api"
 
     serializers_py = backend_dir / "serializers.py"
     serializers_move = None
@@ -436,6 +437,7 @@ def build_move_plan(name: str, views: list[str] | None = None) -> MovePlan:
         module_renames=renames,
         tasks_move=tasks_move,
         serializers_move=serializers_move,
+        test_moves=test_moves,
     )
 
 
@@ -443,6 +445,24 @@ _PACKAGE_INIT_DOCSTRINGS = {
     "presentation": '"""HTTP presentation layer of the {name} product (DRF viewsets and serializers)."""\n',
     "views": '"""DRF viewsets for {name} — submodule paths (`backend.presentation.views.*`) are part\nof the shared tach interface for isolated products.\n"""\n',
 }
+
+
+def _git_move_and_absolutize(
+    name: str, src: Path, dst: Path, backend_dir: Path, repo_root: Path, log: list[str]
+) -> str:
+    """git-mv a file into the isolated layout and rewrite its relative imports.
+
+    Relative imports resolve against the file's *original* package, so absolutize
+    against that (``backend.api`` for an api/ file, ``backend`` for a root one)
+    before the move changes what a leading dot means. Returns the rewritten text.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src_package = _module_dotted(name, src.parent.relative_to(backend_dir))
+    subprocess.run(["git", "mv", str(src), str(dst)], cwd=repo_root, check=True)
+    fixed, warnings = absolutize_relative_imports(dst.read_text(), src_package)
+    dst.write_text(fixed)
+    log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in warnings)
+    return fixed
 
 
 def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool = False) -> list[str]:
@@ -466,6 +486,8 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
 
     for src, dst in plan.view_moves:
         log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)}")
+    for src, dst in plan.test_moves:
+        log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)} (test)")
     if plan.serializers_move:
         src, dst = plan.serializers_move
         log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)}")
@@ -476,6 +498,18 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
         log.append(f"rewrite {old} -> {new} (imports and string references, repo-wide)")
     if dry_run:
         return log
+
+    # A test move into an already-populated test dir would clobber a real file
+    # (an empty __init__ package marker is the one safe collision — handled below).
+    # Fail before mutating anything rather than mid-move.
+    collisions = [
+        dst
+        for src, dst in plan.test_moves
+        if dst.exists() and not (src.name == "__init__.py" and dst.name == "__init__.py")
+    ]
+    if collisions:
+        joined = ", ".join(str(c.relative_to(repo_root)) for c in collisions)
+        raise ValueError(f"test moves collide with existing files: {joined} — merge them into the test dir by hand")
 
     # __init__ files an api/ subpackage brings with it are move targets — don't
     # pre-create those, or the git mv collides with the scaffolded file.
@@ -491,13 +525,9 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
             if not init.exists() and init not in move_targets:
                 init.write_text(_PACKAGE_INIT_DOCSTRINGS[dirname].format(name=name))
         for src, dst in plan.view_moves:
-            # Relative imports resolve against the file's *original* package, so
-            # absolutize against the source dir (backend.api for api/ files), not root.
-            src_package = ".".join((f"products.{name}.backend", *src.parent.relative_to(backend_dir).parts))
-            subprocess.run(["git", "mv", str(src), str(dst)], cwd=repo_root, check=True)
-            fixed, warnings = absolutize_relative_imports(dst.read_text(), src_package)
-            dst.write_text(fixed)
-            log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in warnings)
+            # Nested production subpackages (api/destination_tests/) keep their
+            # structure under presentation/views/ — the helper makes the parent.
+            fixed = _git_move_and_absolutize(name, src, dst, backend_dir, repo_root, log)
             if "__file__" in fixed:
                 # Found the hard way on logs: explain.py resolved its template dir via
                 # Path(__file__).parent, which silently points elsewhere after the move.
@@ -505,20 +535,35 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
                     f"WARNING {dst.relative_to(repo_root)}: uses __file__-relative paths — "
                     "re-anchor resource paths for the new module depth"
                 )
-        api_dir = backend_dir / "api"
-        if api_dir.is_dir():
-            leftover = sorted(p.name for p in api_dir.iterdir() if p.name != "__pycache__")
-            if leftover:
-                # Test subpackages (api/test/) reach the moved modules via relative
-                # imports (`from ...api.x`), which the repo-wide rewrite — absolute
-                # paths only — can't follow. Flag it loudly instead of leaving it broken.
-                log.append(
-                    f"WARNING {api_dir.relative_to(repo_root)} still holds {leftover} after the move — "
-                    "move those subpackages or absolutize their relative imports into the moved modules by hand"
-                )
-            else:
-                shutil.rmtree(api_dir)
-                log.append(f"removed empty {api_dir.relative_to(repo_root)}")
+
+    for src, dst in plan.test_moves:
+        if dst.exists():
+            # Pre-flight left only the safe collision: an empty package marker whose
+            # destination already exists. The moved one is redundant — drop it.
+            subprocess.run(["git", "rm", "-f", "--quiet", str(src)], cwd=repo_root, check=True)
+            log.append(f"drop redundant {src.relative_to(repo_root)} ({dst.relative_to(repo_root)} already exists)")
+            continue
+        # The repo-wide rename carries the now-absolute paths to the moved code.
+        _git_move_and_absolutize(name, src, dst, backend_dir, repo_root, log)
+
+    # Clean up api/ only once everything (production + tests) has moved out of it.
+    api_dir = backend_dir / "api"
+    api_was_moved = any(src.is_relative_to(api_dir) for src, _ in (*plan.view_moves, *plan.test_moves))
+    if api_dir.is_dir() and api_was_moved:
+        # git mv moves files but leaves the emptied dirs behind, so look for real
+        # files left over (a subpackage the move didn't know how to place), not dir
+        # entries — an emptied destination_tests/ is not leftover content.
+        remaining = sorted(
+            str(p.relative_to(api_dir)) for p in api_dir.rglob("*") if p.is_file() and "__pycache__" not in p.parts
+        )
+        if remaining:
+            log.append(
+                f"WARNING {api_dir.relative_to(repo_root)} still holds files after the move ({remaining}) — "
+                "relocate them by hand (the move only knows production and test subpackages)"
+            )
+        else:
+            shutil.rmtree(api_dir)
+            log.append(f"removed empty {api_dir.relative_to(repo_root)}")
 
     if plan.serializers_move:
         src, dst = plan.serializers_move

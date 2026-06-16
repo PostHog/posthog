@@ -128,14 +128,24 @@ def test_rewrite_paths_longest_rename_wins() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_absolutize_relative_imports() -> None:
-    text = "from .models import Thing\nfrom . import logic\nfrom ..shared import other\n"
-    result, warnings = absolutize_relative_imports(text, "products.logs.backend")
-    assert "from products.logs.backend.models import Thing" in result
-    assert "from products.logs.backend import logic" in result
-    # multi-level imports are reported, not guessed
-    assert "from ..shared import other" in result
-    assert len(warnings) == 1
+@pytest.mark.parametrize(
+    "source,package,expected",
+    [
+        ("from .models import Thing\n", "products.logs.backend", "from products.logs.backend.models import Thing"),
+        ("from . import logic\n", "products.logs.backend", "from products.logs.backend import logic"),
+        # multi-level now resolves via libcst (the regex version punted on `..`)
+        ("from ..shared import other\n", "products.logs.backend.api", "from products.logs.backend.shared import other"),
+        (
+            "from .destination_tests import get\n",
+            "products.logs.backend.api",
+            "from products.logs.backend.api.destination_tests import get",
+        ),
+    ],
+)
+def test_absolutize_relative_imports(source: str, package: str, expected: str) -> None:
+    result, warnings = absolutize_relative_imports(source, package)
+    assert expected in result
+    assert warnings == []
 
 
 # ---------------------------------------------------------------------------
@@ -219,26 +229,40 @@ def test_module_dotted_keeps_intermediate_package() -> None:
     assert _module_dotted("wa", Path("views.py")) == "products.wa.backend.views"
 
 
-def test_build_move_plan_relocates_whole_api_subpackage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_move_plan_relocates_whole_api_subtree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(iso, "PRODUCTS_DIR", tmp_path)
     backend = tmp_path / "wa" / "backend"
     api = backend / "api"
-    api.mkdir(parents=True)
+    (api / "destination_tests").mkdir(parents=True)
+    (api / "test").mkdir(parents=True)
     (api / "__init__.py").write_text("from .api import WebAnalyticsViewSet\n")
     (api / "api.py").write_text(
         "from rest_framework import viewsets\nclass WebAnalyticsViewSet(viewsets.ViewSet):\n    pass\n"
     )
-    (api / "heatmaps_utils.py").write_text("WIDTH = 1\n")
+    # production helper subpackage — rides the api -> presentation.views rename
+    (api / "destination_tests" / "__init__.py").write_text("")
+    (api / "destination_tests" / "s3.py").write_text("WIDTH = 1\n")
+    # test subpackage — leaves the api namespace for the product test dir
+    (api / "test" / "__init__.py").write_text("")
+    (api / "test" / "test_api.py").write_text("def test_x() -> None:\n    pass\n")
     (backend / "serializers.py").write_text("from rest_framework import serializers\n")
 
     plan = build_move_plan("wa")
 
     views_dir = backend / "presentation" / "views"
-    # the whole package moves — viewsets, helpers, and __init__ — into presentation/views/
-    assert {src.name for src, _ in plan.view_moves} == {"__init__.py", "api.py", "heatmaps_utils.py"}
-    assert all(dst.parent == views_dir for _, dst in plan.view_moves)
-    # one prefix rename covers bare-package imports, dotted modules, and @patch strings
+    tests_dir = backend / "tests" / "api"
+    # production (top-level + helper subpackage) moves under presentation/views/, structure kept
+    assert {dst.relative_to(views_dir).as_posix() for _, dst in plan.view_moves} == {
+        "__init__.py",
+        "api.py",
+        "destination_tests/__init__.py",
+        "destination_tests/s3.py",
+    }
+    # tests relocate into the product test dir, not presentation/views/
+    assert {dst.relative_to(tests_dir).as_posix() for _, dst in plan.test_moves} == {"__init__.py", "test_api.py"}
+    # one prefix rename covers production; the test prefix is distinct and longer so it wins on match
     assert plan.module_renames["products.wa.backend.api"] == "products.wa.backend.presentation.views"
+    assert plan.module_renames["products.wa.backend.api.test"] == "products.wa.backend.tests.api"
     # serializers.py is pulled into presentation/ as strict-lint demands
     assert plan.serializers_move == (backend / "serializers.py", backend / "presentation" / "serializers.py")
     assert plan.module_renames["products.wa.backend.serializers"] == "products.wa.backend.presentation.serializers"

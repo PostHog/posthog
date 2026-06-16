@@ -218,8 +218,17 @@ in `facade/api.py` with the viewset deferred.
    - The mechanical share is one command: `hogli product:isolate:move <name>` (run
      `--dry-run` first) moves the ViewSet modules into `presentation/views/` (auto-detected,
      `--views` to override), `tasks.py` into a `tasks/` package with celery names pinned,
-     absolutizes relative imports, and rewrites the dotted paths repo-wide — imports and
-     string references (`@patch(...)` mock paths) alike, with tested word boundaries.
+     and rewrites the dotted paths repo-wide. A `backend/api/` subpackage moves whole:
+     production helper subpackages (e.g. `destination_tests/`) keep their structure under
+     `presentation/views/` and ride the prefix rename, while test subpackages (`test/`,
+     `tests/`) relocate to `backend/tests/api/` — they leave the api namespace, so a naive
+     prefix rewrite can't follow them.
+   - Rewriting is a deliberate two-tool split, mirroring the model-migration tooling rather
+     than reinventing it: **absolute** fully-qualified paths and string references
+     (`@patch(...)` mock paths) go through guarded word-boundary regex (lexically
+     unambiguous); **relative** imports (`from ..x import y`, any depth) go through libcst
+     (`cst_helpers.py`, ported from the product-model-migration `import_rewriter`) because
+     resolving them needs the importing module's package, which a line regex can't know.
 6. Enforce boundaries and verify. This is a four-step chain — each step depends
    on the previous one, and `hogli product:lint` (via `IsolationChainCheck`)
    fails if any step is skipped:
