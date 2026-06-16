@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -252,7 +253,10 @@ class HyperCache:
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
                 self._set_cache_value_redis(key, response)
                 return response, "s3"
-        except ObjectStorageError:
+        except (ObjectStorageError, BotoCoreError, ClientError, ValueError):
+            # Any storage-layer failure here (including a misconfigured S3 endpoint that
+            # makes boto3 raise on client construction) must degrade to a cache miss and
+            # fall through to load_fn, never bubble a 500 up to the request handler.
             pass
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache

@@ -106,6 +106,22 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         assert result == {"default": "data"}
         assert source == "db"
 
+    @parameterized.expand(
+        [
+            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}")),
+            ("object_storage_error", object_storage.ObjectStorageError("read failed")),
+        ]
+    )
+    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception):
+        """A storage-layer failure on the S3 read must degrade to a cache miss, not a 500."""
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        with patch.object(object_storage, "read", side_effect=exception):
+            result, source = self.hypercache.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
     def test_get_from_cache_with_source_empty(self):
         """Test getting data with source information - Empty result"""
 
