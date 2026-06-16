@@ -157,12 +157,8 @@ class RESTClient:
         else:
             response.raise_for_status()
 
-        # Parse the body inside the retried request so a truncated/partial response
-        # (an "Unterminated string" JSONDecodeError from a mid-stream cut-off) is
-        # reissued like other transient failures instead of bubbling up uncaught
-        # and failing the whole import. The varying truncation offset across
-        # occurrences confirms this is upstream/network truncation, not a stable
-        # malformed-response contract.
+        # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
+        # instead of bubbling up uncaught and failing the import.
         try:
             body = response.json()
         except RequestsJSONDecodeError as e:

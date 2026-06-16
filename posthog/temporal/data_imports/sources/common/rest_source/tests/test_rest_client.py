@@ -244,18 +244,27 @@ class TestRESTClient:
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
+            pytest.param(lambda: _make_response({"error": "internal"}, status_code=500), id="500"),
+            pytest.param(_make_truncated_response, id="truncated_json"),
+        ],
+    )
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_429(self, MockSession, mock_sleep) -> None:
+    def test_send_request_retries_transient_error_then_succeeds(self, MockSession, mock_sleep, make_error) -> None:
+        # A 429, a 5xx, and a truncated body are all transient: retry, then succeed.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
 
-        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
-        rate_limited.url = "https://api.example.com/items"
+        error = make_error()
+        error.url = "https://api.example.com/items"
         ok = _make_response({"results": [{"id": 1}]})
 
-        mock_session.send.side_effect = [rate_limited, ok]
+        mock_session.send.side_effect = [error, ok]
 
         client = RESTClient(base_url="https://api.example.com")
         pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
@@ -263,39 +272,32 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
+            pytest.param(_make_truncated_response, id="truncated_json"),
+        ],
+    )
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_500(self, MockSession, mock_sleep) -> None:
+    def test_send_request_raises_retryable_after_persistent_transient_error(
+        self, MockSession, mock_sleep, make_error
+    ) -> None:
+        # A persistent transient failure retries to the cap and re-raises as retryable.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
 
-        server_error = _make_response({"error": "internal"}, status_code=500)
-        server_error.url = "https://api.example.com/items"
-        ok = _make_response([{"id": 1}])
-
-        mock_session.send.side_effect = [server_error, ok]
-
-        client = RESTClient(base_url="https://api.example.com")
-        pages = list(client.paginate(path="/items", paginator=SinglePagePaginator()))
-
-        assert pages == [[{"id": 1}]]
-        assert mock_session.send.call_count == 2
-
-    @patch("tenacity.nap.time.sleep")
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_raises_after_max_retries(self, MockSession, mock_sleep) -> None:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
-
-        error = _make_response({"error": "rate limited"}, status_code=429)
+        error = make_error()
         error.url = "https://api.example.com/items"
         mock_session.send.return_value = error
 
         client = RESTClient(base_url="https://api.example.com")
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 5
 
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
@@ -317,34 +319,3 @@ class TestRESTClient:
         assert pages == [[{"id": 1}]]
         assert mock_session.send.call_count == 2
         mock_sleep.assert_called_once_with(90.0)
-
-    @patch("tenacity.nap.time.sleep")
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_truncated_json(self, MockSession, mock_sleep) -> None:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
-
-        ok = _make_response({"results": [{"id": 1}]})
-        mock_session.send.side_effect = [_make_truncated_response(), ok]
-
-        client = RESTClient(base_url="https://api.example.com")
-        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
-
-        assert pages == [[{"id": 1}]]
-        assert mock_session.send.call_count == 2
-
-    @patch("tenacity.nap.time.sleep")
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_raises_retryable_after_persistent_truncated_json(self, MockSession, mock_sleep) -> None:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
-
-        mock_session.send.return_value = _make_truncated_response()
-
-        client = RESTClient(base_url="https://api.example.com")
-        with pytest.raises(RESTClientRetryableError):
-            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
-
-        assert mock_session.send.call_count == 5
