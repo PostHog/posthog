@@ -435,6 +435,10 @@ def classify_job(
     deterministic = deterministic_reason(job, log)
     if deterministic is not None:
         return Decision(action="skip deterministic", reason=deterministic, job=job)
+    # Gate on test-type before the rerun cap so a non-test job never reports "skip cap reached"
+    # (which would imply raising the cap could help); the cap only ever applies to test jobs.
+    if not is_test_job_failure(job):
+        return Decision(action="skip unknown", reason="failed job or step is not an allowlisted test runner", job=job)
     if job.run_attempt > max_reruns_per_job:
         return Decision(
             action="skip cap reached",
@@ -444,8 +448,6 @@ def classify_job(
     cap_reached_reason = get_cap_reached_reason() if get_cap_reached_reason is not None else None
     if cap_reached_reason is not None:
         return Decision(action="skip cap reached", reason=cap_reached_reason, job=job)
-    if not is_test_job_failure(job):
-        return Decision(action="skip unknown", reason="failed job or step is not an allowlisted test runner", job=job)
 
     queries = extract_failure_queries(log)
     if not queries:
