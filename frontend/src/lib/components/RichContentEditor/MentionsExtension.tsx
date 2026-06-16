@@ -8,7 +8,7 @@ import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { createFuse } from 'lib/utils/fuseSearch'
-import { isKeyOf } from 'lib/utils/typeChecks'
+import { isKeyOf } from 'lib/utils/guards'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'

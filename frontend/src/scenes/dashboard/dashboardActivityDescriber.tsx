@@ -21,8 +21,8 @@ import {
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { isKeyOf } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
-import { isKeyOf } from 'lib/utils/typeChecks'
 import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'

@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { assignField, isGroupType, isSessionType } from 'lib/utils/typeChecks'
+import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'

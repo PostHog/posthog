@@ -24,9 +24,9 @@ import {
     countryCodeToFlag,
     languageCodeToFlag,
 } from 'lib/utils/geography/country'
+import { UnexpectedNeverError } from 'lib/utils/guards'
 import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { UnexpectedNeverError } from 'lib/utils/typeChecks'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

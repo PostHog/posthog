@@ -6,9 +6,9 @@ import { dayjs } from 'lib/dayjs'
 import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { isKeyOf } from 'lib/utils/guards'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { toString } from 'lib/utils/strings'
-import { isKeyOf } from 'lib/utils/typeChecks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {

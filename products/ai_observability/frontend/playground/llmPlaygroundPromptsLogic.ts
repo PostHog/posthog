@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { uuid } from 'lib/utils/dom'
-import { isObject } from 'lib/utils/typeChecks'
+import { isObject } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 

@@ -9,7 +9,7 @@ import {
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
-import { isString } from 'lib/utils/typeChecks'
+import { isString } from 'lib/utils/guards'
 
 import { NodeKind, RecordingOrder, RecordingsQuery, VALID_RECORDING_ORDERS } from '~/queries/schema/schema-general'
 import {

@@ -7,7 +7,7 @@ import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag,
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { isNotNil } from 'lib/utils/typeChecks'
+import { isNotNil } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

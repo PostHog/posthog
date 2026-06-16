@@ -2,7 +2,7 @@ import * as PartialJSON from 'partial-json'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { isObject, isString } from 'lib/utils/typeChecks'
+import { isObject, isString } from 'lib/utils/guards'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'

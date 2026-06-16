@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { isUUIDLike } from 'lib/utils/typeChecks'
+import { isUUIDLike } from 'lib/utils/guards'
 import { personsSceneLogic } from 'scenes/persons/personsSceneLogic'
 import { urls } from 'scenes/urls'
 

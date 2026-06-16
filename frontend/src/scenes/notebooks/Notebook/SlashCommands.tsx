@@ -31,7 +31,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { selectFiles } from 'lib/utils/file-utils'
 import { createFuse } from 'lib/utils/fuseSearch'
-import { isKeyOf } from 'lib/utils/typeChecks'
+import { isKeyOf } from 'lib/utils/guards'
 import { ValueOf } from 'lib/utils/types'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'

@@ -13,7 +13,7 @@ import {
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
-import { isString } from 'lib/utils/typeChecks'
+import { isString } from 'lib/utils/guards'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,

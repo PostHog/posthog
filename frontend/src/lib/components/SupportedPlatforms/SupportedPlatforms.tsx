@@ -4,7 +4,7 @@ import { IconCheck, IconInfo, IconX } from '@posthog/icons'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { isObject } from 'lib/utils/typeChecks'
+import { isObject } from 'lib/utils/guards'
 
 import { PlatformSupport, PlatformSupportConfig } from './types'
 

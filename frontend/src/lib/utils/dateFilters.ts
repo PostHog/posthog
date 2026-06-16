@@ -1,7 +1,7 @@
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { DATE_FORMAT, formatDate, formatDateRange, formatDateTimeRange, isDate } from 'lib/utils/datetime'
-import { UnexpectedNeverError } from 'lib/utils/typeChecks'
+import { UnexpectedNeverError } from 'lib/utils/guards'
 
 import { DateMappingOption, IntervalType } from '~/types'
 

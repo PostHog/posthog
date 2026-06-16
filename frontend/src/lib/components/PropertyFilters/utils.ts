@@ -1,4 +1,5 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
     cohortOperatorMap,
@@ -7,7 +8,6 @@ import {
     isOperatorMulti,
 } from 'lib/utils/operators'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { isKeyOf } from 'lib/utils/typeChecks'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'

@@ -8,8 +8,8 @@ import { IconAreaChart, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
+import { isNotNil } from 'lib/utils/guards'
 import { humanFriendlyLargeNumber, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { isNotNil } from 'lib/utils/typeChecks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { InfinityValue, MarketingAnalyticsItem, WebAnalyticsItemKind } from '~/queries/schema/schema-general'

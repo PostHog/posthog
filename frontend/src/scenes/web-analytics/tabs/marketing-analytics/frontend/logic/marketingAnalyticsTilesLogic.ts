@@ -1,7 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
-import { isNotNil } from 'lib/utils/typeChecks'
+import { isNotNil } from 'lib/utils/guards'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
 import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
 

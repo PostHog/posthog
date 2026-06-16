@@ -6,8 +6,8 @@ import { IconPerson } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { UnexpectedNeverError } from 'lib/utils/guards'
 import { fullName } from 'lib/utils/strings'
-import { UnexpectedNeverError } from 'lib/utils/typeChecks'
 
 import { assigneeSelectLogic } from './assigneeSelectLogic'
 import { Assignee, RoleAssignee, TicketAssignee, UserAssignee } from './types'

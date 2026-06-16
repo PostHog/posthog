@@ -144,5 +144,3 @@ export class UnexpectedNeverError extends Error {
 export function assignField<T, K extends keyof T>(obj: T, key: K, value: unknown): void {
     obj[key] = value as T[K]
 }
-
-export type AsyncReturnType<T extends (...args: any) => any> = T extends (...args: any) => Promise<infer R> ? R : any
