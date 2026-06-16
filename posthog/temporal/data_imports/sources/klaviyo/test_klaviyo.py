@@ -1,10 +1,13 @@
 from datetime import UTC, date, datetime
 
+from freezegun import freeze_time
+
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
     _build_filter,
     _build_initial_params,
+    _clamp_future_value_to_now,
     _format_incremental_value,
 )
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
@@ -88,3 +91,57 @@ class TestBuildInitialParams:
         assert "filter" in params
         assert "+00:00" not in params["filter"]
         assert params["filter"].endswith("Z)")
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_future_cursor_is_clamped_to_now(self) -> None:
+        # A future-dated cursor would otherwise build greater-than(datetime,<future>),
+        # which Klaviyo rejects with a 400 and wedges every subsequent sync.
+        config = KLAVIYO_ENDPOINTS["events"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC),
+            incremental_field="datetime",
+        )
+        assert params["filter"] == "greater-than(datetime,2026-06-15T12:00:00.000Z)"
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_past_cursor_is_not_modified(self) -> None:
+        config = KLAVIYO_ENDPOINTS["events"]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="datetime",
+        )
+        assert params["filter"] == "greater-than(datetime,2026-03-04T02:58:14.000Z)"
+
+
+class TestClampFutureValueToNow:
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_future_datetime_is_clamped(self) -> None:
+        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42, tzinfo=UTC)) == datetime(
+            2026, 6, 15, 12, 0, 0, tzinfo=UTC
+        )
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_naive_future_datetime_is_clamped(self) -> None:
+        assert _clamp_future_value_to_now(datetime(2027, 2, 5, 21, 46, 42)) == datetime(
+            2026, 6, 15, 12, 0, 0, tzinfo=UTC
+        )
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_past_datetime_is_unchanged(self) -> None:
+        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
+        assert _clamp_future_value_to_now(value) == value
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_future_date_is_clamped(self) -> None:
+        assert _clamp_future_value_to_now(date(2027, 2, 5)) == date(2026, 6, 15)
+
+    @freeze_time("2026-06-15T12:00:00Z")
+    def test_past_date_is_unchanged(self) -> None:
+        assert _clamp_future_value_to_now(date(2026, 3, 4)) == date(2026, 3, 4)
+
+    def test_string_passthrough(self) -> None:
+        assert _clamp_future_value_to_now("some-cursor-value") == "some-cursor-value"
