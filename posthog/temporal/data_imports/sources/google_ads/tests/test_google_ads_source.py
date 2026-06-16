@@ -1,6 +1,7 @@
 import pytest
 from unittest import mock
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -139,6 +140,29 @@ class TestGoogleAdsNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # `str(Integration.DoesNotExist)` as raised by `google_ads_client` during a sync when
+            # the OAuth integration row has been deleted/disconnected.
+            "Integration matching query does not exist.",
+        ],
+    )
+    def test_missing_integration_is_non_retryable(self, error_msg):
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
+        assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
+
+    def test_missing_integration_has_friendly_message(self):
+        friendly = self.non_retryable["Integration matching query does not exist"]
+        assert friendly is not None
+        assert "reconnect" in friendly.lower()
+
+    def test_other_model_does_not_exist_is_not_swallowed(self):
+        # The pattern is model-specific so an unrelated model's DoesNotExist — which may be a real
+        # bug — is not silently treated as non-retryable.
+        error_msg = "ExternalDataSchema matching query does not exist."
+        assert not any(pattern in error_msg for pattern in self.non_retryable.keys())
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Transient network/infrastructure errors should still be retried.
             "DeadlineExceeded: 504 Deadline Exceeded",
             "UNAVAILABLE: The service is currently unavailable",
@@ -186,11 +210,25 @@ class TestGoogleAdsNonRetryableErrors:
 
 
 class TestValidateCredentials:
-    def test_missing_integration_returns_friendly_message(self):
-        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
-        # A disconnected/deleted OAuth integration makes the client builder raise
-        # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+    def test_missing_integration_does_not_exist_returns_reconnect_message(self):
+        # `google_ads_client` calls `Integration.objects.get(...)`, which raises the typed
+        # `Integration.DoesNotExist` when the OAuth connection row is gone. Surface an
         # actionable reconnect message instead of the raw ORM error.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            side_effect=Integration.DoesNotExist(),
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "no longer exists" in (message or "")
+        assert "Integration matching query" not in (message or "")
+
+    def test_missing_integration_string_match_returns_friendly_message(self):
+        # The same condition can also surface as a generic exception whose message contains
+        # the ORM "matching query does not exist" text; still surface a reconnect message.
+        config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=1)
         with mock.patch(
             "posthog.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
             side_effect=Exception("Integration matching query does not exist"),

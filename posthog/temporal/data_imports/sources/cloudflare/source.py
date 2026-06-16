@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,6 +39,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLOUDFLARE,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cloudflare",
             caption="""Enter your Cloudflare API token to pull your Cloudflare configuration data into the PostHog Data warehouse.
 

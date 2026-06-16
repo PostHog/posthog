@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -44,6 +45,7 @@ class LatticeSource(ResumableSource[LatticeSourceConfig, LatticeResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LATTICE,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Lattice",
             caption="""Enter your Lattice API key to pull your Lattice performance management data into the PostHog Data warehouse.
 

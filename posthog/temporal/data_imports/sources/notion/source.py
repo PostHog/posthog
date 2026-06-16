@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.NOTION,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Notion",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Notion internal integration token to pull your Notion data into the PostHog Data warehouse.
