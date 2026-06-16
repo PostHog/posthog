@@ -42,9 +42,9 @@ LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
 )
 
 
-def ilike_pattern(search: str) -> str:
+def ilike_pattern(search: str | None) -> str:
     # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
-    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    escaped = (search or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
 
 
