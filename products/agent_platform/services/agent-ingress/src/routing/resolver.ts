@@ -22,6 +22,7 @@
 import {
     AgentApplication,
     AgentRevision,
+    InMemoryJtiReplayCache,
     INTERNAL_JWT_AUDIENCE,
     InternalJwtVerifyError,
     RevisionStore,
@@ -87,6 +88,10 @@ export interface ResolverOpts {
 }
 
 export class RevisionResolver {
+    // Per-process replay guard for preview tokens — defence-in-depth over the
+    // 60s exp so a captured preview token can't be replayed within the window.
+    private readonly previewReplayCache = new InMemoryJtiReplayCache()
+
     constructor(private readonly opts: ResolverOpts) {}
 
     async resolveFromHostAndPath(
@@ -182,6 +187,7 @@ export class RevisionResolver {
                 token: providedToken,
                 audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
                 signingKey: this.opts.internalSigningKey,
+                replayCache: this.previewReplayCache,
             })
         } catch (e) {
             throw new MissingPreviewSecretError(`token_verify_failed: ${(e as InternalJwtVerifyError).reason}`)

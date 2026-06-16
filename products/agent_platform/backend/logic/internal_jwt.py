@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -28,7 +29,9 @@ def encode_agent_internal_jwt(payload: dict[str, Any], expiry_delta: timedelta, 
     if not key:
         raise RuntimeError("AGENT_INTERNAL_SIGNING_KEY is not configured")
     return jwt.encode(
-        {**payload, "exp": datetime.now(tz=UTC) + expiry_delta, "aud": audience.value},
+        # `jti` is a per-token nonce so the verify side can reject a replayed
+        # token even inside its short exp window (defence-in-depth).
+        {**payload, "exp": datetime.now(tz=UTC) + expiry_delta, "aud": audience.value, "jti": uuid.uuid4().hex},
         key,
         algorithm=JWT_ALGORITHM,
     )

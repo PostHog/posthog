@@ -62,6 +62,7 @@ import {
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
     instrument,
+    InMemoryJtiReplayCache,
     INTERNAL_JWT_AUDIENCE,
     InternalJwtVerifyError,
     lastAssistantTextPreview,
@@ -287,6 +288,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     app.use(express.json({ limit: '8mb' }))
     if (opts.internalSigningKey) {
         const signingKey = opts.internalSigningKey
+        const replayCache = new InMemoryJtiReplayCache()
         app.use((req: Request, res: Response, next: NextFunction) => {
             if (req.path === '/healthz') {
                 next()
@@ -302,6 +304,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 token,
                 audience: INTERNAL_JWT_AUDIENCE.JANITOR_RPC,
                 signingKey,
+                replayCache,
             })
                 .then(() => next())
                 .catch((e: InternalJwtVerifyError) => {
