@@ -442,7 +442,7 @@ class TestMSSQLSourceNonRetryableErrors:
             "Login failed for user 'reporting'.",
             # Raised by the sshtunnel library when the customer's SSH bastion can't be reached
             # (wrong host/port, rejected key, firewall) — the import goes through `open_ssh_tunnel`.
-            "Could not establish session to SSH gateway",
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_connection_errors_are_non_retryable(self, error_msg):
