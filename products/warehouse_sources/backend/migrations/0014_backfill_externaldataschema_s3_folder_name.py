@@ -32,7 +32,7 @@ def forwards(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("warehouse_sources", "0010_externaldataschema_s3_folder_name"),
+        ("warehouse_sources", "0013_externaldataschema_s3_folder_name"),
     ]
 
     operations = [

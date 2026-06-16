@@ -79,7 +79,6 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         assert legacy_schema.name == "public.auth_group"
         # s3_folder_name locks the Delta path to the legacy folder so existing data is preserved.
         assert legacy_schema.s3_folder_name == "auth_group"
-        assert legacy_schema.sync_type_config.get("dwh_storage_key") == "auth_group"
         # schema_metadata pinned so source_for_pipeline knows the canonical (schema, table) tuple.
         metadata = legacy_schema.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "public"
@@ -147,7 +146,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         metadata = schema.sync_type_config.get("schema_metadata") or {}
         assert metadata.get("source_schema") == "public"
         assert metadata.get("source_table_name") == "auth_group"
-        assert schema.sync_type_config.get("dwh_storage_key") == "auth_group"
+        assert schema.s3_folder_name == "auth_group"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_refreshes_legacy_warehouse_metadata_when_columns_change(self, mock_get_source):
@@ -277,7 +276,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         legacy_metadata = legacy.sync_type_config.get("schema_metadata") or {}
         assert legacy_metadata.get("source_schema") == "public"
         assert legacy_metadata.get("source_table_name") == "example_table"
-        assert legacy.sync_type_config.get("dwh_storage_key") == "example_table"
+        assert legacy.s3_folder_name == "example_table"
         # The unqualified row is gone — it was renamed in place.
         assert not ExternalDataSchema.objects.filter(
             team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
@@ -366,9 +365,9 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             f"legacy row pinned to wrong schema: {metadata.get('source_schema')!r}"
         )
         assert metadata.get("source_table_name") == "example_table"
-        # dwh_storage_key pins the Delta path to the legacy "example_table" key so existing data
+        # s3_folder_name pins the Delta path to the legacy "example_table" folder so existing data
         # stays in place — no rewrite, no orphan.
-        assert legacy.sync_type_config.get("dwh_storage_key") == "example_table"
+        assert legacy.s3_folder_name == "example_table"
         # The original unqualified row is gone (it was renamed in place).
         assert not ExternalDataSchema.objects.filter(
             team_id=self.team.pk, source_id=source.pk, name="example_table", deleted=False
@@ -458,7 +457,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         live.refresh_from_db()
         assert live.name == "poblic.example_table"
         assert live.table_id == live_table.id
-        assert (live.sync_type_config or {}).get("dwh_storage_key") == "example_table"
+        assert live.s3_folder_name == "example_table"
         # The orphan duplicate is soft-deleted.
         orphan.refresh_from_db()
         assert orphan.deleted is True

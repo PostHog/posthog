@@ -82,15 +82,13 @@ def _qualify_legacy_row(
     merged_metadata.setdefault("foreign_keys", [])
 
     new_sync_type_config: dict[str, Any] = {**sync_type_config, "schema_metadata": merged_metadata}
-    # The S3 folder is the normalized identifier — store that, so the column holds the real folder
-    # name (matching what the backfill writes and what readers compute). `s3_folder_name` is the
-    # source of truth; the JSON key is written transitionally for workers still on the old code.
-    folder_name = NamingConvention.normalize_identifier(row.resolved_s3_folder_name or row.name)
-    new_sync_type_config["dwh_storage_key"] = folder_name
 
     update_fields = ["name", "sync_type_config", "updated_at"]
     if not row.s3_folder_name:
-        row.s3_folder_name = folder_name
+        # The S3 folder is the normalized identifier — store that, so the column holds the real
+        # folder name (matching what the backfill writes and what readers compute). `resolved_*`
+        # picks up any legacy `dwh_storage_key` so a previously-migrated row keeps its path.
+        row.s3_folder_name = NamingConvention.normalize_identifier(row.resolved_s3_folder_name or row.name)
         update_fields.append("s3_folder_name")
 
     row.name = qualified_name
