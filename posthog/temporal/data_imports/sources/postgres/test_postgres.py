@@ -723,16 +723,21 @@ class TestServerCursorStatementTimeout:
             )
             list(response.items())
 
-    def test_incremental_sync_maps_timeout_to_non_retryable(self):
-        with pytest.raises(QueryTimeoutException) as exc_info:
-            self._run(should_use_incremental_field=True)
-        assert "updated_at" in str(exc_info.value)
-
-    def test_full_table_sync_reraises_raw_query_canceled(self):
-        # Full-table syncs have no stable ORDER BY, so we re-raise the raw
-        # QueryCanceled to let a fresh re-sync reorder rows rather than giving up.
-        with pytest.raises(psycopg.errors.QueryCanceled):
-            self._run(should_use_incremental_field=False)
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expected_exception,expected_substr",
+        [
+            # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
+            (True, QueryTimeoutException, "updated_at"),
+            # Full-table syncs have no stable ORDER BY, so we re-raise the raw QueryCanceled
+            # to let a fresh re-sync reorder rows rather than giving up.
+            (False, psycopg.errors.QueryCanceled, None),
+        ],
+    )
+    def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
+        with pytest.raises(expected_exception) as exc_info:
+            self._run(should_use_incremental_field=should_use_incremental_field)
+        if expected_substr is not None:
+            assert expected_substr in str(exc_info.value)
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
