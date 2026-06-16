@@ -10,7 +10,10 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import {
+    CyclotronJobInputsValidation,
+    CyclotronJobInputsValidationResult,
+} from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -805,16 +808,19 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
 
-        inputFormErrors: [
+        inputsValidation: [
             (s) => [s.configuration],
-            (configuration): Record<string, string> | null => {
-                const result = CyclotronJobInputsValidation.validate(
-                    configuration.inputs ?? {},
-                    configuration.inputs_schema ?? []
-                )
-
-                return result.valid ? null : result.errors
-            },
+            (configuration): CyclotronJobInputsValidationResult =>
+                CyclotronJobInputsValidation.validate(configuration.inputs ?? {}, configuration.inputs_schema ?? []),
+        ],
+        inputFormErrors: [
+            (s) => [s.inputsValidation],
+            (inputsValidation): Record<string, string> | null =>
+                inputsValidation.valid ? null : inputsValidation.errors,
+        ],
+        inputFormWarnings: [
+            (s) => [s.inputsValidation],
+            (inputsValidation): Record<string, string> => inputsValidation.warnings,
         ],
         willReEnableOnSave: [
             (s) => [s.configuration, s.hogFunction],

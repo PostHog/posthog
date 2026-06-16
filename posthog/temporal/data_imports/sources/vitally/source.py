@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -103,6 +104,14 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
 
         return False, "Invalid credentials"
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # The Vitally host is per-customer on US (`<subdomain>.rest.vitally.io`), so match on the
+        # stable status text rather than a fixed URL prefix.
+        return {
+            "401 Client Error: Unauthorized for url": "Your Vitally secret token is invalid or has been revoked. Please check your token and reconnect.",
+            "403 Client Error: Forbidden for url": "Your Vitally secret token does not have permission to access this data. Please check the token's permissions and reconnect.",
+        }
+
     def source_for_pipeline(self, config: VitallySourceConfig, inputs: SourceInputs) -> SourceResponse:
         items = vitally_source(
             secret_token=config.secret_token,
@@ -134,6 +143,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
+            category=DataWarehouseSourceCategory.CRM,
             iconPath="/static/services/vitally.png",
             docsUrl="https://posthog.com/docs/cdp/sources/vitally",
             fields=cast(

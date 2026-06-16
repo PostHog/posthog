@@ -29,7 +29,7 @@ def test_get_source_config_fields():
     assert field_names == {"google_search_console_integration_id", "site_url"}
     assert cfg.label == "Google Search Console"
     assert cfg.featureFlag == "dwh-google-search-console"
-    assert cfg.releaseStatus == "alpha"
+    assert cfg.releaseStatus == "beta"
 
 
 def test_get_schemas_returns_all_schemas_with_date_incremental():
@@ -76,6 +76,19 @@ def test_get_resumable_source_manager_uses_resume_config():
     inputs = mock.MagicMock()
     manager = GoogleSearchConsoleSource().get_resumable_source_manager(inputs)
     assert manager._data_class is GoogleSearchConsoleResumeConfig
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "invalid_grant",
+        # The real RefreshError raised when AuthorizedSession refreshes a revoked/expired token.
+        "RefreshError: ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+    ],
+)
+def test_invalid_grant_is_non_retryable(error_message):
+    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
+    assert any(key in error_message for key in non_retryable_errors)
 
 
 @pytest.mark.parametrize(
@@ -154,3 +167,17 @@ def test_validate_credentials_succeeds_for_verified_site():
 
     assert ok is True
     assert message is None
+
+
+def test_validate_credentials_handles_missing_integration():
+    # A disconnected/deleted OAuth integration makes the credentials lookup raise
+    # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+    # actionable reconnect message instead of the raw ORM error.
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
+        side_effect=Exception("Integration matching query does not exist"),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google Search Console account" in (message or "")

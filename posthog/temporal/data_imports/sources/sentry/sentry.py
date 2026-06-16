@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -400,7 +400,25 @@ def _iter_issue_tag_values_rows(
                     break
 
                 response = _request_with_retry(url=values_url, headers=headers, params=values_params)
-                response.raise_for_status()
+                try:
+                    response.raise_for_status()
+                except HTTPError:
+                    # Sentry intermittently returns a persistent 5xx for a single
+                    # (issue, tag) values endpoint — seen on tags with unusual
+                    # keys/values. Retries are already exhausted by
+                    # _request_with_retry, so skip this tag's remaining values
+                    # rather than failing the whole sync. Non-server errors
+                    # (auth, etc.) still propagate to the job-level handler.
+                    if response.status_code >= 500:
+                        logger.warning(
+                            "sentry_source.issue_tag_values_server_error_skipped",
+                            organization_slug=organization_slug,
+                            issue_id=issue_id,
+                            tag_key=tag_key,
+                            status_code=response.status_code,
+                        )
+                        break
+                    raise
                 rows = response.json()
 
                 should_stop = False

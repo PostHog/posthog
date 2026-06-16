@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::Person;
+use crate::storage::types::{Person, SplitResult};
 
 /// Person lookup operations by ID, UUID, and distinct ID
 #[async_trait]
@@ -69,4 +69,23 @@ pub trait PersonLookup: Send + Sync {
         team_id: i64,
         batch_size: i64,
     ) -> StorageResult<i64>;
+
+    /// Atomically split distinct_ids off a person onto new persons.
+    ///
+    /// Within a single transaction (constant statement count, set-based):
+    /// 1. Locks the specified PersonDistinctId rows with SELECT FOR UPDATE and
+    ///    validates ownership under the lock
+    /// 2. Creates new persons via one bulk upsert (deterministic UUIDv5,
+    ///    version = original person version + 101)
+    /// 3. Reassigns PDIs to new persons in one bulk update
+    ///    (version = original PDI version + 101)
+    ///
+    /// Returns StorageError::NotFound if the person doesn't exist or any
+    /// distinct_id doesn't belong to it.
+    async fn split_person(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        distinct_ids_to_split: &[String],
+    ) -> StorageResult<Vec<SplitResult>>;
 }

@@ -1,6 +1,10 @@
+import json
+
+import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
 
 
@@ -59,3 +63,115 @@ class TestLinkedInAdsSource:
         assert "Failed to validate LinkedIn Ads credentials" in error_message
         assert "Database error" in error_message
         mock_capture_exception.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A non-numeric Account ID raises this 400 — the quoted key value is volatile, the
+            # type-coercion phrase is the stable part we match on.
+            'LinkedIn API error (400): {"message":"Key value \'Reed%20Lnkedin\' must be of type \'java.lang.Long\'","status":400}',
+            'LinkedIn API error (400): {"message":"Key value \'LI\' must be of type \'java.lang.Long\'","status":400}',
+        ],
+    )
+    def test_non_retryable_errors_match_invalid_account_id(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            # Transient transport / 5xx errors must stay retryable.
+            "LinkedIn API error (retryable, 503): service unavailable",
+            'LinkedIn daily rate limit reached (429): {"message":"throttled","status":429}',
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "pattern,raised_message",
+        [
+            (
+                "No virtual resource found",
+                'LinkedIn API error (404): {"status":404,"code":"RESOURCE_NOT_FOUND","message":"No virtual resource found"}',
+            ),
+            (
+                "The token used in the request has expired",
+                "LinkedIn API error (401): The token used in the request has expired",
+            ),
+        ],
+    )
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert pattern in non_retryable_errors
+        assert pattern in raised_message
+
+    @pytest.mark.parametrize(
+        "transient_message",
+        [
+            # Transient transport / 5xx failures must stay retryable — matching any of these would
+            # disable the schema sync after a handful of recoverable blips.
+            "LinkedIn API error (retryable, 500): Internal Server Error",
+            "LinkedIn API error (retryable, 504): Gateway Timeout",
+            "ConnectionError: HTTPSConnectionPool(host='api.linkedin.com', port=443): Max retries exceeded",
+            "ReadTimeout: The read operation timed out",
+        ],
+    )
+    def test_get_non_retryable_errors_does_not_match_transient_failures(self, transient_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert not any(pattern in transient_message for pattern in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "invalid_account_id",
+        [
+            "Reed Lnkedin",
+            "https://www.linkedin.com/company/recruiteasy-ca",
+        ],
+    )
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_invalid_account_id_error_is_non_retryable(self, mock_restli_client, invalid_account_id):
+        """A malformed Account ID makes LinkedIn reject the accounts URN with a deterministic 400.
+        The raised message must match a get_non_retryable_errors pattern, else the job retries forever."""
+        body = json.dumps(
+            {
+                "message": (
+                    f"Array parameter 'accounts' value 'urn:li:sponsoredAccount:{invalid_account_id}' is invalid. "
+                    f"Reason: Deserializing output 'urn:li:sponsoredAccount:{invalid_account_id}' failed"
+                ),
+                "status": 400,
+            }
+        )
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 400
+        mock_response.response.text = body
+        mock_restli_client.return_value.finder.return_value = mock_response
+
+        client = LinkedinAdsClient("test_access_token")
+        with pytest.raises(Exception) as exc_info:
+            client.get_accounts()
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"LinkedIn invalid-account error '{error_message}' does not match any non-retryable pattern"
+        )
+
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_unrelated_400_is_not_classified_as_non_retryable(self, mock_restli_client):
+        """The accounts-URN pattern must be specific — an unrelated 400 must not match it."""
+        body = json.dumps({"message": "Invalid 'fields' parameter", "status": 400})
+        mock_response = mock.MagicMock()
+        mock_response.status_code = 400
+        mock_response.response.text = body
+        mock_restli_client.return_value.finder.return_value = mock_response
+
+        client = LinkedinAdsClient("test_access_token")
+        with pytest.raises(Exception) as exc_info:
+            client.get_accounts()
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)

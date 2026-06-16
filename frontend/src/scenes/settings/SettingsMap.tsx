@@ -41,6 +41,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
@@ -78,6 +79,7 @@ import { ExperimentRecalculationTime } from './environment/ExperimentRecalculati
 import {
     DefaultEvaluationContexts,
     DefaultReleaseConditions,
+    EvaluationContextSuggestions,
     FlagChangeConfirmationSettings,
     FlagPersistenceSettings,
     FlagsSecureApiKeys,
@@ -581,7 +583,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Default CUPED variance reduction',
                 description:
                     'When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to detect significant effects faster on supported metrics. Can be overridden per experiment.',
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedEnabled />,
                 keywords: ['cuped', 'variance', 'reduction', 'pre-experiment', 'covariate'],
             },
@@ -589,7 +590,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-experiment-cuped-lookback-days',
                 title: 'Default CUPED lookback window',
                 description: `Number of days before the experiment start to use as the pre-experiment window for CUPED. Must be between ${MIN_LOOKBACK_DAYS} and ${MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.`,
-                flag: 'EXPERIMENT_CUPED',
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
             },
@@ -662,6 +662,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Automatically apply default release conditions to newly created feature flags. Users can still modify them during flag creation.',
                 component: <DefaultReleaseConditions />,
                 keywords: ['release', 'conditions', 'default', 'rollout', 'groups'],
+            },
+            {
+                id: 'feature-flag-evaluation-context-suggestions',
+                title: 'Evaluation context suggestions',
+                description:
+                    'Manage which evaluation context names are suggested when scoping a feature flag. Hide stale or mistyped names from the suggestion list without affecting flags that already use them.',
+                docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
+                flag: 'FLAG_EVALUATION_TAGS',
+                component: <EvaluationContextSuggestions />,
+                keywords: ['evaluation', 'context', 'suggestion', 'hide', 'tag'],
             },
             {
                 id: 'feature-flag-secure-api-key',
@@ -1127,6 +1137,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'email',
                     'browser',
                 ],
+            },
+            {
+                id: 'conversations-ai',
+                title: 'AI',
+                description:
+                    'Automatically generate AI-powered reply suggestions grounded in your business knowledge sources.',
+                component: <AISection />,
+                flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['ai', 'suggestion', 'auto', 'reply', 'support', 'conversation'],
             },
         ],
     },

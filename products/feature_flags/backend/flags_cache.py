@@ -27,7 +27,7 @@ Manual operations:
 """
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -42,8 +42,11 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.kafka_client.routing import producer_scope
+from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
@@ -59,6 +62,7 @@ from posthog.storage.hypercache_manager import (
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
+from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
 
@@ -912,6 +916,115 @@ def get_cache_stats() -> dict[str, Any]:
 # Signal handlers for automatic cache invalidation
 
 
+# DUAL-WRITE TRANSITIONAL CODE — remove at cutover.
+# Stages: producer (this block) at 0% → Rust consumer ships → ramp gate to 100%
+# → Kafka becomes primary, this block is deleted and the signal handlers call
+# the Kafka path directly. The Celery task `update_team_service_flags_cache`
+# outlives cutover — `cohort_changed_flags_cache` still calls it directly until
+# cohort invalidation gets its own topic. Throwaway code by design; don't polish.
+#
+# Transitional surface: DUAL_WRITE_FLAG, _kafka_dual_write_enabled,
+# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
+# The signal handlers themselves stay; their tails simplify at cutover.
+
+# Per-team gate for the Kafka producer side of dual-write. Celery remains the
+# authoritative path until cutover; the Kafka produce is fire-and-forget.
+DUAL_WRITE_FLAG = "flags-cache-kafka-dual-write"
+
+
+def _kafka_dual_write_enabled(team_id: int) -> bool:
+    """Return True if this team should also produce a Kafka invalidation message.
+
+    A `None` return from `feature_enabled` means the local-eval cache hasn't
+    loaded the flag definition yet. Treated as disabled, but ticks
+    TOMBSTONE_COUNTER so a fleet-wide silent disable (polling thread wedged)
+    is visible on existing Grafana dashboards: a short burst at boot is
+    expected; a sustained non-zero rate means polling is broken.
+    """
+    try:
+        # The SDK annotates feature_enabled as returning bool, but it returns
+        # None when local evaluation can't resolve the flag. Widen the type so
+        # the None branch below survives type checking.
+        result: bool | None = posthoganalytics.feature_enabled(
+            DUAL_WRITE_FLAG,
+            f"team-{team_id}",
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        # If the flag client misbehaves, default to Celery-only — never block the signal handler.
+        # Log so a silent disable across the fleet during rollout is visible in Sentry.
+        logger.warning(
+            "flags_cache_kafka_dual_write_flag_evaluation_failed",
+            team_id=team_id,
+            flag=DUAL_WRITE_FLAG,
+            exc_info=True,
+        )
+        return False
+
+    if result is None:
+        TOMBSTONE_COUNTER.labels(
+            namespace="flags",
+            operation="dual_write_gate_cache_cold",
+            component="flags_cache",
+        ).inc()
+        return False
+
+    return bool(result)
+
+
+def _produce_invalidation(team_id: int) -> None:
+    """Produce a single invalidation message; swallow Kafka errors.
+
+    Celery is the source of truth during dual-write — a Kafka produce failure
+    here must not break flag editing. Per-message delivery success/failure is
+    also counted in KAFKA_PRODUCER_MESSAGES_COUNTER (wired in `_KafkaProducer.produce`).
+
+    `data` must be a dict (not pre-encoded bytes): `_KafkaProducer.produce`
+    runs it through `json_serializer` (`json.dumps` + utf-8 encode). Passing
+    bytes would `TypeError` inside `json.dumps` and silently fail the swallow
+    path. `mode="json"` converts `datetime` to ISO string.
+
+    `flush_timeout=0` keeps this off the request hot path — librdkafka's
+    background thread drains the singleton's queue, and the next call flushes
+    again. A blocking flush would stall every flag-edit on-commit hook on an
+    unhealthy cluster.
+    """
+    try:
+        msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
+        with producer_scope(topic=KAFKA_FLAGS_CACHE_INVALIDATION, flush_timeout=0) as producer:
+            producer.produce(
+                topic=KAFKA_FLAGS_CACHE_INVALIDATION,
+                data=msg.model_dump(mode="json"),
+                key=str(team_id),
+            )
+    except Exception as e:
+        logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
+
+
+def _enqueue_invalidation(team_id: int) -> None:
+    """Run from `transaction.on_commit`: dual-write to Kafka if enabled, then fire Celery.
+
+    Deferring until commit avoids race conditions where the Celery worker reads
+    pre-commit state. Shared by all three signal handlers wired to the
+    flag-invalidation topic. Cohort invalidation is intentionally not routed
+    here — cohort changes flow through their own topic.
+
+    Kafka runs first so a Celery-broker outage (Redis down) does not suppress
+    the rollout-observability signal we're trying to gather. The Kafka path
+    swallows its own errors, so it cannot block Celery. Celery's `.delay()`
+    is allowed to raise — it's the authoritative path during dual-write and
+    operators want broker failures loud.
+    """
+    from products.feature_flags.backend.tasks import update_team_service_flags_cache
+
+    if _kafka_dual_write_enabled(team_id):
+        _produce_invalidation(team_id)
+    update_team_service_flags_cache.delay(team_id)
+
+
 @receiver(post_save, sender=FeatureFlag)
 @receiver(post_delete, sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
@@ -924,11 +1037,8 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
     if not settings.FLAGS_REDIS_URL:
         return
 
-    from products.feature_flags.backend.tasks import update_team_service_flags_cache
-
-    # Defer task execution until after the transaction commits to avoid race conditions
-    # Note: Metric tracking happens in the task itself to capture actual success/failure result
-    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
+    team_id = instance.team_id
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 
 
 @receiver(post_save, sender=Team)
@@ -942,11 +1052,8 @@ def team_created_flags_cache(sender, instance: "Team", created: bool, **kwargs):
     if not created or not settings.FLAGS_REDIS_URL:
         return
 
-    from products.feature_flags.backend.tasks import update_team_service_flags_cache
-
-    # Defer task execution until after the transaction commits
-    # Note: Metric tracking happens in the task itself to capture actual success/failure result
-    transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.id))
+    team_id = instance.id
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 
 
 @receiver(post_delete, sender=Team)
@@ -978,10 +1085,8 @@ def evaluation_context_changed_flags_cache(sender, instance: "FeatureFlagEvaluat
     if not settings.FLAGS_REDIS_URL:
         return
 
-    from products.feature_flags.backend.tasks import update_team_service_flags_cache
-
     team_id = instance.feature_flag.team_id
-    transaction.on_commit(lambda: update_team_service_flags_cache.delay(team_id))
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id))
 
 
 @receiver(post_save, sender=Cohort)
@@ -1003,4 +1108,6 @@ def cohort_changed_flags_cache(sender, instance: "Cohort", **kwargs):
 
     from products.feature_flags.backend.tasks import update_team_service_flags_cache
 
+    # Intentionally bypasses _enqueue_invalidation: cohort changes do not
+    # share the flag-invalidation Kafka topic.
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))

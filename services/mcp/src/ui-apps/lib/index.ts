@@ -3,4 +3,4 @@ export { DescriptionList, type DescriptionListProps, type DescriptionListItem } 
 export { ListDetailView, type ListDetailViewProps } from './ListDetailView'
 export { emptyStateIllustration, type EmptyStateIllustrationType } from './illustrations/emptyStateIllustrations'
 export { cn, formatDate } from './utils'
-export { CHART_THEME, LIFECYCLE_COLORS, lifecycleColor } from '../components/charts/theme'
+export { CHART_COLORS, CHART_THEME, FUNNEL_COLOR, LIFECYCLE_COLORS, colorAt, lifecycleColor } from '../components/charts/theme'

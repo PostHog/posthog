@@ -9,7 +9,7 @@ import json
 import base64
 import decimal
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -23,6 +23,7 @@ from posthog.schema import (
     IntervalType,
     PropertyGroupFilter,
     PropertyGroupsMode,
+    PropertyOperator,
     SpanPropertyFilter,
     SpanPropertyFilterType,
     TraceSpansAggregationQuery,
@@ -92,6 +93,41 @@ _STATUS_CODE_LABEL_TO_INTS: dict[str, list[int]] = {
 }
 
 
+def _normalise_kind_values(values: list) -> list[str]:
+    # span.kind → string-digit codes. Accept labels ("Server"), digit strings ("2"), ints, and
+    # integer-valued floats (the API value union coerces JSON numbers to float). Unrecognised
+    # values are dropped — never left in a form that silently matches every row. Mirrors
+    # _normalise_status_code_values so both int columns are compared as digit strings.
+    normalised: list[str] = []
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            normalised.append(str(int(v)))
+        elif isinstance(v, str) and v.isdigit():
+            normalised.append(v)
+        elif str(v) in _SPAN_KIND_LABEL_TO_INT:
+            normalised.append(str(_SPAN_KIND_LABEL_TO_INT[str(v)]))
+    return normalised
+
+
+def _normalise_status_code_values(values: list) -> list[str]:
+    # span.status_code → string-digit codes. Accept labels ("OK"/"Error"), digit strings, ints,
+    # and integer-valued floats; 'OK' expands to {0, 1}. Unrecognised values are dropped — never
+    # left in a form that silently matches every row.
+    normalised: list[str] = []
+    for v in values:
+        if isinstance(v, bool):
+            continue
+        if isinstance(v, (int, float)):
+            normalised.append(str(int(v)))
+        elif isinstance(v, str) and v.isdigit():
+            normalised.append(v)
+        elif str(v) in _STATUS_CODE_LABEL_TO_INTS:
+            normalised.extend(str(code) for code in _STATUS_CODE_LABEL_TO_INTS[str(v)])
+    return normalised
+
+
 def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
     """Translate UI/API filter values into ClickHouse column representations, in place.
 
@@ -103,9 +139,8 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
 
     Idempotent — safe to call repeatedly on the same filter. Compare-mode invokes
     `_where_without_date_range()` once per window on the same `SpanPropertyFilter`
-    instances; without the post-translation guards on `kind`/`status_code` the second
-    pass would map the already-translated integers back to `[]` and silently drop the
-    filter for the compare window.
+    instances, so `kind`/`status_code` normalisation must accept its own already-translated
+    output (ints / digit strings) and not collapse it to `[]` on the second pass.
     """
     if span_filter.key in ("trace_id", "span_id"):
         # `_normalise_to_base64` is a no-op on already-base64 values (16/8-byte ids
@@ -128,17 +163,62 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
 
     if span_filter.key == "kind" and span_filter.value is not None:
         values: list = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
-        if not all(isinstance(v, int) for v in values):
-            span_filter.value = [_SPAN_KIND_LABEL_TO_INT[str(v)] for v in values if str(v) in _SPAN_KIND_LABEL_TO_INT]
+        # cast bridges list invariance: helper returns list[str], value's slot is the wider union.
+        span_filter.value = cast("list[str | int | float]", _normalise_kind_values(values))
 
     if span_filter.key == "status_code" and span_filter.value is not None:
         values = span_filter.value if isinstance(span_filter.value, list) else [span_filter.value]
-        if not all(isinstance(v, str) and v.isdigit() for v in values):
-            expanded: list[int] = []
-            for v in values:
-                if str(v) in _STATUS_CODE_LABEL_TO_INTS:
-                    expanded.extend(_STATUS_CODE_LABEL_TO_INTS[str(v)])
-            span_filter.value = [str(v) for v in expanded]
+        span_filter.value = cast("list[str | int | float]", _normalise_status_code_values(values))
+
+
+# Operators whose semantics require numeric ordering — only these need the Float64 map. Every other
+# operator (equality, substring, regex, set/unset) is correct on the universal str map.
+_NUMERIC_SPAN_ATTRIBUTE_OPERATORS = frozenset(
+    {
+        PropertyOperator.GT,
+        PropertyOperator.GTE,
+        PropertyOperator.LT,
+        PropertyOperator.LTE,
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+    }
+)
+
+
+def _is_numeric(value: object) -> bool:
+    # bool is a numeric subclass in Python, but OTel booleans are stored as the strings 'true'/'false'
+    # (so they live in the str map, not the float map) — keep them off the numeric path.
+    if isinstance(value, bool):
+        return False
+    try:
+        float(value)  # type: ignore[arg-type]
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFilter:
+    """Return a copy of a span-attribute filter whose key carries its physical-map type suffix.
+
+    Span attributes live in typed ClickHouse Maps; the property-group resolver routes a key by its
+    suffix — ``__str`` → ``attributes_map_str`` (every attribute, string values) and ``__float`` →
+    ``attributes_map_float`` (only attributes whose stored value parsed numeric). A bare key matches no
+    group and prints an illegal JSON read on the Map column (a 500), so a suffix is always required.
+
+    Route by *operator*, not by the filter value's type: only numeric comparison operators need the
+    float map for correct ordering, and only when their value is actually numeric. Everything else —
+    equality, substring/regex, and value-less is_set/is_not_set — uses the universal str map, so
+    string-stored values are never silently dropped and booleans resolve against their stored form.
+    """
+    suffix = "str"
+    if prop.operator in _NUMERIC_SPAN_ATTRIBUTE_OPERATORS:
+        values = prop.value if isinstance(prop.value, list) else [prop.value]
+        if values and all(_is_numeric(v) for v in values):
+            suffix = "float"
+
+    prop = prop.model_copy(deep=True)
+    prop.key = f"{prop.key}__{suffix}"
+    return prop
 
 
 class TraceSpansQueryRunnerMixin(QueryRunner):
@@ -156,14 +236,6 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
-        def get_property_type(value: str | float | bool) -> str:
-            try:
-                float(value)
-                return "float"
-            except (ValueError, TypeError):
-                pass
-            return "str"
-
         self.span_filters: list[SpanPropertyFilter] = []
         self.span_attribute_filters: list[SpanPropertyFilter] = []
         self.resource_attribute_filters: list[SpanPropertyFilter] = []
@@ -176,18 +248,8 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                     if prop_type == SpanPropertyFilterType.SPAN:
                         self.span_filters.append(prop)
                     elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                        if isinstance(prop, SpanPropertyFilter) and prop.value:
-                            property_type = "str"
-                            if isinstance(prop.value, list):
-                                property_types = {get_property_type(v) for v in prop.value}
-                                if len(property_types) == 1:
-                                    property_type = property_types.pop()
-                            else:
-                                property_type = get_property_type(prop.value)
-
-                            prop = prop.model_copy(deep=True)
-                            prop.key = f"{prop.key}__{property_type}"
-
+                        if isinstance(prop, SpanPropertyFilter):
+                            prop = with_span_attribute_type_suffix(prop)
                         self.span_attribute_filters.append(prop)
 
     def where(self) -> ast.Expr:
@@ -359,9 +421,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_start": (result[13] or result[8]).replace(tzinfo=ZoneInfo("UTC")),
                 # OTel span attributes the user set, as a key-value map.
                 "attributes": result[14],
+                # OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
+                "resource_attributes": result[15],
                 # Per-trace duration key (max matching-span duration); the offset-pagination key for
                 # the slowest/fastest sorts. Falls back to this row's own duration.
-                "trace_duration": result[15] if result[15] is not None else result[10],
+                "trace_duration": result[16] if result[16] is not None else result[10],
             }
             results.append(row)
 
@@ -501,6 +565,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 {where} as matched_filter,
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
+                {resource_attributes},
                 max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration
             FROM posthog.trace_spans
             WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
@@ -511,10 +576,14 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
-                # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
-                # excluded we still SELECT a column so the positional result mapping stays stable —
-                # an empty map instead of the real one.
+                # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
+                # process.command_args etc. bulk up the resource map). When excluded we still
+                # SELECT a column so the positional result mapping stays stable — an empty map
+                # instead of the real one.
                 "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                "resource_attributes": parse_expr(
+                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                ),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -744,12 +813,6 @@ def run_attribute_values_query(
     return results
 
 
-# Imported below the helpers above (and `translate_span_filter`) because the runners
-# import `translate_span_filter` from this module. Keeping this import at the bottom
-# avoids a partial-load circular import.
-from .aggregation_query_runner import TraceSpansAggregationQueryRunner, TraceSpansTreeQueryRunner  # noqa: E402
-
-
 def run_aggregation_query(
     *,
     team: "Team",
@@ -759,6 +822,10 @@ def run_aggregation_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
+    # noqa-justified: the runners import `translate_span_filter` from this module, so a
+    # module-level import here is circular and only resolves when this module loads first.
+    from .aggregation_query_runner import TraceSpansAggregationQueryRunner  # noqa: PLC0415
+
     query = TraceSpansAggregationQuery(
         dateRange=date_range,
         compareFilter=compare_filter,
@@ -782,6 +849,9 @@ def run_tree_query(
     service_names: list[str] | None = None,
 ) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:
     """Facade-friendly entry point for running a span call-tree aggregation query."""
+    # noqa-justified: same circular import as run_aggregation_query above.
+    from .aggregation_query_runner import TraceSpansTreeQueryRunner  # noqa: PLC0415
+
     query = TraceSpansTreeQuery(
         dateRange=date_range,
         spanName=span_name,

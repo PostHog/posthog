@@ -30,6 +30,16 @@
             "minimum": 1,
             "type": "number"
         },
+        "skill_name": {
+            "description": "Exact-match filter on the scout skill (e.g. `signals-scout-errors`). Narrows the run dump to a single scout — the primary scoping path when a specialist dedupes against its own past runs. Omit to span every scout on the team.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "skill_version": {
+            "description": "Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.",
+            "minimum": 1,
+            "type": "number"
+        },
         "text": {
             "description": "Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
             "minLength": 1,

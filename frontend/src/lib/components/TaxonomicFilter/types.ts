@@ -39,6 +39,10 @@ export interface QuickFilterItem {
     propertyFilterType: PropertyFilterType.Event | PropertyFilterType.Person
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
+    /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
+     *  measure contains-shortcut adoption, matching the rebuild menu's
+     *  `wasUrlContainsShortcut`. */
+    isContainsShortcut?: boolean
 }
 
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
@@ -177,6 +181,14 @@ export interface TaxonomicFilterProps {
      *  - `TaxonomicPropertyFilter` hides the operator+value pair on rows whose group is key-only.
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
+    /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
+     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
+     *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
+     *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
+     *  behind it) opts in — that covers every current pageview-URL consumer — so the paths
+     *  picker keeps its full URL list. */
+    collapseUrlsToContainsRow?: boolean
 }
 
 export interface DataWarehousePopoverField {
@@ -342,6 +354,16 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.Empty,
     TaxonomicFilterGroupType.Wildcards,
     TaxonomicFilterGroupType.MaxAIContext,
+])
+
+/** Selection types that reopen on their own tab/panel rather than the default "All" surface,
+ *  because they're config/edit flows (an expression editor, a data-warehouse table/column
+ *  picker) with no simple category value to verify at a glance. Honored by the legacy
+ *  `activeTab` selector and the rebuild menu's `activeChip` initializer alike. */
+export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
 ])
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
