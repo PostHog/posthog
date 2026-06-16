@@ -172,14 +172,15 @@ def get_action_object(team: Team, action_id: int) -> Action:
         raise ActionToolError(f"No action with ID {action_id} exists in this project.")
 
 
-def get_action(team: Team, action_id: int) -> str:
-    return _format_action(get_action_object(team, action_id), detailed=True)
+def format_action_detail(action: Action) -> str:
+    """Detailed, human-readable rendering of a single (already-fetched) action for tool output."""
+    return _format_action(action, detailed=True)
 
 
-def _check_name_available(team: Team, name: str, *, exclude_id: Optional[int] = None) -> None:
+def _check_name_available(team_id: int, name: str, *, exclude_id: Optional[int] = None) -> None:
     if not name.strip():
         raise ActionToolError("Action name may not be blank.")
-    clash = Action.objects.filter(team=team, name=name, deleted=False)
+    clash = Action.objects.filter(team_id=team_id, name=name, deleted=False)
     if exclude_id is not None:
         clash = clash.exclude(pk=exclude_id)
     existing_id = clash.values_list("id", flat=True).first()
@@ -190,7 +191,7 @@ def _check_name_available(team: Team, name: str, *, exclude_id: Optional[int] = 
 def create_action(
     team: Team, user: User, name: str, description: Optional[str], steps: Optional[list[ActionStepInput]]
 ) -> str:
-    _check_name_available(team, name)
+    _check_name_available(team.id, name)
     action = Action(team=team, name=name, description=description or "", created_by=user)
     if steps:
         action.steps = [s.to_step_dict() for s in steps]
@@ -200,18 +201,16 @@ def create_action(
 
 
 def update_action(
-    team: Team,
     user: User,
-    action_id: int,
+    action: Action,
     name: Optional[str],
     description: Optional[str],
     steps: Optional[list[ActionStepInput]],
 ) -> str:
-    action = get_action_object(team, action_id)
     if name is None and description is None and steps is None:
         return f"Nothing to update — action #{action.id} left unchanged:\n{_format_action(action, detailed=True)}"
     if name is not None:
-        _check_name_available(team, name, exclude_id=action.pk)
+        _check_name_available(action.team_id, name, exclude_id=action.pk)
         action.name = name
     if description is not None:
         action.description = description
@@ -222,8 +221,7 @@ def update_action(
     return f"Updated action:\n{_format_action(action, detailed=True)}"
 
 
-def delete_action(team: Team, user: User, action_id: int) -> str:
-    action = get_action_object(team, action_id)
+def delete_action(user: User, action: Action) -> str:
     action.deleted = True
     with _acting_user(user):
         action.save()

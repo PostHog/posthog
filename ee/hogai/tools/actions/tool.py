@@ -19,7 +19,7 @@ from .core import (
     UpdateActionToolArgs,
     create_action,
     delete_action,
-    get_action,
+    format_action_detail,
     get_action_object,
     list_actions,
     update_action,
@@ -84,7 +84,7 @@ class GetActionTool(MaxTool):
     async def _arun_impl(self, action_id: int) -> tuple[str, None]:
         action = await _fetch_action(self, action_id)
         await self.check_object_access(action, "viewer", action="read")
-        return await database_sync_to_async(get_action)(self._team, action_id), None
+        return format_action_detail(action), None
 
 
 class CreateActionTool(MaxTool):
@@ -123,9 +123,7 @@ class UpdateActionTool(MaxTool):
         action = await _fetch_action(self, action_id)
         await self.check_object_access(action, "editor", action="edit")
         try:
-            result = await database_sync_to_async(update_action)(
-                self._team, self._user, action_id, name, description, steps
-            )
+            result = await database_sync_to_async(update_action)(self._user, action, name, description, steps)
         except ActionToolError as e:
             raise MaxToolRetryableError(str(e))
         return result, None
@@ -145,14 +143,13 @@ class DeleteActionTool(MaxTool):
     async def format_dangerous_operation_preview(self, action_id: int) -> str:
         action = await _fetch_action(self, action_id)
         await self.check_object_access(action, "editor", action="delete")
-        current = await database_sync_to_async(get_action)(self._team, action_id)
-        return f"Delete this action — it will be removed from any insights and funnels that use it:\n{current}"
+        return (
+            "Delete this action — it will be removed from any insights and funnels that use it:\n"
+            f"{format_action_detail(action)}"
+        )
 
     async def _arun_impl(self, action_id: int) -> tuple[str, None]:
         action = await _fetch_action(self, action_id)
         await self.check_object_access(action, "editor", action="delete")
-        try:
-            result = await database_sync_to_async(delete_action)(self._team, self._user, action_id)
-        except ActionToolError as e:
-            raise MaxToolRetryableError(str(e))
+        result = await database_sync_to_async(delete_action)(self._user, action)
         return result, None
