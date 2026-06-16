@@ -1640,6 +1640,120 @@ export namespace Schemas {
       Stale: 'STALE',
     } as const;
 
+    export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetAddRequestOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface _WidgetTileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface _WidgetTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _WidgetTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: _WidgetTileLayoutBoxOpenApi;
+    }
+
+    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
+
+
+    export const WidgetDateRangeDateFrom = {
+      '1h': '-1h',
+      '3h': '-3h',
+      '24h': '-24h',
+      '7d': '-7d',
+      '14d': '-14d',
+      '30d': '-30d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      date_from?: WidgetDateRangeDateFrom;
+    }
+
+    export interface WidgetFilterEntry {
+      /** @minLength 1 */
+      filterId: string;
+      /** @minLength 1 */
+      propertyName: string;
+      /** @minLength 1 */
+      optionId: string;
+      operator: PropertyOperator;
+      value?: string | string[] | null;
+    }
+
+    export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface ActivityEventsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ActivityEventsListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of events to return.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    export interface ActivityEventsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ActivityEventsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the recent events widget. */
+      config: ActivityEventsListWidgetConfig;
+    }
+
+    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface ActivityEventsListWidgetCatalogEntryOpenApi {
+      widget_type: ActivityEventsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ActivityEventsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `activity_events_list` - activity_events_list
+     */
+    export type ActivityEventsListWidgetTypeEnum = typeof ActivityEventsListWidgetTypeEnum[keyof typeof ActivityEventsListWidgetTypeEnum];
+
+
+    export const ActivityEventsListWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -3813,58 +3927,12 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface _WidgetTileLayoutBoxOpenApi {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface _WidgetTileLayoutsOpenApi {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: _WidgetTileLayoutBoxOpenApi;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: _WidgetTileLayoutBoxOpenApi;
-    }
-
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
     export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
-
-    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
-
-
-    export const WidgetDateRangeDateFrom = {
-      '1h': '-1h',
-      '3h': '-3h',
-      '24h': '-24h',
-      '7d': '-7d',
-      '14d': '-14d',
-      '30d': '-30d',
-      '90d': '-90d',
-    } as const;
-
-    export interface WidgetDateRange {
-      date_from?: WidgetDateRangeDateFrom;
-    }
-
-    export interface WidgetFilterEntry {
-      /** @minLength 1 */
-      filterId: string;
-      /** @minLength 1 */
-      propertyName: string;
-      /** @minLength 1 */
-      optionId: string;
-      operator: PropertyOperator;
-      value?: string | string[] | null;
-    }
 
     /**
      * Issue ranking column.
@@ -4008,6 +4076,8 @@ export namespace Schemas {
       orderBy?: SessionReplayListWidgetConfigOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: SessionReplayListWidgetConfigOrderDirection;
+      /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+      savedFilterId?: string | null;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -4028,14 +4098,14 @@ export namespace Schemas {
       config: SessionReplayListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -4689,6 +4759,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
@@ -7017,7 +7088,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -8151,6 +8222,8 @@ export namespace Schemas {
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -8160,6 +8233,8 @@ export namespace Schemas {
       Avg: 'avg',
       Count: 'count',
       P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -9815,10 +9890,10 @@ export namespace Schemas {
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes
      */
-    export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
+    export type BatchExportIntervalEnum = typeof BatchExportIntervalEnum[keyof typeof BatchExportIntervalEnum];
 
 
-    export const IntervalEnum = {
+    export const BatchExportIntervalEnum = {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
@@ -9967,7 +10042,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether this BatchExport is paused or not. */
       paused?: boolean;
       /** The timestamp at which this BatchExport was created. */
@@ -10763,7 +10838,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -12835,6 +12910,14 @@ export namespace Schemas {
       has_misconfigured: boolean;
     }
 
+    export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
+
+
+    export const ConversionRateInputType = {
+      Manual: 'manual',
+      Automatic: 'automatic',
+    } as const;
+
     /**
      * * `0` - Disabled
      * * `1` - Stateless
@@ -13657,6 +13740,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
      * * `session_replay_list` - session_replay_list
      */
@@ -13664,6 +13748,7 @@ export namespace Schemas {
 
 
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
       ErrorTrackingList: 'error_tracking_list',
       SessionReplayList: 'session_replay_list',
     } as const;
@@ -13673,6 +13758,7 @@ export namespace Schemas {
       id?: string;
       /** Widget type identifier (cannot be changed on update).
        *
+       * * `activity_events_list` - activity_events_list
        * * `error_tracking_list` - error_tracking_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
@@ -14646,6 +14732,7 @@ export namespace Schemas {
      * * `AmazonKinesis` - AmazonKinesis
      * * `AmazonCloudWatch` - AmazonCloudWatch
      * * `OpenAIAds` - OpenAIAds
+     * * `Grafana` - Grafana
      * * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
@@ -14884,6 +14971,7 @@ export namespace Schemas {
       AmazonKinesis: 'AmazonKinesis',
       AmazonCloudWatch: 'AmazonCloudWatch',
       OpenAIAds: 'OpenAIAds',
+      Grafana: 'Grafana',
       Custom: 'Custom',
     } as const;
 
@@ -15129,6 +15217,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
@@ -18444,6 +18533,37 @@ export namespace Schemas {
       rollout_percentage?: number | null;
     }
 
+    export type ManualMetricType = typeof ManualMetricType[keyof typeof ManualMetricType];
+
+
+    export const ManualMetricType = {
+      Funnel: 'funnel',
+      MeanCount: 'mean_count',
+      MeanSumOrAvg: 'mean_sum_or_avg',
+    } as const;
+
+    export interface ExperimentExposureEstimateConfig {
+      /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+      conversionRateInputType: ConversionRateInputType;
+      /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+      manualBaselineValue?: number | null;
+      /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+      manualExposureRate?: number | null;
+      /** Metric type the manual baseline value refers to. Only used in manual mode. */
+      manualMetricType?: ManualMetricType | null;
+    }
+
+    export interface ExperimentRunningTimeCalculation {
+      /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+      exposure_estimate_config?: ExperimentExposureEstimateConfig | null;
+      /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+      minimum_detectable_effect?: number | null;
+      /** Estimated number of days needed to reach the recommended sample size. */
+      recommended_running_time?: number | null;
+      /** Recommended number of exposed users needed for statistical significance. */
+      recommended_sample_size?: number | null;
+    }
+
     export interface ExperimentToSavedMetric {
       readonly id: number;
       experiment: number;
@@ -18611,8 +18731,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
@@ -18755,6 +18877,121 @@ export namespace Schemas {
       Numeric: 'numeric',
       Boolean: 'boolean',
     } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ExperimentMetricsRecalculationStatusEnum = typeof ExperimentMetricsRecalculationStatusEnum[keyof typeof ExperimentMetricsRecalculationStatusEnum];
+
+
+    export const ExperimentMetricsRecalculationStatusEnum = {
+      Pending: 'pending',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `manual` - Manual
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update
+     */
+    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+
+
+    export const ExperimentMetricsRecalculationTriggerEnum = {
+      Manual: 'manual',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+    } as const;
+
+    /**
+     * * `pending` - pending
+     * * `completed` - completed
+     * * `failed` - failed
+     */
+    export type MetricRecalculationResultStatusEnum = typeof MetricRecalculationResultStatusEnum[keyof typeof MetricRecalculationResultStatusEnum];
+
+
+    export const MetricRecalculationResultStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * One metric's recalculated result row, read back from ExperimentMetricResult.
+     */
+    export interface MetricRecalculationResult {
+      /** UUID of the metric this result belongs to */
+      readonly metric_uuid: string;
+      /** Status of this metric's calculation in the run
+       *
+       * * `pending` - pending
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: MetricRecalculationResultStatusEnum;
+      /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+      readonly result: unknown;
+      /**
+         * Error message when status is failed; otherwise null
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    /**
+     * Serializer for metrics recalculation status responses.
+     */
+    export interface ExperimentMetricsRecalculation {
+      /** Unique identifier for this recalculation job */
+      readonly id: string;
+      /** ID of the experiment being recalculated */
+      readonly experiment_id: number;
+      /** Current status of the recalculation job
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ExperimentMetricsRecalculationStatusEnum;
+      /** Total number of metrics to recalculate */
+      readonly total_metrics: number;
+      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      readonly completed_metrics: number;
+      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      readonly failed_metrics: number;
+      /** Map of metric_uuid to error details */
+      readonly metric_errors: unknown;
+      /** What triggered this recalculation
+       *
+       * * `manual` - Manual
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      /** When the job was created */
+      readonly created_at: string;
+      /**
+         * When processing started
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When processing completed
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /** True if returning an existing job rather than a newly created one */
+      readonly is_existing: boolean;
+      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      readonly results: readonly MetricRecalculationResult[];
+    }
 
     /**
      * Mixin for serializers to add user access control fields
@@ -19312,6 +19549,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -21082,6 +21320,8 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
       /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
       fold?: HeatmapFoldSummary | null;
+      /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
+      has_more?: boolean;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -22390,6 +22630,8 @@ export namespace Schemas {
       /** Omit the per-span `attributes` map from results to keep payloads compact */
       excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
+      /** Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this. */
+      flatSpans?: boolean | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -23122,6 +23364,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -23163,6 +23406,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -23935,6 +24179,23 @@ export namespace Schemas {
       Burst: 'burst',
       Sustained: 'sustained',
     } as const;
+
+    /**
+     * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+     * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+     * the full report itself.
+     */
+    export interface LinkedSignalReport {
+      /** UUID of the linked `SignalReport`. */
+      id: string;
+      /**
+         * LLM-generated report title, or null if the report hasn't been summarised yet.
+         * @nullable
+         */
+      title: string | null;
+      /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+      status: string;
+    }
 
     /**
      * Typed output for view set `list`.
@@ -25077,6 +25338,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto
+     */
+    export type MetricAttributeScopeEnum = typeof MetricAttributeScopeEnum[keyof typeof MetricAttributeScopeEnum];
+
+
+    export const MetricAttributeScopeEnum = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    /**
      * * `precise` - PRECISE
      * * `coarse` - COARSE
      * * `partial` - PARTIAL
@@ -25088,6 +25363,30 @@ export namespace Schemas {
       Precise: 'precise',
       Coarse: 'coarse',
       Partial: 'partial',
+    } as const;
+
+    /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `minute_5` - minute_5
+     * * `minute_15` - minute_15
+     * * `hour` - hour
+     * * `hour_6` - hour_6
+     * * `day` - day
+     * * `week` - week
+     */
+    export type MetricQueryIntervalEnum = typeof MetricQueryIntervalEnum[keyof typeof MetricQueryIntervalEnum];
+
+
+    export const MetricQueryIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Minute5: 'minute_5',
+      Minute15: 'minute_15',
+      Hour: 'hour',
+      Hour6: 'hour_6',
+      Day: 'day',
+      Week: 'week',
     } as const;
 
     export interface MinimalPerson {
@@ -25649,6 +25948,22 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+    } as const;
+
+    /**
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     */
+    export type OpEnum = typeof OpEnum[keyof typeof OpEnum];
+
+
+    export const OpEnum = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
     } as const;
 
     /**
@@ -30959,7 +31274,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval?: IntervalEnum;
+      interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -32118,8 +32433,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
@@ -41049,6 +41366,35 @@ export namespace Schemas {
       suggested_integration: string | null;
     }
 
+    /**
+     * * `manual` - manual
+     * * `experiment_launch` - experiment_launch
+     * * `experiment_stop` - experiment_stop
+     * * `experiment_update` - experiment_update
+     */
+    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
+
+
+    export const RecalculateMetricsRequestTriggerEnum = {
+      Manual: 'manual',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+    } as const;
+
+    /**
+     * Request body for triggering a metrics recalculation.
+     */
+    export interface RecalculateMetricsRequest {
+      /** What triggered this recalculation (manual is the default for user-initiated runs)
+       *
+       * * `manual` - manual
+       * * `experiment_launch` - experiment_launch
+       * * `experiment_stop` - experiment_stop
+       * * `experiment_update` - experiment_update */
+      trigger?: RecalculateMetricsRequestTriggerEnum;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -41430,6 +41776,21 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    /**
+     * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+     *
+     * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+     * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+     */
+    export interface ScoutEmissionReportLink {
+      /** Stable id the finding was emitted under. */
+      finding_id: string;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+      source_id: string;
+      /** The inbox report this finding linked to, or null if none could be resolved. */
+      report: LinkedSignalReport | null;
     }
 
     /**
@@ -42582,6 +42943,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
@@ -42853,6 +43215,7 @@ export namespace Schemas {
        * * `AmazonKinesis` - AmazonKinesis
        * * `AmazonCloudWatch` - AmazonCloudWatch
        * * `OpenAIAds` - OpenAIAds
+       * * `Grafana` - Grafana
        * * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
@@ -45026,7 +45389,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -45547,6 +45910,43 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface _MetricFilter {
+      /**
+         * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op?: OpEnum;
+      /** Value to compare against. For regex operators this is the pattern. */
+      value: string;
+      /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
+    export interface _MetricGroupBy {
+      /**
+         * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -45565,13 +45965,30 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName: string;
-      /** Aggregation applied per time bucket.
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
-       * * `p95` - p95 */
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase */
       aggregation?: AggregationEnum;
+      /** Label predicates ANDed together. Rows must satisfy every filter. */
+      filters?: _MetricFilter[];
+      /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
+      groupBy?: _MetricGroupBy[];
+      /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `minute_5` - minute_5
+       * * `minute_15` - minute_15
+       * * `hour` - hour
+       * * `hour_6` - hour_6
+       * * `day` - day
+       * * `week` - week */
+      interval?: MetricQueryIntervalEnum | null;
       /** Lower bound (inclusive) for the query range. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
@@ -45590,9 +46007,31 @@ export namespace Schemas {
       query: _MetricQueryBody;
     }
 
-    export interface _MetricQueryResponse {
+    /**
+     * Label values identifying this series. Empty for an ungrouped query.
+     */
+    export type _MetricSeriesLabels = {[key: string]: string};
+
+    export interface _MetricSeries {
+      /** Label values identifying this series. Empty for an ungrouped query. */
+      labels: _MetricSeriesLabels;
       /** Time-bucketed points, ordered by time ascending. */
-      results: _MetricQueryPoint[];
+      points: _MetricQueryPoint[];
+      /**
+         * Metric the series was computed from. Null for formula results.
+         * @nullable
+         */
+      metric_name?: string | null;
+      /**
+         * Name of the query clause that produced this series.
+         * @nullable
+         */
+      clause?: string | null;
+    }
+
+    export interface _MetricQueryResponse {
+      /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
+      results: _MetricSeries[];
     }
 
     /**
@@ -45802,6 +46241,8 @@ export namespace Schemas {
       offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
+      /** Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false. */
+      flatSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
@@ -45811,6 +46252,22 @@ export namespace Schemas {
     export interface _TracingQueryRequest {
       /** The tracing spans query to execute. */
       query: _TracingQueryBody;
+    }
+
+    export interface _TracingTimeseriesQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingTimeseriesRequest {
+      /** The sparkline / duration-histogram query to execute. */
+      query: _TracingTimeseriesQueryBody;
     }
 
     export interface _TracingTraceRequest {
@@ -47299,6 +47756,18 @@ export namespace Schemas {
      */
     hide_zero_coordinates?: boolean;
     /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -48273,6 +48742,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -48325,6 +48795,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -51449,6 +51920,10 @@ export namespace Schemas {
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string;
+    /**
+     * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
+     */
+    rerank?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
@@ -53388,6 +53863,18 @@ export namespace Schemas {
      */
     hide_zero_coordinates?: boolean;
     /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -54385,6 +54872,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -54437,6 +54925,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',

@@ -13,7 +13,12 @@ from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, ExperimentParameters
+from posthog.schema import (
+    ExperimentApiExposureCriteria,
+    ExperimentApiMetric,
+    ExperimentParameters,
+    ExperimentRunningTimeCalculation,
+)
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -95,6 +100,11 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
+class ExperimentRunningTimeCalculationField(serializers.JSONField):
+    pass
+
+
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
@@ -153,7 +163,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "`recommended_running_time`, `recommended_sample_size`, "
             "`custom_exposure_filter`, and `excluded_variants` "
             "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded)."
+            "the baseline variant and holdout pseudo-variants cannot be excluded). "
+            "The running-time calculator keys (`minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
+            "are deprecated here — prefer `running_time_calculation`."
+        ),
+    )
+    running_time_calculation = ExperimentRunningTimeCalculationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
+            "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
+            "which historically lived in `parameters`; values are kept in sync with `parameters` "
+            "during the deprecation window."
         ),
     )
     metrics = ExperimentMetricsField(
@@ -241,6 +264,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "holdout_id",
             "exposure_cohort",
             "parameters",
+            "running_time_calculation",
             "secondary_metrics",
             "saved_metrics",
             "saved_metrics_ids",
@@ -352,6 +376,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ExperimentService.validate_experiment_parameters(value)
         return value
 
+    def validate_running_time_calculation(self, value):
+        ExperimentService.validate_running_time_calculation(value)
+        return value
+
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
         return exposure_criteria
@@ -383,6 +411,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             description=self.validated_data.get("description", ""),
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
+            running_time_calculation=self.validated_data.get("running_time_calculation"),
             metrics=self.validated_data.get("metrics"),
             metrics_secondary=self.validated_data.get("metrics_secondary"),
             secondary_metrics=self.validated_data.get("secondary_metrics"),
@@ -420,6 +449,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "description",
             "type",
             "parameters",
+            "running_time_calculation",
             "metrics",
             "metrics_secondary",
             "secondary_metrics",
@@ -602,6 +632,38 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         return attrs
 
 
+class MetricRecalculationResultSerializer(serializers.Serializer):
+    """One metric's recalculated result row, read back from ExperimentMetricResult."""
+
+    metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
+    status = serializers.ChoiceField(
+        choices=["pending", "completed", "failed"],
+        read_only=True,
+        help_text="Status of this metric's calculation in the run",
+    )
+    # JSONField mirrors the ExperimentMetricResult.result column; concrete shape comes from
+    # posthog.schema.ExperimentQueryResponse (variants/baseline/credible intervals/etc., depending on metric type).
+    result = serializers.JSONField(
+        read_only=True,
+        allow_null=True,
+        help_text="The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed",
+    )
+    error_message = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
+    )
+
+
+class RecalculateMetricsRequestSerializer(serializers.Serializer):
+    """Request body for triggering a metrics recalculation."""
+
+    trigger = serializers.ChoiceField(
+        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        required=False,
+        default="manual",
+        help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
@@ -613,6 +675,17 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         help_text="Current status of the recalculation job",
     )
     total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    completed_metrics = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+    )
+    failed_metrics = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures "
+            "that never made it to a result row"
+        ),
+    )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
     trigger = serializers.ChoiceField(
@@ -625,4 +698,12 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     completed_at = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When processing completed")
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
+    )
+    # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
+    # per-metric results yet — the workflow has just started).
+    results = MetricRecalculationResultSerializer(
+        many=True,
+        read_only=True,
+        required=False,
+        help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
     )

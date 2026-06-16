@@ -107,11 +107,24 @@ class AnsiIdentifierQuoter(_BaseQuoter):
 class BracketIdentifierQuoter(_BaseQuoter):
     """T-SQL quoting with square brackets (MSSQL, Azure SQL Server).
 
-    The allowlist already rejects identifiers containing `]`, so no
-    additional escaping is required — but the parent class still calls
-    `_validate_identifier` before quoting, which is the actual safety
-    boundary.
+    Unlike the backtick / ANSI quoters, this one does NOT use the strict
+    alphanumeric allowlist. T-SQL delimited identifiers legitimately contain
+    spaces, `#`, and other punctuation that the allowlist rejects (real
+    SQL Server schemas have columns like `Orden#` and tables like
+    `Forma Pago`), and the allowlist crashed the import on them. Square-bracket
+    quoting makes any such name safe by doubling a literal `]` to `]]` — the
+    same escaping SQL Server's own `QUOTENAME()` performs — so that is the
+    actual safety boundary here. Control characters (which bracket-quoting
+    cannot neutralise and never appear in a real identifier) are still rejected.
     """
 
     _open = "["
     _close = "]"
+
+    def quote(self, identifier: str) -> str:
+        if not identifier:
+            raise InvalidIdentifierError("Identifier may not be empty")
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in identifier):
+            raise InvalidIdentifierError(f"Invalid SQL identifier: {identifier!r}")
+        escaped = identifier.replace("]", "]]")
+        return f"{self._open}{escaped}{self._close}"

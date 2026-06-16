@@ -29,6 +29,7 @@ import { GENERATED_TOOLS as health_issues } from './health_issues'
 import { GENERATED_TOOLS as integrations } from './integrations'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
+import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as platform_features } from './platform_features'
@@ -77,6 +78,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...integrations,
     ...logs,
     ...marketing_analytics,
+    ...mcp_analytics,
     ...notebooks,
     ...persons,
     ...platform_features,

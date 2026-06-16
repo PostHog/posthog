@@ -323,7 +323,7 @@ class SignupIPThrottle(IPThrottle):
     """
 
     scope = "signup_ip"
-    rate = "5/day"
+    rate = settings.SIGNUP_IP_THROTTLE_RATE
 
 
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
