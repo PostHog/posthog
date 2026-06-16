@@ -15,13 +15,7 @@ from typing import Optional, Protocol, Union
 import structlog
 from prometheus_client import Counter
 
-from posthog.schema import (
-    EventPropertyFilter,
-    PropertyOperator,
-    WebOverviewQuery,
-    WebStatsTableQuery,
-    WebVitalsPathBreakdownQuery,
-)
+from posthog.schema import EventPropertyFilter, WebOverviewQuery, WebStatsTableQuery, WebVitalsPathBreakdownQuery
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -31,7 +25,10 @@ from posthog.models.team import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    LazyPrecomputeIneligible as CommonLazyPrecomputeIneligible,
+    expanded_filters_enabled_for_team,
     is_precompute_enabled_for_team,
+    validate_user_filters,
 )
 
 logger = structlog.get_logger(__name__)
@@ -62,11 +59,6 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
     "Requests served from the lazy precompute path, by family.",
     ["family"],
 )
-
-# Today the gate accepts: empty user filters, or a single EventPropertyFilter
-# on `$host` with operator `exact`. Test-account filters are always allowed
-# (their content is hashed into the cache key).
-SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
@@ -199,7 +191,7 @@ def can_use_lazy_precompute(
         check_common_eligible(runner, require_integer_timezone=require_integer_timezone)
         if extra_check is not None:
             extra_check(runner)
-    except LazyPrecomputeIneligible as exc:
+    except (LazyPrecomputeIneligible, CommonLazyPrecomputeIneligible) as exc:
         reason = type(exc).__name__
         WEB_ANALYTICS_LAZY_PRECOMPUTE_REJECTED.labels(family=log_prefix, reason=reason).inc()
         logger.info(
@@ -262,18 +254,7 @@ def check_common_eligible(runner: LazyPrecomputeRunner, *, require_integer_timez
     if query.modifiers and query.modifiers.sessionsV2JoinMode == "uuid":
         raise SessionsV2UuidMode()
 
-    properties = query.properties or []
-    if len(properties) > 1:
-        raise TooManyFilters()
-    for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
+    validate_user_filters(runner.team, query.properties or [])
 
     date_from = runner.query_date_range.date_from()  # type: ignore[attr-defined]
     date_to = runner.query_date_range.date_to()  # type: ignore[attr-defined]
@@ -293,6 +274,12 @@ def user_filter_expr(runner: LazyPrecomputeRunner) -> ast.Expr:
     """
     if not runner.query.properties:
         return ast.Constant(value=True)
+
+    # Expanded teams build the WHERE with property_to_expr (parity with raw).
+    # Non-expanded teams keep the exact $host equals(...) AST so existing jobs'
+    # cache keys don't churn.
+    if expanded_filters_enabled_for_team(runner.team):
+        return property_to_expr(runner.query.properties, team=runner.team)
 
     # Gate already enforces single EventPropertyFilter with $host exact + string value.
     host_filter = runner.query.properties[0]

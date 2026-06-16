@@ -287,7 +287,7 @@ def ensure_web_goals_precomputed(
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
         "action_or_expr": _action_or_expr(actions),
-        "user_filter": host_filter_expr(runner.query.properties or []),
+        "user_filter": host_filter_expr(runner.query.properties or [], runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),

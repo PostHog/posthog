@@ -7,11 +7,14 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    CohortPropertyFilter,
     CompareFilter,
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
+    PersonPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebAnalyticsPreComputeStrategy,
@@ -24,6 +27,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
@@ -658,3 +662,84 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Visitors are monotonically non-increasing on the returned page.
         visitors = [row[1][0] for row in lazy_metrics]
         assert visitors == sorted(visitors, reverse=True), f"first page not ordered by visitors desc: {visitors}"
+
+    # --- Expanded filter allowlist (team-scoped) -------------------------------
+
+    @parameterized.expand(
+        [
+            (
+                "multi_event_combo",
+                [
+                    EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key="$device_type", value="Desktop", operator=PropertyOperator.EXACT),
+                ],
+            ),
+            (
+                "session_channel_type",
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+            ),
+            (
+                "person_property",
+                [PersonPropertyFilter(key="name", value="u1", operator=PropertyOperator.EXACT)],
+            ),
+            (
+                "pathname_icontains",
+                [EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.ICONTAINS)],
+            ),
+            (
+                "session_duration_gt",
+                [SessionPropertyFilter(key="$session_duration", value=0, operator=PropertyOperator.GT)],
+            ),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_expanded_filter_lazy_matches_raw(self, _name: str, properties: list) -> None:
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS={self.team.pk}):
+            self._seed()
+            raw = self._metrics(self._run(self._build_query(properties=properties)))
+            with self._enable_lazy():
+                lazy_response = self._run(self._build_query(properties=properties))
+
+            assert lazy_response.usedLazyPrecompute is True, f"{_name}: expected lazy precompute path"
+            lazy = self._metrics(lazy_response)
+            assert lazy == raw, f"{_name}: expanded-filter lazy/raw mismatch: raw={raw}, lazy={lazy}"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_expanded_cohort_filter_falls_through(self) -> None:
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS={self.team.pk}):
+            self._seed()
+            cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="empty")
+            cohort_filter = CohortPropertyFilter(key="id", value=cohort.pk, operator=PropertyOperator.IN_)
+            with self._enable_lazy():
+                self._run(self._build_query(properties=[cohort_filter]))
+
+            assert self._job_count() == 0, "cohort filters cannot be precomputed — must fall through to raw"
+
+    @parameterized.expand(
+        [
+            (
+                "two_event_filters",
+                [
+                    EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT),
+                    EventPropertyFilter(key="$device_type", value="Desktop", operator=PropertyOperator.EXACT),
+                ],
+            ),
+            (
+                "non_host_key",
+                [EventPropertyFilter(key="$device_type", value="Desktop", operator=PropertyOperator.EXACT)],
+            ),
+            (
+                "non_exact_operator",
+                [EventPropertyFilter(key="$host", value="example", operator=PropertyOperator.ICONTAINS)],
+            ),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_non_expanded_team_keeps_mvp_gate(self, _name: str, properties: list) -> None:
+        # Setting empty (default) -> only the MVP `$host` exact single-filter path
+        # is eligible; everything else falls through to raw.
+        self._seed()
+        with self._enable_lazy():
+            self._run(self._build_query(properties=properties))
+
+        assert self._job_count() == 0, f"{_name}: non-expanded team must keep the MVP gate (raw fallback)"

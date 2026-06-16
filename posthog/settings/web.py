@@ -921,3 +921,11 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
+
+# Teams allowed onto the expanded precompute filter allowlist (curated event/
+# session keys + any person property, any operator, small combos) instead of the
+# MVP single-`$host`-exact path. Gated separately for measurement; default empty
+# so no team opts in unless explicitly enrolled via the env var.
+WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS: set[int] = {
+    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS", ""))
+}

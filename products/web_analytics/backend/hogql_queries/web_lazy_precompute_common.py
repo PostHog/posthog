@@ -19,7 +19,13 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, SessionsV2JoinMode
+from posthog.schema import (
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SessionPropertyFilter,
+    SessionsV2JoinMode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -73,6 +79,43 @@ LAZY_TTL_SECONDS: dict[str, int] = {
 # operator `exact` is admitted. Test-account filters are always allowed
 # (their content is hashed into the cache key).
 SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
+
+# Expanded allowlist (gated per team via WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS).
+# Curated event/session keys deterministic given the events scanned by a job, so
+# baking them into the job WHERE precomputes correctly. Cohort filters stay
+# excluded — dynamic membership can't be re-aggregated from events.
+EXPANDED_EVENT_FILTER_KEYS: set[str] = {
+    "$host",
+    "$pathname",
+    "$current_url",
+    "$referring_domain",
+    "$device_type",
+    "$browser",
+    "$os",
+    "$geoip_country_code",
+    "$geoip_country_name",
+    "$geoip_city_name",
+    "$geoip_subdivision_1_code",
+    "$channel_type",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+}
+EXPANDED_SESSION_FILTER_KEYS: set[str] = {
+    "$channel_type",
+    "$entry_referring_domain",
+    "$entry_pathname",
+    "$end_pathname",
+    "$entry_utm_source",
+    "$entry_utm_medium",
+    "$entry_utm_campaign",
+    "$entry_utm_term",
+    "$entry_utm_content",
+    "$session_duration",
+}
+EXPANDED_MAX_FILTERS = 5
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
@@ -154,6 +197,53 @@ class DateRangeOverMax(LazyPrecomputeIneligible):
         super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
 
 
+def expanded_filters_enabled_for_team(team: Team) -> bool:
+    return team.id in settings.WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS
+
+
+def validate_user_filters(team: Team, properties: list) -> None:
+    """Raise a `LazyPrecomputeIneligible` subclass if the user filters can't be precomputed.
+
+    Single source of truth shared by both gates (`check_common_eligibility` and
+    `check_common_eligible`) so the MVP and expanded paths can't drift between them.
+    """
+    if not properties:
+        return
+
+    if not expanded_filters_enabled_for_team(team):
+        # MVP path — byte-identical to the original gate: <=1 EventPropertyFilter
+        # on `$host`, operator exact, non-empty string value.
+        if len(properties) > 1:
+            raise TooManyFilters()
+        prop = properties[0]
+        if not isinstance(prop, EventPropertyFilter):
+            raise NonEventPropertyFilter()
+        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
+            raise UnsupportedFilterKey(prop.key)
+        if prop.operator != PropertyOperator.EXACT:
+            raise UnsupportedFilterOperator(prop.operator)
+        if not isinstance(prop.value, str) or not prop.value:
+            raise NonStringOrEmptyFilterValue()
+        return
+
+    # Expanded path: curated event/session keys, any person property, any
+    # operator, small combos. property_to_expr builds the same WHERE the raw
+    # query uses, so value-type/operator handling matches by construction.
+    if len(properties) > EXPANDED_MAX_FILTERS:
+        raise TooManyFilters()
+    for prop in properties:
+        if isinstance(prop, EventPropertyFilter):
+            if prop.key not in EXPANDED_EVENT_FILTER_KEYS:
+                raise UnsupportedFilterKey(prop.key)
+        elif isinstance(prop, SessionPropertyFilter):
+            if prop.key not in EXPANDED_SESSION_FILTER_KEYS:
+                raise UnsupportedFilterKey(prop.key)
+        elif isinstance(prop, PersonPropertyFilter):
+            pass  # any person key (POE-stamped, deterministic given events)
+        else:
+            raise NonEventPropertyFilter()  # cohort / behavioral / element / hogql / etc. -> raw fallback
+
+
 def is_org_feature_flag_enabled(team: Team) -> bool:
     """Evaluate the rollout flag locally — fails closed on flag-service errors."""
     return bool(
@@ -227,17 +317,7 @@ def check_common_eligibility(
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
 
-    if len(properties) > 1:
-        raise TooManyFilters()
-    for prop in properties:
-        if not isinstance(prop, EventPropertyFilter):
-            raise NonEventPropertyFilter()
-        if prop.key not in SUPPORTED_USER_FILTER_KEYS:
-            raise UnsupportedFilterKey(prop.key)
-        if prop.operator != PropertyOperator.EXACT:
-            raise UnsupportedFilterOperator(prop.operator)
-        if not isinstance(prop.value, str) or not prop.value:
-            raise NonStringOrEmptyFilterValue()
+    validate_user_filters(team, properties)
 
     date_from, date_to = resolve_date_range()
     if date_from is None or date_to is None:
@@ -285,14 +365,20 @@ def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def host_filter_expr(properties: list) -> ast.Expr:
-    """Translate the (gated-down-to-≤1) user filter list to an AST expression.
+def host_filter_expr(properties: list, team: Team) -> ast.Expr:
+    """Translate the gated user filter list to an AST expression.
 
     The returned AST is what `ensure_precomputed` hashes into the cache key —
-    different filter values therefore become different precomputed jobs.
+    different filters therefore become different precomputed jobs.
+
+    Expanded teams build the WHERE with `property_to_expr` (parity with the raw
+    query). Non-expanded teams keep the exact `$host` equals(...) AST so existing
+    jobs' cache keys don't churn.
     """
     if not properties:
         return ast.Constant(value=True)
+    if expanded_filters_enabled_for_team(team):
+        return property_to_expr(properties, team=team)
     host_filter = properties[0]
     assert isinstance(host_filter, EventPropertyFilter)
     return ast.Call(
