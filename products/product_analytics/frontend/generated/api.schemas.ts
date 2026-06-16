@@ -25,12 +25,15 @@ export interface ColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
+    /** Column filter state persisted with this view configuration. */
     filters?: unknown
     /**
      * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
      * @nullable
      */
     order_by?: string[] | null
+    /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+    properties?: unknown
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by: number | null
@@ -54,12 +57,15 @@ export interface PatchedColumnConfigurationApi {
     columns?: string[]
     /** @maxLength 255 */
     name?: string
+    /** Column filter state persisted with this view configuration. */
     filters?: unknown
     /**
      * Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.
      * @nullable
      */
     order_by?: string[] | null
+    /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
+    properties?: unknown
     visibility?: VisibilityEnumApi
     /** @nullable */
     readonly created_by?: number | null
