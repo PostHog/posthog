@@ -1290,7 +1290,14 @@ def _has_duplicate_primary_keys(
 
 
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
+    use_savepoint = not cursor.connection.autocommit
+    savepoint_name = sql.Identifier("posthog_get_table_chunk_size")
+    savepoint_active = False
     try:
+        if use_savepoint:
+            cursor.execute(sql.SQL("SAVEPOINT {}").format(savepoint_name))
+            savepoint_active = True
+
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
                 SELECT octet_length(t::text) as row_size FROM ({}) as t
@@ -1305,13 +1312,17 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
-            return DEFAULT_CHUNK_SIZE
+            chunk_size = DEFAULT_CHUNK_SIZE
+        else:
+            row_size_bytes = row[0] or 1
+            chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+            logger.debug(
+                f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
+            )
 
-        row_size_bytes = row[0] or 1
-        chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
-        logger.debug(
-            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={chunk_size}"
-        )
+        if use_savepoint:
+            cursor.execute(sql.SQL("RELEASE SAVEPOINT {}").format(savepoint_name))
+            savepoint_active = False
 
         return chunk_size
     except Exception as e:
@@ -1320,10 +1331,16 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         # which serializes every column to text and so evaluates generated columns and check/domain
         # validator functions — making it strictly more expensive than the real chunked `SELECT *`
         # extraction. A timeout here therefore says nothing about whether extraction will succeed,
-        # and the savepoint above keeps the connection usable. The streaming read loop has its own
+        # and the savepoint keeps non-autocommit callers usable. The streaming read loop has its own
         # dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so re-raising the
         # cancellation here would only bypass that path and leak a raw, retryable QueryCanceled that
         # Temporal re-attempts forever on tables this query can never complete on.
+        if savepoint_active:
+            try:
+                cursor.execute(sql.SQL("ROLLBACK TO SAVEPOINT {}").format(savepoint_name))
+                cursor.execute(sql.SQL("RELEASE SAVEPOINT {}").format(savepoint_name))
+            except Exception as rollback_error:
+                logger.debug(f"_get_table_chunk_size: Failed to rollback savepoint: {rollback_error}")
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
