@@ -160,6 +160,8 @@ def cdc_supported_source_types() -> list[ExternalDataSourceType]:
 
 def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -> bool:
     """Whether the given source type (enum or raw string) supports CDC."""
+    if source_type is None:
+        return False
     try:
         resolved = ExternalDataSourceType(source_type)
     except ValueError:
