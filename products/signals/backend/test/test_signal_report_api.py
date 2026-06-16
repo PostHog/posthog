@@ -658,6 +658,66 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["source_products"] == []
 
+    # --- suppressed report reachability ---
+    #
+    # Suppressed (dismissed) reports stay out of the list by default, but the inbox's
+    # Dismissed tab needs to read them by ID (detail + evidence) and reopen them. Read
+    # paths (retrieve, signals, state) are reachable; mutating-by-ID paths (delete,
+    # reingest) deliberately are not, so they keep returning 404.
+
+    def test_retrieve_serves_suppressed_report(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(report.id)
+        assert response.json()["status"] == SignalReport.Status.SUPPRESSED
+
+    def test_signals_action_serves_suppressed_report(self):
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        with (
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                return_value={str(report.id): ["zendesk"]},
+            ),
+            patch("products.signals.backend.views.fetch_signals_for_report_sync", return_value=[]),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/signals/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["report"]["id"] == str(report.id)
+
+    def test_list_excludes_suppressed_by_default(self):
+        ready = self._create_report(status=SignalReport.Status.READY)
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(ready.id) in ids
+        assert str(suppressed.id) not in ids
+
+    def test_list_includes_suppressed_when_filtered(self):
+        suppressed = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.get(self._list_url(status="suppressed"))
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {r["id"] for r in response.json()["results"]}
+        assert str(suppressed.id) in ids
+
+    def test_reingest_suppressed_report_returns_404(self):
+        # reingest is a mutating-by-ID action, so a suppressed report stays unreachable
+        # and 404s before any workflow is started (mirrors the delete contract).
+        report = self._create_report(status=SignalReport.Status.SUPPRESSED)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/reports/{report.id}/reingest/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     # --- legacy choice removal ---
 
     def test_actionability_null_for_legacy_choice_artefact(self):

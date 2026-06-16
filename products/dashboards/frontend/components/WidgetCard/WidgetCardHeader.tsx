@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React from 'react'
+import React, { type ComponentType } from 'react'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -13,6 +13,15 @@ import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
 
+/** Props a widget type's optional TopHeading override receives so it can compose its own
+ * CardTopHeadingRow — e.g. resolving a saved filter's name the generic header can't derive from config. */
+export type DashboardWidgetTopHeadingProps = {
+    config: Record<string, unknown>
+    widgetTypeLabel?: string
+    showWidgetType: boolean
+    dateText?: string | null
+}
+
 export type WidgetCardHeaderProps = {
     layout: DashboardWidgetHeaderLayout
     title: string
@@ -23,6 +32,8 @@ export type WidgetCardHeaderProps = {
     widgetTypeLabel?: string
     config?: Record<string, unknown>
     headerMeta?: DashboardWidgetHeaderMeta
+    /** Optional per-widget-type top heading row; falls back to the type + date range when absent. */
+    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
     description?: string
     showDescription?: boolean
     loading?: boolean
@@ -154,6 +165,7 @@ export function WidgetCardHeader({
     widgetTypeLabel,
     config,
     headerMeta,
+    TopHeading,
     description,
     showDescription = true,
     loading,
@@ -171,7 +183,19 @@ export function WidgetCardHeader({
             : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText) ? (
-            <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+            // A widget type can supply its own top heading row (e.g. session replay surfaces the active
+            // saved filter name in place of the now-overridden date range); otherwise fall back to the
+            // type + date range.
+            TopHeading ? (
+                <TopHeading
+                    config={config ?? {}}
+                    widgetTypeLabel={widgetTypeLabel}
+                    showWidgetType={showWidgetType}
+                    dateText={dateText}
+                />
+            ) : (
+                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />
+            )
         ) : null
     const resolvedTopHeading = topHeading !== undefined ? topHeading : derivedTopHeading
 

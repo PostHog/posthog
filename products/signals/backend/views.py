@@ -428,6 +428,14 @@ class SignalReportViewSet(
     # so it is never a valid filter target.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
 
+    # Actions allowed to resolve a suppressed report by ID even without an explicit
+    # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
+    # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
+    # loads its evidence. Mutating-by-ID actions (delete, reingest) are deliberately
+    # NOT here, so a suppressed report stays unreachable for those and keeps returning
+    # 404 — matching the existing contract.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "retrieve", "signals"})
+
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -441,10 +449,12 @@ class SignalReportViewSet(
                     }
                 )
             return queryset.filter(status__in=statuses)
-        # The `state` action reopens dismissed reports, so it must be able to reach a suppressed
-        # report by ID — otherwise transitioning one back to "potential" would 404. Everywhere
-        # else suppressed reports stay hidden unless an explicit `status` filter asks for them.
-        if self.action == "state":
+        # A few read/reopen actions must be able to reach a suppressed report by ID
+        # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
+        # inbox's Dismissed-tab detail view). Everywhere else — including the list and
+        # mutating-by-ID actions like delete/reingest — suppressed reports stay hidden
+        # unless an explicit `status` filter asks for them.
+        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
 
