@@ -100,7 +100,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         source="get_feature_flag_key",
         help_text=(
             "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. "
-            "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
+            "Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible."
         ),
     )
     created_by = UserBasicSerializer(read_only=True)
@@ -165,7 +165,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "'funnel' (set series to an array of EventsNode steps), "
             "'ratio' (set numerator and denominator EventsNode entries), or "
             "'retention' (set start_event and completion_event). "
-            "Use the event-definitions-list tool to find available events in the project."
+            "Use the read-data-schema tool with query kind 'events' to find available events in the project."
         ),
     )
     metrics_secondary = ExperimentMetricsField(
@@ -304,7 +304,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary)
-        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+        # The columns are nullable, so the keys can be present with a None value
+        for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)

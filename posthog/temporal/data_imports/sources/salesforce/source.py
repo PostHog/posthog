@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
@@ -65,6 +66,8 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALESFORCE,
+            category=DataWarehouseSourceCategory.CRM,
+            keywords=["sfdc"],
             caption="Select an existing Salesforce account to link to PostHog or create a new connection",
             iconPath="/static/services/salesforce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/salesforce",

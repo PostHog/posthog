@@ -42,10 +42,11 @@ confirm a quiet observation without duplicating entries).
 | `mcp-gap:`    | Scout-noticed gap in the MCP surface worth raising later.                   |
 
 Format: `<prefix>:<domain>:<entity>` — e.g. `pattern:error_tracking:baseline`,
-`noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`. Canonical `<domain>`
-values: `error_tracking`, `warehouse`, `experiments`, `llm_analytics`, `web_analytics`,
-`feature_flags`, `logs`, `surveys`, `revenue_analytics`, `csp_violations`,
-`observability_gaps`. A new scout introduces its own domain label and reuses the prefixes.
+`noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`. Each canonical
+specialist has its own `<domain>` label (`error_tracking`, `logs`, `llm_analytics`,
+`experiments`, `feature-flags`, `session-replay`, `web-analytics`, `pipelines`, `health`,
+…) — not a closed set. A new scout introduces its own domain label and reuses the
+prefixes; match the label a surface's existing entries already use.
 
 ## When to write memory vs. emit
 

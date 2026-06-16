@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.services.sandbox import (
     ExecutionResult,
@@ -15,7 +16,6 @@ from products.tasks.backend.services.sandbox import (
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
 )
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -140,6 +140,35 @@ class TestDockerSandboxUnit:
         env_args = " ".join(docker_args)
         assert "POSTHOG_API_URL=http://host.docker.internal:8000" in env_args
         assert "POSTHOG_PROJECT_ID=1" in env_args
+
+    @patch("products.tasks.backend.services.docker_sandbox.subprocess.run")
+    @patch("products.tasks.backend.services.docker_sandbox.os.path.exists")
+    def test_create_transforms_callback_url_env_vars(self, mock_exists, mock_run):
+        # Streamlit sandboxes call back to PostHog via POSTHOG_SITE_URL and the
+        # OTEL endpoint. Inside Docker, localhost is the container itself, so
+        # these must be rewritten to host.docker.internal or introspection and
+        # bridge queries fail.
+        mock_exists.return_value = False
+        mock_run.return_value = MagicMock(stdout="abc123container", returncode=0)
+
+        config = SandboxConfig(
+            name="test-streamlit",
+            template=SandboxTemplate.STREAMLIT_BASE,
+            environment_variables={
+                "POSTHOG_SITE_URL": "http://localhost:8000",
+                "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://localhost:8000/i/v1/logs",
+                "POSTHOG_TEAM_ID": "1",
+            },
+        )
+
+        with patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-streamlit"):
+            DockerSandbox.create(config)
+
+        env_args = " ".join(mock_run.call_args_list[-1][0][0])
+        assert "POSTHOG_SITE_URL=http://host.docker.internal:8000" in env_args
+        assert "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://host.docker.internal:8000/i/v1/logs" in env_args
+        # Non-URL env vars must pass through untouched.
+        assert "POSTHOG_TEAM_ID=1" in env_args
 
     @patch("products.tasks.backend.services.docker_sandbox.subprocess.run")
     def test_get_status_running(self, mock_run):

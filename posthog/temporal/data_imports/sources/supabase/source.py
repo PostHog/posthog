@@ -2,7 +2,9 @@ import re
 from typing import Optional
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -68,12 +70,12 @@ class SupabaseSource(PostgresSource):
 
         return SourceConfig(
             name=SchemaExternalDataSourceType.SUPABASE,
+            category=DataWarehouseSourceCategory.DATABASES,
             iconPath="/static/services/supabase.png",
             caption="Enter your Supabase credentials to automatically pull your data into the PostHog Data warehouse",
             docsUrl="https://posthog.com/tutorials/supabase-query",
             fields=fields,
-            releaseStatus="beta",
-            featureFlag="supabase-dwh",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def validate_credentials(

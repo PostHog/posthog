@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import atexit
 import asyncio
 import logging
@@ -90,7 +91,7 @@ def django_db_setup(
     django_db_keepdb: bool,
     django_db_createdb: bool,
     django_db_modify_db_settings: None,
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Create the eval test DB even though eval items have no django_db marker."""
     from django.test.utils import setup_databases, teardown_databases
 
@@ -116,7 +117,7 @@ def django_db_setup(
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None, None, None]:  # noqa: F811
+def _sandboxed_eval_database_access(set_up_evals, django_db_blocker) -> Generator[None]:  # noqa: F811
     """Use one committed eval database instead of per-test transactions."""
     django_db_blocker.unblock()
     yield
@@ -208,7 +209,7 @@ def _django_live_server(_sandboxed_eval_database_access):
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
+def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path]:
     """Build local skills once per session; bind-mount into every sandbox.
 
     Uses a content-hash cache so repeat runs skip the build when nothing has
@@ -234,7 +235,7 @@ def _sandboxed_local_skills(_sandbox_settings) -> Generator[Path, None, None]:
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _temporal_test_server() -> Generator[tuple[str, str, str], None, None]:
+def _temporal_test_server() -> Generator[tuple[str, str, str]]:
     """Start an isolated Temporal dev server for sandboxed eval workflows."""
     loop = asyncio.new_event_loop()
     temporal_namespace = settings.TEMPORAL_NAMESPACE
@@ -265,7 +266,7 @@ def _sandbox_settings(
     _django_live_server: object,
     _llm_gateway: object,
     _temporal_test_server: tuple[str, str, str],
-) -> Generator[None, None, None]:
+) -> Generator[None]:
     """Configure Django settings required by the sandbox/temporal activities.
 
     All URLs use ``host.docker.internal`` so they're reachable from inside
@@ -533,6 +534,12 @@ def _mcp_server(_django_live_server, _sandbox_settings):
         "NODE_ENV": "development",
         "PORT": str(MCP_PORT),
         "HOST": "0.0.0.0",
+        # The MCP server evaluates feature flags via posthog-node, which is disabled
+        # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
+        # Force flag-gated behavior on for evals via the dev/test-only override seam
+        # (honored only when NODE_ENV is explicitly development/test — set above).
+        # `mcp-render-ui` gates the render_ui umbrella tool — see eval_render_ui.py.
+        "FEATURE_FLAG_OVERRIDES": json.dumps({"mcp-render-ui": True}),
     }
 
     logger.info("Starting MCP server (Hono runtime) on port %d (API: %s)", MCP_PORT, api_url)

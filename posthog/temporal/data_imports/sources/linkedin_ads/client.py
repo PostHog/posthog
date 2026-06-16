@@ -119,7 +119,7 @@ class LinkedinAdsClient:
 
     def get_campaigns(
         self, account_id: str, starting_page_token: Optional[str] = None
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get campaigns with pagination, yielding each page with its nextPageToken."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         campaigns_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Campaigns]
@@ -131,7 +131,7 @@ class LinkedinAdsClient:
 
     def get_campaign_groups(
         self, account_id: str, starting_page_token: Optional[str] = None
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get campaign groups with pagination, yielding each page with its nextPageToken."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         groups_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.CampaignGroups]
@@ -143,7 +143,7 @@ class LinkedinAdsClient:
 
     def get_creatives(
         self, account_id: str, starting_page_token: Optional[str] = None
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get creatives with pagination. Uses `q=criteria` and reduced page size
         (the creatives backend 500s on heavier requests)."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
@@ -162,7 +162,7 @@ class LinkedinAdsClient:
         pivot: LinkedinAdsPivot = LinkedinAdsPivot.CAMPAIGN,
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
-    ) -> Generator[tuple[list[dict[str, Any]], None], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], None]]:
         """Fetch analytics in adaptive date-range chunks sized to stay under the 15k-element
         response cap. The window starts wide and shrinks (halving) only when a response comes
         back truncated, then carries the learned size forward. A truncated response is silently
@@ -240,7 +240,7 @@ class LinkedinAdsClient:
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
         starting_page_token: Optional[str] = None,
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get data by resource, yielding each page and its nextPageToken (if any).
 
         `starting_page_token` applies to the paginated entity endpoints (campaigns,
@@ -332,7 +332,7 @@ class LinkedinAdsClient:
         finder: str = "search",
         page_size: int = MAX_PAGE_SIZE,
         extra_params: Optional[dict[str, Any]] = None,
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Yield each page as `(elements, next_page_token)` (None on the last page).
         Callers persist `next_page_token` to resume without re-fetching."""
         page_token = starting_page_token

@@ -1740,7 +1740,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for name in function_names:
             HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
 
@@ -1777,7 +1777,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         a = HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
         b = HogFunction.objects.create(team=self.team, name="Beta", type="destination", hog="return event")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
 
@@ -1837,6 +1837,74 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             body = response.json()
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing webhook", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(
+        self, _name, function_name, search
+    ):
+        matching = HogFunction.objects.create(
+            team=self.team, name=function_name, type="destination", hog="return event"
+        )
+        HogFunction.objects.create(team=self.team, name="Totally unrelated", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in results}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(r["name"] != "Totally unrelated" for r in results)
+
+    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+        for name in ("slack notification", "notification slack", "slcak metrics", "Engineering metrics"):
+            HogFunction.objects.create(team=self.team, name=name, type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?search=slack")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_name = {r["name"]: r["search_match_type"] for r in results}
+        assert match_type_by_name == {
+            "slack notification": "exact",
+            "notification slack": "exact",
+            "slcak metrics": "similar",
+        }
+
+        match_types = [r["search_match_type"] for r in results]
+        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        HogFunction.objects.create(team=self.team, name="Alpha", type="destination", hog="return event")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
+
+    def test_list_filter_by_search_surfaces_match_type_on_full_serializer(self):
+        matching = HogFunction.objects.create(
+            team=self.team, name="alerts+ops@example.com", type="destination", hog="return event"
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            {"search": "alerts+ops@example.com", "full": "true"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in response.json()["results"]}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "the full (?full=true) serializer must also surface search_match_type — it redeclares Meta.fields"
+        )
 
     def test_can_update_with_null_filters(self):
         # First create a function with filters

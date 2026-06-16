@@ -6,6 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from django.conf import settings
 from django.utils import timezone
 
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
-from posthog.models import PersonalAPIKey, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import hash_key_value, mask_key_value
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -75,6 +76,7 @@ class PlaywrightWorkspaceSetupData(BaseModel):
     use_current_time: bool | None = None
     skip_onboarding: bool | None = None
     no_demo_data: bool | None = None
+    staff: bool | None = None
     insight_variables: list[PlaywrightSetupVariable] | None = None
     insights: list[PlaywrightSetupInsight] | None = None
     dashboards: list[PlaywrightSetupDashboard] | None = None
@@ -144,7 +146,11 @@ def create_organization_with_team(
             organization=organization,
             has_completed_onboarding_for={"product_analytics": True},
         )
-        user = User.objects.create_and_join(organization, user_email, user_password)
+        # The user creates the organization, so they own it. Without owner-level access,
+        # admin-only areas (e.g. billing) render a "restricted to organization admins" page.
+        user = User.objects.create_and_join(
+            organization, user_email, user_password, level=OrganizationMembership.Level.OWNER
+        )
     else:
         command = GenerateDemoDataCommand()
 
@@ -213,7 +219,13 @@ def create_organization_with_team(
 
     # Skip the post-login /account/credential-review interstitial that fires for users with unreviewed PersonalAPIKey
     user.credentials_reviewed_at = timezone.now()
-    user.save(update_fields=["credentials_reviewed_at"])
+    # The system-status help-menu link checks the Django is_staff flag (not org-level admin), so the
+    # spec needs it. is_staff is powerful, so only grant it under E2E_TESTING/CI — not DEBUG alone.
+    update_fields = ["credentials_reviewed_at"]
+    if data.staff and (getattr(settings, "E2E_TESTING", False) or getattr(settings, "CI", False)):
+        user.is_staff = True
+        update_fields.append("is_staff")
+    user.save(update_fields=update_fields)
 
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:

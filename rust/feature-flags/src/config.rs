@@ -755,6 +755,19 @@ pub struct Config {
     #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
     pub internal_request_token: Option<String>,
 
+    // Hard ceiling on page size for the internal batch flag evaluation endpoint
+    // (static cohort generation); requests above it are rejected with 400. This is a
+    // safety cap, not a recommended page size: a page evaluates persons sequentially, so
+    // the Django caller should page well below this to stay within the request timeout.
+    #[envconfig(from = "BATCH_FLAG_EVAL_MAX_LIMIT", default = "10000")]
+    pub batch_flag_eval_max_limit: i64,
+
+    // Request timeout for the internal batch flag evaluation endpoint.
+    // Separate from REQUEST_TIMEOUT_MS because a batch page evaluates up to
+    // BATCH_FLAG_EVAL_MAX_LIMIT persons sequentially.
+    #[envconfig(from = "BATCH_FLAG_EVAL_TIMEOUT_MS", default = "120000")]
+    pub batch_flag_eval_timeout_ms: u64,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -1076,6 +1089,8 @@ impl Config {
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
             internal_request_token: None,
+            batch_flag_eval_max_limit: 10_000,
+            batch_flag_eval_timeout_ms: 120_000,
             billing_flush_interval_ms: 100,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,

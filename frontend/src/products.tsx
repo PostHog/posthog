@@ -10,6 +10,7 @@ import type { Params } from 'scenes/sceneTypes'
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { examples } from '~/queries/examples'
 import type { FileSystemImport } from '~/queries/schema/schema-general'
 import {
     DashboardFilter,
@@ -17,6 +18,7 @@ import {
     ExperimentMetric,
     FileSystemIconType,
     HogQLFilters,
+    HogQLQuery,
     HogQLVariable,
     Node,
     NodeKind,
@@ -72,8 +74,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityTag: () => import('../../products/ai_observability/frontend/tags/AIObservabilityTag'),
     AIObservabilityPrompts: () => import('../../products/ai_observability/frontend/prompts/LLMPromptsScene'),
     AIObservabilityPrompt: () => import('../../products/ai_observability/frontend/prompts/LLMPromptScene'),
-    AIObservabilitySkills: () => import('../../products/ai_observability/frontend/skills/LLMSkillsScene'),
-    AIObservabilitySkill: () => import('../../products/ai_observability/frontend/skills/LLMSkillScene'),
     AIObservabilityClusters: () =>
         import('../../products/ai_observability/frontend/clusters/AIObservabilityClustersScene'),
     AIObservabilityCluster: () =>
@@ -97,11 +97,17 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Sources: () => import('../../products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene'),
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
+    DataWarehouseSourceConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
+    EngineeringAnalytics: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
+    EngineeringAnalyticsPullRequest: () =>
+        import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -134,6 +140,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
+    Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
+    Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
@@ -189,8 +197,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
-    '/prompt-management/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
-    '/prompt-management/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -220,10 +226,17 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
+    '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
+    '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
+    '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+    '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+        'EngineeringAnalyticsPullRequest',
+        'engineeringAnalyticsPullRequest',
+    ],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -259,6 +272,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
+    '/skills': ['Skills', 'skills'],
+    '/skills/:name': ['Skill', 'skill'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
@@ -387,10 +402,6 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
     '/llm-analytics/prompts/:name': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPrompt(params.name), searchParams, hashParams).url,
-    '/llm-analytics/skills': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
-    '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilitySkill(params.name), searchParams, hashParams).url,
     '/llm-observability': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
     '/llm-observability/dashboard': (_params, searchParams, hashParams) =>
@@ -424,7 +435,17 @@ export const productRedirects: Record<
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
+    '/mcp-analytics': (_params, searchParams, hashParams) =>
+        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
+    '/prompt-management/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.skills(), searchParams, hashParams).url,
+    '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.skill(params.name), searchParams, hashParams).url,
+    '/llm-analytics/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.skills(), searchParams, hashParams).url,
+    '/llm-analytics/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.skill(params.name), searchParams, hashParams).url,
     '/user_interviews': '/user_research',
 }
 
@@ -510,14 +531,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     AIObservabilityPrompt: { projectBased: true, name: 'Prompt', layout: 'app-container', iconType: 'llm_prompts' },
-    AIObservabilitySkills: {
-        projectBased: true,
-        name: 'Skills',
-        description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
-        layout: 'app-container',
-        iconType: 'llm_prompts',
-    },
-    AIObservabilitySkill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     AIObservabilityClusters: {
         projectBased: true,
         name: 'Clusters',
@@ -596,6 +609,7 @@ export const productConfiguration: Record<string, any> = {
     },
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
+    DataWarehouseSourceConnect: { projectBased: true, name: 'Connect data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
     EarlyAccessFeatures: {
         name: 'Early access features',
@@ -613,6 +627,20 @@ export const productConfiguration: Record<string, any> = {
         description: 'Define queries your application will use via the API and monitor their cost and usage.',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
+    EngineeringAnalytics: {
+        projectBased: true,
+        name: 'CI analytics',
+        layout: 'app-container',
+        description: 'Pull request and workflow CI health across connected GitHub repos.',
+        iconType: 'health',
+    },
+    EngineeringAnalyticsPullRequest: {
+        projectBased: true,
+        name: 'Pull request',
+        layout: 'app-container',
+        description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -735,6 +763,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'View detailed session group summary.',
         iconType: 'notebook',
     },
+    Skills: {
+        projectBased: true,
+        name: 'Skills',
+        description: 'Manage versioned agent skills that any MCP-connected agent can discover and use.',
+        layout: 'app-container',
+        iconType: 'llm_prompts',
+    },
+    Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
     TaskTracker: {
         name: 'Tasks',
         projectBased: true,
@@ -848,14 +884,6 @@ export const productUrls = {
     aiObservabilityEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
     aiObservabilityPrompts: (): string => '/prompt-management/prompts',
     aiObservabilityPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
-    aiObservabilitySkills: (): string => '/prompt-management/skills',
-    aiObservabilitySkill: (
-        name: string,
-        params?: {
-            file?: string
-            version?: number
-        }
-    ): string => combineUrl(`/prompt-management/skills/${name}`, params).url,
     aiObservabilityClusters: (runId?: string): string =>
         runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
     aiObservabilityCluster: (runId: string, clusterId: number | string): string =>
@@ -930,6 +958,8 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
+    dataWarehouseSourceConnect: (kind?: string): string =>
+        `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -972,6 +1002,10 @@ export const productUrls = {
         }
         return combineUrl('/endpoints', { tab: 'usage', ...searchParams }).url
     },
+    engineeringAnalytics: (): string => '/engineering-analytics',
+    engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+    engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
+        `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1167,6 +1201,14 @@ export const productUrls = {
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
+    skills: (): string => '/skills',
+    skill: (
+        name: string,
+        params?: {
+            file?: string
+            version?: number
+        }
+    ): string => combineUrl(`/skills/${name}`, params).url,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
@@ -1448,6 +1490,16 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         sceneKeys: ['Insight'],
     },
     {
+        path: `Insight/SQL`,
+        type: 'insight',
+        href: urls.sqlEditor({ query: (examples.HogQLForDataVisualization as HogQLQuery).query }),
+        displayLabel: 'New SQL',
+        iconType: 'insight/hog',
+        iconColor: ['var(--color-insight-sql-light)'] as FileSystemIconColor,
+        visualOrder: INSIGHT_VISUAL_ORDER.sql,
+        sceneKeys: ['Insight'],
+    },
+    {
         path: `Insight/Stickiness`,
         type: 'insight',
         href: urls.insightNew({ type: InsightType.STICKINESS }),
@@ -1514,6 +1566,19 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['BusinessKnowledge'],
     },
     {
+        path: 'CI analytics',
+        intents: [ProductKey.ENGINEERING_ANALYTICS],
+        category: ProductItemCategory.UNRELEASED,
+        type: 'engineering_analytics',
+        iconType: 'health' as FileSystemIconType,
+        iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+        href: urls.engineeringAnalytics(),
+        flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
+        tags: ['alpha'],
+        sceneKey: 'EngineeringAnalytics',
+        sceneKeys: ['EngineeringAnalytics', 'EngineeringAnalyticsPullRequest'],
+    },
+    {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],
         category: ProductItemCategory.AI_ENGINEERING,
@@ -1537,8 +1602,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1583,6 +1646,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },
@@ -1612,8 +1676,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1683,8 +1745,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1752,8 +1812,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1863,8 +1921,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1918,8 +1974,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -1937,6 +1991,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         tags: ['beta'],
         flag: FEATURE_FLAGS.REPLAY_VISION,
+        pinnedByDefault: true,
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
     },
@@ -1975,35 +2030,15 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Skills',
-        intents: [ProductKey.LLM_PROMPTS],
-        category: ProductItemCategory.AI_ENGINEERING,
+        intents: [ProductKey.SKILLS],
+        category: ProductItemCategory.TOOLS,
         type: 'llm_skills',
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
-        href: urls.aiObservabilitySkills(),
+        href: urls.skills(),
         flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
-        tags: ['beta'],
-        sceneKey: 'AIObservabilitySkills',
-        sceneKeys: [
-            'AIObservability',
-            'AIObservabilityTrace',
-            'AIObservabilitySession',
-            'AIObservabilityUsers',
-            'AIObservabilityPlayground',
-            'AIObservabilityDatasets',
-            'AIObservabilityDataset',
-            'AIObservabilityEvaluations',
-            'AIObservabilityEvaluation',
-            'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
-            'AIObservabilityPrompts',
-            'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
-            'AIObservabilityClusters',
-            'AIObservabilityCluster',
-        ],
+        sceneKey: 'Skills',
+        sceneKeys: ['Skills', 'Skill'],
     },
     {
         path: 'Support',
@@ -2054,8 +2089,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityTag',
             'AIObservabilityPrompts',
             'AIObservabilityPrompt',
-            'AIObservabilitySkills',
-            'AIObservabilitySkill',
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
@@ -2253,6 +2286,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'Sources',
             'DataWarehouseSource',
             'DataWarehouseSourceNew',
+            'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
         ],
     },
