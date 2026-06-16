@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExpand45 } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
