@@ -214,6 +214,13 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Modal region pin (e.g. `us-east`, `eu-west`). Defaults to whatever `resolveRegion()` derives from `CLOUD_DEPLOYMENT` inside the Modal pool when unset.'
         ),
+    sandboxOutboundCidrAllowlist: z
+        .string()
+        .optional()
+        .transform((v): string[] => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []))
+        .describe(
+            'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
+        ),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -250,6 +257,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_HOST_IMAGE: 'sandboxHostImage',
     SANDBOX_DOCKER_IMAGE: 'sandboxDockerImage',
     SANDBOX_MODAL_IMAGE: 'sandboxModalImage',
+    SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
 })

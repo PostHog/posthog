@@ -134,7 +134,15 @@ export class DockerSandboxPool implements SandboxPool {
             'run',
             '-d',
             '--rm',
+            // Untrusted-ish author tool code. No network (custom tools compute +
+            // return; the runner egresses). Drop all caps, cap PIDs and memory
+            // so a runaway / fork-bomb tool can't exhaust the host. The /workdir
+            // bind mount stays writable (dispatch reads tools + writes results).
             '--network=none',
+            '--cap-drop=ALL',
+            '--security-opt=no-new-privileges',
+            '--pids-limit=512',
+            '--memory=512m',
             '-v',
             `${workDir}:/workdir`,
             this.image,

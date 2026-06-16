@@ -21,8 +21,12 @@
  *   }
  *
  * `ctx` exposes:
- *   - secrets.ref(name)  → opaque nonce string the runner substitutes at
- *     egress (the sandbox never sees raw secret values).
+ *   - secrets.ref(name)  → opaque per-session nonce string. The raw secret
+ *     never enters the sandbox, and the sandbox has no outbound network
+ *     (block_network / --network=none), so a nonce cannot be exfiltrated.
+ *     NOTE: runner-side nonce→value substitution at egress is not yet wired —
+ *     a returned nonce won't resolve to the real secret today. Tools should
+ *     return values for the runner to act on, not attempt their own egress.
  *   - log(level, msg, meta?)
  *
  * Nonces are read from /workdir/nonces.json once at startup. Re-read on each
