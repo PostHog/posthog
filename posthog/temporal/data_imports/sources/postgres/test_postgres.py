@@ -323,6 +323,41 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'ObjectNotInPrerequisiteState: materialized view "mv_dayplan_blocks" has not been populated',
+        ],
+    )
+    def test_unpopulated_materialized_view_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unpopulated materialized view error should be non-retryable: {error_msg}"
+
+    def test_unpopulated_materialized_view_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'materialized view "mv_dayplan_blocks" has not been populated'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unpopulated materialized view error should surface an actionable message"
+        assert "REFRESH MATERIALIZED VIEW" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "cannot call jsonb_each on a non-object",
+            "InvalidParameterValue: cannot call jsonb_each on a non-object",
+            "cannot call jsonb_each_text on a non-object",
+            "InvalidParameterValue: cannot call jsonb_each_text on a non-object",
+        ],
+    )
+    def test_jsonb_each_on_non_object_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
@@ -454,6 +489,11 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("consuming input failed: EOF detected"),
             psycopg.OperationalError("terminating connection due to administrator command"),
             psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+            # SQLSTATE 25P03: the source's idle_in_transaction_session_timeout culled our
+            # backend mid-stream. psycopg maps this to InternalError, not OperationalError,
+            # so it's detected by type alone — even with no message to match on.
+            psycopg.errors.IdleInTransactionSessionTimeout("terminating connection due to idle-in-transaction timeout"),
+            psycopg.errors.IdleInTransactionSessionTimeout(),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):

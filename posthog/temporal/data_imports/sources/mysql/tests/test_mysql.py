@@ -517,6 +517,17 @@ class TestExplainQuery:
         # Must not raise — diagnostic-only.
         impl.explain_query(cursor, "SELECT 1", {}, logger)
 
+    def test_does_not_capture_exceptions(self, impl, cursor, logger, mocker):
+        # EXPLAIN is best-effort diagnostics — a failure (e.g. MySQL 1345 when
+        # EXPLAINing a view whose underlying tables the user can't SHOW VIEW on)
+        # never affects the sync, so it must not be reported to error tracking.
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+        cursor.execute.side_effect = pymysql.err.OperationalError(
+            1345, "EXPLAIN/SHOW can not be issued; lacking privileges for underlying table"
+        )
+        impl.explain_query(cursor, "SELECT 1", {}, logger)
+        capture.assert_not_called()
+
 
 class TestSafetyContract:
     """Verifies that driver-specific metadata queries never splice untrusted identifiers into SQL."""
@@ -853,6 +864,22 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Host-blocked error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (classified in `_handle_import_error`).
+            str(pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'")),
+            # Temporal-wrapped str(e.cause) form (classified in external_data_job).
+            "OperationalError: (1054, \"Unknown column 'favoritor_id' in 'where clause'\")",
+            # Other clause variants share the same 1054 code and "Unknown column" prefix.
+            "OperationalError: (1054, \"Unknown column 'deleted_at' in 'order clause'\")",
+        ],
+    )
+    def test_unknown_column_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unknown-column error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

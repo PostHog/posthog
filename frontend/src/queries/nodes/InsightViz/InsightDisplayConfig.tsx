@@ -124,7 +124,7 @@ export function InsightDisplayConfig(): JSX.Element {
             display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
         isWebAnalyticsInsightQuery(querySource) ||
-        (funnelsCompareEnabled && isTrendsFunnel)
+        (funnelsCompareEnabled && (isTrendsFunnel || isTimeToConvertFunnel))
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||

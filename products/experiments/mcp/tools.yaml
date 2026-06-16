@@ -848,6 +848,15 @@ tools:
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
         enabled: false
+    experiments-metrics-recalculation-create:
+        operation: experiments_metrics_recalculation_create
+        enabled: false
+    experiments-metrics-recalculation-latest-retrieve:
+        operation: experiments_metrics_recalculation_latest_retrieve
+        enabled: false
+    experiments-metrics-recalculation-retrieve:
+        operation: experiments_metrics_recalculation_retrieve
+        enabled: false
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve
         enabled: false
