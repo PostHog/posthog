@@ -1291,6 +1291,8 @@ def _has_duplicate_primary_keys(
 
 def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger) -> int:
     try:
+        cursor.execute("SAVEPOINT _chunk_size_probe")
+
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
                 SELECT octet_length(t::text) as row_size FROM ({}) as t
@@ -1302,6 +1304,8 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         logger.debug(f"Running query: {query.as_string()}")
         cursor.execute(query)
         row = cursor.fetchone()
+
+        cursor.execute("RELEASE SAVEPOINT _chunk_size_probe")
 
         if row is None:
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
@@ -1320,10 +1324,14 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         # which serializes every column to text and so evaluates generated columns and check/domain
         # validator functions — making it strictly more expensive than the real chunked `SELECT *`
         # extraction. A timeout here therefore says nothing about whether extraction will succeed,
-        # and the savepoint above keeps the connection usable. The streaming read loop has its own
+        # and the savepoint keeps the connection usable. The streaming read loop has its own
         # dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so re-raising the
         # cancellation here would only bypass that path and leak a raw, retryable QueryCanceled that
         # Temporal re-attempts forever on tables this query can never complete on.
+        try:
+            cursor.execute("ROLLBACK TO SAVEPOINT _chunk_size_probe")
+        except Exception:
+            pass
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
