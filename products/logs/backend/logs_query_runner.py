@@ -42,6 +42,12 @@ LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
 )
 
 
+def ilike_pattern(search: str) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _trace_id_normalise_to_base64(value: str) -> str:
     """Accept either hex or base64 encoded trace_id/span_id values.
 
