@@ -50,6 +50,13 @@ logger = structlog.get_logger(__name__)
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
 
+class ExperimentDataError(ValueError):
+    """Raised when the collected experiment data has a shape we can't compute results from
+    (e.g. no control variant). Subclasses ValueError so existing callers/tests that expect a
+    ValueError keep working, while letting the experiment error handler degrade it to a clear,
+    non-500 error on the results view instead of an unhandled server error."""
+
+
 def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team) -> tuple[str, str]:
     """
     Generate both HogQL and ClickHouse SQL for debugging from experiment query AST.
@@ -113,9 +120,9 @@ def split_baseline_and_test_variants(
 ) -> tuple[V, list[V]]:
     control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
-        raise ValueError("No control variant found")
+        raise ExperimentDataError("No control variant found")
     if len(control_variants) > 1:
-        raise ValueError("Multiple control variants found")
+        raise ExperimentDataError("Multiple control variants found")
     control_variant = control_variants[0]
     test_variants = [variant for variant in variants if variant.key != baseline_key]
 

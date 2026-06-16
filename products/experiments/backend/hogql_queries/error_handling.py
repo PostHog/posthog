@@ -12,10 +12,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 
+from products.experiments.backend.hogql_queries.utils import ExperimentDataError
 from products.experiments.stats.shared.statistics import StatisticError
 
 # Map error types to their error codes for the API response
@@ -23,16 +24,36 @@ ERROR_TYPE_TO_CODE: dict[type, str] = {
     ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
 }
 
+# Error codes for ClickHouse error categories that aren't tied to a single exception class
+# (e.g. the rows/bytes read-limit error is a dynamically-built CHQueryError subclass).
+QUERY_ERROR_CATEGORY_TO_CODE: dict[QueryErrorCategory, str] = {
+    QueryErrorCategory.QUERY_PERFORMANCE_ERROR: "query_resource_limit_exceeded",
+    QueryErrorCategory.RATE_LIMITED: "query_at_capacity",
+}
+
+# User-friendly messages for ClickHouse error categories handled via classification rather
+# than an exact exception-type match.
+QUERY_ERROR_CATEGORY_MESSAGES: dict[QueryErrorCategory, str] = {
+    QueryErrorCategory.QUERY_PERFORMANCE_ERROR: (
+        "This experiment query exceeded resource limits. Try viewing a shorter time period, "
+        "or contact support if the problem persists."
+    ),
+    QueryErrorCategory.RATE_LIMITED: "Experiment analytics are temporarily at capacity. Please refresh in a moment.",
+}
+
 logger = structlog.get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 # User-friendly error messages for specific error types
-# Note: ValueError and generic Exception are intentionally excluded - they pass through unaltered
-# so the original error message is visible for debugging
+# Note: generic ValueError and Exception are intentionally excluded - they pass through unaltered
+# so the original error message is visible for debugging. ExperimentDataError is the deliberate
+# exception: it's a recognized data-shape error we want to surface gracefully, not a raw 500.
 ERROR_TYPE_MESSAGES: dict[type, str] = {
     # Statistical calculation errors
     StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
+    # Experiment data-shape errors (e.g. no control variant in the collected data)
+    ExperimentDataError: "Unable to calculate experiment results from the collected data. This usually resolves once more exposures are recorded.",
     # HogQL/Query errors
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
@@ -77,7 +98,12 @@ def get_user_friendly_message(error: Exception) -> str | None:
         if isinstance(error, registered_type):
             return message
 
-    return None
+    # ClickHouse resource-limit, timeout, and capacity errors aren't tied to a single
+    # exception class (e.g. the "rows or bytes to read exceeded" error is a dynamically-built
+    # CHQueryError subclass), so fall back to query-error classification. These are transient
+    # or infra conditions — degrade them to a clear, retryable message rather than surfacing a
+    # raw 500 on the experiment results view.
+    return QUERY_ERROR_CATEGORY_MESSAGES.get(classify_query_error(error))
 
 
 def experiment_error_handler(method: F) -> F:
@@ -147,8 +173,9 @@ def experiment_error_handler(method: F) -> F:
             if user_message is None:
                 raise
 
-            # Get error code if available
-            error_code = ERROR_TYPE_TO_CODE.get(type(e))
+            # Get error code if available, falling back to the query-error category for
+            # classification-based messages (resource limits, capacity) that have no exact type.
+            error_code = ERROR_TYPE_TO_CODE.get(type(e)) or QUERY_ERROR_CATEGORY_TO_CODE.get(classify_query_error(e))
             raise ValidationError(user_message, code=error_code)
 
     return cast(F, wrapper)
