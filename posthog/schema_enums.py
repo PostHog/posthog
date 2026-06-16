@@ -1079,6 +1079,17 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class ConversionRateInputType(StrEnum):
+    MANUAL = "manual"
+    AUTOMATIC = "automatic"
+
+
+class ManualMetricType(StrEnum):
+    FUNNEL = "funnel"
+    MEAN_COUNT = "mean_count"
+    MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
