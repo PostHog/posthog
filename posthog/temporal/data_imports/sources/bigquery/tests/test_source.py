@@ -344,15 +344,15 @@ def test_bigquery_get_query_row_filters_compose_with_incremental():
 )
 def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
+    sql, _ = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
         bq_table=bq_table,
         incremental_field="cursor",
         incremental_field_type=field_type,
     )
-    assert expected_clause in query
-    assert ("+00:00" in query) is offset_present
+    assert expected_clause in sql
+    assert ("+00:00" in sql) is offset_present
 
 
 @pytest.mark.parametrize(
