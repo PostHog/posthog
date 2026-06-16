@@ -1,1 +1,1 @@
-1218_oauthapplication_optional_scopes
+1219_alter_oauthapplication_optional_scopes_and_more

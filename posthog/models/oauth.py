@@ -106,7 +106,10 @@ class OAuthApplication(AbstractApplication):
         db_default=[],
         blank=True,
         null=False,
-        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+        help_text=(
+            "Required scope ceiling — strings tokens issued for this app may carry, all required and "
+            "locked on the consent screen. Empty list means a broad/deferred request (the user picks freely)."
+        ),
     )
 
     optional_scopes: ArrayField = ArrayField(
@@ -116,8 +119,9 @@ class OAuthApplication(AbstractApplication):
         blank=True,
         null=False,
         help_text=(
-            "Scopes the user may decline at consent. Declaring any makes `scopes` the required set "
-            "(locked on the consent screen); empty keeps `scopes` a pure ceiling with every scope declinable."
+            "Additive declinable scopes layered on top of the required `scopes` base — the user may "
+            "decline these at consent. Requires a non-empty `scopes` (an app with optional extras must "
+            "have a required base)."
         ),
     )
 
@@ -128,9 +132,10 @@ class OAuthApplication(AbstractApplication):
 
     @property
     def required_scopes(self) -> list[str]:
-        # The required/optional split is opt-in: without declared optional_scopes,
-        # `scopes` stays a pure ceiling and nothing is locked at consent.
-        return list(self.scopes) if self.optional_scopes else []
+        # Everything in the explicit ceiling is required and locked at consent; optional_scopes
+        # are additive declinable extras. An empty `scopes` is a broad/deferred request
+        # (MCP / `*` / empty) — nothing required, the user picks freely.
+        return list(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions

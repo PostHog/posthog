@@ -79,7 +79,8 @@ class TestOAuthModels(TestCase):
 
     @parameterized.expand(
         [
-            ("pure_ceiling", ["insight:read"], [], ["insight:read"], []),
+            ("empty_scopes_broad", [], [], [], []),
+            ("explicit_no_optional_all_required", ["insight:read"], [], ["insight:read"], ["insight:read"]),
             ("split", ["insight:read"], ["dashboard:read"], ["insight:read", "dashboard:read"], ["insight:read"]),
             (
                 "overlap_deduped",

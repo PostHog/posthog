@@ -2617,9 +2617,11 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
-    def test_authorize_accepts_scope_within_app_ceiling(self):
+    def test_authorize_accepts_full_grant_of_app_ceiling(self):
+        # Without optional_scopes every ceiling scope is required, so a grant that
+        # includes the whole ceiling succeeds.
         self._set_ceiling("experiment:read", "dashboard:read")
-        response = self._authorize_post("experiment:read")
+        response = self._authorize_post("experiment:read dashboard:read")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
@@ -2698,12 +2700,17 @@ class TestOAuthAPI(APIBaseTest):
             self.assertEqual(body["error"], "invalid_scope")
             self.assertIn("experiment:read", body["error_description"])
 
-    def test_scopes_stay_a_pure_ceiling_without_optional_scopes(self):
+    def test_scopes_without_optional_are_all_required(self):
+        # Every explicit ceiling scope is required and locked at consent; dropping one
+        # 400s. The consent UI force-includes all required scopes, so only a raw
+        # partial POST that bypasses it reaches this rejection.
         self._set_ceiling("experiment:read", "dashboard:read")
-        self.assertEqual(self.confidential_application.required_scopes, [])
+        self.assertEqual(self.confidential_application.required_scopes, ["experiment:read", "dashboard:read"])
         response = self._authorize_post("dashboard:read")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("code=", response.json()["redirect_to"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["error"], "invalid_scope")
+        self.assertIn("experiment:read", body["error_description"])
 
     @freeze_time("2025-01-01 00:00:00")
     def test_auto_approval_skipped_when_request_omits_required_scope(self):
