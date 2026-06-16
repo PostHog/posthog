@@ -127,10 +127,29 @@ describe('cohortEditLogic', () => {
                 },
             })
             await initCohortLogic({ id: 1 })
+            // The loader still returns a value on non-404 errors, so Success (not Failure) fires.
             await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
 
             expect(logic.values.usedIn).toEqual(null)
             expect(posthog.captureException).toHaveBeenCalled()
+        })
+
+        it('keeps the previously loaded value when a refresh fails', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadUsedIn()
+            }).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            // The failed refresh returns the prior value instead of blanking the banner.
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
         it('loads new cohort on mount', async () => {
@@ -207,7 +226,9 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
+            })
+                .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
+                .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 

@@ -5258,8 +5258,9 @@ email@example.org,
 
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
-    def _create_flag_referencing_cohort_transitively(self) -> int:
+    def _create_flag_referencing_cohort_transitively(self) -> tuple[int, int]:
         # Cohort B references cohort A; the flag references only cohort B directly.
+        # Returns (cohort_a_id, cohort_b_id).
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Cohort A", "groups": [{"properties": {"team_id": 5}}]},
@@ -5288,7 +5289,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             active=True,
         )
-        return cohort_a_id
+        return cohort_a_id, cohort_b_id
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -5365,7 +5366,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_used_in_returns_flags_referencing_cohort_transitively(self, patch_calculate_cohort, patch_capture):
         # The flag references only cohort B directly; it must still show up for cohort A.
-        cohort_a_id = self._create_flag_referencing_cohort_transitively()
+        cohort_a_id, _ = self._create_flag_referencing_cohort_transitively()
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_a_id}/used_in")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -5445,7 +5446,33 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_used_in_requires_flag_and_insight_scopes(self, patch_calculate_cohort, patch_capture):
+    def test_used_in_excludes_flag_through_soft_deleted_intermediate_cohort(
+        self, patch_calculate_cohort, patch_capture
+    ):
+        # Flag → cohort B → cohort A. Soft-deleting B breaks the B→A hop, so the flag drops
+        # out of A's used_in. Pins the cache-seeding behavior, which matches master.
+        cohort_a_id, cohort_b_id = self._create_flag_referencing_cohort_transitively()
+
+        # Soft-delete the intermediate directly: the API delete guard would block it because
+        # the active flag references B.
+        Cohort.objects.filter(id=cohort_b_id).update(deleted=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_a_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flags = response.json()["feature_flags"]
+        self.assertEqual(flags["results"], [])
+        self.assertEqual(flags["total"], 0)
+
+    @parameterized.expand(
+        [
+            ("missing_both", ["cohort:read"]),
+            ("missing_insight", ["cohort:read", "feature_flag:read"]),
+            ("missing_flag", ["cohort:read", "insight:read"]),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_requires_flag_and_insight_scopes(self, _name, scopes, patch_calculate_cohort, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "Scoped Cohort", "groups": [{"properties": {"team_id": 5}}]},
@@ -5457,7 +5484,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             label="cohort-only",
             user=self.user,
             secure_value=hash_key_value(token),
-            scopes=["cohort:read"],
+            scopes=scopes,
         )
 
         response = self.client.get(
@@ -5833,7 +5860,7 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_deletion_protection_blocks_on_transitively_referencing_flag(self, patch_calculate_cohort, patch_capture):
         # The flag references only cohort B directly; deleting cohort A must still be blocked.
-        cohort_a_id = self._create_flag_referencing_cohort_transitively()
+        cohort_a_id, _ = self._create_flag_referencing_cohort_transitively()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_a_id}",

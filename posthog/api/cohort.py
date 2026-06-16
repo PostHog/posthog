@@ -1205,12 +1205,27 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
     cohort (via another cohort) still directly references some cohort, so this predicate
     is a strict superset of the flags the expansion can match.
     """
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
     return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
         FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False)
         .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "cohort")')"""])
         .select_related("team")
     )
+
+
+def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
+    """Cohort ids each flag references directly in its filter conditions.
+
+    Mirrors the cohort-property walk in ``FeatureFlag.get_cohort_ids``, used to bulk-load
+    those cohorts so the expansion doesn't point-query them one at a time.
+    """
+    return {
+        int(prop["value"])
+        for flag in flags
+        for condition in flag.conditions
+        for prop in condition.get("properties", [])
+        if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit()
+    }
 
 
 def _filter_flags_referencing_cohort(flags: QuerySet[FeatureFlag], cohort: Cohort) -> list[FeatureFlag]:
@@ -1224,13 +1239,7 @@ def _filter_flags_referencing_cohort(flags: QuerySet[FeatureFlag], cohort: Cohor
     """
     flag_list = list(flags)
     seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.id: cohort}
-    direct_ids = {
-        int(prop["value"])
-        for flag in flag_list
-        for condition in flag.conditions
-        for prop in condition.get("properties", [])
-        if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit()
-    } - seen_cohorts_cache.keys()
+    direct_ids = _directly_referenced_cohort_ids(flag_list) - seen_cohorts_cache.keys()
     if direct_ids:
         for direct_cohort in Cohort.objects.filter(
             pk__in=direct_ids, team__project_id=cohort.team.project_id, deleted=False
@@ -1244,9 +1253,7 @@ def _filter_flags_referencing_cohort(flags: QuerySet[FeatureFlag], cohort: Cohor
 def get_active_flags_using_cohort(cohort: Cohort) -> list[FeatureFlag]:
     """Return active, non-deleted feature flags that reference this cohort.
 
-    Used by deletion protection — only live flags should block cohort deletion. The
-    informational ``used_in`` endpoint runs the same expansion over all non-deleted
-    flags (active or inactive) so users are aware before flipping one back on.
+    Used by deletion protection: only live flags should block cohort deletion.
     """
     return _filter_flags_referencing_cohort(_flags_with_cohort_filters(cohort).filter(active=True), cohort)
 
@@ -1261,8 +1268,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
     selective; without it, ORDER BY/LIMIT on large teams degrades to a whole-table
     primary-key walk.
     """
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Insight.objects.filter(
             team_id=cohort.team_id,
             deleted=False,
@@ -1286,8 +1293,8 @@ def get_insights_using_cohort(cohort: Cohort) -> QuerySet[Insight]:
 
 def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     """Return other cohorts that include this cohort as criteria."""
-    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     return (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
         Cohort.objects.filter(
             team__project_id=cohort.team.project_id,
             deleted=False,
