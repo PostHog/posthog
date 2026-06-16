@@ -40,6 +40,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
+    FORCE_UTF8_CLIENT_ENCODING,
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
     PostgresDiscoveredSchema,
@@ -51,6 +52,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeTimestamptzLoader,
     _build_count_query,
     _build_query,
+    _connect_to_postgres,
     _connect_with_dropped_retry,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
@@ -185,6 +187,10 @@ class TestPostgresSourceNonRetryableErrors:
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: MaxClientsInSessionMode: max clients reached',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+            # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
+            # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
+            "consuming input failed: SSL connection has been closed unexpectedly",
+            "the connection is lost",
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -317,6 +323,27 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'ObjectNotInPrerequisiteState: materialized view "mv_dayplan_blocks" has not been populated',
+        ],
+    )
+    def test_unpopulated_materialized_view_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unpopulated materialized view error should be non-retryable: {error_msg}"
+
+    def test_unpopulated_materialized_view_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'materialized view "mv_dayplan_blocks" has not been populated'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unpopulated materialized view error should surface an actionable message"
+        assert "REFRESH MATERIALIZED VIEW" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",
@@ -398,6 +425,44 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
 
         assert connect_mock.call_count == 1
 
+    def test_connection_dropped_while_opening_setup_connection_is_retried(self):
+        # A transient drop while opening the setup connection ("server closed the connection
+        # unexpectedly") is the same class of error the read path already recovers from. The setup
+        # connect must retry in-process with bounded backoff instead of failing on the first drop.
+        err = psycopg.OperationalError(
+            'connection failed: connection to server at "3.151.121.165", port 5432 failed: '
+            "server closed the connection unexpectedly"
+        )
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    self._call_postgres_source()
+
+        # `_connect_with_dropped_retry` defaults to 5 attempts; before the fix the drop escaped on
+        # the first connect (call_count == 1).
+        assert connect_mock.call_count == 5
+
+    def test_permanent_error_while_opening_setup_connection_is_not_retried(self):
+        # A permanent connect failure (bad password) must not be retried by the dropped-connection
+        # handler — it should propagate on the first attempt.
+        err = psycopg.OperationalError(
+            'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "u"'
+        )
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    self._call_postgres_source()
+
+        assert connect_mock.call_count == 1
+
 
 class TestIsConnectionDroppedError:
     @pytest.mark.parametrize(
@@ -410,6 +475,11 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("consuming input failed: EOF detected"),
             psycopg.OperationalError("terminating connection due to administrator command"),
             psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+            # SQLSTATE 25P03: the source's idle_in_transaction_session_timeout culled our
+            # backend mid-stream. psycopg maps this to InternalError, not OperationalError,
+            # so it's detected by type alone — even with no message to match on.
+            psycopg.errors.IdleInTransactionSessionTimeout("terminating connection due to idle-in-transaction timeout"),
+            psycopg.errors.IdleInTransactionSessionTimeout(),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -481,6 +551,36 @@ class TestConnectWithDroppedRetry:
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
         assert connect.call_count == 3
+
+
+# Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias
+# `UNICODE`, which psycopg3 can't decode — it raises `NotSupportedError: codec not available in
+# Python: 'UNICODE'`. We pin the client encoding to UTF8 on connect to avoid the crash.
+class TestConnectForcesUtf8ClientEncoding:
+    def test_connect_pins_client_encoding_to_utf8(self):
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
+            _connect_to_postgres(
+                host="redshift-cluster.example.com",
+                port=5439,
+                database="dev",
+                user="user",
+                password="password",
+            )
+
+        assert connect_mock.call_args.kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
+
+    def test_caller_supplied_options_are_appended_after_utf8(self):
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
+            _connect_to_postgres(
+                host="db.example.com",
+                port=5432,
+                database="postgres",
+                user="user",
+                password="password",
+                options="-c statement_timeout=5000",
+            )
+
+        assert connect_mock.call_args.kwargs["options"] == f"{FORCE_UTF8_CLIENT_ENCODING} -c statement_timeout=5000"
 
 
 class TestStatementTimeoutAsNonRetryable:
@@ -1987,6 +2087,22 @@ class TestGetPartitionSettings:
             result = _get_partition_settings(cast(Any, dj_cursor), "public", "test_ps_regular", logger)
             assert result is not None
             assert result.partition_size > 0
+
+    def test_missing_table_falls_back_to_none_without_capturing(self):
+        # The selected table was dropped/renamed before this best-effort probe, so psycopg raises
+        # UndefinedTable (42P01). The real extraction query surfaces "does not exist" through the
+        # non-retryable path, so this helper must degrade quietly (None) instead of flooding error
+        # tracking with a handled duplicate.
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.store_source" does not exist')
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            result = _get_partition_settings(cast(Any, cursor), "public", "store_source", logger, is_partitioned=False)
+
+        assert result is None
+        mock_capture.assert_not_called()
 
     def test_reuses_passed_is_partitioned_flag(self):
         # When the caller already knows the table is partitioned, skip re-detecting it.

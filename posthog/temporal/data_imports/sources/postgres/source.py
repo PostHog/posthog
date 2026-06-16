@@ -191,7 +191,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "password authentication failed for user": None,
             "No primary key defined for table": None,
             "failed: timeout expired": None,
-            "SSL connection has been closed unexpectedly": None,
+            # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
+            # It denotes an established SSL connection being dropped mid-stream (idle cull by a
+            # pooler, failover, network blip) — a transient condition that recovers on a fresh
+            # attempt. It is the SSL-flavoured sibling of the "consuming input failed" drops handled
+            # by `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. Marking it non-retryable
+            # permanently disabled syncs on a transient blip during schema discovery, which has no
+            # in-process reconnect. A genuinely unsupported-SSL source fails at connect time with a
+            # different message and is caught via "SSLRequiredError" / "SSL/TLS connection is required".
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
@@ -263,6 +270,16 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
             # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
+            # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
+            # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
+            # retrying just re-reads into the same error. Match the stable message fragment and exclude
+            # the volatile view name.
+            "has not been populated": (
+                "One of the materialized views you selected to sync hasn't been populated yet "
+                '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
+                "your database so it contains data, then re-enable the sync."
+            ),
         }
 
     def reconcile_schema_metadata(

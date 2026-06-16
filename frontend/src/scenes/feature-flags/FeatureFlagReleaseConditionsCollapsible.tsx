@@ -102,7 +102,7 @@ const PERSON = 'person' as const
 type AggregationValue = number | typeof PERSON
 
 type MatchByOption = {
-    value: string
+    value: 'properties' | 'device'
     icon: JSX.Element
     label: string
     description: string
@@ -332,7 +332,6 @@ interface ConditionProps {
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
-    isTargetingV2Enabled: boolean
     isDeviceTargeting: boolean
     onMoveUp: () => void
     onMoveDown: () => void
@@ -402,7 +401,6 @@ const ConditionContent = ({
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
-    isTargetingV2Enabled,
     isDeviceTargeting,
     onMoveUp,
     onMoveDown,
@@ -551,7 +549,7 @@ const ConditionContent = ({
                                         />
                                     </div>
 
-                                    {isTargetingV2Enabled && groupTypes.size > 0 && !isDeviceTargeting && (
+                                    {groupTypes.size > 0 && !isDeviceTargeting && (
                                         <div>
                                             <LemonLabel className="mb-1">Target by</LemonLabel>
                                             <LemonSelect<AggregationValue>
@@ -829,21 +827,15 @@ export function FeatureFlagReleaseConditionsCollapsible({
         groupTypes,
         openConditions,
         properties,
-        isMixedTargeting,
         isAnyItemDragging,
         draggedGroup,
     } = useValues(releaseConditionsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isDragDropEnabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_DRAG_DROP_CONDITIONS]
-    // The mixed-targeting flag now gates the unified v2 UI (Properties / Device with full per-condition group-type selector).
-    // The legacy 4-card path is reached only when the flag is off.
-    const isTargetingV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_MIXED_TARGETING]
 
     // Ref map for focus management
     const optionRefs = useRef<Record<string, HTMLDivElement | null>>({})
-
-    const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
 
     const {
         updateConditionSet,
@@ -856,8 +848,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         setAggregationGroupTypeIndex,
         setConditionAggregation,
         setOpenConditions,
-        setIsMixedTargeting,
-        switchToMixedTargeting,
         setIsAnyItemDragging,
         setDraggedGroup,
         setEarlyExit,
@@ -959,9 +949,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const showGroupsOptions = groupTypes.size > 0
     const isDeviceTargeting = bucketingIdentifier === FeatureFlagBucketingIdentifier.DEVICE_ID
 
-    const v2MatchByOptions = [
+    const matchByOptions = [
         {
-            value: 'properties',
+            value: 'properties' as const,
             icon: <IconBrackets className="text-base shrink-0" />,
             label: 'Properties',
             description: showGroupsOptions
@@ -971,7 +961,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         ...(onBucketingIdentifierChange
             ? [
                   {
-                      value: 'device',
+                      value: 'device' as const,
                       icon: <IconLaptop className="text-base shrink-0" />,
                       label: 'Device',
                       description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
@@ -981,82 +971,18 @@ export function FeatureFlagReleaseConditionsCollapsible({
               ]
             : []),
     ] satisfies MatchByOption[]
-
-    const legacyMatchByOptions = [
-        {
-            value: 'user',
-            icon: <IconPerson className="text-base shrink-0" />,
-            label: 'User',
-            description: 'Stable assignment for logged-in users based on their distinct ID.',
-        },
-        ...(onBucketingIdentifierChange
-            ? [
-                  {
-                      value: 'device',
-                      icon: <IconLaptop className="text-base shrink-0" />,
-                      label: 'Device',
-                      description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
-                      badge: { type: 'warning' as const, text: 'BETA' },
-                      learnMoreUrl: 'https://posthog.com/docs/feature-flags/device-bucketing',
-                  },
-              ]
-            : []),
-        ...(showGroupsOptions
-            ? [
-                  {
-                      value: 'group',
-                      icon: <IconPeople className="text-base shrink-0" />,
-                      label: 'Group',
-                      description:
-                          'Stable assignment for everyone in an organization, company, or other custom group type.',
-                  },
-              ]
-            : []),
-    ] satisfies MatchByOption[]
-
-    const matchByOptions: MatchByOption[] = isTargetingV2Enabled ? v2MatchByOptions : legacyMatchByOptions
 
     // Compute current selected option (shared between keyboard navigation and selection rendering)
-    const currentSelected = isTargetingV2Enabled
-        ? isDeviceTargeting && onBucketingIdentifierChange
-            ? 'device'
-            : 'properties'
-        : releaseFilters.aggregation_group_type_index != null
-          ? 'group'
-          : isDeviceTargeting
-            ? 'device'
-            : 'user'
+    const currentSelected = isDeviceTargeting && onBucketingIdentifierChange ? 'device' : 'properties'
 
     // Handler for option selection logic (shared by click and keyboard events)
-    const selectMatchByOption = (value: string): void => {
-        const applyChange = (targetValue: string): void => {
-            if (isTargetingV2Enabled) {
-                if (targetValue === 'properties') {
-                    onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-                } else if (targetValue === 'device') {
-                    setAggregationGroupTypeIndex(null)
-                    onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-                }
-                return
-            }
-            if (targetValue === 'user') {
-                setIsMixedTargeting(false)
-                setAggregationGroupTypeIndex(null)
+    const selectMatchByOption = (value: 'properties' | 'device'): void => {
+        const applyChange = (targetValue: 'properties' | 'device'): void => {
+            if (targetValue === 'properties') {
                 onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
             } else if (targetValue === 'device') {
-                setIsMixedTargeting(false)
                 setAggregationGroupTypeIndex(null)
                 onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-            } else if (targetValue === 'group') {
-                setIsMixedTargeting(false)
-                const firstGroupType = groupTypeValues[0]
-                if (firstGroupType) {
-                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-                }
-                onBucketingIdentifierChange?.(null)
-            } else if (targetValue === 'mixed') {
-                switchToMixedTargeting()
-                onBucketingIdentifierChange?.(null)
             }
         }
 
@@ -1126,7 +1052,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
             {flagId && <IntentWarningsBanner flagId={flagId} />}
 
-            {!hideMatchOptions && (showGroupsOptions || onBucketingIdentifierChange) && (
+            {!hideMatchOptions && matchByOptions.length > 1 && (
                 <div>
                     <LemonLabel
                         className="mb-2"
@@ -1144,13 +1070,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             // Handle arrow key navigation for radio group
                             if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
                                 e.preventDefault()
-                                const options = isTargetingV2Enabled
-                                    ? ['properties', ...(onBucketingIdentifierChange ? ['device'] : [])]
-                                    : [
-                                          'user',
-                                          ...(onBucketingIdentifierChange ? ['device'] : []),
-                                          ...(showGroupsOptions ? ['group'] : []),
-                                      ]
+                                const options = matchByOptions.map((option) => option.value)
 
                                 const currentIndex = options.indexOf(currentSelected)
                                 let nextIndex = currentIndex
@@ -1222,34 +1142,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 </>
                                             )}
                                         </div>
-                                        {/* Group type selector for selected group option */}
-                                        {option.value === 'group' &&
-                                            isSelected &&
-                                            releaseFilters.aggregation_group_type_index != null &&
-                                            !isMixedTargeting &&
-                                            (groupTypeValues.length > 1 ? (
-                                                <div onClick={(e) => e.stopPropagation()}>
-                                                    <LemonSelect
-                                                        size="xsmall"
-                                                        dropdownMatchSelectWidth={false}
-                                                        data-attr="feature-flag-group-type-select"
-                                                        value={releaseFilters.aggregation_group_type_index}
-                                                        onChange={(value) => {
-                                                            if (value != null) {
-                                                                setAggregationGroupTypeIndex(value)
-                                                            }
-                                                        }}
-                                                        options={groupTypeValues.map((groupType) => ({
-                                                            value: groupType.group_type_index,
-                                                            label: groupType.group_type,
-                                                        }))}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <span className="text-xs font-medium">
-                                                    {groupTypeValues[0]?.group_type}
-                                                </span>
-                                            ))}
                                     </div>
                                 </div>
                             )
@@ -1329,7 +1221,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
-                                                isTargetingV2Enabled={isTargetingV2Enabled}
                                                 isDeviceTargeting={isDeviceTargeting}
                                                 onMoveUp={() => moveConditionSetUp(index)}
                                                 onMoveDown={() => moveConditionSetDown(index)}
@@ -1405,7 +1296,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
-                                        isTargetingV2Enabled={isTargetingV2Enabled}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1456,7 +1346,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
-                                        isTargetingV2Enabled={isTargetingV2Enabled}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1489,7 +1378,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
-                                isTargetingV2Enabled={isTargetingV2Enabled}
                                 isDeviceTargeting={isDeviceTargeting}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}

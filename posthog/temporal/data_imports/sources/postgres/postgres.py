@@ -102,6 +102,13 @@ class SSLRequiredError(Exception):
     pass
 
 
+# libpq connection option that pins the client encoding to UTF8. Some Postgres-wire-compatible
+# engines (notably Amazon Redshift) report their `client_encoding` as the legacy alias `UNICODE`,
+# which psycopg3's encoding map doesn't recognise — decoding the first query result then raises
+# `NotSupportedError: codec not available in Python: 'UNICODE'`. Forcing the encoding sidesteps it.
+FORCE_UTF8_CLIENT_ENCODING = "-c client_encoding=UTF8"
+
+
 # Substrings PgBouncer / libpq use when the upstream backend connection died
 # mid-stream. We hit these when a long-running sync holds a server-side cursor
 # (and thus an open transaction) idle across the slow delta-merge phase and the
@@ -119,6 +126,19 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "consuming input failed",
     "no connection to the server",
     "terminating connection due to",
+)
+
+# Exception types that can carry a connection-dropped error. ProtocolViolation is
+# PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
+# socket. IdleInTransactionSessionTimeout (SQLSTATE 25P03) is what Postgres raises
+# when the source's idle_in_transaction_session_timeout culls our backend while a
+# server-side cursor holds a transaction open across the slow delta-merge between
+# yields — psycopg maps it to InternalError, not OperationalError, so it must be
+# named explicitly or the type-based catch below would miss it.
+_CONNECTION_DROPPED_ERROR_TYPES = (
+    psycopg.errors.ProtocolViolation,
+    psycopg.OperationalError,
+    psycopg.errors.IdleInTransactionSessionTimeout,
 )
 
 
@@ -144,7 +164,13 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     psycopg surfaces these as ProtocolViolation (PgBouncer's synthetic error
     packet) or OperationalError (libpq detecting the dead socket), so we match on
     type and message rather than a single SQLSTATE.
+
+    IdleInTransactionSessionTimeout is the exception: it carries SQLSTATE 25P03 and
+    unambiguously means the source terminated our backend for holding a transaction
+    open too long, so the type alone is enough — no message match required.
     """
+    if isinstance(error, psycopg.errors.IdleInTransactionSessionTimeout):
+        return True
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
@@ -186,7 +212,7 @@ def _connect_with_dropped_retry(
     while True:
         try:
             return connect()
-        except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+        except _CONNECTION_DROPPED_ERROR_TYPES as e:
             if not _is_connection_dropped_error(e):
                 raise
             attempt += 1
@@ -262,6 +288,13 @@ def _connect_to_postgres(
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
+    # Redshift (and other Postgres-wire-compatible engines) report `client_encoding` as the legacy
+    # alias `UNICODE`, which psycopg3's encoding map doesn't recognise — it raises
+    # `NotSupportedError: codec not available in Python: 'UNICODE'` the first time it decodes a query
+    # result. Pinning the client encoding makes the server report `UTF8` instead, which psycopg maps
+    # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
+    caller_options = kwargs.pop("options", None)
+    options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
     try:
         return psycopg.connect(
             host=host,
@@ -278,6 +311,7 @@ def _connect_to_postgres(
             keepalives_idle=30,
             keepalives_interval=10,
             keepalives_count=5,
+            options=options,
             **kwargs,
         )
     except psycopg.OperationalError as e:
@@ -1495,6 +1529,15 @@ def _get_partition_settings(
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
+    except psycopg.errors.UndefinedTable as e:
+        # The selected table was dropped or renamed in the source between schema discovery and
+        # this best-effort partition-sizing probe. That's a user/upstream condition we already
+        # tolerate here (return None -> no partitioning), and the real extraction query — which
+        # shares this FROM clause — hits the same missing relation and surfaces it through the
+        # normal non-retryable path ("does not exist"). Capturing it here too would only flood
+        # error tracking with handled duplicates, so mirror `_get_rows_to_sync` and log at debug.
+        logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
+        return None
     except Exception as e:
         # Partition sizing is best-effort: on failure we return None and the sync proceeds
         # unpartitioned. Two handled conditions must not flood error tracking:
@@ -1906,6 +1949,7 @@ def postgres_source(
                     keepalives_idle=30,
                     keepalives_interval=10,
                     keepalives_count=5,
+                    options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
                 if require_ssl and "SSL" in str(e):
@@ -1930,7 +1974,12 @@ def postgres_source(
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
         while True:
-            connection = _open_setup_connection()
+            # Opening the setup connection can itself hit a transient drop ("server closed the
+            # connection unexpectedly", idle cull, failover) — the same class of error the read
+            # path already recovers from. Retry the connect in-process with bounded backoff,
+            # mirroring `offset_chunking`, so a momentary blip during setup doesn't fail the whole
+            # activity. Permanent errors (auth failures, SSL-required) re-raise immediately.
+            connection = _connect_with_dropped_retry(_open_setup_connection, logger)
             try:
                 with connection:
                     with connection.cursor() as cursor:
@@ -2159,6 +2208,7 @@ def postgres_source(
                         keepalives_idle=30,
                         keepalives_interval=10,
                         keepalives_count=5,
+                        options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):
@@ -2303,7 +2353,7 @@ def postgres_source(
                         if timeout_error is not None:
                             raise timeout_error from e
                         raise
-                    except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+                    except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if not _is_connection_dropped_error(e):
                             _safe_close_connection(connection)
                             raise
@@ -2436,7 +2486,7 @@ def postgres_source(
                     return
 
                 raise
-            except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+            except _CONNECTION_DROPPED_ERROR_TYPES as e:
                 # The server cursor holds a transaction open across the slow
                 # delta-merge between yields; the source can cull the backend
                 # (idle_in_transaction_session_timeout / PgBouncer) and the next
