@@ -8023,6 +8023,16 @@ export namespace Schemas {
       version?: number;
     };
 
+    export type AgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
     export type AgentRevisionSpecLimits = {
       /**
          * @maximum 2147483647
@@ -8104,7 +8114,7 @@ export namespace Schemas {
       mcps: AgentRevisionSpecMcpsItem[];
       skills: AgentRevisionSpecSkillsItem[];
       integrations: string[];
-      secrets: string[];
+      secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: AgentRevisionSpecReasoning;
@@ -32580,6 +32590,16 @@ export namespace Schemas {
       version?: number;
     };
 
+    export type PatchedAgentRevisionSpecSecretsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      /**
+         * @minItems 1
+         * @items.minLength 1
+         */
+      allowed_hosts: string[];
+    };
+
     export type PatchedAgentRevisionSpecLimits = {
       /**
          * @maximum 2147483647
@@ -32661,7 +32681,7 @@ export namespace Schemas {
       mcps: PatchedAgentRevisionSpecMcpsItem[];
       skills: PatchedAgentRevisionSpecSkillsItem[];
       integrations: string[];
-      secrets: string[];
+      secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
       entrypoint: string;
       reasoning?: PatchedAgentRevisionSpecReasoning;

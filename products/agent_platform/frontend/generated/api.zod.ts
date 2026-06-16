@@ -164,6 +164,7 @@ export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
+
 export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -578,7 +579,17 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
             integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsCreateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
@@ -713,6 +724,7 @@ export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault = []
+
 export const agentApplicationsRevisionsUpdateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsUpdateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -1127,7 +1139,17 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
             integrations: zod.array(zod.string()).default(agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsUpdateBodySpecSecretsDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsUpdateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
@@ -1285,6 +1307,7 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsDefault = 50
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxTurnsExclusiveMin = 0
@@ -1717,7 +1740,17 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
             integrations: zod
                 .array(zod.string())
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
-            secrets: zod.array(zod.string()).default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
+            secrets: zod
+                .array(
+                    zod.union([
+                        zod.string().min(1),
+                        zod.object({
+                            name: zod.string().min(1),
+                            allowed_hosts: zod.array(zod.string().min(1)).min(1),
+                        }),
+                    ])
+                )
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault),
             limits: zod
                 .object({
                     max_turns: zod
