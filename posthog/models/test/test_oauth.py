@@ -90,6 +90,24 @@ class TestOAuthModels(TestCase):
 
     @parameterized.expand(
         [
+            ("dcr", {"is_dcr_client": True}),
+            ("cimd", {"is_cimd_client": True, "cimd_metadata_url": "https://example.com/oauth-client"}),
+        ]
+    )
+    def test_self_registered_clients_have_no_required_scopes(self, _name, flags):
+        # A self-registered client controls its own `scopes`, so they stay a pure ceiling and
+        # nothing is locked — otherwise a client could force its registered scopes into the grant.
+        app = self._make_app(
+            f"Self-reg {_name}",
+            f"self_reg_{_name}_client",
+            scopes=["insight:read", "dashboard:write"],
+            **flags,
+        )
+        self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:write"])
+        self.assertEqual(app.required_scopes, [])
+
+    @parameterized.expand(
+        [
             ("optional_without_required", [], ["dashboard:read"], "optional_scopes"),
             ("wildcard_in_required", ["*"], ["dashboard:read"], "scopes"),
             ("identity_scope_in_required", ["openid", "insight:read"], ["dashboard:read"], "scopes"),

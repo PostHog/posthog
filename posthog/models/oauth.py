@@ -137,7 +137,14 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     def required_scopes(self) -> list[str]:
         # Everything in the explicit ceiling is required and locked at consent; optional_scopes
         # are additive declinable extras. An empty `scopes` is a broad/deferred request
-        # (MCP / `*` / empty) — nothing required, the user picks freely.
+        # (MCP / `*` / empty) so nothing is required and the user picks freely.
+        #
+        # Self-registered clients (DCR / CIMD) control `scopes` themselves. Locking them would let
+        # a client force its own registered scopes into the grant even when the user was sent an
+        # authorization request for a narrower set, so for those `scopes` stays a pure ceiling and
+        # nothing is locked. Only admin-seeded apps get the required floor.
+        if self.is_dcr_client or self.is_cimd_client:
+            return []
         return list(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
