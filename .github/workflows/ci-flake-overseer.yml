@@ -24,6 +24,8 @@ permissions:
     contents: read
 
 env:
+    # Master on/off switch. Defaults to off (dry-run only): set the repo/org variable
+    # CI_FLAKE_OVERSEER_ENABLED=true to let the overseer actually rerun jobs.
     CI_FLAKE_OVERSEER_ENABLED: ${{ vars.CI_FLAKE_OVERSEER_ENABLED || 'false' }}
     CI_FLAKE_OVERSEER_MAX_RERUNS: ${{ vars.CI_FLAKE_OVERSEER_MAX_RERUNS || '1' }}
     CI_FLAKE_OVERSEER_CONFIDENCE_THRESHOLD: ${{ vars.CI_FLAKE_OVERSEER_CONFIDENCE_THRESHOLD || '80' }}
@@ -33,13 +35,20 @@ env:
 jobs:
     oversee:
         name: Classify failed jobs
+        # Only spin up a runner for runs the overseer can act on; manual dispatch always runs.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            github.event.workflow_run.conclusion == 'failure' ||
+            github.event.workflow_run.conclusion == 'timed_out'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
             GH_TOKEN: ${{ github.token }}
             GITHUB_TOKEN: ${{ github.token }}
             MENDRAL_TOKEN: ${{ secrets.MENDRAL_TOKEN }}
-            CI_FLAKE_OVERSEER_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || vars.CI_FLAKE_OVERSEER_DRY_RUN || 'false' }}
+            # Coerce the dispatch boolean to a string ('true'/'false') first, otherwise a literal
+            # `false` collapses the `&&` and the explicit dispatch choice is silently dropped.
+            CI_FLAKE_OVERSEER_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run && 'true' || 'false') || vars.CI_FLAKE_OVERSEER_DRY_RUN || 'false' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               id: checkout

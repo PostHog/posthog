@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import pytest
 
+import ci_flake_overseer
 from ci_flake_overseer import (
     MAX_QUERY_COUNT,
+    CiInsightsSource,
     Decision,
     FlakeMatch,
     InsightsSource,
     Job,
+    JsonObject,
     Step,
     classify_job,
     extract_failure_queries,
+    is_test_job_failure,
+    rerun_eligible_jobs,
 )
 
 
@@ -19,7 +24,7 @@ class StaticInsights:
         self.match = match
         self.queries: tuple[str, ...] = ()
 
-    def find_flake(self, queries: tuple[str, ...], workflow_name: str, job_name: str, log: str) -> FlakeMatch | None:
+    def find_flake(self, queries: tuple[str, ...], workflow_name: str, log: str) -> FlakeMatch | None:
         self.queries = queries
         return self.match
 
@@ -28,12 +33,13 @@ def make_job(
     name: str,
     *,
     run_attempt: int = 1,
+    conclusion: str = "failure",
     failed_step: str = "Run Core tests",
 ) -> Job:
     return Job(
         id=123,
         name=name,
-        conclusion="failure",
+        conclusion=conclusion,
         run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/1/job/123",
         steps=(Step(name=failed_step, conclusion="failure"),),
@@ -45,7 +51,6 @@ def known_flake() -> FlakeMatch:
         insight_id="01KNOWNFLAKE",
         title="Flaky test: test_acheck_query_found ClickHouse query ID collision",
         confidence=85,
-        source="test",
         matched_query="test_acheck_query_found",
         summary="test_acheck_query_found fails intermittently",
     )
@@ -54,7 +59,7 @@ def known_flake() -> FlakeMatch:
 def classify(job: Job, log: str, insights: InsightsSource) -> Decision:
     return classify_job(
         job,
-        log,
+        lambda: log,
         insights,
         workflow_name="Backend CI",
         max_reruns_per_job=1,
@@ -118,6 +123,14 @@ def test_known_flaky_test_failure_is_rerun_eligible() -> None:
             id="deterministic-migrations",
         ),
         pytest.param(
+            make_job("Django tests - Core (1/1)", failed_step="Run Core tests"),
+            "Core tests failed\nA retry cannot fix this failure",
+            StaticInsights(known_flake()),
+            "skip deterministic",
+            "deterministic",
+            id="deterministic-from-log-only",
+        ),
+        pytest.param(
             make_job("Build and deploy", failed_step="Compile assets"),
             "error: build failed on attempt 1",
             StaticInsights(known_flake()),
@@ -170,7 +183,9 @@ def test_non_test_job_at_attempt_above_cap_reports_test_type_not_cap() -> None:
 def test_prior_same_sha_rerun_cap_is_not_rerun() -> None:
     decision = classify_job(
         make_job("Django tests - Temporal (1/1)"),
-        "FAILED posthog/temporal/tests/test_clickhouse.py::test_acheck_query_found\nQUERY_WITH_SAME_ID_IS_ALREADY_RUNNING",
+        lambda: (
+            "FAILED posthog/temporal/tests/test_clickhouse.py::test_acheck_query_found\nQUERY_WITH_SAME_ID_IS_ALREADY_RUNNING"
+        ),
         StaticInsights(known_flake()),
         workflow_name="Backend CI",
         max_reruns_per_job=1,
@@ -179,6 +194,152 @@ def test_prior_same_sha_rerun_cap_is_not_rerun() -> None:
 
     assert decision.action == "skip cap reached"
     assert "matching job already reached attempt 2" in decision.reason
+
+
+def test_job_log_is_not_fetched_for_metadata_only_skips() -> None:
+    def explode() -> str:
+        raise AssertionError("log should not be fetched for a non-test job")
+
+    decision = classify_job(
+        make_job("Build and deploy", failed_step="Compile assets"),
+        explode,
+        StaticInsights(known_flake()),
+        workflow_name="Backend CI",
+        max_reruns_per_job=1,
+    )
+
+    assert decision.action == "skip unknown"
+
+
+@pytest.mark.parametrize(
+    ("job_name", "failed_step", "expected"),
+    [
+        pytest.param("Django tests - Temporal (1/1)", "Run Core tests", True, id="test-job-and-test-step"),
+        pytest.param(
+            "Django tests - Temporal (1/1)", "Stop containers", True, id="test-job-nontest-step-falls-back-to-name"
+        ),
+        pytest.param("Build and deploy", "Run Playwright tests", True, id="nontest-job-test-step"),
+        pytest.param("Build and deploy", "Compile assets", False, id="nontest-job-and-nontest-step"),
+    ],
+)
+def test_is_test_job_failure(job_name: str, failed_step: str, expected: bool) -> None:
+    assert is_test_job_failure(make_job(job_name, failed_step=failed_step)) is expected
+
+
+QUERY = "test_acheck_query_found"
+MATCH_LOG = "FAILED posthog/temporal/tests/test_clickhouse.py::test_acheck_query_found\n"
+
+
+def make_insight(**overrides: object) -> JsonObject:
+    insight: JsonObject = {
+        "id": "01ABC",
+        "title": "Flaky test test_acheck_query_found",
+        "summary": "fails intermittently with a ClickHouse query id collision",
+        "hypothesis_confidence": 90,
+        "status": "proposed",
+        "source_ref": {"workflow_name": "Backend CI"},
+    }
+    insight.update(overrides)
+    return insight
+
+
+def matcher() -> CiInsightsSource:
+    return CiInsightsSource(("noop",), 80, 5)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "should_match"),
+    [
+        pytest.param({"status": "proposed"}, True, id="status-proposed"),
+        pytest.param({"status": "in_review"}, True, id="status-in-review"),
+        pytest.param({"status": "in_progress"}, True, id="status-in-progress"),
+        pytest.param({"status": "rejected"}, False, id="status-rejected"),
+        pytest.param({"status": "open"}, False, id="status-open-not-actionable"),
+        pytest.param({"hypothesis_confidence": 50}, False, id="below-confidence-threshold"),
+        pytest.param(
+            {"title": "test_acheck_query_found regression", "summary": "a deterministic failure"},
+            False,
+            id="no-flakiness-keyword",
+        ),
+        pytest.param({"source_ref": {"workflow_name": "E2E CI Playwright"}}, False, id="workflow-scope-mismatch"),
+    ],
+)
+def test_flake_match_gates(overrides: dict[str, object], should_match: bool) -> None:
+    match = matcher().flake_match(make_insight(**overrides), QUERY, "Backend CI", MATCH_LOG)
+
+    assert (match is not None) is should_match
+
+
+def test_flake_match_returns_insight_details() -> None:
+    match = matcher().flake_match(make_insight(), QUERY, "Backend CI", MATCH_LOG)
+
+    assert match is not None
+    assert match.insight_id == "01ABC"
+    assert match.confidence == 90
+    assert match.matched_query == QUERY
+
+
+def test_flake_match_requires_term_in_both_log_and_insight() -> None:
+    assert matcher().flake_match(make_insight(), QUERY, "Backend CI", "unrelated failure output") is None
+
+
+def test_flake_match_skips_when_no_significant_term() -> None:
+    assert matcher().flake_match(make_insight(), "boom", "Backend CI", "boom happened") is None
+
+
+class FakeCli(CiInsightsSource):
+    def __init__(self, search_results: list[JsonObject], views: dict[str, JsonObject]) -> None:
+        super().__init__(("noop",), 80, 5)
+        self._search_results = search_results
+        self._views = views
+
+    def search(self, query: str) -> list[JsonObject]:
+        return self._search_results
+
+    def view(self, insight_id: str) -> JsonObject:
+        return self._views.get(insight_id, {})
+
+
+def test_find_flake_skips_insight_with_empty_view() -> None:
+    cli = FakeCli([{"id": "01ABC"}], views={})
+
+    assert cli.find_flake((QUERY,), "Backend CI", MATCH_LOG) is None
+
+
+def test_find_flake_matches_on_detailed_view() -> None:
+    cli = FakeCli([{"id": "01ABC"}], views={"01ABC": make_insight()})
+
+    match = cli.find_flake((QUERY,), "Backend CI", MATCH_LOG)
+
+    assert match is not None
+    assert match.insight_id == "01ABC"
+
+
+def make_rerun_decision() -> Decision:
+    return Decision(
+        action="rerun",
+        reason="matched high-confidence known flaky signature",
+        job=make_job("Django tests - Temporal (1/1)"),
+        match=known_flake(),
+    )
+
+
+def test_rerun_eligible_jobs_calls_api_when_active(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(ci_flake_overseer, "gh_post", lambda repo, path: calls.append(path))
+
+    rerun_eligible_jobs("PostHog/posthog", (make_rerun_decision(),), dry_run=False)
+
+    assert calls == ["actions/jobs/123/rerun"]
+
+
+def test_rerun_eligible_jobs_skips_api_in_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(ci_flake_overseer, "gh_post", lambda repo, path: calls.append(path))
+
+    rerun_eligible_jobs("PostHog/posthog", (make_rerun_decision(),), dry_run=True)
+
+    assert calls == []
 
 
 @pytest.mark.parametrize(
