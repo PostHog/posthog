@@ -1517,7 +1517,7 @@ class TestConversationListTaskHandle(APIBaseTest):
         )
         return latest
 
-    def test_list_surfaces_task_current_run_id(self):
+    def test_list_surfaces_task_latest_run_id(self):
         latest = self._sandbox_conversation("Sandbox chat")
 
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
@@ -1525,7 +1525,9 @@ class TestConversationListTaskHandle(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["task"], {"id": str(latest.task_id), "current_run_id": str(latest.id)})
+        self.assertEqual(results[0]["task"]["id"], str(latest.task_id))
+        # The full Task is serialized, but latest_run is just the newest run's id.
+        self.assertEqual(results[0]["task"]["latest_run"], str(latest.id))
 
     def test_list_reports_null_task_for_langgraph(self):
         Conversation.objects.create(
@@ -1543,7 +1545,7 @@ class TestConversationListTaskHandle(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertIsNone(results[0]["task"])
 
-    def test_retrieve_surfaces_current_run_id_without_extra_query(self):
+    def test_retrieve_surfaces_task_latest_run_id(self):
         # A sandbox conversation backed by a Task with runs, and one with no Task at all.
         latest = self._sandbox_conversation("With task")
         with_task = Conversation.objects.get(task_id=latest.task_id)
@@ -1557,19 +1559,14 @@ class TestConversationListTaskHandle(APIBaseTest):
 
         base = f"/api/environments/{self.team.id}/conversations/"
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
-            self.client.get(f"{base}{with_task.id}/")  # warm one-time auth/session caches
-            with CaptureQueriesContext(connection) as ctx_with:
-                r_with = self.client.get(f"{base}{with_task.id}/")
-            with CaptureQueriesContext(connection) as ctx_without:
-                r_without = self.client.get(f"{base}{without_task.id}/")
+            r_with = self.client.get(f"{base}{with_task.id}/")
+            r_without = self.client.get(f"{base}{without_task.id}/")
 
         self.assertEqual(r_with.status_code, status.HTTP_200_OK)
         self.assertEqual(r_without.status_code, status.HTTP_200_OK)
-        self.assertEqual(r_with.json()["task"], {"id": str(latest.task_id), "current_run_id": str(latest.id)})
+        self.assertEqual(r_with.json()["task"]["id"], str(latest.task_id))
+        self.assertEqual(r_with.json()["task"]["latest_run"], str(latest.id))
         self.assertIsNone(r_without.json()["task"])
-        # Resolving the current run for the task-backed conversation must not cost extra queries:
-        # the latest-run id comes from the annotated subquery, not a per-row `latest_run` lookup.
-        self.assertEqual(len(ctx_with.captured_queries), len(ctx_without.captured_queries))
 
     def test_list_query_count_does_not_scale_with_conversation_count(self):
         url = f"/api/environments/{self.team.id}/conversations/"
@@ -1585,7 +1582,8 @@ class TestConversationListTaskHandle(APIBaseTest):
             baseline = len(ctx.captured_queries)
 
             # More sandbox conversations (each with its own Task + runs) must not add per-row
-            # queries — the latest-run handle comes from one correlated subquery annotation.
+            # queries — the backing tasks load via a single prefetch carrying the latest-run-id
+            # subquery, not a per-row task/run lookup.
             self._sandbox_conversation("Chat 2")
             self._sandbox_conversation("Chat 3")
 

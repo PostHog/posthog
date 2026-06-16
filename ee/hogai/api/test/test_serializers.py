@@ -333,20 +333,25 @@ class TestConversationSerializerTaskField(APIBaseTest):
         self.assertIsNone(data["task"])
         self.assertFalse(data["is_sandbox"])
 
-    def test_task_current_run_id_null_when_task_has_no_runs(self):
+    def test_task_latest_run_null_when_task_has_no_runs(self):
         task = self._task()
         data = self._serialize(self._sandbox_conversation(task))
-        self.assertEqual(data["task"], {"id": str(task.id), "current_run_id": None})
+        self.assertEqual(data["task"]["id"], str(task.id))
+        self.assertIsNone(data["task"]["latest_run"])
+        # Reuses the full TaskSerializer, so other Task fields come through too.
+        self.assertEqual(data["task"]["title"], "t")
 
-    def test_task_reports_latest_run(self):
+    def test_task_reports_latest_run_id(self):
         task = self._task()
         first = task.create_run(mode="interactive")
         latest = task.create_run(mode="interactive")
 
         data = self._serialize(self._sandbox_conversation(task))
 
-        self.assertEqual(data["task"], {"id": str(task.id), "current_run_id": str(latest.id)})
-        self.assertNotEqual(data["task"]["current_run_id"], str(first.id))
+        self.assertEqual(data["task"]["id"], str(task.id))
+        # latest_run is just the newest run's id, not the full run object.
+        self.assertEqual(data["task"]["latest_run"], str(latest.id))
+        self.assertNotEqual(data["task"]["latest_run"], str(first.id))
 
 
 class TestTaskLatestRun(APIBaseTest):

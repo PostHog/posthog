@@ -7168,8 +7168,8 @@ export interface Conversation {
      * flag and never re-read. Existing rows default to `'langgraph'`.
      */
     agent_runtime?: 'langgraph' | 'sandbox'
-    /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. */
-    task?: { id: string; current_run_id: string | null } | null
+    /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
+    task?: { id: string; latest_run: string | null } | null
 }
 
 export interface ConversationDetail extends Conversation {

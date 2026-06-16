@@ -6,7 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db.models import OuterRef, Subquery
+from django.db.models import OuterRef, Prefetch, Subquery
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
@@ -56,7 +56,7 @@ from posthog.temporal.ai.research_agent import (
 from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
 from products.posthog_ai.backend.message_routing import MessageRoutingService
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_permission_response
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -324,13 +324,14 @@ class ConversationViewSet(
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
-        # Surface each conversation's latest-run id via one correlated subquery (constant, not
-        # per-row) so both the list payload and a single retrieve carry the sandbox bootstrap
-        # handle without resolving `current_run`/`latest_run` per row. Yields None for LangGraph
-        # rows (null task FK → no matching runs).
+        # Prefetch the backing Task (one extra query for the whole page) with its serializer joins
+        # and a correlated subquery for the latest run id, so ConversationTaskSerializer serializes
+        # `task` with no N+1 and without loading any run rows. LangGraph rows (null task FK) simply
+        # get no prefetched task.
         if self.action in ("list", "retrieve"):
-            latest_run = TaskRun.objects.filter(task=OuterRef("task_id")).order_by("-created_at")
-            queryset = queryset.annotate(current_run_id=Subquery(latest_run.values("id")[:1]))
+            latest_run_id = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at").values("id")[:1]
+            tasks_qs = Task.objects.select_related("created_by", "team").annotate(latest_run_id=Subquery(latest_run_id))
+            queryset = queryset.prefetch_related(Prefetch("task", queryset=tasks_qs))
         if self.action == "list":
             queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset

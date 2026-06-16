@@ -10,6 +10,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.models import Task
+from products.tasks.backend.serializers import TaskSerializer
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
@@ -19,7 +21,7 @@ from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
 
-# Sentinel: tells "queryset annotated current_run_id (possibly None)" apart from "not annotated".
+# Sentinel: tells an absent queryset annotation apart from one that is present but None.
 _UNSET = object()
 
 _conversation_fields = [
@@ -47,18 +49,28 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
-class ConversationSandboxTaskSerializer(serializers.Serializer):
+class ConversationTaskSerializer(TaskSerializer):
     """The products/tasks Task backing a sandbox conversation.
 
-    Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
-    the `logs/` history against. Null for LangGraph conversations.
+    Reuses `TaskSerializer` but overrides `latest_run` to be just the latest run's id (not the
+    full run object), so the conversation list/retrieve stays cheap — the frontend only needs
+    the Task id + latest run id to bootstrap `sandboxStreamLogic.bootstrapRun`. Null for
+    LangGraph conversations.
     """
 
-    id = serializers.UUIDField(help_text="The backing products/tasks Task id.")
-    current_run_id = serializers.UUIDField(
-        allow_null=True,
-        help_text="Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.",
+    latest_run = serializers.SerializerMethodField()
+
+    @extend_schema_field(
+        serializers.UUIDField(allow_null=True, help_text="Id of the latest TaskRun; null when the task has no runs.")
     )
+    def get_latest_run(self, obj: Task) -> str | None:
+        # Fast path: the conversation queryset prefetches the task with a `latest_run_id` subquery
+        # annotation. Standalone serialization (no annotation) falls back to the `latest_run` property.
+        run_id = getattr(obj, "latest_run_id", _UNSET)
+        if run_id is _UNSET:
+            run = obj.latest_run
+            run_id = run.id if run else None
+        return str(run_id) if run_id else None
 
 
 class ConversationMinimalSerializer(serializers.ModelSerializer):
@@ -71,24 +83,7 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     user = UserBasicSerializer(read_only=True)
-    task = serializers.SerializerMethodField()
-
-    @extend_schema_field(ConversationSandboxTaskSerializer(allow_null=True))
-    def get_task(self, conversation: Conversation) -> dict[str, Any] | None:
-        # The backing Task + current Run let the frontend bootstrap the sandbox stream. The
-        # list/retrieve querysets annotate `current_run_id` with one correlated subquery, so this
-        # reads it for free; standalone serialization (no annotation) falls back to the derived
-        # `current_run`. Null for LangGraph conversations (no task).
-        if conversation.task_id is None:
-            return None
-        current_run_id = getattr(conversation, "current_run_id", _UNSET)
-        if current_run_id is _UNSET:
-            current_run = conversation.current_run
-            current_run_id = current_run.id if current_run else None
-        return {
-            "id": str(conversation.task_id),
-            "current_run_id": str(current_run_id) if current_run_id else None,
-        }
+    task = ConversationTaskSerializer(read_only=True, allow_null=True)
 
 
 class ConversationSerializer(ConversationMinimalSerializer):

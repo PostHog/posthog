@@ -1344,7 +1344,7 @@ describe('maxThreadLogic', () => {
                 updated_at: new Date().toISOString(),
                 type: ConversationType.Assistant,
                 agent_runtime: 'sandbox',
-                task: { id: SANDBOX_TASK_ID, current_run_id: currentRunId },
+                task: { id: SANDBOX_TASK_ID, latest_run: currentRunId },
                 messages: [],
             }
         }
@@ -1373,7 +1373,7 @@ describe('maxThreadLogic', () => {
             expect(streamSpy).not.toHaveBeenCalled()
         })
 
-        it('does not bootstrap a sandbox run without a current_run_id', async () => {
+        it('does not bootstrap a sandbox run without a latest_run', async () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(null))
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries')
@@ -1405,7 +1405,7 @@ describe('maxThreadLogic', () => {
                 updated_at: new Date().toISOString(),
                 type: ConversationType.Assistant,
                 agent_runtime: 'sandbox',
-                task: { id: 'task-1', current_run_id: null },
+                task: { id: 'task-1', latest_run: null },
                 messages: [],
             }
         }
