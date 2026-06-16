@@ -11,6 +11,7 @@ from typing import Any
 from django.db.models import Q
 
 import structlog
+import posthoganalytics
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -20,6 +21,7 @@ from rest_framework.views import APIView
 
 from posthog.models import Team
 
+from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.models import Account
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +47,19 @@ class ExternalAccountSustainedThrottle(_ExternalAccountThrottle):
     rate = "600/hour"
 
 
+def _customer_analytics_enabled(team: Team) -> bool:
+    organization_id = str(team.organization_id)
+    return bool(
+        posthoganalytics.feature_enabled(
+            CUSTOMER_ANALYTICS_CSP_FLAG,
+            organization_id,
+            groups={"organization": organization_id},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Extract Bearer token from Authorization header and validate against a team."""
     auth_header = request.headers.get("Authorization", "")
@@ -60,6 +75,11 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     try:
         team = Team.objects.get(Q(secret_api_token=api_key) | Q(secret_api_token_backup=api_key))
     except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+        return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Same 401 as an unknown token: a valid secret token for a team without customer
+    # analytics enabled must not be usable to read account data.
+    if not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     return team, None

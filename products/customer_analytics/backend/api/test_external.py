@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -20,6 +21,12 @@ class TestExternalAccountAPI(APIBaseTest):
         self.client = APIClient()
         self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         self.url = "/api/customer_analytics/external/account"
+        csp_enabled = patch(
+            "products.customer_analytics.backend.api.external.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        self.mock_csp_enabled = csp_enabled.start()
+        self.addCleanup(csp_enabled.stop)
 
     def _auth_headers(self, token=None):
         return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
@@ -56,6 +63,11 @@ class TestExternalAccountAPI(APIBaseTest):
         self.team.save(update_fields=["secret_api_token_backup"])
         response = self._get(token=backup_token)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_rejects_team_without_customer_analytics_enabled(self):
+        self.mock_csp_enabled.return_value = False
+        response = self._get()
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     # -- GET account ------------------------------------------------------
 
