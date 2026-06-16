@@ -7,7 +7,13 @@ import collections
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
-from datetime import UTC, date, datetime, timezone
+from datetime import (
+    UTC,
+    date,
+    datetime,
+    time as datetime_time,
+    timezone,
+)
 from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
@@ -20,7 +26,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
-from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
+from psycopg.types.datetime import TimeLoader, TimestampLoader, TimestamptzLoader, TimetzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
@@ -1135,6 +1141,59 @@ class SafeTimestamptzLoader(TimestamptzLoader):
             return super().load(data)
         except psycopg.DataError:
             return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
+
+
+def _clamp_pg_hour_24(data) -> bytes | None:
+    """Clamp a Postgres '24:00:00' time/timetz value to the max Python time.
+
+    PostgreSQL accepts '24:00:00' as the maximum value for the `time` and
+    `timetz` types (end-of-day midnight), but Python's datetime.time caps the
+    hour at 23. The time portion of an hour-24 value is always exactly
+    '24:00:00', so we return an equivalent buffer with the time clamped to the
+    maximum representable value, preserving any timezone suffix. Returns None
+    for any value that is not an hour-24 time, so callers re-raise as usual.
+    """
+    s = bytes(data).decode("utf-8")
+    if not s.startswith("24:"):
+        return None
+    rest = s[len("24:00:00") :]
+    tz_suffix = ""
+    for i, ch in enumerate(rest):
+        if ch in "+-":
+            tz_suffix = rest[i:]
+            break
+    return ("23:59:59.999999" + tz_suffix).encode("utf-8")
+
+
+def _load_time_clamping_hour_24(super_load: Callable[[Any], datetime_time], data) -> datetime_time:
+    """Run psycopg's default time loader, clamping the '24:00:00' edge case.
+
+    Mirrors SafeDateLoader's clamp-to-max behaviour: a Postgres end-of-day
+    '24:00:00' (which Python's datetime.time cannot represent) is clamped to
+    time.max, while every other value — and any genuine parse error — is
+    delegated to psycopg's default loader.
+    """
+    try:
+        return super_load(data)
+    except psycopg.DataError:
+        clamped = _clamp_pg_hour_24(data)
+        if clamped is None:
+            raise
+        return super_load(clamped)
+
+
+class SafeTimeLoader(TimeLoader):
+    """Load PostgreSQL `time` values, clamping the '24:00:00' edge case."""
+
+    def load(self, data) -> datetime_time:
+        return _load_time_clamping_hour_24(super().load, data)
+
+
+class SafeTimetzLoader(TimetzLoader):
+    """Load PostgreSQL `timetz` values, clamping '24:00:00' while preserving the timezone offset."""
+
+    def load(self, data) -> datetime_time:
+        return _load_time_clamping_hour_24(super().load, data)
 
 
 def _build_query(
@@ -2263,6 +2322,8 @@ def postgres_source(
                 connection.adapters.register_loader("date", SafeDateLoader)
                 connection.adapters.register_loader("timestamp", SafeTimestampLoader)
                 connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                connection.adapters.register_loader("time", SafeTimeLoader)
+                connection.adapters.register_loader("timetz", SafeTimetzLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
