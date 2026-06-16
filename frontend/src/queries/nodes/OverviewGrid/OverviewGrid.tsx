@@ -56,6 +56,7 @@ interface OverviewGridProps {
     samplingRate?: SamplingRate
     usedPreAggregatedTables?: boolean
     usedLazyPrecompute?: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
@@ -68,6 +69,7 @@ export function OverviewGrid({
     samplingRate,
     usedPreAggregatedTables = false,
     usedLazyPrecompute = false,
+    onDisablePrecompute,
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
@@ -93,6 +95,7 @@ export function OverviewGrid({
                               item={item}
                               usedPreAggregatedTables={usedPreAggregatedTables}
                               usedLazyPrecompute={usedLazyPrecompute}
+                              onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
                           />
@@ -145,6 +148,7 @@ interface OverviewItemCellProps {
     item: OverviewItem
     usedPreAggregatedTables: boolean
     usedLazyPrecompute: boolean
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     compact: boolean
 }
@@ -153,6 +157,7 @@ const OverviewItemCell = ({
     item,
     usedPreAggregatedTables,
     usedLazyPrecompute,
+    onDisablePrecompute,
     labelFromKey,
     compact,
 }: OverviewItemCellProps): JSX.Element => {
@@ -234,7 +239,7 @@ const OverviewItemCell = ({
             {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
                 does not also surface the cell's metric tooltip. */}
             {usedLazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" />
+                <PreAggregatedBadge variant="precomputed" onDisable={onDisablePrecompute} />
             ) : usedPreAggregatedTables ? (
                 <PreAggregatedBadge variant="preagg" />
             ) : null}

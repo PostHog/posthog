@@ -40,8 +40,8 @@ export interface RepoRefApi {
 
 /**
  * * `open` - OPEN
- * `closed` - CLOSED
- * `merged` - MERGED
+ * * `closed` - CLOSED
+ * * `merged` - MERGED
  */
 export type EngineeringAnalyticsPRStateEnumApi =
     (typeof EngineeringAnalyticsPRStateEnumApi)[keyof typeof EngineeringAnalyticsPRStateEnumApi]
@@ -64,10 +64,10 @@ export interface PullRequestApi {
     /** Pull request title. */
     title: string
     /** Derived state: 'open', 'closed', or 'merged'.
-
-  * `open` - OPEN
-  * `closed` - CLOSED
-  * `merged` - MERGED */
+     *
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED */
     state: EngineeringAnalyticsPRStateEnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
@@ -87,10 +87,10 @@ export interface PullRequestApi {
 
 /**
  * * `opened` - OPENED
- * `ci_started` - CI_STARTED
- * `ci_finished` - CI_FINISHED
- * `merged` - MERGED
- * `closed` - CLOSED
+ * * `ci_started` - CI_STARTED
+ * * `ci_finished` - CI_FINISHED
+ * * `merged` - MERGED
+ * * `closed` - CLOSED
  */
 export type PRLifecycleEventKindEnumApi = (typeof PRLifecycleEventKindEnumApi)[keyof typeof PRLifecycleEventKindEnumApi]
 
@@ -104,12 +104,12 @@ export const PRLifecycleEventKindEnumApi = {
 
 export interface PRLifecycleEventApi {
     /** Event kind: opened, ci_started, ci_finished, merged, or closed.
-
-  * `opened` - OPENED
-  * `ci_started` - CI_STARTED
-  * `ci_finished` - CI_FINISHED
-  * `merged` - MERGED
-  * `closed` - CLOSED */
+     *
+     * * `opened` - OPENED
+     * * `ci_started` - CI_STARTED
+     * * `ci_finished` - CI_FINISHED
+     * * `merged` - MERGED
+     * * `closed` - CLOSED */
     kind: PRLifecycleEventKindEnumApi
     /** When the event occurred. */
     at: string
@@ -118,12 +118,17 @@ export interface PRLifecycleEventApi {
      * @nullable
      */
     detail?: string | null
+    /**
+     * GitHub Actions run id for ci_started/ci_finished events, null otherwise.
+     * @nullable
+     */
+    run_id?: number | null
 }
 
 /**
  * * `precise` - PRECISE
- * `coarse` - COARSE
- * `partial` - PARTIAL
+ * * `coarse` - COARSE
+ * * `partial` - PARTIAL
  */
 export type MetricQualityEnumApi = (typeof MetricQualityEnumApi)[keyof typeof MetricQualityEnumApi]
 
@@ -139,10 +144,10 @@ export interface PRLifecycleApi {
     /** Lifecycle events ordered by time. */
     events: PRLifecycleEventApi[]
     /** Always 'partial' — CI events only; reviews and comments are not yet available.
-
-  * `precise` - PRECISE
-  * `coarse` - COARSE
-  * `partial` - PARTIAL */
+     *
+     * * `precise` - PRECISE
+     * * `coarse` - COARSE
+     * * `partial` - PARTIAL */
     metric_quality?: MetricQualityEnumApi
 }
 
@@ -169,10 +174,10 @@ export interface PullRequestListItemApi {
     /** Pull request title. */
     title: string
     /** Derived state: 'open', 'closed', or 'merged'.
-
-  * `open` - OPEN
-  * `closed` - CLOSED
-  * `merged` - MERGED */
+     *
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED */
     state: EngineeringAnalyticsPRStateEnumApi
     /** True if the pull request is a draft. */
     is_draft: boolean
@@ -201,7 +206,22 @@ export interface PullRequestListApi {
     limit: number
 }
 
+export interface WorkflowHealthDayApi {
+    /** UTC calendar day. */
+    day: string
+    /** Runs started that day. */
+    run_count: number
+    /** Runs that completed that day. */
+    completed: number
+    /** Completed runs with conclusion 'success' that day. */
+    successes: number
+}
+
 export interface WorkflowHealthItemApi {
+    /** Repository the workflow runs in. */
+    repo: RepoRefApi
+    /** Daily run history across the whole window, oldest first, zero-filled. */
+    daily: WorkflowHealthDayApi[]
     /** GitHub Actions workflow name. */
     workflow_name: string
     /** Total runs started in the window. */

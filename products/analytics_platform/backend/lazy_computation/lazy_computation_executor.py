@@ -139,6 +139,13 @@ def _get_insert_settings(team_id: int) -> dict:
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
             "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
+            # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
+            # shards by then — not sitting in the initiator's async distribution queue, where they
+            # become visible to readers only minutes later. We set this per-insert rather than
+            # relying on the cluster's global default, which is not guaranteed to be synchronous.
+            # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
+            # for version compatibility.
+            "insert_distributed_sync": 1,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }
     )
@@ -320,6 +327,10 @@ class LazyComputationTable(StrEnum):
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
+    # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
+    WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
+    WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,

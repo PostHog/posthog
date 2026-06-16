@@ -8,12 +8,17 @@ import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../../components/WidgetCard/WidgetCardHeader'
 import {
     mockMoreOverlay,
+    widgetStorybookParameters,
     widgetTileFrameDecorator,
     withErrorTrackingProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
+import { errorTrackingSampleIssues } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
+import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { ErrorTrackingWidget } from './ErrorTrackingWidget'
+import { ErrorTrackingWidgetTileFilters } from './ErrorTrackingWidgetTileFilters'
 
 const ERROR_TRACKING_CATALOG = getDashboardWidgetCatalogEntry('error_tracking_list')!
 const DEFAULT_CONFIG = ERROR_TRACKING_CATALOG.defaultConfig as Record<string, unknown>
@@ -23,6 +28,8 @@ type ErrorTrackingWidgetTileStoryProps = DashboardWidgetComponentProps & {
     description?: string
     showDescription?: boolean
     body?: ReactNode
+    /** When true, tile filter bar matches view-only dashboard access (no edit permissions). */
+    tileFiltersReadOnly?: boolean
 }
 
 function ErrorTrackingWidgetTileStory({
@@ -30,10 +37,12 @@ function ErrorTrackingWidgetTileStory({
     description = 'Track the most common errors affecting your users.',
     showDescription = true,
     body,
+    tileFiltersReadOnly = false,
     ...widgetProps
 }: ErrorTrackingWidgetTileStoryProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(ERROR_TRACKING_CATALOG.groupId)
     const defaultTitle = ERROR_TRACKING_CATALOG.headerTitle ?? ERROR_TRACKING_CATALOG.label
+    const { isAvailable: showTileFilters } = useWidgetAvailability(ERROR_TRACKING_CATALOG.availability)
 
     return (
         <WidgetCard className="h-full">
@@ -51,65 +60,18 @@ function ErrorTrackingWidgetTileStory({
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(DashboardPlacement.Dashboard, false)}
                 moreButtonOverlay={mockMoreOverlay}
             />
+            {showTileFilters ? (
+                <ErrorTrackingWidgetTileFilters
+                    tileId={widgetProps.tileId}
+                    config={widgetProps.config}
+                    onUpdateConfig={tileFiltersReadOnly ? undefined : widgetProps.onUpdateConfig}
+                    disabledReason={tileFiltersReadOnly ? DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON : undefined}
+                />
+            ) : null}
             <WidgetCardBody>{body ?? <ErrorTrackingWidget {...widgetProps} />}</WidgetCardBody>
         </WidgetCard>
     )
 }
-
-const sampleIssues = [
-    {
-        id: 'issue-1',
-        name: 'TypeError: Cannot read properties of undefined',
-        description: 'User profile settings fail to load when the session cache is empty.',
-        function: 'loadProfile',
-        source: 'https://app.example.test/static/js/settings.js',
-        library: 'web',
-        status: 'active',
-        assignee: null,
-        first_seen: '2026-05-01T10:00:00.000Z',
-        last_seen: '2026-05-26T08:00:00.000Z',
-        aggregations: {
-            occurrences: 42,
-            sessions: 18,
-            users: 12,
-            volume_buckets: [
-                { label: '2026-05-20T00:00:00.000Z', value: 2 },
-                { label: '2026-05-21T00:00:00.000Z', value: 4 },
-                { label: '2026-05-22T00:00:00.000Z', value: 8 },
-                { label: '2026-05-23T00:00:00.000Z', value: 12 },
-                { label: '2026-05-24T00:00:00.000Z', value: 6 },
-                { label: '2026-05-25T00:00:00.000Z', value: 5 },
-                { label: '2026-05-26T00:00:00.000Z', value: 5 },
-            ],
-        },
-    },
-    {
-        id: 'issue-2',
-        name: 'NetworkError: Failed to fetch',
-        description: 'Checkout requests fail when the payment API is unavailable.',
-        function: 'fetch',
-        source: 'https://app.example.test/static/js/api.js',
-        library: 'web',
-        status: 'pending_release',
-        assignee: null,
-        first_seen: '2026-05-10T10:00:00.000Z',
-        last_seen: '2026-05-25T12:00:00.000Z',
-        aggregations: {
-            occurrences: 18,
-            sessions: 9,
-            users: 7,
-            volume_buckets: [
-                { label: '2026-05-20T00:00:00.000Z', value: 1 },
-                { label: '2026-05-21T00:00:00.000Z', value: 2 },
-                { label: '2026-05-22T00:00:00.000Z', value: 3 },
-                { label: '2026-05-23T00:00:00.000Z', value: 2 },
-                { label: '2026-05-24T00:00:00.000Z', value: 4 },
-                { label: '2026-05-25T00:00:00.000Z', value: 3 },
-                { label: '2026-05-26T00:00:00.000Z', value: 3 },
-            ],
-        },
-    },
-]
 
 // Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof ErrorTrackingWidgetTileStory> = {
@@ -117,7 +79,7 @@ const meta: Meta<typeof ErrorTrackingWidgetTileStory> = {
     component: ErrorTrackingWidgetTileStory,
     parameters: {
         layout: 'padded',
-        mockDate: '2026-05-26T10:00:00',
+        ...widgetStorybookParameters,
     },
     decorators: [...widgetTileFrameDecorator],
     args: {
@@ -134,14 +96,40 @@ export default meta
 
 type Story = StoryObj<typeof ErrorTrackingWidgetTileStory>
 
-export const Populated: Story = {
+export const TileFiltersReadOnly: Story = {
+    decorators: [withErrorTrackingProjectState(true)],
+    args: {
+        title: 'Top issues',
+        config: {
+            ...DEFAULT_CONFIG,
+            status: 'resolved',
+            dateRange: { date_from: '-30d' },
+        },
+        tileFiltersReadOnly: true,
+        loading: false,
+        result: {
+            results: errorTrackingSampleIssues,
+            hasMore: true,
+            limit: 10,
+        },
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Tile filter bar when the viewer lacks dashboard edit access — filters shown as read-only values.',
+            },
+        },
+    },
+}
+
+export const Default: Story = {
     decorators: [withErrorTrackingProjectState(true)],
     args: {
         title: 'Top issues',
         config: { ...DEFAULT_CONFIG, orderBy: 'occurrences' },
         loading: false,
         result: {
-            results: sampleIssues,
+            results: errorTrackingSampleIssues,
             hasMore: true,
             limit: 10,
         },

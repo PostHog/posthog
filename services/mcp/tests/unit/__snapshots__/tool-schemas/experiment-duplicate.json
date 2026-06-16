@@ -78,13 +78,38 @@
                                 {
                                     "properties": {
                                         "event": {
-                                            "description": "Custom exposure event name.",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."
+                                        },
+                                        "id": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Action ID. Required when kind is 'ActionsNode'."
                                         },
                                         "kind": {
-                                            "const": "ExperimentEventExposureConfig",
-                                            "default": "ExperimentEventExposureConfig",
-                                            "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["ExperimentEventExposureConfig", "ActionsNode"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
                                         },
                                         "properties": {
                                             "description": "Event property filters. Pass an empty array if no filters needed.",
@@ -195,7 +220,7 @@
                                             "type": "array"
                                         }
                                     },
-                                    "required": ["event", "properties"],
+                                    "required": ["properties"],
                                     "type": "object"
                                 },
                                 {
@@ -223,7 +248,7 @@
             "description": "Exposure configuration including filter test accounts and custom exposure events."
         },
         "feature_flag_key": {
-            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible.",
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
             "type": "string"
         },
         "filters": {},
@@ -1878,7 +1903,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the event-definitions-list tool to find available events in the project."
+            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
         },
         "metrics_secondary": {
             "anyOf": [
@@ -3626,9 +3651,108 @@
                     "type": "null"
                 }
             ],
-            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded)."
+            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`."
         },
         "primary_metrics_ordered_uuids": {},
+        "running_time_calculation": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "exposure_estimate_config": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "conversionRateInputType": {
+                                            "description": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                                            "enum": ["manual", "automatic"],
+                                            "type": "string"
+                                        },
+                                        "manualBaselineValue": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode."
+                                        },
+                                        "manualExposureRate": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode."
+                                        },
+                                        "manualMetricType": {
+                                            "anyOf": [
+                                                {
+                                                    "enum": ["funnel", "mean_count", "mean_sum_or_avg"],
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Metric type the manual baseline value refers to. Only used in manual mode."
+                                        }
+                                    },
+                                    "required": ["conversionRateInputType"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data."
+                        },
+                        "minimum_detectable_effect": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes."
+                        },
+                        "recommended_running_time": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Estimated number of days needed to reach the recommended sample size."
+                        },
+                        "recommended_sample_size": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Recommended number of exposed users needed for statistical significance."
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window."
+        },
         "saved_metrics_ids": {
             "anyOf": [
                 {

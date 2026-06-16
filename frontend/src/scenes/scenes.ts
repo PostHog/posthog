@@ -620,6 +620,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Organization Pending Deletion',
         layout: 'plain',
     },
+    [Scene.ProjectPendingDeletion]: {
+        projectBased: true,
+        name: 'Project Pending Deletion',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -929,6 +934,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
+    // Static + edit routes MUST come before `/subscriptions/:subscriptionId`,
+    // otherwise the wildcard captures "new" / "<id>/edit" and mounts the detail
+    // scene → 404 "Subscription not found" with a removeChild reconciliation
+    // error from the racing mounts.
+    [urls.subscriptionNew()]: [Scene.Subscriptions, 'subscriptionNew'],
+    [urls.subscriptionEdit(':subscriptionId')]: [Scene.Subscriptions, 'subscriptionEdit'],
     [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
@@ -945,5 +956,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
+    [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
 }

@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -61,6 +61,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 height?: number
                 css_selector?: string
                 filename?: string
+                skip_inactivity?: boolean
             }
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
         startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
@@ -123,10 +124,34 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.loadExports()
         },
         loadExportsSuccess: async (_, breakpoint) => {
-            // Check if any exports haven't completed
-            const donePolling = exportsLogic.values.exports.every((asset) => asset.has_content || asset.exception)
-            if (!donePolling) {
-                await breakpoint(pickPollDelayMs(exportsLogic.values.exports))
+            // Auto-download (or surface errors for) async exports we kicked off that have now finished.
+            const { exports, freshUndownloadedExports } = exportsLogic.values
+            for (const fresh of freshUndownloadedExports) {
+                // The list can be format-filtered (assetFormat), so fetch directly if the tracked export isn't in it.
+                let latest = exports.find((asset) => asset.id === fresh.id)
+                if (!latest) {
+                    try {
+                        latest = await api.exports.get(fresh.id)
+                    } catch {
+                        continue
+                    }
+                }
+                if (!latest.has_content && !latest.exception) {
+                    continue
+                }
+                actions.removeFresh(fresh)
+                if (latest.has_content) {
+                    await downloadExportedAsset(latest)
+                } else {
+                    lemonToast.error('Export failed: ' + latest.exception)
+                }
+            }
+
+            // Keep polling while the (possibly filtered) list or any tracked async export is still unfinished.
+            const pendingInList = exports.some((asset) => !asset.has_content && !asset.exception)
+            const pendingFresh = exportsLogic.values.freshUndownloadedExports.length > 0
+            if (pendingInList || pendingFresh) {
+                await breakpoint(pickPollDelayMs([...exports, ...exportsLogic.values.freshUndownloadedExports]))
                 actions.loadExports()
                 return
             }
@@ -174,7 +199,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
-                    skip_inactivity: false,
+                    skip_inactivity: options?.skip_inactivity ?? true,
                 },
             }
 
@@ -234,6 +259,9 @@ export const exportsLogic = kea<exportsLogicType>([
                                 await downloadExportedAsset(response)
                             } else if (response && response.exception) {
                                 lemonToast.error('Export failed: ' + response.exception)
+                            } else if (response) {
+                                // Async export (e.g. video render): track it to auto-download once polling sees it finish.
+                                actions.addFresh(response)
                             }
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }

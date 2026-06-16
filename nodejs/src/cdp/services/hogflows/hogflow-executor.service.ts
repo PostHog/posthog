@@ -284,6 +284,15 @@ export class HogFlowExecutorService {
                 )
             }
         }
+        // Event-based conversion goals are evaluated by the subscription matcher (against the live
+        // event stream), which flags the job when the conversion event fires. The property-based
+        // check above can't see those, so honor the flag here. It is a one-shot signal ("the
+        // conversion event just fired"), so consume it: clear it after reading so a later, unrelated
+        // resume (e.g. after a subsequent delay) can't re-trigger an exit from a stale flag.
+        if (invocation.state.conversionMatched) {
+            conversionMatch = true
+            invocation.state.conversionMatched = false
+        }
 
         switch (hogFlow.exit_condition) {
             case 'exit_on_trigger_not_matched':
@@ -637,16 +646,16 @@ export class HogFlowExecutorService {
             ? ` on [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
             : ''
 
-        // When the subscription matcher woke this job, surface the wake event rather
-        // than only echoing the trigger event - they are usually different. Use the same
-        // [Event:uuid|name] token as the trigger line so the logs view can link to the
-        // exact event; fall back to the bare name for jobs parked before the uuid was stored.
+        // Surface the event that woke the job (not the trigger). The logs view builds the link
+        // from uuid + timestamp, so emit the linkable token only when both are present.
         const wakeEvent = invocation.state.currentAction?.eventMatchedEvent
         const wakeEventUuid = invocation.state.currentAction?.eventMatchedEventUuid
+        const wakeEventTimestamp = invocation.state.currentAction?.eventMatchedEventTimestamp
         if (hasCurrentAction && invocation.state.currentAction?.eventMatched && wakeEvent) {
-            triggeredByEvent += wakeEventUuid
-                ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}])`
-                : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
+            triggeredByEvent +=
+                wakeEventUuid && wakeEventTimestamp
+                    ? ` (woken by [Event:${wakeEventUuid}|${wakeEvent.replaceAll('|', '')}|${wakeEventTimestamp}])`
+                    : ` (woken by event: ${wakeEvent.replaceAll('|', '')})`
         }
 
         return {

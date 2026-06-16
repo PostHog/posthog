@@ -14,6 +14,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
@@ -45,10 +47,13 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
-# fresh; older buckets get longer TTLs so we don't keep recomputing them.
+# Hourly UTC bucketing TTL schedule. Today gets 2h: recomputing it more often
+# buys nothing, since the ~6h HogQL result cache already fronts these queries (a
+# cache hit never reads the precompute), and a tighter TTL just makes the warmer
+# re-scan the whole current day every tick — which is what kept a full warm pass
+# from finishing inside the hourly window. Older buckets get longer TTLs.
 LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
+    "0d": 2 * 60 * 60,
     "1d": 60 * 60,
     "7d": 24 * 60 * 60,
     "default": 7 * 24 * 60 * 60,
@@ -159,6 +164,21 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
     )
 
 
+def is_precompute_enabled_for_team(team: Team) -> bool:
+    """Whether a team should take the lazy precompute path.
+
+    Short-circuits on the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+    setting before evaluating the org rollout flag. The list is the shared
+    source of truth with the eager warmer, and — unlike the flag — does not rely
+    on local flag-definition evaluation, which isn't reliably available outside
+    the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
+    returned falsy and silently dropped the warmer onto the raw path).
+    """
+    if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
+        return True
+    return is_org_feature_flag_enabled(team)
+
+
 def check_common_eligibility(
     *,
     team: Team,
@@ -179,7 +199,7 @@ def check_common_eligibility(
     (org flag off, etc.) without touching `QueryDateRange.date_from()` —
     which can trigger a ClickHouse min-timestamp lookup for `-all` ranges.
     """
-    if not is_org_feature_flag_enabled(team):
+    if not is_precompute_enabled_for_team(team):
         raise OrgFeatureFlagDisabled()
 
     if use_web_analytics_precompute is not True:

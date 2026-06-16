@@ -71,7 +71,7 @@ class TestReportSlackMentionReceived:
     )
     @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
-    @patch("products.slack_app.backend.api._resolve_posthog_user_from_event")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     def test_capture_properties(
         self,
         _name,
@@ -113,7 +113,7 @@ class TestReportSlackMentionReceived:
         assert ("$set" in props) is exp_identified
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
-    @patch("products.slack_app.backend.api._resolve_posthog_user_from_event")
+    @patch("products.slack_app.backend.api.resolve_posthog_user_from_event")
     def test_capture_failure_is_swallowed(self, mock_resolve, mock_capture):
         mock_resolve.side_effect = Exception("boom")
         event = {"channel": "C001", "ts": "1700.0001", "user": "U123"}

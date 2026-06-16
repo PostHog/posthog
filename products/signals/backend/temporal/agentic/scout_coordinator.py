@@ -21,10 +21,9 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.temporal.agentic.scout_scheduler import RunSignalsScoutInput, RunSignalsScoutWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -43,7 +42,16 @@ DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
 # we run the most-overdue first and the rest catch up next tick (a poor-man's queue).
-MAX_RUNS_PER_TICK = 50
+# Set generously for now while scouts roll out to more teams — the per-team tick cap and
+# round-robin allocation do the day-to-day fairness work; this is the global ceiling.
+MAX_RUNS_PER_TICK = 1000
+
+# Per-team slice of the tick budget. Bounds what one team can consume per tick (and thus
+# per day: cap × ticks/day), so a team registering many scouts degrades its own cadence,
+# not everyone else's. Sized well above the canonical fleet (~16 scouts) so a fully-enrolled
+# team is never trimmed; round-robin allocation still keeps any one team from starving the
+# others even when this is close to the global cap.
+MAX_RUNS_PER_TEAM_PER_TICK = 50
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
@@ -172,7 +180,7 @@ def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
                 "signals_scout coordinator: canonical skill sync failed for team; continuing",
                 team_id=team.id,
             )
-        live_skills = _register_missing_configs(team)
+        live_skills = register_missing_configs(team.id)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
         # load_skill_for_run on every tick.
@@ -185,21 +193,60 @@ def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
     if not due:
         return []
 
-    # Cost bound: when more scouts are due than the cap, run the most-overdue first and let
-    # the rest catch up next tick. Deterministic — no sampling.
-    due.sort(key=lambda d: d.overdue_s, reverse=True)
-    if len(due) > MAX_RUNS_PER_TICK:
-        logger.warning(
-            "signals_scout coordinator: more due than cap, deferring overflow",
-            due=len(due),
-            cap=MAX_RUNS_PER_TICK,
-        )
-        due = due[:MAX_RUNS_PER_TICK]
-
-    planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in due]
+    selected = _allocate_tick_budget(due)
+    planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
     return planned
+
+
+def _allocate_tick_budget(due: list[_DueRun]) -> list[_DueRun]:
+    """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
+
+    Each team's due runs are ordered most-overdue-first and trimmed to
+    `MAX_RUNS_PER_TEAM_PER_TICK`; the global `MAX_RUNS_PER_TICK` budget is then filled
+    round-robin across teams (one run per team per round) so a single team with many due
+    scouts can't monopolize the tick. Deferred runs stay unstamped, so they're the most
+    overdue next tick — a poor-man's queue, same catch-up semantics as before.
+    """
+    by_team: dict[int, list[_DueRun]] = {}
+    for d in due:
+        by_team.setdefault(d.team_id, []).append(d)
+    for team_id, runs in by_team.items():
+        runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
+        if len(runs) > MAX_RUNS_PER_TEAM_PER_TICK:
+            logger.warning(
+                "signals_scout coordinator: team over per-tick cap, deferring overflow",
+                team_id=team_id,
+                due=len(runs),
+                cap=MAX_RUNS_PER_TEAM_PER_TICK,
+            )
+            del runs[MAX_RUNS_PER_TEAM_PER_TICK:]
+
+    # Count after per-team trimming — that's the real candidate pool the global cap defers
+    # against, so the warning doesn't fire on runs already dropped by the per-team caps.
+    total_after_team_caps = sum(len(runs) for runs in by_team.values())
+    if total_after_team_caps > MAX_RUNS_PER_TICK:
+        logger.warning(
+            "signals_scout coordinator: more due than cap, deferring overflow",
+            due=total_after_team_caps,
+            cap=MAX_RUNS_PER_TICK,
+        )
+
+    # Most-overdue team first, team id as the deterministic tiebreak.
+    team_order = sorted(by_team, key=lambda t: (-by_team[t][0].overdue_s, t))
+    selected: list[_DueRun] = []
+    for round_idx in range(MAX_RUNS_PER_TEAM_PER_TICK):
+        if len(selected) >= MAX_RUNS_PER_TICK:
+            break
+        for team_id in team_order:
+            runs = by_team[team_id]
+            if round_idx >= len(runs):
+                continue
+            selected.append(runs[round_idx])
+            if len(selected) >= MAX_RUNS_PER_TICK:
+                break
+    return selected
 
 
 def _participating_teams(enrolled: set[int]) -> list[Team]:
@@ -261,27 +308,6 @@ def _enrolled_team_ids() -> set[int]:
     except Exception as error:
         capture_exception(error)
         return set(fallback)
-
-
-def _register_missing_configs(team: Team) -> set[str]:
-    """Auto-create an enabled, default-schedule config for each scout skill lacking a row.
-
-    The "author a skill, get a scout" path: a user-authored `signals-scout-foo` skill gets
-    a row on the next tick with no further wiring. Returns the set of live `signals-scout-*`
-    skill names for the team, so the caller can skip dispatching configs whose skill is gone.
-    """
-    skill_names = set(
-        LLMSkill.objects.filter(
-            team_id=team.id,
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        ).values_list("name", flat=True)
-    )
-    existing = set(SignalScoutConfig.all_teams.filter(team_id=team.id).values_list("skill_name", flat=True))
-    for name in sorted(skill_names - existing):
-        SignalScoutConfig.all_teams.get_or_create(team_id=team.id, skill_name=name)
-    return skill_names
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime) -> float | None:

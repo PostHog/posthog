@@ -43,6 +43,7 @@ from products.experiments.backend.llm_metric_templates import build_template, li
 # TODO: Route through facade instead of direct import
 from products.experiments.backend.models.experiment import (
     Experiment,
+    ExperimentMetricsRecalculation,
     ExperimentTimeseriesRecalculation,
     experiment_has_legacy_metrics,
 )
@@ -50,8 +51,20 @@ from products.experiments.backend.presentation.serializers import (
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
+    ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    RecalculateMetricsRequestSerializer,
     ShipVariantSerializer,
+)
+from products.experiments.backend.recalculation import (
+    build_job_payload,
+    get_latest_recalculation,
+    get_recalculation_by_id,
+    get_run_results,
+    request_recalculation,
+)
+from products.experiments.backend.temporal.models import (
+    ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
 )
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -181,6 +194,16 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
                 description=(
                     "Filter to experiments created from an LLM prompt with this name. "
                     "Matches experiments whose parameters.prompt_metadata.name equals the given value."
+                ),
+                required=False,
+            ),
+            OpenApiParameter(
+                name="event",
+                location=OpenApiParameter.QUERY,
+                type=str,
+                description=(
+                    "Filter to experiments whose metrics reference this event name. Matches events used "
+                    "directly in metric queries as well as events behind any actions those metrics reference."
                 ),
                 required=False,
             ),
@@ -588,6 +611,7 @@ class EnterpriseExperimentsViewSet(
     )
     @action(methods=["POST"], detail=True, url_path="copy_to_project", required_scopes=["experiment:write"])
     def copy_to_project(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy an experiment into another project in the same organization as a new draft."""
         source_experiment: Experiment = self.get_object()
 
         if experiment_has_legacy_metrics(source_experiment):
@@ -776,7 +800,9 @@ class EnterpriseExperimentsViewSet(
                     )
                 )
             except Exception:
-                ExperimentTimeseriesRecalculation.objects.filter(id=recalculation_id).update(
+                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
+                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+                ExperimentTimeseriesRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
                     status=ExperimentTimeseriesRecalculation.Status.FAILED
                 )
                 raise
@@ -784,7 +810,109 @@ class EnterpriseExperimentsViewSet(
         status_code = 200 if is_existing else 201
         return Response(result, status=status_code)
 
+    @extend_schema(
+        request=RecalculateMetricsRequestSerializer,
+        responses={
+            200: ExperimentMetricsRecalculationSerializer,
+            201: ExperimentMetricsRecalculationSerializer,
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="metrics_recalculation",
+        required_scopes=["experiment:write"],
+    )
+    def metrics_recalculation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Trigger a batch recalculation of all metrics for this experiment.
+
+        Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+        already pending or in progress for this experiment. The response payload intentionally does not
+        include the `results` array — at POST time the workflow has just been queued and no per-metric
+        results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+        progresses.
+        """
+        experiment: Experiment = self.get_object()
+        request_serializer = RecalculateMetricsRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        trigger = request_serializer.validated_data["trigger"]
+
+        # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
+        result = request_recalculation(experiment, cast(User, request.user), trigger)
+        # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
+        # the idempotent-reuse path without inspecting the HTTP status code.
+        is_existing = result.get("is_existing", False)
+
+        if not is_existing:
+            recalculation_id = str(result["id"])
+            try:
+                temporal = sync_connect()
+                asyncio.run(
+                    temporal.start_workflow(
+                        "experiment-metrics-recalculation-workflow",
+                        MetricsRecalcInputs(recalculation_id=recalculation_id),
+                        id=f"experiment-metrics-recalculation-{recalculation_id}",
+                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    )
+                )
+            except Exception:
+                # team-scoped filter: defense in depth so the rollback can never reach across teams even if
+                # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
+                ExperimentMetricsRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
+                    status=ExperimentMetricsRecalculation.Status.FAILED
+                )
+                raise
+
+        return Response(
+            ExperimentMetricsRecalculationSerializer(result).data,
+            status=200 if is_existing else 201,
+        )
+
+    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @action(
+        methods=["GET"],
+        detail=True,
+        # NOTE: this action is declared BEFORE the by-id action so its URL pattern wins on /latest/.
+        url_path="metrics_recalculation/latest",
+        required_scopes=["experiment:read"],
+    )
+    def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+        recalc = get_latest_recalculation(experiment)
+        if recalc is None:
+            return Response({"detail": "No completed recalculation found"}, status=404)
+        return Response(_serialize_recalculation(recalc))
+
+    @extend_schema(responses={200: ExperimentMetricsRecalculationSerializer, 404: None})
+    @action(
+        methods=["GET"],
+        detail=True,
+        # Strict UUID regex so 'latest' (the sibling action above) never matches this route.
+        url_path=r"metrics_recalculation/(?P<recalculation_id>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+        required_scopes=["experiment:read"],
+    )
+    def metrics_recalculation_detail(
+        self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
+    ) -> Response:
+        experiment: Experiment = self.get_object()
+        recalc = get_recalculation_by_id(experiment, recalculation_id)
+        if recalc is None:
+            return Response({"detail": "Recalculation not found"}, status=404)
+        return Response(_serialize_recalculation(recalc))
+
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
         service = ExperimentService(team=self.team, user=request.user)
         return Response(service.get_velocity_stats())
+
+
+def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
+    """Shape an ExperimentMetricsRecalculation row + its per-run results for the GET responses.
+
+    Computes the per-run results once and threads them into both the derived counters and the response
+    `results` field — recomputing per-metric fingerprints once per request is enough.
+    """
+    results = get_run_results(recalc)
+    payload = build_job_payload(recalc, results=results)
+    payload["results"] = results
+    return ExperimentMetricsRecalculationSerializer(payload).data

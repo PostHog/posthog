@@ -14,7 +14,6 @@ import { LLM_TRACES_PAGE_SIZE } from '../utils'
 import type { aiObservabilityTracesTabLogicType } from './aiObservabilityTracesTabLogicType'
 
 export interface AIObservabilityTracesTabLogicProps {
-    tabId?: string
     personId?: string
     group?: {
         groupKey: string
@@ -24,15 +23,11 @@ export interface AIObservabilityTracesTabLogicProps {
 
 export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityTracesTabLogic']),
-    key((props: AIObservabilityTracesTabLogicProps) =>
-        props?.tabId
-            ? `${props.tabId}::${props?.personId || 'aiObservabilityScene'}`
-            : props?.personId || 'aiObservabilityScene'
-    ),
+    key((props: AIObservabilityTracesTabLogicProps) => props?.personId || 'aiObservabilityScene'),
     props({} as AIObservabilityTracesTabLogicProps),
     connect((props: AIObservabilityTracesTabLogicProps) => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId, personId: props.personId, group: props.group }),
+            aiObservabilitySharedLogic({ personId: props.personId, group: props.group }),
             ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
@@ -147,7 +142,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                     showReload: true,
                     showSearch: true,
                     showTestAccountFilters: true,
-                    showExport: true,
+                    showExport: false,
                     showOpenEditorButton: false,
                     showColumnConfigurator: false,
                     showPropertyFilter: [

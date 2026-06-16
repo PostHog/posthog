@@ -354,9 +354,9 @@ export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
 
 /**
  * Retry a batch export run.
-
-We use the same underlying mechanism as when backfilling a batch export, as retrying
-a run is the same as backfilling one run.
+ *
+ * We use the same underlying mechanism as when backfilling a batch export, as retrying
+ * a run is the same as backfilling one run.
  */
 export const batchExportsRunsRetryCreateBodyRecordsCompletedMin = -2147483648
 export const batchExportsRunsRetryCreateBodyRecordsCompletedMax = 2147483647
@@ -1761,38 +1761,3 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
         data_interval_end: zod.iso.datetime({ offset: true }),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
-
-/**
- * Create a new managed migration/batch import.
- */
-export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
-
-/**
- * Viewset for BatchImport model
- */
-export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
-
-/**
- * Viewset for BatchImport model
- */
-export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
-
-/**
- * Pause a running batch import.
- */
-export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
-
-/**
- * Resume a paused batch import.
- */
-export const ManagedMigrationsResumeCreateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
