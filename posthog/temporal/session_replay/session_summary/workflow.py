@@ -173,6 +173,8 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
+        # Success path writes the summary to Postgres; no sentinel to return.
+        return None
 
 
 def _validate_period(
