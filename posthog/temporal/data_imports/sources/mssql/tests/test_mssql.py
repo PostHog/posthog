@@ -482,3 +482,19 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_connection_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql MSSQLDatabaseException for SQL Server error 229 on a table.
+            "SQL Server message 229, severity 14, state 5, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the object 'ExistenciasProductoMagiQ', "
+            "database 'VirtualMedios', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            # Different object/database names must still match the stable substring.
+            "The SELECT permission was denied on the object 'zzz_segtieint', database 'VirtualMedios', schema 'dbo'.",
+        ],
+    )
+    def test_permission_denied_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
