@@ -701,6 +701,11 @@ export interface FeatureFlagCreateRequestSchemaApi {
      * @nullable
      */
     is_remote_configuration?: boolean | null
+    /**
+     * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -721,6 +726,11 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * @nullable
      */
     is_remote_configuration?: boolean | null
+    /**
+     * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
 }
 
 export interface ChangeApi {
@@ -1402,7 +1412,7 @@ export type FeatureFlagsListEvaluationRuntime =
     (typeof FeatureFlagsListEvaluationRuntime)[keyof typeof FeatureFlagsListEvaluationRuntime]
 
 export const FeatureFlagsListEvaluationRuntime = {
-    Both: 'both',
+    All: 'all',
     Client: 'client',
     Server: 'server',
 } as const

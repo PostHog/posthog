@@ -28,7 +28,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
+from posthog.temporal.data_imports.sources.hubspot.auth import HubspotRetryableError, hubspot_refresh_access_token
 from posthog.temporal.data_imports.sources.hubspot.helpers import BASE_URL, _get_headers, _get_property_names
 from posthog.temporal.data_imports.sources.hubspot.settings import (
     ASSOCIATIONS_BATCH_SIZE,
@@ -46,10 +46,6 @@ PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the Hub
 # concern (POST body), but each extra property multiplies backfill work and response payload size.
 SEARCH_PROPERTIES_LIMIT = 250
 WINDOW_SIZE_MS = SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000
-
-
-class HubspotRetryableError(Exception):
-    pass
 
 
 class HubspotPathologicalWindowError(Exception):

@@ -873,3 +873,24 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["US", "EU", "asia-northeast1"],
+)
+def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
+    """A deleted/renamed dataset (or one in a region we don't query) surfaces from schema
+    discovery as a google-api-core NotFound. Its str() is "404 Not found: Dataset ... was
+    not found in location <X>", which must be recognised as non-retryable via the
+    "was not found in location" pattern instead of retrying forever."""
+    error = NotFound(
+        f"Not found: Dataset my-proj:my_dataset was not found in location {location}; "
+        f"reason: notFound, message: Not found: Dataset my-proj:my_dataset was not found in location {location}"
+    )
+
+    # Mirror the substring match in `sync_new_schemas_activity` / `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+
+    assert any(pattern in error_msg for pattern in non_retryable_errors)
