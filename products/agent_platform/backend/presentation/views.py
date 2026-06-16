@@ -62,7 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.organization import OrganizationMembership
@@ -1482,11 +1482,21 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         # When the spec sets `allow_agent_approver: False`, only a human acting
-        # interactively may decide. Allowlist SessionAuthentication rather than
-        # blocking PersonalAPIKey alone — that left OAuth bearers with the
-        # `agents:write` scope as a bypass path.
-        if existing.get("approver_scope", {}).get("allow_agent_approver") is False and not isinstance(
-            request.successful_authenticator, SessionAuthentication
+        # interactively may decide. Accept either SessionAuthentication, or an
+        # OAuth bearer carrying the dedicated `agent_approvals:write` scope —
+        # the scope is intentionally separate from `agents:write` so a generic
+        # agent token cannot decide its own approval, and is hidden from the
+        # personal-API-key flow so only OAuth clients (e.g. PostHog Code) that
+        # put a human in the loop at decide time can request it via consent.
+        authenticator = request.successful_authenticator
+        is_session = isinstance(authenticator, SessionAuthentication)
+        is_oauth_with_decide_scope = isinstance(authenticator, OAuthAccessTokenAuthentication) and (
+            "agent_approvals:write" in (getattr(authenticator.access_token, "scope", "") or "").split()
+        )
+        if (
+            existing.get("approver_scope", {}).get("allow_agent_approver") is False
+            and not is_session
+            and not is_oauth_with_decide_scope
         ):
             raise NotFound("Approval not found")
         try:

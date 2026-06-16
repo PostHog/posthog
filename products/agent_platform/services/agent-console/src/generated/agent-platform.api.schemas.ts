@@ -471,6 +471,18 @@ export type AgentRevisionApiSpecSkillsItem = {
     version?: number
 }
 
+export type AgentRevisionApiSpecSecretsItem =
+    | string
+    | {
+          /** @minLength 1 */
+          name: string
+          /**
+           * @minItems 1
+           * @items.minLength 1
+           */
+          allowed_hosts: string[]
+      }
+
 export type AgentRevisionApiSpecLimits = {
     /**
      * @maximum 2147483647
@@ -530,7 +542,7 @@ export type AgentRevisionApiSpec = {
     mcps: AgentRevisionApiSpecMcpsItem[]
     skills: AgentRevisionApiSpecSkillsItem[]
     integrations: string[]
-    secrets: string[]
+    secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
@@ -815,6 +827,18 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     version?: number
 }
 
+export type PatchedAgentRevisionApiSpecSecretsItem =
+    | string
+    | {
+          /** @minLength 1 */
+          name: string
+          /**
+           * @minItems 1
+           * @items.minLength 1
+           */
+          allowed_hosts: string[]
+      }
+
 export type PatchedAgentRevisionApiSpecLimits = {
     /**
      * @maximum 2147483647
@@ -896,7 +920,7 @@ export type PatchedAgentRevisionApiSpec = {
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
     skills: PatchedAgentRevisionApiSpecSkillsItem[]
     integrations: string[]
-    secrets: string[]
+    secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning

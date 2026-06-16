@@ -14,12 +14,17 @@ tests guard the Django-side concerns that don't go through the harness:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -185,3 +190,103 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             mock_janitor.return_value.decide_approval.assert_called_once()
         else:
             mock_janitor.return_value.decide_approval.assert_not_called()
+
+    def _make_oauth_token(self, *, scope: str, token: str) -> OAuthAccessToken:
+        oauth_application = OAuthApplication.objects.create(
+            name=f"App {token}",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+        )
+        return OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_application,
+            token=token,
+            expires=timezone.now() + timedelta(hours=1),
+            scope=scope,
+        )
+
+    # The dedicated `agent_approvals:write` scope is the only OAuth path past
+    # the `allow_agent_approver: False` gate. A token carrying only the broad
+    # `agents:write` scope is intentionally insufficient — the gate exists
+    # precisely to stop an agent token from approving its own paused tool
+    # call. Wildcard `*` is treated the same as `agents:write` here: it
+    # satisfies the viewset's scope check but does not grant decide rights.
+    @parameterized.expand(
+        [
+            ("with_decide_scope", "agents:write agent_approvals:write", status.HTTP_200_OK, True),
+            ("without_decide_scope", "agents:write", status.HTTP_404_NOT_FOUND, False),
+            ("wildcard_does_not_grant_decide", "*", status.HTTP_404_NOT_FOUND, False),
+        ]
+    )
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_oauth_bearer_can_decide_human_only_approval_with_dedicated_scope(
+        self,
+        label: str,
+        scope: str,
+        expected_status: int,
+        decide_called: bool,
+        mock_janitor,
+    ) -> None:
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        mock_janitor.return_value.get_approval.return_value = {
+            "id": self.approval_id,
+            "application_id": str(self.application.id),
+            "approver_scope": {"allow_agent_approver": False},
+        }
+        mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
+        access_token = self._make_oauth_token(scope=scope, token=f"pha_test_{label}")
+        resp = self.client.post(
+            self.url_decide,
+            {"decision": "approve"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access_token.token}",
+        )
+        self.assertEqual(resp.status_code, expected_status)
+        if decide_called:
+            mock_janitor.return_value.decide_approval.assert_called_once()
+        else:
+            mock_janitor.return_value.decide_approval.assert_not_called()
+
+    # When the spec's approver_scope allows an agent approver, the auth-class
+    # / scope gate doesn't apply: any team-admin authenticator (including a
+    # plain `agents:write` OAuth bearer) can decide.
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_oauth_bearer_agents_write_can_decide_when_agent_approver_allowed(self, mock_janitor) -> None:
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        mock_janitor.return_value.get_approval.return_value = {
+            "id": self.approval_id,
+            "application_id": str(self.application.id),
+            "approver_scope": {"allow_agent_approver": True},
+        }
+        mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
+        access_token = self._make_oauth_token(scope="agents:write", token="pha_test_agent_approver_allowed")
+        resp = self.client.post(
+            self.url_decide,
+            {"decision": "approve"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access_token.token}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        mock_janitor.return_value.decide_approval.assert_called_once()
+
+    # `agent_approvals:write` does NOT satisfy the viewset-level
+    # `scope_object = "agents"` check on its own — the token must also carry
+    # `agents:write` (or `*`) to even reach the per-action gate. Without it
+    # the request fails permission-check before the auth-class gate runs.
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_oauth_bearer_decide_scope_alone_is_insufficient(self, mock_janitor) -> None:
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        access_token = self._make_oauth_token(scope="agent_approvals:write", token="pha_test_decide_only")
+        resp = self.client.post(
+            self.url_decide,
+            {"decision": "approve"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {access_token.token}",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        mock_janitor.return_value.decide_approval.assert_not_called()
