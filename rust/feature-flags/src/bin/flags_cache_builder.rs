@@ -16,6 +16,7 @@
 //! The lazy request-path fill stays as the final safety net: a stuck consumer
 //! degrades latency, not correctness.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -311,6 +312,13 @@ async fn consume_loop(
         metrics::histogram!(COALESCED_TEAMS).record(by_team.len() as f64);
 
         let mut interrupted = false;
+        // Collect every processed offset and store the per-partition max once, at
+        // the end of the batch. `by_team` is a HashMap, so we build teams in
+        // arbitrary order; storing each team's offsets as we go could check-point a
+        // partition *backwards* (one partition carries many teams' interleaved
+        // messages), needlessly reprocessing on the next restart. See
+        // `store_max_offsets_per_partition`.
+        let mut batch_offsets: Vec<Offset> = Vec::new();
         for (team_id, team_batch) in by_team {
             // Stop between teams once shutdown is signalled: a large batch (up to
             // max_batch unique teams, each with retry backoff) could otherwise
@@ -322,7 +330,7 @@ async fn consume_loop(
             // Also tick per team: a large batch of unique teams (with retry
             // backoff) could otherwise outlast the liveness deadline mid-batch.
             health.report_healthy();
-            process_team(
+            let offsets = process_team(
                 &pg_reader,
                 &writer,
                 &dlq_producer,
@@ -331,22 +339,25 @@ async fn consume_loop(
                 team_batch,
             )
             .await;
+            batch_offsets.extend(offsets);
         }
 
         if interrupted {
-            // Don't commit a partially processed batch. Kafka commits a single
-            // per-partition high-water mark, and one partition holds many teams'
-            // messages interleaved (each team is keyed to a partition, but a
-            // partition carries many teams). Committing now would advance the
-            // commit point past the offsets of teams we haven't built yet —
-            // including any with a *lower* offset than a team we did build —
-            // dropping their invalidations for good: the cache keeps serving the
-            // stale entry, and the lazy request-path fill only rebuilds on a miss.
-            // Leave the whole batch uncommitted so it re-delivers on restart;
-            // builds are idempotent, so reprocessing the finished teams is cheap.
+            // Don't store or commit a partially processed batch. Kafka commits a
+            // single per-partition high-water mark, and one partition holds many
+            // teams' messages interleaved (each team is keyed to a partition, but a
+            // partition carries many teams). Advancing the commit point now would
+            // move it past the offsets of teams we haven't built yet — including
+            // any with a *lower* offset than a team we did build — dropping their
+            // invalidations for good: the cache keeps serving the stale entry, and
+            // the lazy request-path fill only rebuilds on a miss. Leaving
+            // `batch_offsets` unstored means the whole batch re-delivers on
+            // restart; builds are idempotent, so reprocessing finished teams is
+            // cheap.
             break;
         }
 
+        store_max_offsets_per_partition(batch_offsets);
         commit_offsets(&consumer);
     }
 
@@ -399,9 +410,10 @@ fn coalesce_batch(
     (by_team, had_kafka_error)
 }
 
-/// Build one team's cache, routing to the DLQ on terminal failure. Offsets are
-/// stored either way — a poison message must not wedge the partition forever;
-/// the DLQ is the durable record for triage.
+/// Build one team's cache, routing to the DLQ on terminal failure, and return the
+/// team's offsets for the caller to store. Offsets are returned (and later stored)
+/// regardless of build/DLQ outcome — a poison message must not wedge the partition
+/// forever; the DLQ is the durable record for triage.
 async fn process_team(
     pg_reader: &PostgresReader,
     writer: &HyperCacheWriter,
@@ -409,7 +421,7 @@ async fn process_team(
     cfg: &BuilderConfig,
     team_id: TeamId,
     team_batch: TeamBatch,
-) {
+) -> Vec<Offset> {
     match build_with_retry(pg_reader, writer, team_id, cfg).await {
         Ok(()) => {
             metrics::counter!(BUILDS_TOTAL, "result" => "ok").increment(1);
@@ -429,7 +441,7 @@ async fn process_team(
         }
     }
 
-    // Store offsets regardless of build/DLQ outcome. Kafka commits a single
+    // Return offsets regardless of build/DLQ outcome. Kafka commits a single
     // per-partition high-water mark, not a set, so we can't selectively skip one
     // failed message's offset while committing later ones from the same partition
     // — the later commit subsumes it. A DLQ-produce failure (rare; same cluster
@@ -437,7 +449,7 @@ async fn process_team(
     // the lazy request-path fill rebuilds on the next /flags request. That failure
     // is surfaced loudly via the error log above and the DLQ_PRODUCED{result=error}
     // counter — alert on it rather than wedging the partition.
-    store_offsets(team_batch.offsets);
+    team_batch.offsets
 }
 
 async fn build_with_retry(
@@ -546,12 +558,51 @@ async fn dlq_produce(
     }
 }
 
-fn store_offsets(offsets: Vec<Offset>) {
-    for offset in offsets {
+/// Store the highest offset per partition and drop the rest. A committed offset N
+/// implies every offset ≤ N on that partition is committed, so keeping only the max
+/// is sufficient — and necessary: teams are processed in arbitrary `HashMap` order,
+/// and rdkafka's `store_offset` overwrites the stored offset for a `(topic,
+/// partition)` rather than keeping the max, so storing each offset blindly could
+/// regress a partition's commit point. That only ever causes idempotent
+/// reprocessing on the next restart (never dropped invalidations), but keeping the
+/// commit point monotonic avoids it. Max-per-partition is safe because
+/// `json_recv_batch` stops at the first receive error, so a batch is a contiguous
+/// run of messages per partition with no gaps below the max.
+///
+/// This makes the *built teams'* offsets monotonic among themselves. Poison pills
+/// auto-store their (possibly higher) offset inside `json_recv` and aren't visible
+/// here, so absolute monotonicity across all messages isn't guaranteed — that
+/// residual is pre-existing and benign (idempotent re-skip on replay).
+fn store_max_offsets_per_partition(offsets: Vec<Offset>) {
+    for offset in max_per_partition(offsets, Offset::partition, Offset::get_value) {
         if let Err(e) = offset.store() {
             tracing::warn!(error = %e, "Failed to store offset");
         }
     }
+}
+
+/// Reduce `items` to the single highest-`value` item per `partition`, dropping the
+/// rest. Input order is irrelevant — the result holds one item per distinct
+/// partition, each the max by `value`. Extracted from `store_max_offsets_per_partition`
+/// so the selection logic is testable without constructing `Offset` values.
+fn max_per_partition<T>(
+    items: Vec<T>,
+    partition: impl Fn(&T) -> i32,
+    value: impl Fn(&T) -> i64,
+) -> Vec<T> {
+    let mut highest: HashMap<i32, T> = HashMap::new();
+    for item in items {
+        match highest.entry(partition(&item)) {
+            Entry::Occupied(mut e) if value(&item) > value(e.get()) => {
+                e.insert(item);
+            }
+            Entry::Occupied(_) => {}
+            Entry::Vacant(e) => {
+                e.insert(item);
+            }
+        }
+    }
+    highest.into_values().collect()
 }
 
 fn commit_offsets(consumer: &SingleTopicConsumer) {
@@ -619,4 +670,48 @@ fn spawn_metrics_server(
             .await
             .expect("Metrics server error");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::max_per_partition;
+
+    // (partition, offset) pairs; keyed and valued by the two fields.
+    fn reduce(items: Vec<(i32, i64)>) -> Vec<(i32, i64)> {
+        let mut out = max_per_partition(items, |&(p, _)| p, |&(_, o)| o);
+        out.sort_unstable();
+        out
+    }
+
+    #[test]
+    fn keeps_highest_offset_per_partition() {
+        // Interleaved, out-of-order input across two partitions.
+        let got = reduce(vec![(0, 5), (1, 2), (0, 3), (1, 10), (0, 8)]);
+        assert_eq!(got, vec![(0, 8), (1, 10)]);
+    }
+
+    #[test]
+    fn ascending_input_keeps_last() {
+        let got = reduce(vec![(0, 1), (0, 2), (0, 3)]);
+        assert_eq!(got, vec![(0, 3)]);
+    }
+
+    #[test]
+    fn descending_input_keeps_first() {
+        // The max must win regardless of arrival order — a later lower offset
+        // must not regress the partition's checkpoint.
+        let got = reduce(vec![(0, 3), (0, 2), (0, 1)]);
+        assert_eq!(got, vec![(0, 3)]);
+    }
+
+    #[test]
+    fn empty_input_yields_empty() {
+        assert!(reduce(vec![]).is_empty());
+    }
+
+    #[test]
+    fn single_offset_per_partition_passes_through() {
+        let got = reduce(vec![(0, 7), (1, 4), (2, 9)]);
+        assert_eq!(got, vec![(0, 7), (1, 4), (2, 9)]);
+    }
 }
