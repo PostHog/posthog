@@ -37,9 +37,7 @@ function SubscribeIcon({ insightShortId }: { insightShortId: InsightShortId }): 
 /**
  * Promotes "Subscribe" from the buried side-panel action to a visible header button.
  */
-export function InsightSubscribeProminentButton({
-    insightShortId,
-}: InsightSubscribeProminentButtonProps): JSX.Element {
+export function InsightSubscribeProminentButton({ insightShortId }: InsightSubscribeProminentButtonProps): JSX.Element {
     const { push } = useActions(router)
 
     return (
