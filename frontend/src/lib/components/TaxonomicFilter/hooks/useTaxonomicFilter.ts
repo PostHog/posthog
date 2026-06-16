@@ -21,7 +21,7 @@
  *     and `taxonomicFilterPinnedPropertiesLogic`; the orchestrator only reads
  *     them via the bridge, doesn't write)
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import {
     hasRecentContext,
@@ -42,6 +42,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
+import { isContainsShortcutItem } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -167,8 +168,13 @@ function indexAfterLastMetaGroup(filtered: TaxonomicFilterGroupType[]): number {
  *    1. Dropping types that aren't available in the current `groups`
  *    2. Resolving mutually-exclusive shortcut pairs (e.g. PageviewUrls vs
  *       PageviewEvents — keep the first, drop the second)
- *    3. Auto-injecting Recent/Pinned meta tabs when available.
- *    4. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
+ *    3. Auto-injecting the SuggestedFilters ("All") tab when there's more than
+ *       one substantive group — the rebuilt menu always leads with it (unlike
+ *       the legacy selector, this is unconditional: the rebuild has no
+ *       per-variant arm to protect; see the pill-gated block in
+ *       taxonomicFilterLogic.tsx for the legacy counterpart).
+ *    4. Auto-injecting Recent/Pinned meta tabs when available.
+ *    5. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
  *       / Elements when `$autocapture` is in `eventNames`) to right after
  *       the meta block.
  */
@@ -202,7 +208,19 @@ function resolveTaxonomicGroupTypes(
     }
     const filtered = requested.filter((t) => !excluded.has(t) && available.has(t))
 
-    // 2. Auto-inject Recent/Pinned meta tabs when available and not already present.
+    // 2a. The rebuilt menu always surfaces the SuggestedFilters ("All") tab as the
+    // default cross-group landing spot when there's more than one substantive group
+    // to aggregate.
+    const substantiveGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
+    if (
+        available.has(TaxonomicFilterGroupType.SuggestedFilters) &&
+        !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters) &&
+        substantiveGroupCount >= 2
+    ) {
+        filtered.unshift(TaxonomicFilterGroupType.SuggestedFilters)
+    }
+
+    // 2b. Auto-inject Recent/Pinned meta tabs when available and not already present.
     for (const metaType of AUTO_INJECT_META_GROUPS) {
         if (available.has(metaType) && !filtered.includes(metaType)) {
             filtered.splice(indexAfterLastMetaGroup(filtered), 0, metaType)
@@ -330,19 +348,18 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         return firstNonMeta ?? groupTypes[0] ?? TaxonomicFilterGroupType.Empty
     }, [initialGroupType, groupTypes, metaGroupTypes])
 
-    const [activeGroupType, setActiveGroupTypeInternal] = useState<TaxonomicFilterGroupType>(defaultActiveGroup)
-
-    // If the resolved tab list shrinks beneath the active type, fall back.
-    useEffect(() => {
-        if (!groupTypes.includes(activeGroupType)) {
-            setActiveGroupTypeInternal(defaultActiveGroup)
-        }
-    }, [groupTypes, activeGroupType, defaultActiveGroup])
+    // Only an explicit choice is stored; the active group derives from it so the
+    // default keeps tracking groups that arrive after mount (late feature flags,
+    // async group sources) instead of freezing the first render's answer. An
+    // explicit choice that's no longer in the tab list falls back to the default.
+    const [explicitActiveGroup, setExplicitActiveGroup] = useState<TaxonomicFilterGroupType | null>(null)
+    const activeGroupType =
+        explicitActiveGroup && groupTypes.includes(explicitActiveGroup) ? explicitActiveGroup : defaultActiveGroup
 
     const setActiveGroupType = useCallback(
         (t: TaxonomicFilterGroupType) => {
             if (groupTypes.includes(t)) {
-                setActiveGroupTypeInternal(t)
+                setExplicitActiveGroup(t)
             }
         },
         [groupTypes]
@@ -353,10 +370,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         if (idx <= 0) {
             return
         }
-        for (let i = idx - 1; i >= 0; i--) {
-            setActiveGroupTypeInternal(groupTypes[i])
-            return
-        }
+        setExplicitActiveGroup(groupTypes[idx - 1])
     }, [groupTypes, activeGroupType])
 
     const tabRight = useCallback(() => {
@@ -364,7 +378,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         if (idx === -1 || idx >= groupTypes.length - 1) {
             return
         }
-        setActiveGroupTypeInternal(groupTypes[idx + 1])
+        setExplicitActiveGroup(groupTypes[idx + 1])
     }, [groupTypes, activeGroupType])
 
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])
@@ -406,10 +420,13 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         (group: TaxonomicFilterGroup, valueIn: TaxonomicFilterValue | null, item: any) => {
             // Mirror the legacy `taxonomicFilterLogic.selectItem` recent
             // recording so menu commits show up in the dropdown's
-            // "Recent" entry. Quick-filter items are skipped (they're
-            // shortcuts, not filterable definitions); pinned/recent
-            // context wrappers get stripped before persisting.
-            if (valueIn != null && item && !isQuickFilterItem(item)) {
+            // "Recent" entry. Quick-filter items and the synthetic
+            // "URL contains <query>" shortcut are skipped (they're
+            // shortcuts, not filterable definitions — and recording the
+            // shortcut would shadow it on the next search, since the recent
+            // shares its entryKey but lacks the contains label/telemetry);
+            // pinned/recent context wrappers get stripped before persisting.
+            if (valueIn != null && item && !isQuickFilterItem(item) && !isContainsShortcutItem(item)) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
                 const cleanItem = {

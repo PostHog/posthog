@@ -329,6 +329,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
+                "access_method": ANY,
+                "user_agent": ANY,
                 "mcp_user_agent": ANY,
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
@@ -442,6 +444,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "has_summary": False,
                 "summary_outcome": None,
                 "external_references": [],
+                "matches_filters": True,
             },
         ]
 
@@ -853,6 +856,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "has_summary": False,
             "summary_outcome": None,
             "external_references": [],
+            "matches_filters": True,
         }
 
     @freeze_time("2023-01-01T12:00:00.000Z")
@@ -1080,6 +1084,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             assert response_data["results"][0]["id"] == "1"
             assert response_data["results"][1]["id"] == "2"
             assert response_data["results"][2]["id"] == "3"
+
+    def test_session_ids_filter_returns_recordings_outside_default_date_range(self):
+        with freeze_time("2020-09-13T12:26:40.000Z"):
+            Person.objects.create(
+                team=self.team,
+                distinct_ids=["user"],
+                properties={"$some_prop": "something", "email": "bob@bob.com"},
+            )
+            # outside the default date range
+            self.produce_replay_summary("user", "old-session", now() - relativedelta(days=10))
+
+            params_string = urlencode({"session_ids": '["old-session"]'})
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
+            assert response.status_code == status.HTTP_200_OK
+            assert [r["id"] for r in response.json()["results"]] == ["old-session"]
+
+            # without explicit session_ids the default date range still hides it
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["results"] == []
 
     def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -1958,14 +1982,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "session_recording_id": "session_5",
                 },
                 # session_5 matches the date filter (-3d) even though it would be on a later page
-                # so it should be prepended to results
-                ["session_5"],  # must be in results
+                # so it should be prepended to results, and marked as matching the filters
+                {"session_5": True},  # must be in results, with expected matches_filters
                 [],  # must NOT be in results
             ),
             (
-                "recording_outside_date_range_is_excluded",
+                "recording_outside_date_range_is_included_but_flagged",
                 # Create a recording from 10 days ago, request with date_from=-3d
-                # The recording doesn't match the date filter, so should NOT be included
+                # The recording doesn't match the date filter, but was explicitly requested
+                # (e.g. a shared link), so it should still be included, flagged as not matching
                 {
                     "recordings": [
                         {"session_id": "recent_session", "days_ago": 1},
@@ -1974,8 +1999,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "date_from": "-3d",
                     "session_recording_id": "old_session",
                 },
-                ["recent_session"],  # must be in results
-                ["old_session"],  # must NOT be in results - doesn't match date filter
+                {"recent_session": True, "old_session": False},  # must be in results, with expected matches_filters
+                [],  # must NOT be in results
+            ),
+            (
+                "nonexistent_recording_is_excluded",
+                # Ask for a session_recording_id that was never recorded - nothing to include
+                {
+                    "recordings": [
+                        {"session_id": "recent_session", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "session_recording_id": "no_such_session",
+                },
+                {"recent_session": True},  # must be in results, with expected matches_filters
+                ["no_such_session"],  # must NOT be in results
             ),
         ]
     )
@@ -1983,17 +2021,18 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self,
         _name: str,
         config: dict,
-        must_be_in_results: list[str],
+        must_be_in_results: dict[str, bool],
         must_not_be_in_results: list[str],
     ):
         """
-        Test that session_recording_id only includes recordings that match the current filters.
+        Test how session_recording_id interacts with the current filters.
 
-        A recording should be prepended to results if:
-        - It matches all filters (date range, properties, etc.) but is on a different page
+        A recording requested via session_recording_id should always be included if it exists:
+        - matches_filters=True when it matches all filters (e.g. it's just on a different page)
+        - matches_filters=False when it doesn't match the filters (e.g. outside date range),
+          so the UI can explain why it's shown
 
-        A recording should NOT be included if:
-        - It doesn't match the filters (e.g., outside date range)
+        It should NOT be included only when it doesn't exist at all.
         """
         base_time = now()
 
@@ -2013,10 +2052,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
 
-        session_ids = [r["id"] for r in response_data["results"]]
+        recordings_by_id = {r["id"]: r for r in response_data["results"]}
+        session_ids = list(recordings_by_id.keys())
 
-        for expected in must_be_in_results:
+        for expected, expected_matches_filters in must_be_in_results.items():
             assert expected in session_ids, f"Expected {expected} to be in results, but got {session_ids}"
+            assert recordings_by_id[expected]["matches_filters"] == expected_matches_filters, (
+                f"Expected {expected} to have matches_filters={expected_matches_filters}, "
+                f"but got {recordings_by_id[expected]['matches_filters']}"
+            )
 
         for unexpected in must_not_be_in_results:
             assert unexpected not in session_ids, f"Expected {unexpected} to NOT be in results, but got {session_ids}"

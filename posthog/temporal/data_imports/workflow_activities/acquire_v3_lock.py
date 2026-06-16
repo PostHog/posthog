@@ -1,5 +1,6 @@
 import uuid
 import dataclasses
+from typing import Any
 
 from django.db import close_old_connections
 
@@ -7,12 +8,15 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
 from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
+    get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
 )
 from posthog.temporal.data_imports.workflow_activities.create_job_model import is_pipeline_v3_enabled
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
@@ -74,6 +78,8 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
         return AcquireV3LockActivityOutputs(acquired=False, token="")
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
+    if not acquired:
+        acquired = _take_over_lock_if_holder_finished(inputs, token, logger)
 
     logger.info(
         "v3_pipeline_lock_acquire_result",
@@ -83,6 +89,37 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     )
 
     return AcquireV3LockActivityOutputs(acquired=acquired, token=token)
+
+
+def _take_over_lock_if_holder_finished(inputs: AcquireV3LockActivityInputs, token: str, logger: Any) -> bool:
+    """Take over the lock when its holder's ExternalDataJob is terminal (run provably over); fail closed otherwise."""
+    holder = get_v3_pipeline_lock_holder(inputs.team_id, str(inputs.schema_id))
+    if holder is None:
+        # Lock vanished between SET NX and GET (released or expired) — just retry.
+        return acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
+
+    close_old_connections()
+    holder_job = (
+        ExternalDataJob.objects.filter(
+            team_id=inputs.team_id,
+            schema_id=inputs.schema_id,
+            workflow_run_id=holder,
+        )
+        .order_by("-created_at")
+        .only("status")
+        .first()
+    )
+    if holder_job is None or holder_job.status not in TERMINAL_JOB_STATUSES:
+        return False
+
+    logger.warning(
+        "v3_pipeline_lock_taking_over_stale_lock",
+        schema_id=str(inputs.schema_id),
+        holder_token=holder,
+        holder_job_status=holder_job.status,
+    )
+    release_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), holder)
+    return acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
 
 
 @activity.defn

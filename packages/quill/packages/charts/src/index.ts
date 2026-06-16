@@ -23,7 +23,7 @@ export type { MetricCardProps, ChangeColor, MetricChange } from './components/Me
 export { Chart } from './core/Chart'
 export type { ChartProps } from './core/Chart'
 export { ChartErrorBoundary } from './core/ChartErrorBoundary'
-export { RadialChart, RADIAL_MARGINS } from './core/RadialChart'
+export { RadialChart } from './core/RadialChart'
 export type { RadialChartProps, RadialLayoutBuilder } from './core/RadialChart'
 export { DEFAULT_MARGINS } from './core/hooks/useChartMargins'
 
@@ -36,10 +36,24 @@ export type {
     BoxPlotProps,
     BoxPlotTooltipContext,
 } from './charts/BoxPlot/BoxPlot'
-export { computeBoxBand, computeBoxRect, computeSeriesBoxes } from './charts/BoxPlot/computeBoxLayout'
-export type { BoxPlotDatum, BoxPlotSeries, BoxRect } from './charts/BoxPlot/computeBoxLayout'
+export type { BoxPlotDatum, BoxPlotSeries } from './charts/BoxPlot/types'
+export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
+
+// Slope chart
+export { SlopeChart } from './charts/SlopeChart/SlopeChart'
+export type {
+    SlopeChartConfig,
+    SlopeChartLegendConfig,
+    SlopeChartProps,
+    SlopeSeriesMeta,
+} from './charts/SlopeChart/SlopeChart'
+export { SlopeValueLabels } from './charts/SlopeChart/SlopeValueLabels'
+export type { SlopeValueLabelsProps } from './charts/SlopeChart/SlopeValueLabels'
+export { SlopeSeriesLabels } from './charts/SlopeChart/SlopeSeriesLabels'
+export type { SlopeSeriesLabelsProps } from './charts/SlopeChart/SlopeSeriesLabels'
+export { slopeLegendItems } from './charts/SlopeChart/slope-legend'
 
 // Pie / donut
 export { PieChart } from './charts/PieChart/PieChart'
@@ -88,7 +102,7 @@ export type { ThemeFromCssOptions } from './core/theme'
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
-export { TooltipSurface, TooltipSwatch, TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './overlays/TooltipSurface'
+export { TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
 
 // Optional overlays
 export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'
@@ -114,7 +128,7 @@ export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
 
 // Timeseries utils
-export { createXAxisTickCallback, parseDateForAxis } from './utils/dates'
+export { createXAxisTickCallback } from './utils/dates'
 export type { TimeInterval } from './utils/dates'
 export { buildYTickFormatter } from './utils/y-formatters'
 export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'

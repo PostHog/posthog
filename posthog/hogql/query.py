@@ -3,6 +3,7 @@ from datetime import date, datetime
 from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
+import sqlparse
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
 
@@ -139,6 +140,20 @@ def postgres_error_to_message(error: Exception) -> str:
     if not message:
         return "Postgres query failed."
     return message.splitlines()[0]
+
+
+def ensure_single_direct_postgres_statement(sql: str) -> str:
+    """Reject multi-statement raw SQL.
+
+    Raw queries run without bound parameters, so psycopg uses the simple query
+    protocol, which runs every ``;``-separated statement in one round trip. A
+    caller could commit out of the read-only transaction and ``BEGIN READ WRITE``
+    to perform writes; restricting to one statement keeps it read-only.
+    """
+    statements = [statement for statement in sqlparse.split(sql) if statement.strip(" \t\r\n;")]
+    if len(statements) > 1:
+        raise ExposedHogQLError("Raw queries must contain a single statement.")
+    return sql
 
 
 def direct_postgres_session_setup_sql(
@@ -755,7 +770,7 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
         self.connection_id = str(source.id)
         self.direct_postgres_source_id = self.connection_id
-        self.direct_postgres_sql = str(self.query)
+        self.direct_postgres_sql = ensure_single_direct_postgres_statement(str(self.query))
         self._execute_direct_postgres_query()
 
     def _capture_send_raw_query_translation_error(self) -> None:
@@ -875,6 +890,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
+        trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
             if self.send_raw_query and self.connection_id is not None:
                 self._execute_raw_direct_postgres_query()

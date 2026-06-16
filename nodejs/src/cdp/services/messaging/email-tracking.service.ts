@@ -16,6 +16,7 @@ import {
     generateEmailTrackingCode,
     generateEmailTrackingPixelUrl,
     parseEmailTrackingCode,
+    trackingCodeFormatCounter,
 } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
@@ -39,9 +40,10 @@ export const generateTrackingRedirectUrl = (
         parentRunId?: string | null
         state?: { actionId?: string }
     },
-    targetUrl: string
+    targetUrl: string,
+    isTest = false
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
 }
 
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
@@ -62,8 +64,12 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
     })
 }
 
-export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
-    const trackingUrl = generateEmailTrackingPixelUrl(invocation)
+export const addTrackingToEmail = (
+    html: string,
+    invocation: CyclotronJobInvocationHogFunction,
+    isTest = false
+): string => {
+    const trackingUrl = generateEmailTrackingPixelUrl(invocation, isTest)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
@@ -72,7 +78,7 @@ export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocat
         if (/^\s*javascript:/i.test(href)) {
             return m
         }
-        const tracked = generateTrackingRedirectUrl(invocation, href)
+        const tracked = generateTrackingRedirectUrl(invocation, href, isTest)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)
@@ -235,6 +241,9 @@ export class EmailTrackingService {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
             const parsed = parseEmailTrackingCode(query.ph_id as string)
+            if (parsed) {
+                trackingCodeFormatCounter.inc({ format: parsed.format, source: 'tracking' })
+            }
             return {
                 functionId: parsed?.functionId,
                 invocationId: parsed?.invocationId,

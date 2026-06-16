@@ -7,20 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface SessionSummariesApi {
-    /**
-     * List of session IDs to summarize (max 300)
-     * @minItems 1
-     * @maxItems 300
-     */
-    session_ids: string[]
-    /**
-     * Optional focus area for the summarization
-     * @maxLength 500
-     */
-    focus_area?: string
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -259,6 +245,8 @@ export interface SessionRecordingApi {
     readonly summary_outcome: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters: boolean
 }
 
 export interface PaginatedSessionRecordingListApi {
@@ -319,6 +307,22 @@ export interface PatchedSessionRecordingApi {
     readonly summary_outcome?: OutcomeApi | null
     /** Load external references (linked issues) for this recording */
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
+    /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
+    readonly matches_filters?: boolean
+}
+
+export interface SessionSummariesApi {
+    /**
+     * List of session IDs to summarize (max 300)
+     * @minItems 1
+     * @maxItems 300
+     */
+    session_ids: string[]
+    /**
+     * Optional focus area for the summarization
+     * @maxLength 500
+     */
+    focus_area?: string
 }
 
 /**

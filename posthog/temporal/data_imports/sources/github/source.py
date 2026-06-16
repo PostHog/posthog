@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -38,8 +40,9 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitHub",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",
             iconPath="/static/services/github.png",
             iconClassName="dark:bg-white rounded",
@@ -105,6 +108,16 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             "403 Client Error": "Access forbidden. Your token may lack required permissions or have hit rate limits.",
             "404 Client Error": "Repository not found. Please verify the repository name and access permissions.",
             "Bad credentials": "Your GitHub connection is invalid or expired. Please reconnect.",
+            # The GitHub App isn't configured on this PostHog instance, so an OAuth source can't mint
+            # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
+            "GITHUB_APP_CLIENT_ID is not configured": "The GitHub App is not configured on this PostHog instance. Please contact support.",
+            "GITHUB_APP_PRIVATE_KEY is not configured": "The GitHub App is not configured on this PostHog instance. Please contact support.",
+            # A 404 from POST /app/installations/{id}/access_tokens means the GitHub App installation
+            # no longer exists (uninstalled or its access revoked). Retrying can never mint a token, so
+            # stop syncing until the user reconnects. Match the not-found body specifically — a bare
+            # "Failed to refresh installation token" prefix would also swallow transient 5xx/429
+            # refresh failures, which must stay retryable.
+            'Failed to refresh installation token: {"message":"Not Found"': "Your GitHub App installation could not be found. It may have been uninstalled or had its access revoked. Please reconnect your GitHub account.",
         }
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:

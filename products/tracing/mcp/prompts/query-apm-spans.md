@@ -24,7 +24,7 @@ Use property filters via the `query.filterGroup` field to narrow results. Only i
 When using a property filter, you should:
 
 - **Choose the right type.** Span property types are:
-  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code).
+  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).
   - `span_attribute` — filters span-level attributes (e.g. "http.method", "http.status_code").
   - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).
 - **Use `apm-attributes-list` to discover available attribute keys** before building filters.
@@ -53,7 +53,7 @@ Filter by service names. Use `apm-services-list` to discover available services.
 
 ## query.statusCodes
 
-Filter by HTTP status codes (list of integers).
+Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.
 
 ## query.orderBy
 
@@ -78,6 +78,10 @@ Filter to a specific trace ID (hex string). Use this when you already know the t
 
 Set `true` to return **only root spans** — one entry span per matching trace, which collapses each trace to a single row. Useful for "list the traces matching X" without sifting through `matched_filter`. Leave unset (or `false`) to get all spans of matching traces, where you read `matched_filter` to find the ones that matched. The frontend leaves this unset.
 
+## query.flatSpans
+
+Set `true` to return **the matching spans themselves, one row per span** (root and child), rather than collapsing to traces. This is the way to search by a child-span attribute (e.g. `code.filepath`) — the result is the matching child spans directly, not the traces that contain them. Streams under `ORDER BY … LIMIT`, so it stays bounded on hot child attributes where the whole-trace grouping would not. Distinct from `rootSpans` (which scopes whole-trace selection); `prefetchSpans` is ignored. Defaults to false.
+
 ## query.limit
 
 Maximum number of results (1-1000). Defaults to 100.
@@ -101,7 +105,7 @@ Set `true` to drop the per-span `attributes` map from results (the map stays pre
 ```json
 {
   "query": {
-    "statusCodes": [500, 503]
+    "statusCodes": [2]
   }
 }
 ```

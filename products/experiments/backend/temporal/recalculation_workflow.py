@@ -17,6 +17,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         discover_experiment_metrics,
         update_recalculation_progress,
     )
+    from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
 MAX_CONCURRENT_METRICS = 10
 
@@ -72,6 +73,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             temporalio.workflow.logger.info(f"recalc {recalculation_id} had no metrics; completing immediately")
+            increment_workflow_finished("completed")
             return {"total": 0, "succeeded": 0, "failed": 0}
 
         # Start the run: mark in_progress, persist the metric list, and pin the shared data-window end. The start
@@ -105,7 +107,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             async with semaphore:
                 return await temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
-                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to],
+                    args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to, metric.metric_type],
                     # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
                     # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
                     start_to_close_timeout=timedelta(minutes=5),
@@ -126,7 +128,13 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         final_status = "failed" if failed > 0 else "completed"
         await temporalio.workflow.execute_activity(
             update_recalculation_progress,
-            RecalculationProgressUpdate(recalculation_id=recalculation_id, status=final_status, mark_completed=True),
+            RecalculationProgressUpdate(
+                recalculation_id=recalculation_id,
+                status=final_status,
+                mark_completed=True,
+                succeeded_metrics=succeeded,
+                failed_metrics=failed,
+            ),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -134,4 +142,5 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         temporalio.workflow.logger.info(
             f"recalc {recalculation_id} finished: {succeeded} succeeded, {failed} failed (status={final_status})"
         )
+        increment_workflow_finished(final_status)
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}

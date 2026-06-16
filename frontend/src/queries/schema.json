@@ -38,6 +38,13 @@
                 "allRolesUnassigned": {
                     "type": "boolean"
                 },
+                "assignedToUserIds": {
+                    "description": "Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
                 "csm": {
                     "description": "Match accounts whose CSM is any of these user ids (OR semantics).",
                     "items": {
@@ -874,6 +881,9 @@
                     "$ref": "#/definitions/TraceSpansTreeQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
+                },
+                {
                     "$ref": "#/definitions/ExperimentFunnelsQuery"
                 },
                 {
@@ -1132,6 +1142,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansTreeQueryResponse"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
                 }
             ]
         },
@@ -1448,12 +1461,13 @@
             "type": "object"
         },
         "AssistantDataVisualizationDisplayType": {
-            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
+            "description": "Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.\n\n- `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.\n- `BoldNumber` — big-number display for single-value results (first numeric column of the first row).\n- `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.\n- `ActionsBar` — bar chart with one bar per X-axis value.\n- `ActionsPie` — pie chart for categorical proportions. Requires one label column and one numeric column.\n- `ActionsStackedBar` — bar chart stacked by a series breakdown column.\n- `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.\n- `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.",
             "enum": [
                 "ActionsTable",
                 "BoldNumber",
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsPie",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "TwoDimensionalHeatmap"
@@ -1485,7 +1499,7 @@
                 },
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationDisplayType",
-                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
+                    "description": "Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`."
                 },
                 "kind": {
                     "const": "DataVisualizationNode",
@@ -3841,6 +3855,7 @@
                 "manage_memories",
                 "create_notebook",
                 "list_data",
+                "list_feature_flags",
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
@@ -3864,6 +3879,7 @@
                 "marketing_suggest_utm_mappings",
                 "summarize_replay_vision_summaries",
                 "draft_replay_vision_scanner_prompt",
+                "search_replay_vision_observations",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"
@@ -4263,7 +4279,7 @@
                     "description": "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`."
                 },
                 "aggregationAxisPostfix": {
-                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.",
+                    "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`.",
                     "type": "string"
                 },
                 "aggregationAxisPrefix": {
@@ -4505,6 +4521,29 @@
                 }
             },
             "required": ["id", "tool_call_id", "content"],
+            "type": "object"
+        },
+        "AttributeBreakdownRow": {
+            "additionalProperties": false,
+            "description": "One row of a span attribute breakdown: the spans matching the filters, grouped by one attribute's value. Spans without the attribute group under `value = ''`.",
+            "properties": {
+                "count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "error_count": {
+                    "$ref": "#/definitions/integer"
+                },
+                "p50_duration_nano": {
+                    "type": "number"
+                },
+                "p95_duration_nano": {
+                    "type": "number"
+                },
+                "value": {
+                    "type": "string"
+                }
+            },
+            "required": ["value", "count", "error_count", "p50_duration_nano", "p95_duration_nano"],
             "type": "object"
         },
         "AttributionMode": {
@@ -9926,6 +9965,99 @@
             ],
             "type": "object"
         },
+        "CachedTraceSpansAttributeBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedTraceSpansQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -14878,6 +15010,26 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
+        "DataWarehouseSourceCategory": {
+            "enum": [
+                "Databases",
+                "File storage",
+                "Advertising",
+                "Marketing & email",
+                "CRM",
+                "Sales",
+                "Customer support",
+                "Payments & billing",
+                "Finance & accounting",
+                "Analytics",
+                "Engineering & monitoring",
+                "Productivity",
+                "HR & recruiting",
+                "Communication",
+                "E-commerce"
+            ],
+            "type": "string"
+        },
         "DataWarehouseSyncWarning": {
             "additionalProperties": false,
             "properties": {
@@ -17302,7 +17454,7 @@
                     "type": "string"
                 },
                 "pendingFingerprintIssueStateUpdates": {
-                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.",
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
                     },
@@ -17326,11 +17478,11 @@
                     "$ref": "#/definitions/QueryLogTags"
                 },
                 "useQueryV2": {
-                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "deprecated": "Ignored — V2 query path was removed. Kept so requests from older clients still validate.",
                     "type": "boolean"
                 },
                 "useQueryV3": {
-                    "description": "Use V3 query path (denormalized ClickHouse table, no Postgres joins)",
+                    "deprecated": "Ignored — V3 is the only query path. Kept so requests from older clients still validate.",
                     "type": "boolean"
                 },
                 "version": {
@@ -18713,6 +18865,32 @@
             },
             "type": "object"
         },
+        "ExperimentExposureEstimateConfig": {
+            "additionalProperties": false,
+            "description": "Exposure estimate settings for the experiment running-time calculator.",
+            "properties": {
+                "conversionRateInputType": {
+                    "description": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                    "enum": ["manual", "automatic"],
+                    "type": "string"
+                },
+                "manualBaselineValue": {
+                    "description": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+                    "type": "number"
+                },
+                "manualExposureRate": {
+                    "description": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+                    "type": "number"
+                },
+                "manualMetricType": {
+                    "description": "Metric type the manual baseline value refers to. Only used in manual mode.",
+                    "enum": ["funnel", "mean_count", "mean_sum_or_avg"],
+                    "type": "string"
+                }
+            },
+            "required": ["conversionRateInputType"],
+            "type": "object"
+        },
         "ExperimentExposureQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19808,6 +19986,36 @@
             ],
             "type": "object"
         },
+        "ExperimentRunningTimeCalculation": {
+            "additionalProperties": false,
+            "description": "Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`.",
+            "properties": {
+                "exposure_estimate_config": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureEstimateConfig"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data."
+                },
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+                    "type": "number"
+                },
+                "recommended_running_time": {
+                    "description": "Estimated number of days needed to reach the recommended sample size.",
+                    "type": "number"
+                },
+                "recommended_sample_size": {
+                    "description": "Recommended number of exposed users needed for statistical significance.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "ExperimentSignificanceCode": {
             "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
             "type": "string"
@@ -20485,6 +20693,13 @@
                 "SapSuccessFactors",
                 "OracleEbs",
                 "OracleFusion",
+                "AmazonSNS",
+                "AmazonEventBridge",
+                "AmazonSQS",
+                "AmazonKinesis",
+                "AmazonCloudWatch",
+                "OpenAIAds",
+                "Grafana",
                 "Custom"
             ],
             "type": "string"
@@ -20825,6 +21040,10 @@
                 "path": {
                     "description": "Object's name and folder",
                     "type": "string"
+                },
+                "pinnedByDefault": {
+                    "description": "Auto-include in the user's pinned sidebar when `flag` is on, even without an explicit UserProductList row",
+                    "type": "boolean"
                 },
                 "protocol": {
                     "description": "Protocol of the item, defaults to \"project://\"",
@@ -21645,6 +21864,11 @@
                     "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
+                "showLegend": {
+                    "default": false,
+                    "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -21738,6 +21962,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Compare to date range"
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -23952,6 +24180,7 @@
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-analytics",
                 "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
@@ -27739,6 +27968,15 @@
                 "id": {
                     "type": "string"
                 },
+                "insertion_placeholder_block_id": {
+                    "type": "string"
+                },
+                "insertion_placeholder_marker": {
+                    "type": "string"
+                },
+                "markdown_with_insertion_placeholder": {
+                    "type": "string"
+                },
                 "name": {
                     "type": ["string", "null"]
                 },
@@ -28349,6 +28587,7 @@
                 "TraceSpansQuery",
                 "TraceSpansAggregationQuery",
                 "TraceSpansTreeQuery",
+                "TraceSpansAttributeBreakdownQuery",
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -29526,6 +29765,7 @@
                 "data_warehouse_saved_queries",
                 "early_access_features",
                 "endpoints",
+                "engineering_analytics",
                 "error_tracking",
                 "experiments",
                 "feature_flags",
@@ -29556,6 +29796,7 @@
                 "session_replay",
                 "replay_vision",
                 "site_apps",
+                "skills",
                 "subscriptions",
                 "streamlit_apps",
                 "surveys",
@@ -35014,6 +35255,64 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "compare": {
+                            "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                            "items": {
+                                "$ref": "#/definitions/AttributeBreakdownRow"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/AttributeBreakdownRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "questions": {
                             "items": {
                                 "type": "string"
@@ -35972,6 +36271,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceSpansTreeQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQuery"
                 },
                 {
                     "$ref": "#/definitions/SuggestedQuestionsQuery"
@@ -38810,6 +39112,10 @@
                 "keypress_count": {
                     "type": "number"
                 },
+                "matches_filters": {
+                    "description": "False when the recording was included in list results via a direct link despite not matching the filters.",
+                    "type": "boolean"
+                },
                 "matching_events": {
                     "description": "List of matching events. *",
                     "items": {
@@ -39500,6 +39806,13 @@
                 "skill_version": {
                     "type": "number"
                 },
+                "tags": {
+                    "description": "Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "task_run_id": {
                     "description": "The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs` LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not).",
                     "type": "string"
@@ -39633,6 +39946,29 @@
             ],
             "description": "A single (leaf) detector config"
         },
+        "SlackIntegrationScope": {
+            "enum": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:read",
+                "chat:write",
+                "chat:write.customize",
+                "groups:history",
+                "groups:read",
+                "links:read",
+                "links:write",
+                "reactions:read",
+                "reactions:write",
+                "team:read",
+                "users:read",
+                "users:read.email"
+            ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
+            "type": "string"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
@@ -39668,6 +40004,10 @@
                         {}
                     ]
                 },
+                "category": {
+                    "$ref": "#/definitions/DataWarehouseSourceCategory",
+                    "description": "Catalog bucket this source is grouped under in the new-source wizard. Optional at the type level so partial/in-progress sources don't break, but every registered source must set one (enforced by a test). See `dataWarehouseSourceCategories`."
+                },
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
@@ -39696,6 +40036,13 @@
                 },
                 "iconPath": {
                     "type": "string"
+                },
+                "keywords": {
+                    "description": "Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → [\"ga4\", \"ga\"]. Matched alongside name/label/category.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "label": {
                     "type": "string"
@@ -40057,6 +40404,10 @@
                 "avg_start_offset_nano": {
                     "description": "Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph.",
                     "type": "number"
+                },
+                "calls_per_parent_invocation": {
+                    "description": "How many times this child runs per parent invocation (edge count / parent span count). Separates fan-out volume from per-call cost: a child can dominate total_duration_nano purely by running many times per parent. Null for root edges (no parent invocation to ratio against).",
+                    "type": ["number", "null"]
                 },
                 "count": {
                     "$ref": "#/definitions/integer"
@@ -40541,6 +40892,12 @@
         "SurveyAppearanceSchema": {
             "additionalProperties": false,
             "properties": {
+                "allowGoBack": {
+                    "type": "boolean"
+                },
+                "backButtonText": {
+                    "type": "string"
+                },
                 "backgroundColor": {
                     "type": "string"
                 },
@@ -41533,6 +41890,14 @@
             "required": ["results"],
             "type": "object"
         },
+        "TraceSpanBreakdownOrderBy": {
+            "enum": ["count", "error_count"],
+            "type": "string"
+        },
+        "TraceSpanBreakdownType": {
+            "enum": ["span_attribute", "span_resource_attribute"],
+            "type": "string"
+        },
         "TraceSpansAggregationQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41632,6 +41997,117 @@
             "required": ["results"],
             "type": "object"
         },
+        "TraceSpansAttributeBreakdownQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownKey": {
+                    "description": "Attribute key to group by (e.g. `http.response.status_code`, `server.address`).",
+                    "type": "string"
+                },
+                "breakdownType": {
+                    "$ref": "#/definitions/TraceSpanBreakdownType",
+                    "description": "Where the key lives: span-level attributes or resource-level attributes."
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterGroup": {
+                    "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "kind": {
+                    "const": "TraceSpansAttributeBreakdownQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/TraceSpanBreakdownOrderBy",
+                    "description": "Order rows by span count or error count, descending. Defaults to count."
+                },
+                "response": {
+                    "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
+                },
+                "serviceNames": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["breakdownKey", "breakdownType", "dateRange", "kind"],
+            "type": "object"
+        },
+        "TraceSpansAttributeBreakdownQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "description": "Result rows for the comparison period when `compareFilter.compare` is true.",
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/AttributeBreakdownRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "TraceSpansQuery": {
             "additionalProperties": false,
             "properties": {
@@ -41648,6 +42124,10 @@
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
+                },
+                "flatSpans": {
+                    "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "TraceSpansQuery",

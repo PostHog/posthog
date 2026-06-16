@@ -40,6 +40,7 @@ export function RetentionModal(): JSX.Element | null {
         isCohortModalOpen,
         theme,
         retentionFilter,
+        selectedColumnIndex,
     } = useValues(retentionModalLogic(insightProps))
     const { closeModal, saveAsCohort, setIsCohortModalOpen } = useActions(retentionModalLogic(insightProps))
     const { startExport } = useActions(exportsLogic)
@@ -178,7 +179,13 @@ export function RetentionModal(): JSX.Element | null {
                                         <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
                                         {row.values?.map((data: any, index: number) => {
                                             return (
-                                                <th key={index}>
+                                                <th
+                                                    key={index}
+                                                    className={clsx('!pl-2', {
+                                                        'RetentionTable__SelectedColumn--header':
+                                                            index === selectedColumnIndex,
+                                                    })}
+                                                >
                                                     <div>{data.label}</div>
                                                     <div>
                                                         {data.count}
@@ -231,7 +238,13 @@ export function RetentionModal(): JSX.Element | null {
                                                     .map((appearance: number, index: number) => {
                                                         const hasAppearance = !!appearance
                                                         return (
-                                                            <td key={index}>
+                                                            <td
+                                                                key={index}
+                                                                className={clsx({
+                                                                    'RetentionTable__SelectedColumn--cell':
+                                                                        index === selectedColumnIndex,
+                                                                })}
+                                                            >
                                                                 <div
                                                                     className={clsx(
                                                                         'RetentionTable__Tab',
