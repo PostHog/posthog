@@ -49,6 +49,19 @@ SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
 # The field name varies, so the match anchors on the stable leading phrase.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR = "Access denied for"
 
+# Shopify's Admin API returns 402 Payment Required when the store is frozen for an unpaid
+# bill — the shop owner must settle their outstanding Shopify balance to unfreeze the store,
+# so retrying the import cannot recover. `requests.raise_for_status` renders this as
+# "402 Client Error: Payment Required for url: https://<store>.myshopify.com/...".
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
+# per-store URL) to fail the job fast.
+SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH = "402 Client Error: Payment Required"
+SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
+    "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
+    "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
+    "the import will resume."
+)
+
 
 @dataclasses.dataclass
 class ShopifyResumeConfig:

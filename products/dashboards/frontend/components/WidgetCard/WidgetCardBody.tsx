@@ -228,6 +228,7 @@ export type WidgetListCountNoun = {
     plural: string
 }
 
+export const WIDGET_LIST_COUNT_EVENTS: WidgetListCountNoun = { singular: 'event', plural: 'events' }
 export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue', plural: 'issues' }
 export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
 
