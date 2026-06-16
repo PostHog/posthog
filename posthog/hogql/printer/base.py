@@ -933,7 +933,16 @@ class BasePrinter(Visitor[str]):
     def visit_call(self, node: ast.Call):
         expanded = maybe_expand_printer_only_function(node)
         if expanded is not None:
-            return self.visit(expanded)
+            # The expansion duplicates each argument several times, so nesting one of these markers inside
+            # another (only reachable from user-written HogQL, never the catalog) would blow up
+            # exponentially; reject that rather than expand it.
+            if getattr(self, "_inside_printer_only_expansion", False):
+                raise QueryError(f"Function '{node.name}' cannot be nested inside another expanded function")
+            self._inside_printer_only_expansion = True
+            try:
+                return self.visit(expanded)
+            finally:
+                self._inside_printer_only_expansion = False
 
         func_meta = (
             find_hogql_aggregation(node.name)
