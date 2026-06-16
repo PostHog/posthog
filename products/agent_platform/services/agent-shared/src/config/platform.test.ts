@@ -1,6 +1,13 @@
 import { z } from 'zod'
 
-import { extendEnvKeyMap, loadConfigFromEnv, PLATFORM_ENV_KEY_MAP, PlatformConfigSchema } from './platform'
+import {
+    extendEnvKeyMap,
+    loadConfigFromEnv,
+    PLATFORM_ENV_KEY_MAP,
+    PlatformConfigSchema,
+    requiredInProd,
+    requiredInProdUnsetInDev,
+} from './platform'
 
 describe('PlatformConfigSchema', () => {
     afterEach(() => {
@@ -29,6 +36,49 @@ describe('PlatformConfigSchema', () => {
         for (const [key, field] of Object.entries(PlatformConfigSchema.shape)) {
             expect((field as { description?: string }).description, `missing .describe() for ${key}`).toBeTruthy()
         }
+    })
+})
+
+describe('requiredInProd', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
+    const Schema = z.object({ key: requiredInProd('dev-default', 'MY_KEY') })
+
+    it('uses the dev default when unset in dev', () => {
+        expect(Schema.parse({}).key).toBe('dev-default')
+    })
+
+    it('uses the provided value when set', () => {
+        expect(Schema.parse({ key: 'explicit' }).key).toBe('explicit')
+    })
+
+    it('fails closed at parse time when unset in prod', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        expect(() => Schema.parse({})).toThrow(/MY_KEY/)
+    })
+
+    it('validates url format when opts.url is set', () => {
+        const UrlSchema = z.object({ u: requiredInProd('http://localhost:1', 'MY_URL', { url: true }) })
+        expect(() => UrlSchema.parse({ u: 'not-a-url' })).toThrow()
+    })
+})
+
+describe('requiredInProdUnsetInDev', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
+    const Schema = z.object({ proxy: requiredInProdUnsetInDev('MY_PROXY', { url: true }) })
+
+    it('is undefined when unset in dev', () => {
+        expect(Schema.parse({}).proxy).toBeUndefined()
+    })
+
+    it('fails closed at parse time when unset in prod', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        expect(() => Schema.parse({})).toThrow(/MY_PROXY/)
     })
 })
 

@@ -1,13 +1,40 @@
 import { AgentJanitorConfigSchema, loadAgentJanitorConfig } from './config'
 
+// Minimal prod env that satisfies every `requiredInProd` field, so a test can
+// omit exactly one and assert it's the thing that trips the loader.
+const PROD_REQUIRED = {
+    AGENT_INTERNAL_SIGNING_KEY: 'prod-signing-key',
+    AGENT_BUNDLE_S3_BUCKET: 'prod-bundles',
+    AGENT_MEMORY_S3_BUCKET: 'prod-memory',
+    AGENT_MEMORY_S3_ENDPOINT: 'https://s3.example.com',
+}
+
 describe('loadAgentJanitorConfig', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
     it('returns defaults for an empty env', () => {
         const cfg = loadAgentJanitorConfig({})
         expect(cfg.port).toBe(8082)
         expect(cfg.maxRetries).toBe(3)
         expect(cfg.logLevel).toBe('info')
-        expect(cfg.internalSigningKey).toBeUndefined()
+        // Dev default — gates RPC auth locally without forcing every dev to set it.
+        expect(cfg.internalSigningKey).toBe('dev-internal-signing-key-do-not-use-in-prod')
         expect(cfg.posthogDbUrl).toContain('postgres://')
+    })
+
+    it('fails closed at config-load in prod when AGENT_INTERNAL_SIGNING_KEY is unset', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        const { AGENT_INTERNAL_SIGNING_KEY: _omit, ...rest } = PROD_REQUIRED
+        expect(() => loadAgentJanitorConfig(rest)).toThrow(/AGENT_INTERNAL_SIGNING_KEY/)
+    })
+
+    it('loads in prod when every required field is set', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        const cfg = loadAgentJanitorConfig(PROD_REQUIRED)
+        expect(cfg.internalSigningKey).toBe('prod-signing-key')
+        expect(cfg.bundleS3Bucket).toBe('prod-bundles')
     })
 
     it('coerces numeric env strings without leaking NaN', () => {

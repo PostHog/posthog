@@ -11,11 +11,13 @@
 import { z } from 'zod'
 
 import {
+    DEV_INTERNAL_SIGNING_KEY,
     extendEnvKeyMap,
     isDev,
     loadConfigFromEnv,
     PLATFORM_ENV_KEY_MAP,
     PlatformConfigSchema,
+    requiredInProd,
 } from '@posthog/agent-shared'
 
 const ONE_MINUTE_MS = 60_000
@@ -33,12 +35,9 @@ const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
     port: z.coerce.number().int().positive().default(8082).describe('HTTP listen port.'),
-    internalSigningKey: z
-        .string()
-        .optional()
-        .describe(
-            "Shared HMAC signing key (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies the audience-bound JWT Django sends as `x-internal-secret` (aud = `agent-janitor.rpc`). Required in prod for any endpoint other than `/healthz`."
-        ),
+    internalSigningKey: requiredInProd(DEV_INTERNAL_SIGNING_KEY, 'AGENT_INTERNAL_SIGNING_KEY').describe(
+        "Shared HMAC signing key (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies the audience-bound JWT Django sends as `x-internal-secret` (aud = `agent-janitor.rpc`). Gates every endpoint other than `/healthz` — required in prod, dev default for local running."
+    ),
     stuckRunningMs: z.coerce
         .number()
         .int()
@@ -88,20 +87,13 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
                 'provider SDK and marks the row terminated. Default 10 minutes = 2x stuck-running ' +
                 'threshold, so a healthy session re-queue + resume cycle doesnt race the reaper.'
         ),
-    memoryS3Endpoint: z
-        .string()
-        .url()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ENDPOINT : undefined))
-        .describe(
-            'S3-compatible endpoint for memory file storage. Dev defaults to local SeaweedFS; prod unset disables the /memory/* routes (503).'
-        ),
+    memoryS3Endpoint: requiredInProd(DEV_S3_ENDPOINT, 'AGENT_MEMORY_S3_ENDPOINT', { url: true }).describe(
+        'S3-compatible endpoint for memory file storage. Dev defaults to local SeaweedFS; required in prod — the janitor refuses to start without memory storage.'
+    ),
     memoryS3Region: z.string().default('us-east-1').describe('Region for the memory bucket.'),
-    memoryS3Bucket: z
-        .string()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_BUCKET : undefined))
-        .describe('Bucket holding agent memory files. Dev defaults to the SeaweedFS `posthog` bucket.'),
+    memoryS3Bucket: requiredInProd(DEV_S3_BUCKET, 'AGENT_MEMORY_S3_BUCKET').describe(
+        'Bucket holding agent memory files. Dev defaults to the SeaweedFS `posthog` bucket; required in prod.'
+    ),
     memoryS3Prefix: z.string().default('agent_memory').describe('Per-deployment key prefix inside the bucket.'),
     memoryS3AccessKeyId: z
         .string()
@@ -131,13 +123,9 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
             'S3-compatible endpoint for agent-bundle storage. Dev defaults to local SeaweedFS; prod unset means SDK regional default.'
         ),
     bundleS3Region: z.string().default('us-east-1').describe('Region for the bundle bucket.'),
-    bundleS3Bucket: z
-        .string()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_BUCKET : undefined))
-        .describe(
-            'Bucket holding agent bundles (per-revision compiled code + spec + skills). Dev defaults to the SeaweedFS `posthog` bucket; prod must set explicitly or the janitor fails closed at boot.'
-        ),
+    bundleS3Bucket: requiredInProd(DEV_S3_BUCKET, 'AGENT_BUNDLE_S3_BUCKET').describe(
+        'Bucket holding agent bundles (per-revision compiled code + spec + skills). Dev defaults to the SeaweedFS `posthog` bucket; required in prod — the janitor fails closed at boot without it.'
+    ),
     bundleS3Prefix: z.string().default('agent_bundles').describe('Per-deployment key prefix inside the bucket.'),
     bundleS3AccessKeyId: z
         .string()

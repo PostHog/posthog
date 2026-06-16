@@ -9,11 +9,16 @@
 import { z } from 'zod'
 
 import {
+    DEV_ENCRYPTION_KEY,
+    DEV_POSTHOG_API_BASE_URL,
+    DEV_REDIS_URL,
     extendEnvKeyMap,
     isDev,
     loadConfigFromEnv,
     PLATFORM_ENV_KEY_MAP,
     PlatformConfigSchema,
+    requiredInProd,
+    requiredInProdUnsetInDev,
 } from '@posthog/agent-shared'
 
 // Dev SeaweedFS defaults — the PostHog dev stack pre-creates the `posthog`
@@ -28,6 +33,22 @@ const DEV_S3_ACCESS_KEY_ID = 'any'
 const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
+    // Bus (publishes lifecycle events) + smokescreen (tool/gateway/MCP egress) are
+    // required in prod, enforced at config-load rather than via boot guards.
+    redisUrl: requiredInProd(DEV_REDIS_URL, 'REDIS_URL', { url: true }).describe(
+        'SessionEventBus the runner publishes lifecycle events to. Required in prod; dev defaults to local Redis.'
+    ),
+    httpsProxy: requiredInProdUnsetInDev('HTTPS_PROXY', { url: true }).describe(
+        'Outbound HTTP proxy (smokescreen) for tool / gateway / MCP egress. Required in prod; unset in dev (fetches go direct).'
+    ),
+    // EncryptedFields (encrypted_env + credential broker) throws on empty keys; tools
+    // need the API base. Required in prod, enforced at config-load.
+    encryptionSaltKeys: requiredInProd(DEV_ENCRYPTION_KEY, 'ENCRYPTION_SALT_KEYS').describe(
+        'Comma-separated UTF-8 Fernet keys (match Django EncryptedTextField). Required in prod; deterministic dev default.'
+    ),
+    posthogApiBaseUrl: requiredInProd(DEV_POSTHOG_API_BASE_URL, 'POSTHOG_API_BASE_URL', { url: true }).describe(
+        'PostHog API base forwarded onto ToolContext for native tools. Required in prod; dev defaults to localhost:8010.'
+    ),
     maxConcurrency: z.coerce.number().int().positive().default(8).describe('In-flight sessions per worker process.'),
     healthPort: z.coerce
         .number()
@@ -83,23 +104,16 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Base URL of the agent console. Used to build clickable approval links (`<base>/approvals?request=<id>`) surfaced to the model on a gated tool call. Dev defaults to the local console (`:3040`); prod sets the deployed host via the chart. Unset in prod → relative links (still clickable in-console, not in Slack).'
         ),
-    memoryS3Endpoint: z
-        .string()
-        .url()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ENDPOINT : undefined))
-        .describe(
-            'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it. Dev defaults to local SeaweedFS via `hogli start`.'
-        ),
+    memoryS3Endpoint: requiredInProd(DEV_S3_ENDPOINT, 'AGENT_MEMORY_S3_ENDPOINT', { url: true }).describe(
+        'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it (fail closed at config-load in prod). Dev defaults to local SeaweedFS via `hogli start`.'
+    ),
     memoryS3Region: z
         .string()
         .default('us-east-1')
         .describe('Region for the memory bucket. SeaweedFS ignores; real S3 honours.'),
-    memoryS3Bucket: z
-        .string()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_BUCKET : undefined))
-        .describe('Bucket holding agent memory files. Dev defaults to the SeaweedFS `posthog` bucket.'),
+    memoryS3Bucket: requiredInProd(DEV_S3_BUCKET, 'AGENT_MEMORY_S3_BUCKET').describe(
+        'Bucket holding agent memory files. Dev defaults to the SeaweedFS `posthog` bucket; required in prod.'
+    ),
     memoryS3Prefix: z
         .string()
         .default('agent_memory')
@@ -135,13 +149,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .string()
         .default('us-east-1')
         .describe('Region for the bundle bucket. SeaweedFS ignores; real S3 honours.'),
-    bundleS3Bucket: z
-        .string()
-        .optional()
-        .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_BUCKET : undefined))
-        .describe(
-            'Bucket holding agent bundles (per-revision compiled code + spec + skills). Dev defaults to the SeaweedFS `posthog` bucket; prod must set explicitly or the runner fails closed at boot.'
-        ),
+    bundleS3Bucket: requiredInProd(DEV_S3_BUCKET, 'AGENT_BUNDLE_S3_BUCKET').describe(
+        'Bucket holding agent bundles (per-revision compiled code + spec + skills). Dev defaults to the SeaweedFS `posthog` bucket; required in prod — the runner fails closed at config-load without it.'
+    ),
     bundleS3Prefix: z
         .string()
         .default('agent_bundles')

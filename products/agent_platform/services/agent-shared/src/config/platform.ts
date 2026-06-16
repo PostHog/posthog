@@ -47,9 +47,70 @@ export function isDev(env: NodeJS.ProcessEnv = process.env): boolean {
  * unset fails closed (empty key → encryption-requiring components
  * refuse to start).
  */
-const DEV_ENCRYPTION_KEY = '00beef0000beef0000beef0000beef00'
+export const DEV_ENCRYPTION_KEY = '00beef0000beef0000beef0000beef00'
 
-const DEV_POSTHOG_API_BASE_URL = 'http://localhost:8010'
+export const DEV_POSTHOG_API_BASE_URL = 'http://localhost:8010'
+
+// Dev fallback only — prod entrypoints fail closed without an explicit REDIS_URL.
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+export const DEV_REDIS_URL = 'redis://localhost:6379'
+
+/**
+ * Dev-only shared HMAC key for the internal service JWT. Must match
+ * `.env.development`'s `AGENT_INTERNAL_SIGNING_KEY` so Django, ingress, and the
+ * janitor all sign/verify with the same key in local dev. **Never used in
+ * production** — gated behind `isDev()` by `requiredInProd`.
+ */
+export const DEV_INTERNAL_SIGNING_KEY = 'dev-internal-signing-key-do-not-use-in-prod'
+
+/**
+ * A config string that is genuinely required in prod but has an ergonomic dev
+ * default. Resolves to `devDefault` when `isDev()`, and **fails at config-load**
+ * (throws via `schema.parse`) when unset in prod. The output type is a plain
+ * `string` — no `| undefined` — so downstream code never has to null-check or
+ * re-assert the value with a scattered `if (!x) throw` boot guard. Use this
+ * instead of `.optional()` for values the service cannot function without.
+ */
+export function requiredInProd(
+    devDefault: string,
+    envHint: string,
+    opts?: { url?: boolean }
+): z.ZodType<string, string | undefined> {
+    const base = opts?.url ? z.string().url() : z.string()
+    return base.optional().transform((v, ctx): string => {
+        if (v) {
+            return v
+        }
+        if (isDev()) {
+            return devDefault
+        }
+        ctx.addIssue({ code: 'custom', message: `${envHint} must be set in production.` })
+        return z.NEVER
+    })
+}
+
+/**
+ * Like {@link requiredInProd}, but the value is legitimately absent in dev
+ * (e.g. `HTTPS_PROXY` — local fetches go direct). Required in prod (fails at
+ * config-load when unset), `undefined` in dev. Use instead of `.optional()` +
+ * an `if (!x && !isDev()) throw` boot guard.
+ */
+export function requiredInProdUnsetInDev(
+    envHint: string,
+    opts?: { url?: boolean }
+): z.ZodType<string | undefined, string | undefined> {
+    const base = opts?.url ? z.string().url() : z.string()
+    return base.optional().transform((v, ctx): string | undefined => {
+        if (v) {
+            return v
+        }
+        if (isDev()) {
+            return undefined
+        }
+        ctx.addIssue({ code: 'custom', message: `${envHint} must be set in production.` })
+        return z.NEVER
+    })
+}
 
 export const PlatformConfigSchema = z.object({
     posthogDbUrl: z
@@ -68,9 +129,9 @@ export const PlatformConfigSchema = z.object({
         .string()
         .url()
         .optional()
-        // Dev fallback only — prod entrypoints fail closed without an explicit REDIS_URL.
-        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-        .transform((v): string | undefined => v ?? (isDev() ? 'redis://localhost:6379' : undefined))
+        // Base stays optional: services that use the bus (ingress, runner) tighten this to
+        // `requiredInProd(DEV_REDIS_URL, ...)`; the janitor never touches Redis.
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_REDIS_URL : undefined))
         .describe(
             'SessionEventBus backing for cross-host /listen SSE — runner publishes lifecycle events here, ingress subscribes. Required in prod (entrypoints fail closed without it); defaults to a local dev Redis URL when NODE_ENV != production. Provisioned by terraform/modules/agent-platform/valkey_serverless and surfaced into the chart via the posthog-app `valkey:` map (REDIS_WRITER_URL → REDIS_URL).'
         ),

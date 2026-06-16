@@ -46,16 +46,10 @@ async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentJanitorConfig()
 
-    // S3 bundle storage is required — the authoring API publishes new
-    // revisions through this store. Fail-fast at boot rather than 503-ing
-    // every bundle CRUD call individually. Endpoint is optional — unset
-    // means "use the AWS SDK's regional default" (prod path); SeaweedFS in
-    // dev sets it explicitly.
-    if (!config.bundleS3Bucket) {
-        throw new Error(
-            'AGENT_BUNDLE_S3_BUCKET must be set — the janitor cannot serve bundle endpoints without storage.'
-        )
-    }
+    // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
+    // dev default, fails closed at config-load in prod). Endpoint is optional:
+    // unset means "use the AWS SDK's regional default" (prod path); SeaweedFS
+    // in dev sets it explicitly.
     const bundleS3 = new S3Client({
         endpoint: config.bundleS3Endpoint,
         region: config.bundleS3Region,
@@ -114,13 +108,8 @@ async function main(): Promise<void> {
         },
     }
     // S3-backed memory store. Required everywhere — no optional fallback that
-    // returns 503. Dev wires SeaweedFS via `hogli start` and the platform
-    // config dev defaults; prod must set bucket + endpoint explicitly.
-    if (!config.memoryS3Bucket || !config.memoryS3Endpoint) {
-        throw new Error(
-            'AGENT_MEMORY_S3_BUCKET and AGENT_MEMORY_S3_ENDPOINT must both be set — janitor refuses to start without memory storage. Dev: SeaweedFS via `hogli start`. Prod: real S3 / equivalent.'
-        )
-    }
+    // returns 503. Bucket + endpoint are enforced in config (dev defaults via
+    // SeaweedFS / `hogli start`; fail closed at config-load in prod).
     const memoryS3 = new S3Client({
         endpoint: config.memoryS3Endpoint,
         region: config.memoryS3Region,
