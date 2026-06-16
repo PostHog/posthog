@@ -4,6 +4,8 @@ from pydantic import BaseModel
 
 from posthog.sync import database_sync_to_async
 
+from products.actions.backend.models.action import Action
+
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -18,9 +20,19 @@ from .core import (
     create_action,
     delete_action,
     get_action,
+    get_action_object,
     list_actions,
     update_action,
 )
+
+
+async def _fetch_action(tool: MaxTool, action_id: int) -> Action:
+    """Fetch an action for a tool's team, mapping a missing action to a retryable error."""
+    try:
+        return await database_sync_to_async(get_action_object)(tool._team, action_id)
+    except ActionToolError as e:
+        raise MaxToolRetryableError(str(e))
+
 
 LIST_ACTIONS_DESCRIPTION = """
 List the project's actions (reusable event definitions used in insights and funnels).
@@ -70,11 +82,9 @@ class GetActionTool(MaxTool):
         return [("action", "viewer")]
 
     async def _arun_impl(self, action_id: int) -> tuple[str, None]:
-        try:
-            result = await database_sync_to_async(get_action)(self._team, action_id)
-        except ActionToolError as e:
-            raise MaxToolRetryableError(str(e))
-        return result, None
+        action = await _fetch_action(self, action_id)
+        await self.check_object_access(action, "viewer", action="read")
+        return await database_sync_to_async(get_action)(self._team, action_id), None
 
 
 class CreateActionTool(MaxTool):
@@ -110,6 +120,8 @@ class UpdateActionTool(MaxTool):
         description: Optional[str] = None,
         steps: Optional[list[ActionStepInput]] = None,
     ) -> tuple[str, None]:
+        action = await _fetch_action(self, action_id)
+        await self.check_object_access(action, "editor", action="edit")
         try:
             result = await database_sync_to_async(update_action)(
                 self._team, self._user, action_id, name, description, steps
@@ -131,13 +143,14 @@ class DeleteActionTool(MaxTool):
         return True
 
     async def format_dangerous_operation_preview(self, action_id: int) -> str:
-        try:
-            current = await database_sync_to_async(get_action)(self._team, action_id)
-        except ActionToolError:
-            return f"Delete action #{action_id}"
+        action = await _fetch_action(self, action_id)
+        await self.check_object_access(action, "editor", action="delete")
+        current = await database_sync_to_async(get_action)(self._team, action_id)
         return f"Delete this action — it will be removed from any insights and funnels that use it:\n{current}"
 
     async def _arun_impl(self, action_id: int) -> tuple[str, None]:
+        action = await _fetch_action(self, action_id)
+        await self.check_object_access(action, "editor", action="delete")
         try:
             result = await database_sync_to_async(delete_action)(self._team, self._user, action_id)
         except ActionToolError as e:

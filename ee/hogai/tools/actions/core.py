@@ -149,7 +149,9 @@ def list_actions(team: Team, search: Optional[str], limit: Optional[int], offset
     actions = list(qs[start : start + capped_limit])
 
     if not actions:
-        return f"No actions found (project has {total} action(s) matching the filter)."
+        if total == 0:
+            return "No actions found matching the filter."
+        return f"No actions at offset {start} (project has {total} matching the filter) — try a lower offset."
 
     header = f"Showing {len(actions)} of {total} action(s)"
     if start:
@@ -163,7 +165,7 @@ def list_actions(team: Team, search: Optional[str], limit: Optional[int], offset
     return f"{header}:\n{body}{footer}"
 
 
-def _get_action_or_raise(team: Team, action_id: int) -> Action:
+def get_action_object(team: Team, action_id: int) -> Action:
     try:
         return Action.objects.get(team=team, pk=action_id, deleted=False)
     except Action.DoesNotExist:
@@ -171,7 +173,7 @@ def _get_action_or_raise(team: Team, action_id: int) -> Action:
 
 
 def get_action(team: Team, action_id: int) -> str:
-    return _format_action(_get_action_or_raise(team, action_id), detailed=True)
+    return _format_action(get_action_object(team, action_id), detailed=True)
 
 
 def _check_name_available(team: Team, name: str, *, exclude_id: Optional[int] = None) -> None:
@@ -205,7 +207,9 @@ def update_action(
     description: Optional[str],
     steps: Optional[list[ActionStepInput]],
 ) -> str:
-    action = _get_action_or_raise(team, action_id)
+    action = get_action_object(team, action_id)
+    if name is None and description is None and steps is None:
+        return f"Nothing to update — action #{action.id} left unchanged:\n{_format_action(action, detailed=True)}"
     if name is not None:
         _check_name_available(team, name, exclude_id=action.pk)
         action.name = name
@@ -219,7 +223,7 @@ def update_action(
 
 
 def delete_action(team: Team, user: User, action_id: int) -> str:
-    action = _get_action_or_raise(team, action_id)
+    action = get_action_object(team, action_id)
     action.deleted = True
     with _acting_user(user):
         action.save()

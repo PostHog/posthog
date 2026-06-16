@@ -9,7 +9,7 @@ from posthog.models import Project, Team
 from products.actions.backend.models.action import Action
 
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.actions.core import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT, ActionStepInput
+from ee.hogai.tools.actions.core import MAX_LIST_LIMIT, ActionStepInput
 from ee.hogai.tools.actions.tool import (
     CreateActionTool,
     DeleteActionTool,
@@ -72,10 +72,17 @@ class TestActionTools(NonAtomicBaseTest):
         self.assertIn("Signup", page2)
 
     async def test_list_limit_is_hard_capped(self):
+        # Seed beyond the cap (setUp already created 4) and confirm a huge limit still clamps.
+        await Action.objects.abulk_create(
+            [Action(team=self.team, name=f"Bulk {i:04d}", created_by=self.user) for i in range(MAX_LIST_LIMIT + 5)]
+        )
         content, _ = await self._list_tool()._arun_impl(limit=10_000)
-        # All 4 fit under the cap; the point is no error and the cap exists.
-        self.assertIn("Showing 4 of 4", content)
-        self.assertLessEqual(DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT)
+        self.assertIn(f"Showing {MAX_LIST_LIMIT} of {MAX_LIST_LIMIT + 9}", content)
+
+    async def test_list_offset_beyond_total_explains_offset(self):
+        content, _ = await self._list_tool()._arun_impl(offset=100)
+        self.assertIn("offset 100", content)
+        self.assertIn("lower offset", content)
 
     async def test_create_action_with_step(self):
         content, _ = await CreateActionTool(team=self.team, user=self.user)._arun_impl(
@@ -127,6 +134,11 @@ class TestActionTools(NonAtomicBaseTest):
         assert refreshed.steps_json is not None
         self.assertEqual(len(refreshed.steps_json), 1)
         self.assertEqual(refreshed.steps_json[0]["event"], "signed_up")
+
+    async def test_update_with_no_changes_is_noop(self):
+        action = await Action.objects.aget(team=self.team, name="Signup")
+        content, _ = await UpdateActionTool(team=self.team, user=self.user)._arun_impl(action_id=action.id)
+        self.assertIn("Nothing to update", content)
 
     async def test_update_to_duplicate_name_is_rejected(self):
         action = await Action.objects.aget(team=self.team, name="Signup")
