@@ -29,7 +29,10 @@ from posthog.hogql.transforms.preaggregated_table_transformation import is_integ
 
 from posthog.models.team import Team
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    LAZY_TTL_SECONDS,  # noqa: F401 — re-exported; several runners import it from this module
+    is_precompute_enabled_for_team,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -59,24 +62,6 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
     "Requests served from the lazy precompute path, by family.",
     ["family"],
 )
-
-# Bucketing the precompute hourly keeps reads correct for any whole-hour-offset
-# timezone — boundaries line up exactly when the team-local window is converted
-# to UTC before filtering on `time_window_start`. Half-hour-offset timezones
-# (IST, Newfoundland, Nepal, etc.) are explicitly gated out below.
-LAZY_TTL_SECONDS: dict[str, int] = {
-    # Kept in sync with web_lazy_precompute_common.LAZY_TTL_SECONDS — see there
-    # for the rationale (freshness vs the ~6h result cache, plus per-week job
-    # splitting via distinct TTLs so a 31-day warm doesn't merge into one job).
-    "0d": 2 * 60 * 60,  # today
-    "1d": 60 * 60,  # yesterday
-    "7d": 24 * 60 * 60,  # days 2–7   → one ~6d job
-    "14d": 2 * 24 * 60 * 60,  # days 8–14  → one 7d job
-    "21d": 4 * 24 * 60 * 60,  # days 15–21 → one 7d job
-    "28d": 7 * 24 * 60 * 60,  # days 22–28 → one 7d job
-    "35d": 10 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
-    "default": 14 * 24 * 60 * 60,  # days 36+
-}
 
 # Today the gate accepts: empty user filters, or a single EventPropertyFilter
 # on `$host` with operator `exact`. Test-account filters are always allowed
