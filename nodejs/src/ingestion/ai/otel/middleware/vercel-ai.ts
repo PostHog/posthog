@@ -18,6 +18,8 @@ const STRIP_KEYS = [
     'ai.usage.promptTokens',
     'ai.usage.completionTokens',
     'ai.usage.tokens',
+    'ai.usage.inputTokenDetails.noCacheTokens',
+    'ai.usage.outputTokenDetails.textTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -48,6 +50,7 @@ const STRIP_KEYS = [
 // Metadata properties to promote to event properties
 const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+const GEMINI_REASONING_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
 
 function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
@@ -55,6 +58,21 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
+function numericValue(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value
+    }
+    if (typeof value === 'string') {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+}
+
+function isGeminiReasoningModel(value: unknown): boolean {
+    return typeof value === 'string' && GEMINI_REASONING_MODELS.some((candidate) => candidate.test(value.toLowerCase()))
 }
 
 function process(event: PluginEvent, next: () => void): void {
@@ -65,6 +83,15 @@ function process(event: PluginEvent, next: () => void): void {
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']
+    const hasAiSdkV7CacheUsage =
+        props['gen_ai.usage.cache_read.input_tokens'] !== undefined ||
+        props['gen_ai.usage.cache_creation.input_tokens'] !== undefined ||
+        props['ai.usage.inputTokenDetails.noCacheTokens'] !== undefined
+    const hasAiSdkV7ReasoningDetails = props['ai.usage.outputTokenDetails.reasoningTokens'] !== undefined
+
+    if (props['$ai_cache_reporting_exclusive'] === undefined && hasAiSdkV7CacheUsage) {
+        props['$ai_cache_reporting_exclusive'] = false
+    }
 
     // Map ai.prompt.messages → gen_ai.input.messages before the standard mapping
     // runs, so mapOtelAttributes() picks it up as $ai_input. Provider-level spans
@@ -207,6 +234,19 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['gen_ai.response.finish_reasons']
 
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
+    props['$ai_framework'] ??= 'vercel'
+
+    if (
+        hasAiSdkV7ReasoningDetails &&
+        props['$ai_text_output_tokens'] === undefined &&
+        isGeminiReasoningModel(props['$ai_model'])
+    ) {
+        const outputTokens = numericValue(props['$ai_output_tokens'])
+        const reasoningTokens = numericValue(props['$ai_reasoning_tokens'])
+        if (outputTokens !== null && reasoningTokens !== null) {
+            props['$ai_text_output_tokens'] = Math.max(0, outputTokens - reasoningTokens)
+        }
+    }
 
     for (const key of STRIP_KEYS) {
         delete props[key]

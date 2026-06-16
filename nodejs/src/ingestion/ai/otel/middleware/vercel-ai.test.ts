@@ -21,6 +21,16 @@ const mockedMapOtelAttributes = jest.mocked(mapOtelAttributes)
  */
 function mockMapOtelAttributes(e: { event: string; properties?: Record<string, unknown> }): void {
     const props = e.properties ?? {}
+    const mappings: Record<string, string> = {
+        'gen_ai.usage.input_tokens': '$ai_input_tokens',
+        'gen_ai.usage.output_tokens': '$ai_output_tokens',
+        'gen_ai.usage.cache_read.input_tokens': '$ai_cache_read_input_tokens',
+        'gen_ai.usage.cache_creation.input_tokens': '$ai_cache_creation_input_tokens',
+        'ai.usage.outputTokenDetails.textTokens': '$ai_text_output_tokens',
+        'ai.usage.outputTokenDetails.reasoningTokens': '$ai_reasoning_tokens',
+        'gen_ai.response.model': '$ai_model',
+        'gen_ai.provider.name': '$ai_provider',
+    }
     if (props['gen_ai.input.messages'] !== undefined) {
         const val = props['gen_ai.input.messages']
         props['$ai_input'] = typeof val === 'string' ? parseJSON(val) : val
@@ -30,6 +40,12 @@ function mockMapOtelAttributes(e: { event: string; properties?: Record<string, u
         const val = props['gen_ai.output.messages']
         props['$ai_output_choices'] = typeof val === 'string' ? parseJSON(val) : val
         delete props['gen_ai.output.messages']
+    }
+    for (const [otelKey, phKey] of Object.entries(mappings)) {
+        if (props[otelKey] !== undefined) {
+            props[phKey] = props[otelKey]
+            delete props[otelKey]
+        }
     }
     if (e.event === '$ai_span' && !props['$ai_parent_id']) {
         e.event = '$ai_trace'
@@ -117,6 +133,90 @@ describe('vercel-ai middleware', () => {
 
             expect(event.properties!['gen_ai.response.finish_reasons']).toBeUndefined()
             expect(event.properties!['$ai_stop_reason']).toBe('length')
+        })
+
+        it('normalizes AI SDK v7 detailed usage without relying on global cache semantics', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.streamText.doStream',
+                'gen_ai.provider.name': 'gateway',
+                'gen_ai.response.model': 'gemini-2.5-pro',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 20,
+                'gen_ai.usage.cache_read.input_tokens': 80,
+                'gen_ai.usage.cache_creation.input_tokens': 10,
+                'ai.usage.inputTokenDetails.noCacheTokens': 10,
+                'ai.usage.outputTokenDetails.textTokens': 15,
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_provider']).toBe('gateway')
+            expect(event.properties!['$ai_model']).toBe('gemini-2.5-pro')
+            expect(event.properties!['$ai_input_tokens']).toBe(100)
+            expect(event.properties!['$ai_output_tokens']).toBe(20)
+            expect(event.properties!['$ai_cache_read_input_tokens']).toBe(80)
+            expect(event.properties!['$ai_cache_creation_input_tokens']).toBe(10)
+            expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(false)
+            expect(event.properties!['$ai_framework']).toBe('vercel')
+            expect(event.properties!['$ai_text_output_tokens']).toBe(15)
+            expect(event.properties!['ai.usage.inputTokenDetails.noCacheTokens']).toBeUndefined()
+            expect(event.properties!['ai.usage.outputTokenDetails.textTokens']).toBeUndefined()
+        })
+
+        it('preserves explicit cache reporting semantics on AI SDK v7 spans', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.usage.cache_read.input_tokens': 80,
+                $ai_cache_reporting_exclusive: true,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(true)
+            expect(event.properties!['$ai_framework']).toBe('vercel')
+        })
+
+        it('does not add AI SDK v7 cache semantics when detailed cache usage is absent', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.usage.input_tokens': 100,
+                'gen_ai.usage.output_tokens': 20,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input_tokens']).toBe(100)
+            expect(event.properties!['$ai_output_tokens']).toBe(20)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBeUndefined()
+            expect(event.properties!['$ai_framework']).toBe('vercel')
+        })
+
+        it('preserves explicit text output tokens when AI SDK v7 reasoning details are present', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.streamText.doStream',
+                'gen_ai.response.model': 'gemini-2.5-pro',
+                'gen_ai.usage.output_tokens': 20,
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+                $ai_text_output_tokens: 99,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_tokens']).toBe(20)
+            expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
+            expect(event.properties!['$ai_text_output_tokens']).toBe(99)
+        })
+
+        it('derives Gemini text output tokens when AI SDK v7 omits text token details', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.streamText.doStream',
+                'gen_ai.response.model': 'gemini-2.5-pro',
+                'gen_ai.usage.output_tokens': 20,
+                'ai.usage.outputTokenDetails.reasoningTokens': 5,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_output_tokens']).toBe(20)
+            expect(event.properties!['$ai_reasoning_tokens']).toBe(5)
+            expect(event.properties!['$ai_text_output_tokens']).toBe(15)
         })
 
         it('leaves $ai_stop_reason undefined when no finish reason is present', () => {
@@ -284,6 +384,7 @@ describe('vercel-ai middleware', () => {
             const event = createEvent(eventType, { 'ai.operationId': 'ai.generateText.doGenerate' })
             convertOtelEvent(event)
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
+            expect(event.properties!['$ai_framework']).toBe('vercel')
         })
     })
 })
