@@ -1549,6 +1549,32 @@ describe('dashboardLogic', () => {
             const { container } = render(toastContent)
             expect(container.textContent).toBe('Text card has been removed from the dashboard')
         })
+
+        it('removes the tile from state optimistically before the API call resolves', () => {
+            expect(logic.values.textTiles).toHaveLength(1)
+
+            // Dispatch without awaiting listeners — the reducer drops the tile synchronously.
+            logic.actions.removeTile(TEXT_TILE)
+
+            expect(logic.values.textTiles).toEqual([])
+        })
+
+        it('restores the tile and suppresses the undo toast when the API call fails', async () => {
+            const updateSpy = jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('boom'))
+            const lemonToastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            }).toFinishAllListeners()
+
+            // Tile is back in place, the error toast fired, and no undo toast was shown.
+            expect(logic.values.textTiles).toHaveLength(1)
+            expect(lemonToastErrorSpy).toHaveBeenCalled()
+            expect(lemonToastInfoSpy).not.toHaveBeenCalled()
+
+            updateSpy.mockRestore()
+            lemonToastErrorSpy.mockRestore()
+        })
     })
 
     describe('widget tiles', () => {

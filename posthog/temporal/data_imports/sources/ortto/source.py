@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -42,6 +43,7 @@ class OrttoSource(ResumableSource[OrttoSourceConfig, OrttoResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ORTTO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Ortto",
             caption="""Connect your Ortto account to pull your marketing data into the PostHog Data warehouse.
 
