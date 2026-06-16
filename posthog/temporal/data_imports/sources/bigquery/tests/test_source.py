@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     _resolve_project_id,
     _resolve_query_project,
     _resolve_region,
+    bigquery_storage_read_client,
     delete_all_temp_destination_tables,
     validate_bigquery_credentials,
 )
@@ -456,3 +457,36 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
     assert mock_delete_all.call_args.kwargs["project_id"] == "524098457564"
     assert mock_delete_all.call_args.kwargs["dataset_id"] == "bigquery_aloalo"
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
+
+
+def test_bigquery_storage_read_client_lifts_grpc_message_size_limit():
+    """Storage Read API ARROW pages exceed gRPC's default 4 MiB receive limit.
+
+    Because we pass a pre-built `channel=` to the transport, the transport's own
+    unlimited-message-size defaults are skipped, so the channel we build must set
+    them itself — otherwise reads blow up with `ResourceExhausted: Received
+    message larger than max`.
+    """
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.service_account.Credentials.from_service_account_info",
+            return_value=mock.MagicMock(),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.BigQueryReadGrpcTransport"
+        ) as mock_transport,
+        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.make_tracked_channel"),
+        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_storage.BigQueryReadClient"),
+    ):
+        with bigquery_storage_read_client(
+            project_id="project-id",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ):
+            pass
+
+    options = dict(mock_transport.create_channel.call_args.kwargs["options"])
+    assert options["grpc.max_receive_message_length"] == -1
+    assert options["grpc.max_send_message_length"] == -1

@@ -65,6 +65,17 @@ __all__ = [
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 
+# gRPC channel options for the Storage Read API. A single ARROW page from the
+# Storage Read API routinely exceeds gRPC's default 4 MiB receive limit, which
+# surfaces as `ResourceExhausted: Received message larger than max`. The default
+# `BigQueryReadGrpcTransport` sets these to -1 (unlimited) when it builds its own
+# channel — but because we pass a pre-built `channel=`, those defaults are skipped,
+# so we must replicate them on the channel we construct ourselves.
+_BIGQUERY_STORAGE_CHANNEL_OPTIONS = [
+    ("grpc.max_send_message_length", -1),
+    ("grpc.max_receive_message_length", -1),
+]
+
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
     return f"__posthog_import_{schema_id.replace('-', '_') if schema_id else ''}"
@@ -186,7 +197,9 @@ def bigquery_storage_read_client(
     # via `create_channel(credentials=...)`. This routes the Storage Read API's
     # create_read_session (unary) + read_rows (server-streaming) RPCs through our
     # logging / metrics / sample-capture pipeline.
-    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    channel = BigQueryReadGrpcTransport.create_channel(
+        host=BIGQUERY_STORAGE_HOST, credentials=credentials, options=_BIGQUERY_STORAGE_CHANNEL_OPTIONS
+    )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
     transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
