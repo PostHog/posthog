@@ -59,7 +59,7 @@ describe('oauthAuthorizeLogic', () => {
 
     it('offers the read-only toggle for wildcard requests', () => {
         logic.actions.setScopes(['*'])
-        expect(logic.values.hasWriteScopes).toBe(true)
+        expect(logic.values.showReadOnlyToggle).toBe(true)
     })
 
     it('expands the wildcard to read scopes in read-only mode', () => {

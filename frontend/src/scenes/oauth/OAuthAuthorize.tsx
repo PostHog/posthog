@@ -127,7 +127,7 @@ export const OAuthAuthorize = (): JSX.Element => {
     const {
         scopeRows,
         identityScopeDescriptions,
-        hasWriteScopes,
+        showReadOnlyToggle,
         readOnlyMode,
         oauthApplication,
         oauthApplicationLoading,
@@ -373,7 +373,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <div className="text-sm font-semibold uppercase text-muted">Permissions</div>
-                                {hasWriteScopes && (
+                                {showReadOnlyToggle && (
                                     <LemonSegmentedButton
                                         size="small"
                                         value={readOnlyMode ? 'read' : 'full'}

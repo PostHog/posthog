@@ -461,15 +461,23 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     .map(getScopeDescription)
                     .filter(Boolean) as string[],
         ],
-        hasWriteScopes: [
-            (s) => [s.consentResourceScopes],
-            (consentResourceScopes: string[]): boolean =>
-                consentResourceScopes.some((scope) => scope.endsWith(':write') || scope === '*'),
-        ],
         requiredScopeLevels: [
             (s) => [s.oauthApplication],
             (oauthApplication: OAuthApplicationPublicMetadata | null): Map<string, RequiredLevel> =>
                 requiredLevelsFromScopes(oauthApplication?.required_scopes ?? []),
+        ],
+        // Only surface the read-only toggle when at least one write scope is declinable
+        // (not required at write level). When every write scope is required, switching to
+        // read-only would change nothing, so the toggle is a confusing no-op.
+        showReadOnlyToggle: [
+            (s) => [s.consentResourceScopes, s.requiredScopeLevels],
+            (consentResourceScopes: string[], requiredScopeLevels: Map<string, RequiredLevel>): boolean =>
+                consentResourceScopes.some((scope) => {
+                    if (!scope.endsWith(':write') && scope !== '*') {
+                        return false
+                    }
+                    return requiredScopeLevels.get(scopeObjectKey(scope)) !== 'write'
+                }),
         ],
         // Requested plus required resource scopes, collapsed to the highest action per
         // object. Both the rows and the grant derive from this one set, so the consent

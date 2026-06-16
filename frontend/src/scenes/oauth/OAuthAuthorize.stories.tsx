@@ -75,6 +75,37 @@ export const DefaultScopes: Story = {
 export const WithScopes: Story = {
     render: () => {
         useDelayedOnMountEffect(() => {
+            const appContext = (window as any).POSTHOG_APP_CONTEXT
+            appContext.oauth_application = {
+                ...appContext.oauth_application,
+                // Explicit request: every requested scope is required, so all rows
+                // render locked and the read-only toggle is hidden (it would be a no-op).
+                required_scopes: ['experiment:read', 'experiment:write', 'query:read', 'feature_flag:write'],
+            }
+            const params = new URLSearchParams({
+                client_id: 'test-client-id',
+                redirect_uri: 'https://app.example.com/oauth/callback',
+                response_type: 'code',
+                state: 'test-state',
+                scope: 'experiment:read experiment:write query:read feature_flag:write',
+            })
+            router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
+        })
+
+        return <App />
+    },
+}
+
+export const BroadFreePick: Story = {
+    render: () => {
+        useDelayedOnMountEffect(() => {
+            const appContext = (window as any).POSTHOG_APP_CONTEXT
+            appContext.oauth_application = {
+                ...appContext.oauth_application,
+                // Broad/deferred request (empty ceiling): nothing is required, so every
+                // row is deselectable and the read-only toggle is offered. This is the MCP case.
+                required_scopes: [],
+            }
             const params = new URLSearchParams({
                 client_id: 'test-client-id',
                 redirect_uri: 'https://app.example.com/oauth/callback',
