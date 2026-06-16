@@ -164,6 +164,7 @@ dependencies = [
     "opentelemetry-instrumentation-aiokafka==0.54b1",
     "opentelemetry-instrumentation-aiohttp-client==0.54b1",
     "opentelemetry-instrumentation-asgi==0.54b1",
+    "opentelemetry-instrumentation-celery==0.54b1",
     "opentelemetry-instrumentation-django==0.54b1",
     "opentelemetry-instrumentation-kafka-python==0.54b1",
     "opentelemetry-instrumentation-psycopg==0.54b1",
@@ -279,6 +280,9 @@ dev = [
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.8.0",
+]
+hogql-parser-parity = [
+    "shrinkray==26.4.14.0",
 ]
 
 [tool.uv]
