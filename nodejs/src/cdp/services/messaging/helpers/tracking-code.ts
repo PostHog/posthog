@@ -4,7 +4,7 @@ import { Counter } from 'prom-client'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
 import { defaultConfig } from '~/config/config'
 
-// Custom MIME header carrying the full tracking code (including distinct_id, HMAC-signed).
+// Custom MIME header carrying the full tracking code (including distinct_id + isTest, HMAC-signed).
 // Used in place of the SES `EmailTags` carrier because tag values are capped at 256 chars,
 // which a long distinct_id plus the signature blows past. Header values have no such limit.
 export const TRACKING_CODE_HEADER_NAME = 'X-PostHog-Tracking-Code'
@@ -80,6 +80,7 @@ export type ParsedTrackingCode = {
     teamId: string
     actionId?: string
     parentRunId?: string
+    isTest: boolean
     distinctId?: string
     format: TrackingCodeFormat
 }
@@ -106,11 +107,11 @@ export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrack
 
     try {
         const decoded = fromBase64UrlSafe(payloadB64)
-        // Older codes may have fewer segments; missing segments resolve to undefined.
-        // distinctId is the trailing segment and may itself contain colons, so anything
-        // past the 5th segment is rejoined.
-        const segments = decoded.split(':')
-        const [functionId, invocationId, teamId, actionId, parentRunId, ...distinctIdParts] = segments
+        // Segments: functionId:invocationId:teamId:actionId:parentRunId:isTest:distinctId
+        // isTest is a fixed single segment; distinctId is the trailing segment and may itself
+        // contain colons, so anything past the 6th segment is rejoined. Older codes with fewer
+        // segments resolve their missing trailing fields to undefined / isTest=false.
+        const [functionId, invocationId, teamId, actionId, parentRunId, isTest, ...distinctIdParts] = decoded.split(':')
         if (!functionId || !invocationId) {
             return null
         }
@@ -121,6 +122,7 @@ export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrack
             teamId,
             actionId: actionId || undefined,
             parentRunId: parentRunId || undefined,
+            isTest: isTest === '1',
             distinctId: distinctId || undefined,
             format,
         }
@@ -129,16 +131,19 @@ export const parseEmailTrackingCode = (encodedTrackingCode: string): ParsedTrack
     }
 }
 
-// Full tracking code: all fields including distinct_id, HMAC-signed when a signing key is
-// configured. This rides in the custom MIME header and the pixel/link URLs — carriers with
-// no length cap — so a long distinct_id plus the signature is fine. The signature lets the
-// public tracking endpoint reject forged `ph_id` values.
-export const generateEmailTrackingCode = (invocation: TrackingInvocation): string => {
+// Full tracking code: all fields (including distinct_id + isTest), HMAC-signed when a signing key is
+// configured. This rides in the custom MIME header and the pixel/link URLs — carriers with no length
+// cap — so a long distinct_id plus the signature is fine. The signature lets the public tracking
+// endpoint reject forged `ph_id` values.
+export const generateEmailTrackingCode = (invocation: TrackingInvocation, isTest = false): string => {
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
     const distinctId = invocation.distinctId ?? ''
+    // Segments: functionId:invocationId:teamId:actionId:parentRunId:isTest:distinctId.
+    // isTest ('1' for "Run test" sends) lets the webhook skip their metrics; distinctId attributes
+    // engagement events. distinctId is last because it may contain colons.
     const payload = toBase64UrlSafe(
-        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${distinctId}`
+        `${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}:${isTest ? '1' : ''}:${distinctId}`
     )
     const keys = getSigningKeys()
     if (keys.length === 0) {
@@ -148,10 +153,10 @@ export const generateEmailTrackingCode = (invocation: TrackingInvocation): strin
     return `${payload}.${signPayload(payload, keys[0])}`
 }
 
-// Bounded version of the tracking code: omits distinct_id and is never signed, so the value
-// stays short and within the SES `EmailTags` 256-char cap regardless of distinct_id length.
-// Used purely as a backwards-compat carrier in the SES tag; the authoritative, signed code
-// (with distinct_id) rides in the header (see TRACKING_CODE_HEADER_NAME). Do NOT sign this —
+// Bounded version of the tracking code: omits distinct_id and isTest and is never signed, so the
+// value stays short and within the SES `EmailTags` 256-char cap regardless of distinct_id length.
+// Used purely as a backwards-compat carrier in the SES tag; the authoritative signed code (with
+// distinct_id + isTest) rides in the header (see TRACKING_CODE_HEADER_NAME). Do NOT sign this —
 // the tag arrives via the SNS webhook, which is already integrity-protected by SNS signing.
 export const generateShortEmailTrackingCode = (invocation: TrackingInvocation): string => {
     const actionId = invocation.state?.actionId ?? ''
@@ -159,6 +164,6 @@ export const generateShortEmailTrackingCode = (invocation: TrackingInvocation): 
     return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`)
 }
 
-export const generateEmailTrackingPixelUrl = (invocation: TrackingInvocation): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?ph_id=${generateEmailTrackingCode(invocation)}`
+export const generateEmailTrackingPixelUrl = (invocation: TrackingInvocation, isTest = false): string => {
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/pixel?ph_id=${generateEmailTrackingCode(invocation, isTest)}`
 }

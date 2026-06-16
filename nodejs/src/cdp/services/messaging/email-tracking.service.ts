@@ -69,9 +69,10 @@ export const generateTrackingRedirectUrl = (
         state?: { actionId?: string }
         distinctId?: string
     },
-    targetUrl: string
+    targetUrl: string,
+    isTest = false
 ): string => {
-    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation)}&target=${encodeURIComponent(targetUrl)}`
+    return `${defaultConfig.CDP_EMAIL_TRACKING_URL}/public/m/redirect?ph_id=${generateEmailTrackingCode(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
 }
 
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
@@ -92,10 +93,14 @@ export const decodeHtmlEntitiesInHref = (value: string): string => {
     })
 }
 
-export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocationHogFunction): string => {
+export const addTrackingToEmail = (
+    html: string,
+    invocation: CyclotronJobInvocationHogFunction,
+    isTest = false
+): string => {
     const distinctId = resolveEmailEngagementDistinctId(invocation)
     const trackingInvocation = { ...invocation, distinctId }
-    const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation)
+    const trackingUrl = generateEmailTrackingPixelUrl(trackingInvocation, isTest)
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const href = decodeHtmlEntitiesInHref(d || s || u || '')
@@ -104,7 +109,7 @@ export const addTrackingToEmail = (html: string, invocation: CyclotronJobInvocat
         if (/^\s*javascript:/i.test(href)) {
             return m
         }
-        const tracked = generateTrackingRedirectUrl(trackingInvocation, href)
+        const tracked = generateTrackingRedirectUrl(trackingInvocation, href, isTest)
 
         // replace just the href in the original tag to preserve other attributes
         return m.replace(/\bhref\s*=\s*(?:"[^"]*"|'[^']*'|[^'">\s]+)/i, `href="${tracked}"`)

@@ -292,6 +292,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         addWidgetTileFinished: true,
+        /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
+        requestScrollToBottom: true,
         /** Update a single refresh status. */
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         /** Update multiple refresh statuses. */
@@ -560,6 +562,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 removeTile: async ({ tile }) => {
+                    // The reducer drops the tile optimistically; here we only persist and roll back on failure.
                     try {
                         await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
@@ -569,13 +572,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId: props.id,
                         })
 
-                        return {
-                            ...values.dashboard,
-                            tiles: values.tiles.filter((t) => t.id !== tile.id),
-                        } as DashboardType<QueryBasedInsightModel>
+                        return values.dashboard
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
-                        return values.dashboard
+                        // Re-insert the tile (its layout puts it back in place) and suppress the undo toast.
+                        cache.removedTileForUndo = undefined
+                        return {
+                            ...values.dashboard,
+                            tiles: [...(values.tiles || []), tile],
+                        } as DashboardType<QueryBasedInsightModel>
                     }
                 },
                 setDashboardMode: async ({ mode, source }) => {
@@ -876,6 +881,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return {
                         ...state,
                         tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
+                    } as DashboardType<QueryBasedInsightModel>
+                },
+                removeTile: (state, { tile }) => {
+                    // Optimistically drop the tile so the grid reflows immediately; the loader rolls back on failure.
+                    return {
+                        ...state,
+                        tiles: state?.tiles?.filter((t) => t.id !== tile.id),
                     } as DashboardType<QueryBasedInsightModel>
                 },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
@@ -1308,6 +1320,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 addWidgetTiles: () => true,
                 addWidgetTileFinished: () => false,
+            },
+        ],
+        // Incremented on each scroll-to-bottom request; the view effects on the change.
+        scrollToBottomSignal: [
+            0,
+            {
+                requestScrollToBottom: (state) => state + 1,
             },
         ],
         addWidgetModalOpen: [
@@ -2567,6 +2586,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<InsightModel>)
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
+
+                        // New tiles are stacked at the bottom (backend), so ask the view to scroll
+                        // down once they've rendered to reveal what was just added.
+                        actions.requestScrollToBottom()
                     }
                 }
 

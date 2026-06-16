@@ -428,6 +428,14 @@ class SignalReportViewSet(
     # so it is never a valid filter target.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
 
+    # Actions allowed to resolve a suppressed report by ID even without an explicit
+    # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
+    # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
+    # loads its evidence. Mutating-by-ID actions (delete, reingest) are deliberately
+    # NOT here, so a suppressed report stays unreachable for those and keeps returning
+    # 404 — matching the existing contract.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "retrieve", "signals"})
+
     def _apply_signal_report_status_filter(self, queryset):
         status_filter = self.request.query_params.get("status")
         if status_filter:
@@ -441,10 +449,12 @@ class SignalReportViewSet(
                     }
                 )
             return queryset.filter(status__in=statuses)
-        # The `state` action reopens dismissed reports, so it must be able to reach a suppressed
-        # report by ID — otherwise transitioning one back to "potential" would 404. Everywhere
-        # else suppressed reports stay hidden unless an explicit `status` filter asks for them.
-        if self.action == "state":
+        # A few read/reopen actions must be able to reach a suppressed report by ID
+        # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
+        # inbox's Dismissed-tab detail view). Everywhere else — including the list and
+        # mutating-by-ID actions like delete/reingest — suppressed reports stay hidden
+        # unless an explicit `status` filter asks for them.
+        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
 
@@ -699,6 +709,34 @@ class SignalReportViewSet(
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team}
 
+    def _enriched_report_context(self, report: SignalReport) -> dict:
+        # Detail-view parity with list(): inject the source-product and PR-url maps the
+        # SignalReportSerializer reads, so single-report responses aren't silently degraded.
+        # Both lookups are best-effort: the serializer degrades to empty values when a map
+        # is missing, so a ClickHouse/Postgres hiccup must not turn an otherwise-available
+        # report (or an already-committed state change) into a 500.
+        report_ids = [str(report.id)]
+        try:
+            source_products_map = fetch_source_products_for_reports(self.team, report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
+            source_products_map = {}
+        try:
+            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.implementation_pr_url_failed", report_id=str(report.id))
+            implementation_pr_url_map = {}
+        return {
+            **self.get_serializer_context(),
+            "source_products_map": source_products_map,
+            "implementation_pr_url_map": implementation_pr_url_map,
+        }
+
+    def retrieve(self, request, *args, **kwargs):
+        report = self.get_object()
+        serializer = self.get_serializer(report, context=self._enriched_report_context(report))
+        return Response(serializer.data)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -852,7 +890,7 @@ class SignalReportViewSet(
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
         report = self.get_object()
-        report_data = SignalReportSerializer(report).data
+        report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
@@ -933,7 +971,7 @@ class SignalReportViewSet(
                     content=json.dumps(artefact_content),
                 )
 
-        return Response(SignalReportSerializer(report, context=self.get_serializer_context()).data)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["post"], url_path="reingest", required_scopes=["task:write"])

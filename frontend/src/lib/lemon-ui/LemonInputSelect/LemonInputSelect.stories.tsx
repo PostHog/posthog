@@ -60,6 +60,25 @@ export const Default: Story = {
     },
 }
 
+// Single-select where the option keys are opaque ids (e.g. UUIDs) distinct from their labels.
+// Focusing with a value selected must still show every option — not just the selected one.
+// This is the OAuth organization picker shape, where the bug was first seen.
+export const SingleSelectWithIdKeys: Story = {
+    render: (args) => {
+        const [value, setValue] = useState<string[]>(['019cd764-55e6-0000-67dc-7f9cb756d36e'])
+        return <LemonInputSelect {...args} value={value} onChange={setValue} />
+    },
+    args: {
+        mode: 'single',
+        placeholder: 'Select an organization',
+        options: [
+            { key: '019cd764-55e6-0000-67dc-7f9cb756d36e', label: 'Testbench' },
+            { key: '4dc8564d-bd82-1065-2f40-97f7c50f67cf', label: 'PostHog Inc.' },
+            { key: '018e6669-be95-0000-a135-08054c5d99b4', label: 'Acme Corp' },
+        ],
+    },
+}
+
 export const MultipleSelect: Story = {
     args: {
         placeholder: 'Pick email addresses',

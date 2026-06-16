@@ -27,7 +27,47 @@ describe('email tracking code', () => {
                     teamId: '3',
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
+                    isTest: false,
                     distinctId: 'user@example.com',
+                    format: 'signed',
+                },
+            },
+            {
+                name: 'roundtrips the isTest flag for test sends',
+                encoded: generateEmailTrackingCode(
+                    {
+                        functionId: 'fn-1',
+                        id: 'inv-2',
+                        teamId: 3,
+                        parentRunId: 'batch-4',
+                        state: { actionId: 'act-5' },
+                        distinctId: 'user@example.com',
+                    },
+                    true
+                ),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: true,
+                    distinctId: 'user@example.com',
+                    format: 'signed',
+                },
+            },
+            {
+                // isTest sits after actionId/parentRunId, so it must survive both being empty.
+                name: 'roundtrips isTest when neither actionId nor parentRunId is supplied',
+                encoded: generateEmailTrackingCode({ functionId: 'fn-1', id: 'inv-2', teamId: 3 }, true),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: undefined,
+                    parentRunId: undefined,
+                    isTest: true,
+                    distinctId: undefined,
                     format: 'signed',
                 },
             },
@@ -45,6 +85,7 @@ describe('email tracking code', () => {
                     teamId: '7',
                     actionId: undefined,
                     parentRunId: undefined,
+                    isTest: false,
                     distinctId: '550e8400-e29b-41d4-a716-446655440000',
                     format: 'signed',
                 },
@@ -63,12 +104,13 @@ describe('email tracking code', () => {
                     teamId: '3',
                     actionId: 'act-5',
                     parentRunId: undefined,
+                    isTest: false,
                     distinctId: undefined,
                     format: 'signed',
                 },
             },
             {
-                // The short code (SES tag carrier) is never signed and omits distinctId.
+                // The short code (SES tag carrier) is never signed and omits distinctId/isTest.
                 name: 'parses the unsigned short code used for the SES tag',
                 encoded: generateShortEmailTrackingCode({
                     functionId: 'fn-1',
@@ -84,6 +126,7 @@ describe('email tracking code', () => {
                     teamId: '3',
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
+                    isTest: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
@@ -98,12 +141,13 @@ describe('email tracking code', () => {
                     teamId: '3',
                     actionId: 'act-5',
                     parentRunId: undefined,
+                    isTest: false,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
             },
             {
-                name: 'parses legacy 5-segment unsigned codes emitted before distinctId existed',
+                name: 'parses legacy 5-segment unsigned codes emitted before isTest/distinctId existed',
                 encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4'),
                 expected: {
                     functionId: 'fn-1',
@@ -111,6 +155,22 @@ describe('email tracking code', () => {
                     teamId: '3',
                     actionId: 'act-5',
                     parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
+                // Deployed master codes carry isTest at position 6 and no distinctId — must keep parsing.
+                name: 'parses legacy 6-segment codes with isTest at position 6 and no distinctId',
+                encoded: encodeRaw('fn-1:inv-2:3:act-5:batch-4:1'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: true,
                     distinctId: undefined,
                     format: 'unsigned',
                 },
