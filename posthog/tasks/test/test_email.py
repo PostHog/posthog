@@ -652,6 +652,9 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == expected_emails
         assert mock_flag.call_args.kwargs["key"] == "external-data-failure-digest-email"
         assert mock_flag.call_args.kwargs["groups"]["project"] == str(self.team.pk)
+        # group_properties must be passed so project/organization release conditions can match.
+        assert mock_flag.call_args.kwargs["group_properties"]["project"]["id"] == str(self.team.pk)
+        assert mock_flag.call_args.kwargs["group_properties"]["organization"]["id"] == str(self.team.organization_id)
 
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
