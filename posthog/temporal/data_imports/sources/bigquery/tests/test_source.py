@@ -597,7 +597,7 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     assert any(pattern in error_msg for pattern in non_retryable_errors)
 
 
-def test_bigquery_storage_read_client_raises_grpc_message_size_limit():
+def test_bigquery_storage_read_client_lifts_grpc_message_size_limit():
     """The manually-built Storage Read channel must lift gRPC's default 4 MiB receive
     limit, otherwise large `ReadRowsResponse` messages raise `ResourceExhausted`."""
     base = "posthog.temporal.data_imports.sources.bigquery.bigquery"
