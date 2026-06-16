@@ -13,8 +13,10 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
@@ -4272,6 +4274,72 @@ class TestExperimentCRUD(APILicensedTest):
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
         self.assertFalse(feature_flag.active)
         self.assertTrue(feature_flag.archived)
+
+    def test_archive_endpoint_disable_requires_feature_flag_write_scope(self):
+        def _make_experiment(name: str, key: str) -> tuple[int, int]:
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {
+                    "allow_unknown_events": True,
+                    "name": name,
+                    "feature_flag_key": key,
+                    "start_date": "2024-01-01T10:00",
+                    "end_date": "2024-01-15T10:00",
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "source": {"kind": "EventsNode", "event": "$pageview"},
+                        }
+                    ],
+                },
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+            return resp.json()["id"], resp.json()["feature_flag"]["id"]
+
+        def _pat(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        exp_deny, _ = _make_experiment("Scope Deny", "scope-deny-flag")
+        exp_no_disable, _ = _make_experiment("Scope No Disable", "scope-no-disable-flag")
+        exp_allow, flag_allow = _make_experiment("Scope Allow", "scope-allow-flag")
+
+        self.client.logout()
+
+        # experiment:write alone can't disable the linked flag — that needs feature_flag:write.
+        token = _pat(["experiment:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_deny}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+        # experiment:write alone still archives when not disabling the flag.
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_no_disable}/archive/",
+            {"disable_feature_flag": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        # With feature_flag:write, disabling the linked flag is allowed.
+        token = _pat(["experiment:write", "feature_flag:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_allow}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        flag = FeatureFlag.objects.get(id=flag_allow)
+        self.assertFalse(flag.active)
+        self.assertTrue(flag.archived)
 
     def test_archive_experiment_endpoint_not_ended(self):
         response = self.client.post(

@@ -48,7 +48,7 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, find_dependent_flags
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -1348,6 +1348,16 @@ class ExperimentService:
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."
+                )
+            # Mirror the feature flag API's check: don't disable a flag other active flags depend on.
+            dependent_flags = find_dependent_flags(feature_flag)
+            if dependent_flags:
+                names = ", ".join(f"{flag.key} (ID: {flag.id})" for flag in dependent_flags[:5])
+                if len(dependent_flags) > 5:
+                    names += f", and {len(dependent_flags) - 5} more"
+                raise ValidationError(
+                    f"Cannot disable this feature flag because other flags depend on it: {names}. "
+                    "Please update or disable the dependent flags first."
                 )
             feature_flag.active = False
         elif not can_edit:

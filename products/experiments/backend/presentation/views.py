@@ -246,6 +246,18 @@ class EnterpriseExperimentsViewSet(
             request_data=getattr(request, "data", None),
         )
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Archiving with disable_feature_flag=true also disables and archives the linked flag,
+        # which is a feature_flag write — require feature_flag:write on the token, not just
+        # experiment:write. Other actions fall back to their own scopes.
+        if self.action == "archive":
+            scopes = ["experiment:write"]
+            raw = request.data.get("disable_feature_flag", False)
+            if raw is True or (isinstance(raw, str) and raw.lower() in ("true", "1")):
+                scopes.append("feature_flag:write")
+            return scopes
+        return None
+
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation
     #
@@ -284,7 +296,9 @@ class EnterpriseExperimentsViewSet(
         request=ArchiveExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes — disabling the linked
+    # flag additionally requires feature_flag:write.
+    @action(methods=["POST"], detail=True)
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Archive an ended experiment.

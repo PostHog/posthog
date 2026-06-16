@@ -2181,6 +2181,28 @@ class TestExperimentService(APIBaseTest):
         assert flag.active is True
         assert flag.archived is False
 
+    def test_archive_experiment_denies_disabling_flag_with_dependents(self):
+        # Mirror the feature flag API: disabling a flag other active flags depend on is rejected.
+        experiment = self._create_ended_experiment(name="Has Dependents", feature_flag_key="depended-on-flag")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [{"type": "flag", "key": str(experiment.feature_flag_id), "value": "true"}]}]
+            },
+        )
+
+        with self.assertRaises(ValidationError):
+            self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
     def test_archive_experiment_skips_flag_cleanup_without_editor_access(self):
         # The implicit archive-only cleanup of an already-disabled flag is skipped (not an error)
         # when the caller can't edit the flag — the experiment still archives.
