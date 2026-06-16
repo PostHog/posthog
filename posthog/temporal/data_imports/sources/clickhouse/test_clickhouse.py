@@ -531,6 +531,10 @@ class TestClickHouseSourceNonRetryableErrors:
             # MEMORY_LIMIT_EXCEEDED (code 241) — per-query `max_memory_usage` budget
             "Code: 241. DB::Exception: Query memory limit exceeded: would use 3.73 GiB "
             "(attempt to allocate chunk of 4.60 MiB), maximum: 3.73 GiB. (MEMORY_LIMIT_EXCEEDED)",
+            # Source table no longer exists at sync time — dropped/renamed, or a materialized
+            # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
+            "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
+            "Table default.some_dropped_table not found or has no columns",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
