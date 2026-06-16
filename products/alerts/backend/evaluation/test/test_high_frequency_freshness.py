@@ -124,7 +124,7 @@ def test_hogql_extractor_forces_fresh_for_high_frequency(mock_calc, high_frequen
     mock_calc.return_value = MagicMock(result=[[5.0], [6.0]], columns=["value"])
     alert = MagicMock()
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
-    alert.config = {"type": "HogQLAlertConfig"}
+    alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
     alert.is_high_frequency_interval = high_frequency
     HogQLExtractor().extract(alert, MagicMock(), MagicMock())
     assert mock_calc.call_args.kwargs["execution_mode"] == expected_mode
