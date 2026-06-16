@@ -379,6 +379,17 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             vm_runtime=use_vm_sandbox,
         )
 
+        # Request a small slice and let the box burst up to the configured size. The decision is
+        # captured once in the context at workflow start, so it's stable across activity retries.
+        if ctx.burstable_sandbox_resources_enabled:
+            config.burstable_resources = True
+            emit_agent_log(
+                ctx.run_id,
+                "debug",
+                f"Burstable resources enabled: bursting up to {config.cpu_cores} CPU / "
+                f"{int(config.memory_gb * 1024)} MiB",
+            )
+
         # gVisor only — Modal's domain allowlist breaks vm_runtime.
         if ctx.use_modal_network_allowlist and not use_vm_sandbox and ctx.allowed_domains is not None:
             config.outbound_domain_allowlist = _to_modal_domain_allowlist(ctx.allowed_domains)

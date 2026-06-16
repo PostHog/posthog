@@ -19,6 +19,7 @@ from products.tasks.backend.services.modal_sandbox import (
     _get_modal_region,
     _get_sandbox_image_reference,
     _image_ref_cache,
+    _resource_create_kwargs,
 )
 from products.tasks.backend.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
 
@@ -738,3 +739,30 @@ class TestModalSandboxAgentServerStartupHelpers:
         command = sandbox.execute.call_args_list[0][0][0]
         assert "pkill -TERM -f agent-server" in command
         assert "pkill -KILL -f agent-server" in command
+
+
+class TestResourceCreateKwargs:
+    def test_flat_scalars_when_not_burstable(self):
+        config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16)
+
+        kwargs = _resource_create_kwargs(config)
+
+        # Not burstable -> fixed-size box: request == limit, emitted as flat scalars.
+        assert kwargs == {"cpu": 4.0, "memory": 16384}
+
+    def test_tuple_request_and_limit_when_burstable(self):
+        config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True)
+
+        kwargs = _resource_create_kwargs(config)
+
+        # Request the 0.5 CPU / 1024 MiB floor, burst up to the configured size (the limit).
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": (1024, 16384)}
+
+    def test_floor_is_clamped_to_limit_when_config_is_below_floor(self):
+        # A 1 GB / 1-core box whose configured size is at/under the floor still emits a valid
+        # (request, limit) pair — the request is clamped so it never exceeds the limit.
+        config = SandboxConfig(name="t", cpu_cores=1, memory_gb=1, burstable_resources=True)
+
+        kwargs = _resource_create_kwargs(config)
+
+        assert kwargs == {"cpu": (0.5, 1.0), "memory": (1024, 1024)}

@@ -79,6 +79,9 @@ class SandboxConfig(BaseModel):
     memory_gb: float = 16
     cpu_cores: float = 4
     disk_size_gb: float = 64
+    # When True, request a small floor and let the box burst up to `cpu_cores` / `memory_gb`
+    # (the limit); Modal bills max(request, actual). When False, request == limit (fixed size).
+    burstable_resources: bool = False
     vm_runtime: bool = False
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None
