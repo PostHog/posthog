@@ -1,4 +1,3 @@
-import json
 from typing import cast
 
 from django.conf import settings
@@ -18,6 +17,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.element.element import chain_to_elements
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_PRESENT_PATHS
+from posthog.models.event.util import parse_properties, property_paths_to_allow_list
 from posthog.utils import relative_date_parse
 
 
@@ -75,7 +76,8 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         event_source.person_id AS person_id,
                         event_source.timestamp AS timestamp,
                         event_source.event,
-                        toString(legacy_events.properties) AS properties,
+                        toJSONString(event_source.properties) AS properties,
+                        {property_paths_expr} AS property_paths,
                         event_source.distinct_id,
                         event_source.elements_chain,
                         event_source.$session_id AS session_id,
@@ -83,11 +85,11 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                             PARTITION BY event_source.person_id ORDER BY event_source.timestamp
                         ) AS prev_session_id
                     FROM events AS event_source
-                    LEFT JOIN posthog.raw_events AS legacy_events
-                    ON legacy_events.team_id = event_source.team_id AND legacy_events.uuid = event_source.uuid
                     WHERE {event_conditions}
                     ORDER BY event_source.timestamp DESC
-                    LIMIT {event_limit_with_more}""",
+                    LIMIT {event_limit_with_more}""".replace(
+                        "{property_paths_expr}", EVENTS_PROPERTIES_JSON_PRESENT_PATHS("event_source.properties")
+                    ),
                     placeholders={
                         "event_limit_with_more": ast.Constant(value=self.EVENT_LIMIT + 1),
                         "event_conditions": ast.And(exprs=event_conditions),
@@ -102,6 +104,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                         timestamp AS timestamp,
                         event,
                         properties,
+                        NULL AS property_paths,
                         distinct_id,
                         elements_chain,
                         $session_id AS session_id,
@@ -128,6 +131,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                     e.timestamp,
                     e.event,
                     e.properties,
+                    e.property_paths,
                     e.distinct_id,
                     e.elements_chain,
                     e.session_id AS formal_session_id,
@@ -175,6 +179,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             timestamp_parsed,
             event,
             properties_raw,
+            property_paths,
             distinct_id,
             elements_chain,
             formal_session_id,
@@ -192,7 +197,9 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
                     distinct_id=distinct_id,
                     event=event,
                     timestamp=timestamp_parsed.isoformat(),
-                    properties=json.loads(properties_raw),
+                    properties=parse_properties(
+                        properties_raw, allow_list=property_paths_to_allow_list(property_paths)
+                    ),
                     elements_chain=elements_chain or None,
                     elements=ElementSerializer(chain_to_elements(elements_chain), many=True).data,
                 )

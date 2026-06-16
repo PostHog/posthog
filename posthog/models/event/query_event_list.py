@@ -17,7 +17,6 @@ from posthog.models.event.sql import (
     EVENTS_PROPERTIES_JOIN,
     EVENTS_QUERY_TABLE,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
-    SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_WITH_PROPERTIES_JOIN_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
 from posthog.models.person.person import get_distinct_ids_for_subquery
@@ -150,14 +149,9 @@ def query_events_list(
         prop_filter_params = {**prop_filter_params, **params}
 
     if prop_filters != "":
-        filtered_events_sql = (
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_WITH_PROPERTIES_JOIN_SQL
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL
-        )
         return (
             insight_query_with_columns(
-                filtered_events_sql.format(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions,
                     events_table=EVENTS_QUERY_TABLE(),
                     properties_column=EVENTS_PROPERTIES_COLUMN(),

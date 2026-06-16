@@ -41,6 +41,10 @@ def _escape_clickhouse_identifier(identifier: str) -> str:
     return "`{}`".format("".join(_BACKQUOTE_ESCAPE_CHARS_MAP.get(char, char) for char in identifier))
 
 
+def _quote_clickhouse_string_literal(value: str) -> str:
+    return "'{}'".format(value.replace("\\", "\\\\").replace("'", "\\'"))
+
+
 def EVENTS_DATA_TABLE():
     return "sharded_events"
 
@@ -64,18 +68,13 @@ def EVENTS_QUERY_TABLE() -> str:
 
 
 def EVENTS_PROPERTIES_COLUMN() -> str:
-    return "legacy_events.properties AS properties" if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "properties"
+    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        return "properties"
+    return f"toJSONString(events.properties) AS properties, {EVENTS_PROPERTIES_JSON_PRESENT_PATHS('events.properties')} AS property_paths"
 
 
 def EVENTS_PROPERTIES_JOIN(events_alias: str = "events") -> str:
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return ""
-
-    legacy_events_table = f"{_escape_clickhouse_identifier(settings.CLICKHOUSE_DATABASE)}.events"
-    return (
-        f"LEFT JOIN {legacy_events_table} AS legacy_events "
-        f"ON legacy_events.team_id = {events_alias}.team_id AND legacy_events.uuid = {events_alias}.uuid"
-    )
+    return ""
 
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
@@ -161,6 +160,26 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
     "$web_vitals_LCP_value": "Nullable(String)",
     "$window_id": "String",
 }
+
+
+def EVENTS_PROPERTIES_JSON_PRESENT_PATHS(properties_expr: str) -> str:
+    explicit_paths = ", ".join(_quote_clickhouse_string_literal(path) for path in EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
+    present_typed_paths = []
+    for path, column_type in EVENTS_PROPERTIES_JSON_SUBCOLUMNS.items():
+        subcolumn = f"{properties_expr}.{_escape_clickhouse_identifier(path)}"
+        literal = _quote_clickhouse_string_literal(path)
+        if column_type.startswith("Nullable("):
+            present_typed_paths.append(f"if(isNotNull({subcolumn}), {literal}, '')")
+        else:
+            present_typed_paths.append(f"if(notEmpty({subcolumn}), {literal}, '')")
+
+    return (
+        "arrayConcat("
+        f"arrayFilter(path -> not(has([{explicit_paths}], path)), JSONAllPaths({properties_expr})), "
+        f"arrayFilter(path -> notEmpty(path), [{', '.join(present_typed_paths)}])"
+        ")"
+    )
+
 
 PERSON_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
     "$app_version": "String",
@@ -1120,35 +1139,6 @@ WHERE
 events.team_id = %(team_id)s
 {conditions}
 {filters}
-ORDER BY events.timestamp {order} {limit}
-"""
-
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_WITH_PROPERTIES_JOIN_SQL = """
-SELECT
-    events.uuid AS uuid,
-    events.event AS event,
-    {properties_column},
-    events.timestamp AS timestamp,
-    events.team_id AS team_id,
-    events.distinct_id AS distinct_id,
-    events.elements_chain AS elements_chain,
-    events.created_at AS created_at
-FROM (
-    SELECT
-        events.uuid AS uuid,
-        events.event AS event,
-        events.timestamp AS timestamp,
-        events.team_id AS team_id,
-        events.distinct_id AS distinct_id,
-        events.elements_chain AS elements_chain,
-        events.created_at AS created_at
-    FROM {events_table} AS events
-    WHERE
-    events.team_id = %(team_id)s
-    {conditions}
-    {filters}
-) AS events
-{properties_join}
 ORDER BY events.timestamp {order} {limit}
 """
 

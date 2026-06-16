@@ -335,16 +335,28 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-def parse_properties(properties: str, allow_list: Optional[set[str]] = None) -> dict:
+def property_paths_to_allow_list(property_paths: Optional[list[str]]) -> Optional[set[str]]:
+    if property_paths is None:
+        return None
+    return {path.split(".", 1)[0] for path in property_paths}
+
+
+def parse_properties(properties: str | dict[str, Any], allow_list: Optional[set[str]] = None) -> dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
-    if allow_list is None:
-        allow_list = set()
-    props = json.loads(properties or "{}", parse_constant=lambda x: None)
+    props: object = properties
+    for _ in range(2):
+        if isinstance(props, dict):
+            break
+        if not isinstance(props, str):
+            break
+        props = json.loads(props or "{}", parse_constant=lambda x: None)
+    if not isinstance(props, dict):
+        raise TypeError("Expected event properties to parse into a dictionary")
     return {
         key: value.strip('"') if isinstance(value, str) else value
         for key, value in props.items()
-        if not allow_list or key in allow_list
+        if allow_list is None or key in allow_list
     }
 
 
@@ -369,7 +381,9 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        props = parse_properties(event["properties"])
+        props = parse_properties(
+            event["properties"], allow_list=property_paths_to_allow_list(event.get("property_paths"))
+        )
         restricted = self.context.get("restricted_event_properties")
         if restricted:
             props = {k: v for k, v in props.items() if k not in restricted}

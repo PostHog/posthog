@@ -843,7 +843,9 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         if len(node.args) < 2:
             raise QueryError("JSONHas on events JSON properties requires at least one property key")
-        if not all(isinstance(arg, ast.Constant) and isinstance(arg.value, str) for arg in node.args[1:]):
+        if not all(isinstance(arg, ast.Constant) for arg in node.args[1:]):
+            return None
+        if not all(isinstance(arg.value, str) for arg in node.args[1:]):
             raise QueryError("JSONHas on events JSON properties only supports constant string property keys")
 
         keys = [cast(str, cast(ast.Constant, arg).value) for arg in node.args[1:]]

@@ -78,7 +78,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
-from posthog.hogql.database.schema.events import EventsTable, RawEventsTable
+from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
 from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
@@ -315,7 +315,6 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                 children={
                     **clone_root_tables(),
                     # Add new tables here
-                    "raw_events": TableNode(name="raw_events", table=RawEventsTable(), hidden=True),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),

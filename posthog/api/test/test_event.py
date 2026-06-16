@@ -397,18 +397,20 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop").json()
 
             keys = [resp["name"].replace(" ", "") for resp in response["results"]]
-            assert set(keys) == {
+            expected_keys = {
                 "asdf",
                 "qwerty",
                 "565",
                 "false",
                 "true",
-                '{"first_name":"Mary","last_name":"Smith"}',
                 "item1",
                 "item2",
                 "item3",
             }
-            assert len(response["results"]) == 9
+            if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                expected_keys.add('{"first_name":"Mary","last_name":"Smith"}')
+            assert set(keys) == expected_keys
+            assert len(response["results"]) == len(expected_keys)
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw").json()
             assert response["results"][0]["name"] == "qwerty"

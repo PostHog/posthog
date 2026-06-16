@@ -14,6 +14,7 @@ import datetime
 import datetime as dt
 import ipaddress
 import dataclasses
+from ast import literal_eval
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from enum import Enum
@@ -986,6 +987,29 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
     if isinstance(input, dict) or isinstance(input, list):
         return json.dumps(input, sort_keys=True)
     return str(input)
+
+
+def parse_jsonish_property_value(input: object) -> object:
+    if isinstance(input, float | int | bool | uuid.UUID | list | tuple | dict):
+        return input
+    if not isinstance(input, str):
+        return input
+
+    parsed: object = input.replace('\\"', '"')
+    for _ in range(2):
+        if not isinstance(parsed, str):
+            return parsed
+        try:
+            parsed = json.loads(parsed)
+        except (json.JSONDecodeError, TypeError):
+            if parsed.startswith(("[", "{")):
+                with suppress(ValueError, SyntaxError):
+                    return literal_eval(parsed)
+            if len(parsed) >= 2 and parsed[0] == '"' and parsed[-1] == '"':
+                parsed = parsed[1:-1]
+                continue
+            return parsed
+    return parsed
 
 
 def get_compare_period_dates(

@@ -1887,28 +1887,6 @@ class TestPrinter(BaseTest):
             "A CompareOperation cannot be used as a SELECT source",
         )
 
-    def test_posthog_raw_events_prints_legacy_events_table(self):
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
-            restricted_properties={("secret", PropertyDefinition.Type.EVENT)},
-        )
-        printed = self._select(
-            """
-            SELECT legacy_events.properties
-            FROM events
-            LEFT JOIN posthog.raw_events AS legacy_events
-            ON legacy_events.team_id = events.team_id AND legacy_events.uuid = events.uuid
-            """,
-            context=context,
-        )
-
-        self.assertIn(f"LEFT JOIN {CLICKHOUSE_DATABASE}.events AS legacy_events ON", printed)
-        self.assertIn("JSONDropKeys", printed)
-        self.assertIn("legacy_events.properties", printed)
-        self.assertNotIn("events_json AS legacy_events", printed)
-        self.assertNotIn("toJSONString", printed)
-
     def test_select_cross_join(self):
         self.assertEqual(
             self._select("select 1 from events cross join raw_groups"),

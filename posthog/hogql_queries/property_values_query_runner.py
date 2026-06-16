@@ -1,8 +1,7 @@
 import json
-import uuid
 from datetime import datetime
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import Optional, cast
 
 from django.conf import settings
 from django.utils import timezone
@@ -26,12 +25,17 @@ from posthog.caching.utils import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import PropertyDefinition
-from posthog.queries.insight import insight_sync_execute
 from posthog.queries.property_values import (
     get_event_property_values_from_aggregated_table,
     get_person_property_values_for_key,
 )
-from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
+from posthog.utils import (
+    convert_property_value,
+    flatten,
+    get_instance_region,
+    parse_jsonish_property_value,
+    relative_date_parse,
+)
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 
@@ -63,10 +67,14 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         return self._calculate_event()
 
     def _calculate_event(self) -> PropertyValuesQueryResponse:
+        if self._is_restricted_event_property_key:
+            return PropertyValuesQueryResponse(
+                results=[],
+                timings=self.timings.to_list(),
+                modifiers=self.modifiers,
+            )
         if self._use_property_values_table:
             return self._calculate_event_from_table()
-        if self._use_legacy_events_scan:
-            return self._calculate_event_from_legacy_events()
         result = execute_hogql_query(
             self._event_query(),
             team=self.team,
@@ -83,11 +91,15 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     @cached_property
-    def _use_legacy_events_scan(self) -> bool:
-        return (
-            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            and not self.query.is_column
-            and not self.query.property_key.startswith("$virt_")
+    def _is_restricted_event_property_key(self) -> bool:
+        if self.query.is_column or self.query.property_key.startswith("$virt_"):
+            return False
+        return self.query.property_key in self._restricted_event_property_names
+
+    @cached_property
+    def _restricted_event_property_names(self) -> set[str]:
+        return get_restricted_property_names(
+            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
         )
 
     @cached_property
@@ -110,76 +122,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # property resolution, which is where property access control is enforced.
         # self.user is None on the events endpoint path, which fail-closes to the
         # events scan for any key restricted for anyone on the team.
-        restricted = get_restricted_property_names(
-            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
-        )
-        return self.query.property_key not in restricted
-
-    def _calculate_event_from_legacy_events(self) -> PropertyValuesQueryResponse:
-        restricted = get_restricted_property_names(
-            team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
-        )
-        if self.query.property_key in restricted:
-            return PropertyValuesQueryResponse(
-                results=[],
-                timings=self.timings.to_list(),
-                modifiers=self.modifiers,
-            )
-
-        property_field = (
-            "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(key)s), ''), 'null'), '^\"|\"$', '')"
-        )
-        date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
-        params: dict[str, Any] = {
-            "team_id": self.team.pk,
-            "key": self.query.property_key,
-            "date_from": date_from,
-            "date_to": date_to,
-        }
-
-        event_filter = ""
-        if self.query.event_names:
-            event_conditions = []
-            for index, event_name in enumerate(self.query.event_names):
-                event_conditions.append(f"events.event = %(event_{index})s")
-                params[f"event_{index}"] = event_name
-            event_filter = f"AND ({' OR '.join(event_conditions)})"
-
-        value_filter = ""
-        order_by = ""
-        if self.query.search_value:
-            escaped = self.query.search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            value_filter = f"AND {property_field} ILIKE %(value)s"
-            params["value"] = f"%{escaped}%"
-            order_by = f"ORDER BY length({property_field}) ASC"
-
-        query = f"""
-SELECT DISTINCT {property_field} AS value
-FROM events
-WHERE and(
-    equals(events.team_id, %(team_id)s),
-    greaterOrEquals(events.timestamp, toDateTime64(%(date_from)s, 6, 'UTC')),
-    lessOrEquals(events.timestamp, toDateTime64(%(date_to)s, 6, 'UTC')),
-    isNotNull({property_field})
-)
-    {event_filter}
-    {value_filter}
-{order_by}
-LIMIT 10
-"""
-        result = insight_sync_execute(
-            query,
-            params,
-            query_type="get_property_values_with_value",
-            team_id=self.team.pk,
-        )
-        return PropertyValuesQueryResponse(
-            results=self._format_event_results(result),
-            timings=self.timings.to_list(),
-            hogql=query,
-            modifiers=self.modifiers,
-        )
+        return self.query.property_key not in self._restricted_event_property_names
 
     def _calculate_event_from_table(self) -> PropertyValuesQueryResponse:
         rows = cast(
@@ -213,12 +156,14 @@ LIMIT 10
         is_virtual = key.startswith("$virt_")
         chain: list[str | int] = [key] if (self.query.is_column or is_virtual) else ["properties", key]
         field_expr = ast.Field(chain=chain)
+        value_expr: ast.Expr = field_expr
         presence_expr: ast.Expr = field_expr
         string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
         use_native_property_subcolumn = (
             settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not self.query.is_column and not is_virtual
         )
         if use_native_property_subcolumn:
+            value_expr = ast.Call(name="toJSONString", args=[field_expr])
             presence_expr = ast.Call(name="isNotNull", args=[field_expr])
             string_expr = ast.Call(name="toString", args=[field_expr])
 
@@ -281,7 +226,7 @@ LIMIT 10
         )
 
         return ast.SelectQuery(
-            select=[field_expr],
+            select=[value_expr],
             distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
@@ -290,36 +235,21 @@ LIMIT 10
         )
 
     def _format_event_results(self, rows: list) -> list[PropertyValueItem]:
-        values: list[Any] = []
+        values: list[object] = []
         for row in rows:
-            raw = row[0]
-            if isinstance(raw, float | int | bool | uuid.UUID):
-                values.append(raw)
-            else:
-                # ClickHouse strips outer quotes from string values but leaves inner \" escapes,
-                # so '["a","b"]' comes back as [\"a\",\"b\"] — unescape before parsing.
-                cleaned = raw.replace('\\"', '"') if isinstance(raw, str) else raw
-                try:
-                    values.append(json.loads(cleaned))
-                except (json.JSONDecodeError, TypeError):
-                    values.append(cleaned)
+            values.append(parse_jsonish_property_value(row[0]))
         return self._to_property_value_items(values)
 
     def _format_table_results(self, rows: list) -> list[PropertyValueItem]:
         # Values are stored as the raw strings the aggregator coerced at fan-out, so
         # JSON-ish values (arrays, numbers, bools) parse and arrays flatten into
-        # individual entries, matching the events-scan formatting. No '\\"' unescape
-        # is needed here since the table stores clean strings.
-        values: list[Any] = []
+        # individual entries, matching the events-scan formatting.
+        values: list[object] = []
         for row in rows:
-            raw = row[0]
-            try:
-                values.append(json.loads(raw))
-            except (json.JSONDecodeError, TypeError):
-                values.append(raw)
+            values.append(parse_jsonish_property_value(row[0]))
         return self._to_property_value_items(values)
 
-    def _to_property_value_items(self, values: list[Any]) -> list[PropertyValueItem]:
+    def _to_property_value_items(self, values: list[object]) -> list[PropertyValueItem]:
         return [PropertyValueItem(name=convert_property_value(v)) for v in flatten(values)]
 
     def _format_person_results(self, rows: list) -> list[PropertyValueItem]:

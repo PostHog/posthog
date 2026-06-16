@@ -1,6 +1,5 @@
 import json
 import time
-import uuid
 import random
 import urllib
 import builtins
@@ -63,6 +62,7 @@ from posthog.utils import (
     convert_property_value,
     flatten,
     generate_short_id,
+    parse_jsonish_property_value,
     refresh_requested_by_client,
     relative_date_parse,
 )
@@ -598,9 +598,11 @@ class EventViewSet(
         # in the future.
         chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         field_expr = ast.Field(chain=chain)
+        value_expr: ast.Expr = field_expr
         presence_expr: ast.Expr = field_expr
         string_expr: ast.Expr = ast.Call(name="toString", args=[field_expr])
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not query_params.is_column:
+            value_expr = ast.Call(name="toJSONString", args=[field_expr])
             presence_expr = ast.Call(name="isNotNull", args=[field_expr])
             string_expr = ast.Call(name="toString", args=[field_expr])
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
@@ -670,7 +672,7 @@ class EventViewSet(
         )
 
         query = ast.SelectQuery(
-            select=[field_expr],
+            select=[value_expr],
             distinct=True,
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(exprs=conditions),
@@ -682,15 +684,7 @@ class EventViewSet(
 
         values: list[Any] = []
         for row in result.results:
-            if isinstance(row[0], float | int | bool | uuid.UUID):
-                values.append(row[0])
-            elif isinstance(row[0], list | tuple | dict):
-                values.append(row[0])
-            else:
-                try:
-                    values.append(json.loads(row[0]))
-                except (json.JSONDecodeError, TypeError):
-                    values.append(row[0])
+            values.append(parse_jsonish_property_value(row[0]))
 
         return self._return_with_short_cache(
             [{"name": convert_property_value(v)} for v in flatten(values)], refreshing=False
