@@ -17,10 +17,12 @@ import structlog
 import temporalio
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
     SourceFieldFileUploadConfig,
@@ -58,7 +60,11 @@ from posthog.temporal.data_imports.sources.postgres.cdc.config import (
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
 )
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection
-from posthog.temporal.data_imports.sources.postgres.postgres import get_primary_key_columns, source_requires_ssl
+from posthog.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
+    get_primary_key_columns,
+    source_requires_ssl,
+)
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
@@ -2476,6 +2482,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 tables=tables,
                 slot_name=slot_name,
                 publication_name=publication_name,
+            )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Probing a user-supplied database to validate it is expected to fail when the host,
+            # credentials, or SSH tunnel are wrong or the server drops the connection. Surface it
+            # to the wizard as a 400, but don't capture it — these are user/upstream connection
+            # problems, not bugs in our code, and capturing every one floods error tracking.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to Postgres to check prerequisites: {e}"},
             )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})

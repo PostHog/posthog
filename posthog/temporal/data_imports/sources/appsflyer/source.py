@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -48,6 +49,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APPS_FLYER,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports into the PostHog Data warehouse.
 

@@ -193,35 +193,50 @@ class TestBuildQuery:
             )
 
     @pytest.mark.parametrize(
-        "schema,table_name",
+        "schema,table_name,expected_from",
         [
-            ("dbo]; DROP TABLE foo; --", "users"),
-            ("dbo", "users]; DROP TABLE foo; --"),
-            ("dbo with space", "users"),
-            ("dbo", "users'name"),
+            # Injection payloads are neutralised by bracket-quoting (a literal `]`
+            # is doubled), so the whole payload stays inside one quoted identifier.
+            ("dbo]; DROP TABLE foo; --", "users", "FROM [dbo]]; DROP TABLE foo; --].[users]"),
+            ("dbo", "users]; DROP TABLE foo; --", "FROM [dbo].[users]]; DROP TABLE foo; --]"),
+            # Legal SQL Server names the old allowlist wrongly rejected.
+            ("dbo with space", "users", "FROM [dbo with space].[users]"),
+            ("dbo", "users'name", "FROM [dbo].[users'name]"),
+            ("dbo", "Orden#", "FROM [dbo].[Orden#]"),
         ],
     )
-    def test_rejects_unsafe_schema_or_table(self, schema, table_name):
+    def test_quotes_schema_or_table_safely(self, schema, table_name, expected_from):
+        query, _ = _build_query(
+            schema=schema,
+            table_name=table_name,
+            should_use_incremental_field=False,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+        )
+        assert expected_from in query
+
+    def test_rejects_control_char_in_table(self):
         with pytest.raises(ValueError, match="Invalid SQL identifier"):
             _build_query(
-                schema=schema,
-                table_name=table_name,
+                schema="dbo",
+                table_name="users\nname",
                 should_use_incremental_field=False,
                 incremental_field=None,
                 incremental_field_type=None,
                 db_incremental_field_last_value=None,
             )
 
-    def test_rejects_unsafe_incremental_field(self):
-        with pytest.raises(ValueError, match="Invalid SQL identifier"):
-            _build_query(
-                schema="dbo",
-                table_name="users",
-                should_use_incremental_field=True,
-                incremental_field="created_at]; DROP TABLE foo; --",
-                incremental_field_type=IncrementalFieldType.DateTime,
-                db_incremental_field_last_value="2025-01-01",
-            )
+    def test_quotes_unsafe_incremental_field_safely(self):
+        query, _ = _build_query(
+            schema="dbo",
+            table_name="users",
+            should_use_incremental_field=True,
+            incremental_field="created_at]; DROP TABLE foo; --",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+        )
+        assert "WHERE [created_at]]; DROP TABLE foo; --]" in query
 
 
 class TestBuildQueryEnabledColumns:
@@ -361,6 +376,14 @@ class TestFetchTableStats:
         cursor.fetchone.return_value = ("t", "1000", "40 ZB", "32 ZB", "8 ZB", "0 ZB")
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
 
+    def test_returns_none_when_view_returns_null_stats(self, impl, cursor, logger, mocker):
+        # sp_spaceused on a view returns NULL for rows/reserved/data. This must be a graceful
+        # skip — not an int(None) crash routed through capture_exception (which floods error tracking).
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.capture_exception")
+        cursor.fetchone.return_value = ("vw_thing", None, None, None, "0 KB", "0 KB")
+        assert impl.fetch_table_stats(cursor, "dbo", "vw_thing", logger) is None
+        capture.assert_not_called()
+
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
@@ -402,11 +425,22 @@ class TestFetchAverageRowSize:
         assert "TOP 100" in size_query
         assert "DATALENGTH([id])" in size_query
 
-    def test_rejects_malformed_column_names(self, impl, cursor, logger):
-        # If INFORMATION_SCHEMA returns a weird column name, the quoter
-        # must reject it rather than splice it into SQL. Method catches
+    def test_handles_column_names_with_special_chars(self, impl, cursor, logger):
+        # Real SQL Server columns like `Orden#` are legal under bracket-quoting;
+        # they must be sampled, not crash the quoter (the bug this fixes).
+        cursor.fetchall.return_value = [("Orden#",), ("Forma Pago",)]
+        cursor.fetchone.return_value = (42,)
+        result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
+        assert result == 42
+        size_query = cursor.execute.call_args_list[1].args[0]
+        assert "DATALENGTH([Orden#])" in size_query
+        assert "DATALENGTH([Forma Pago])" in size_query
+
+    def test_rejects_control_char_column_names(self, impl, cursor, logger):
+        # A column name with a control character can't be made safe by
+        # bracket-quoting, so the quoter rejects it; the method catches
         # and returns None.
-        cursor.fetchall.return_value = [("bad;col",)]
+        cursor.fetchall.return_value = [("bad\ncol",)]
         cursor.fetchone.return_value = (1,)
         result = impl.fetch_average_row_size(cursor, "dbo", "t", "SELECT 1", {}, logger)
         assert result is None
@@ -499,8 +533,27 @@ class TestMSSQLSourceNonRetryableErrors:
             "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
             "unavailable or does not exist (cplapps.example.us-east-2.rds.amazonaws.com)",
             "Login failed for user 'reporting'.",
+            # Raised by the sshtunnel library when the customer's SSH bastion can't be reached
+            # (wrong host/port, rejected key, firewall) — the import goes through `open_ssh_tunnel`.
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_connection_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql MSSQLDatabaseException for SQL Server error 229 on a table.
+            "SQL Server message 229, severity 14, state 5, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the object 'ExistenciasProductoMagiQ', "
+            "database 'VirtualMedios', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            # Different object/database names must still match the stable substring.
+            "The SELECT permission was denied on the object 'zzz_segtieint', database 'VirtualMedios', schema 'dbo'.",
+        ],
+    )
+    def test_permission_denied_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg

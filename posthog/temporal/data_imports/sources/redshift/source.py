@@ -4,6 +4,7 @@ from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -55,6 +56,8 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.REDSHIFT,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["aws redshift", "amazon redshift"],
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
             iconPath="/static/services/redshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/redshift",
