@@ -130,21 +130,23 @@ RUST_FLAG_FIELDS = (
 )
 
 
-def _is_enforce_feature_flag_write_scope_enabled(request) -> bool:
-    # Rollout gate for the feature_flag:write enforcement below. Fails open (returns
-    # False) on anonymous users or any error, so a flag-service outage degrades to
-    # warn-only rather than blocking writes. The error is logged so a persistent
-    # failure (e.g. a user with no organization) is visible rather than silent.
+def _is_enforce_feature_flag_write_scope_enabled(request, *, team_id: int | None) -> bool:
+    # Rollout gate for the feature_flag:write enforcement below. Evaluated against the
+    # organization that owns the *target* team, not the actor's current organization —
+    # otherwise a multi-org user could dodge enforcement by switching their current org
+    # to one where the rollout is off. Fails open (returns False) on missing context or
+    # any error, so a flag-service outage degrades to warn-only rather than blocking
+    # writes; the error is logged so a persistent failure is visible rather than silent.
     user = getattr(request, "user", None)
-    if user is None or user.is_anonymous:
+    if user is None or user.is_anonymous or team_id is None:
         return False
     try:
-        organization = user.organization
+        organization_id = str(Team.objects.values_list("organization_id", flat=True).get(pk=team_id))
         return posthoganalytics.feature_enabled(
             ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG,
             user.distinct_id,
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -204,7 +206,7 @@ def assert_feature_flag_write_scope(
         user_id=getattr(getattr(request, "user", None), "id", None),
     )
 
-    if _is_enforce_feature_flag_write_scope_enabled(request):
+    if _is_enforce_feature_flag_write_scope_enabled(request, team_id=team_id):
         raise exceptions.PermissionDenied(
             f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
             f"in addition to `{resource_scope}`. Add `feature_flag:write` to your API key, or use a key "

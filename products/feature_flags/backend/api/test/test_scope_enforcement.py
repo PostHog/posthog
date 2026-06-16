@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 
+from posthog.test.base import APIBaseTest
 from unittest import TestCase
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -10,8 +12,12 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
 )
+from posthog.models import Organization, Team
 
-from products.feature_flags.backend.api.feature_flag import _scope_audit_identity
+from products.feature_flags.backend.api.feature_flag import (
+    _is_enforce_feature_flag_write_scope_enabled,
+    _scope_audit_identity,
+)
 
 
 def _make(cls, **attrs):
@@ -66,3 +72,27 @@ class TestScopeAuditIdentity(TestCase):
     def test_returns_none_for_session_auth(self):
         assert _scope_audit_identity(object()) is None
         assert _scope_audit_identity(None) is None
+
+
+class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
+    def test_gate_evaluates_against_target_team_org_not_actor_org(self):
+        # A user whose current org differs from the org owning the target team must be
+        # gated by the *target* team's org, so it can't be dodged by switching orgs.
+        other_org = Organization.objects.create(name="other org")
+        other_team = Team.objects.create(organization=other_org, name="other team")
+        request = SimpleNamespace(user=self.user)
+
+        with patch(
+            "products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled",
+            return_value=True,
+        ) as mock_feature_enabled:
+            result = _is_enforce_feature_flag_write_scope_enabled(request, team_id=other_team.id)
+
+        assert result is True
+        groups = mock_feature_enabled.call_args.kwargs["groups"]
+        assert groups["organization"] == str(other_org.id)
+        assert groups["organization"] != str(self.organization.id)
+
+    def test_gate_fails_closed_without_team_id(self):
+        request = SimpleNamespace(user=self.user)
+        assert _is_enforce_feature_flag_write_scope_enabled(request, team_id=None) is False
