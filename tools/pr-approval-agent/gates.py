@@ -374,6 +374,18 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
+# Data warehouse import sources. Every SaaS connector under here performs an
+# auth/OAuth/credential handshake, so connector code and PR titles legitimately
+# mention auth, oauth, token, login, etc. without touching the auth *system*.
+# The `auth` deny is exempted for this tree (see detect_deny_categories) so it
+# doesn't force T2-never on essentially every source PR. Other deny categories
+# (crypto/secrets, migrations, …) still apply.
+DATA_WAREHOUSE_SOURCE_PREFIX = "posthog/temporal/data_imports/sources/"
+
+
+def _is_data_warehouse_source(path: str) -> bool:
+    return path.lower().startswith(DATA_WAREHOUSE_SOURCE_PREFIX)
+
 
 def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
     hits: set[str] = set()
@@ -381,13 +393,23 @@ def detect_deny_categories(files: list[str], subject: str, ignored_files: set[st
     paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
     subject_lower = subject.lower()
 
+    # Auth exemption for data warehouse sources: drop source paths from auth
+    # path-matching, and — when sources are involved — only let the PR title
+    # trip `auth` if a non-source file is also touched. PRs that don't touch
+    # the sources tree are evaluated exactly as before.
+    auth_paths = [p for p in paths_lower if not _is_data_warehouse_source(p)]
+    has_dwh_source = len(auth_paths) != len(paths_lower)
+    auth_title_eligible = (not has_dwh_source) or bool(auth_paths)
+
     for category, scopes in DENY_PATTERNS.items():
+        category_paths = auth_paths if category == "auth" else paths_lower
+        title_eligible = auth_title_eligible if category == "auth" else True
         found = False
         # "paths" patterns — only match against file paths
         for rx in scopes.get("paths", []):
             if found:
                 break
-            for p in paths_lower:
+            for p in category_paths:
                 if rx.search(p):
                     hits.add(category)
                     found = True
@@ -398,12 +420,12 @@ def detect_deny_categories(files: list[str], subject: str, ignored_files: set[st
         for path_rx, title_rx in scopes.get("any", []):
             if found:
                 break
-            for p in paths_lower:
+            for p in category_paths:
                 if path_rx.search(p):
                     hits.add(category)
                     found = True
                     break
-            if not found and title_rx.search(subject_lower):
+            if not found and title_eligible and title_rx.search(subject_lower):
                 hits.add(category)
                 found = True
     return sorted(hits)
