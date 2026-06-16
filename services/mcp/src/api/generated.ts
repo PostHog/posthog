@@ -22516,6 +22516,8 @@ export namespace Schemas {
       /** Omit the per-span `attributes` map from results to keep payloads compact */
       excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
+      /** Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this. */
+      flatSpans?: boolean | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -46125,6 +46127,8 @@ export namespace Schemas {
       offset?: number;
       /** Filter to root spans only. Defaults to true. */
       rootSpans?: boolean;
+      /** Return the matching spans themselves, one row per span (root and child), instead of collapsing to traces. Use this to search by a child-span attribute (e.g. code.filepath) without the whole-trace grouping. Distinct from rootSpans. Defaults to false. */
+      flatSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
@@ -46134,6 +46138,22 @@ export namespace Schemas {
     export interface _TracingQueryRequest {
       /** The tracing spans query to execute. */
       query: _TracingQueryBody;
+    }
+
+    export interface _TracingTimeseriesQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingTimeseriesRequest {
+      /** The sparkline / duration-histogram query to execute. */
+      query: _TracingTimeseriesQueryBody;
     }
 
     export interface _TracingTraceRequest {
@@ -51786,6 +51806,10 @@ export namespace Schemas {
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string;
+    /**
+     * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
+     */
+    rerank?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
