@@ -12,7 +12,6 @@ import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneTab } from 'scenes/sceneTypes'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -133,17 +132,28 @@ function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
     }
 }
 
+// Fixed panelId for the floating side panel chat, which is not a scene tab.
+export const SIDE_PANEL_PANEL_ID = 'sidepanel'
+
 export interface MaxLogicProps {
-    tabId?: string
-    // Marks the instance that backs the floating side panel chat. It isn't a scene tab:
-    // it stays mounted across navigation and must never own or rewrite the scene route.
-    sidePanel?: boolean
+    panelId?: string
+    initialFrontendConversationId?: string
+    syncUrl?: boolean
     onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void
+}
+
+function shouldSyncMaxUrl(props: MaxLogicProps): boolean {
+    return props.syncUrl !== false && props.panelId !== SIDE_PANEL_PANEL_ID
+}
+
+// Only real scene tabs carry per-tab drafts and tab badges. Embedded panels, the side panel, and bare scene don't.
+function sceneTabId(panelId?: string, syncUrl?: boolean): string | null {
+    return syncUrl !== false && panelId && panelId !== SIDE_PANEL_PANEL_ID ? panelId : null
 }
 
 export const maxLogic = kea<maxLogicType>([
     props({} as MaxLogicProps),
-    key((props) => (props.sidePanel ? 'sidepanel' : props.tabId || 'scene')),
+    key((props) => props.panelId || 'scene'),
     path((key) => ['scenes', 'max', 'maxLogic', key]),
 
     connect(() => ({
@@ -159,8 +169,6 @@ export const maxLogic = kea<maxLogicType>([
                 'conversationHistory',
                 'conversationHistoryLoading',
             ],
-            maxSettingsLogic,
-            ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
@@ -213,7 +221,7 @@ export const maxLogic = kea<maxLogicType>([
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         activeStreamingThreads: [
             0,
             {
@@ -241,7 +249,7 @@ export const maxLogic = kea<maxLogicType>([
 
         // The frontend-generated UUID for new conversations
         frontendConversationId: [
-            (() => uuid()) as any as string,
+            (props.initialFrontendConversationId ?? uuid()) as string,
             {
                 startNewConversation: () => uuid(),
             },
@@ -278,11 +286,10 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
-    }),
+    })),
 
     selectors({
-        tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
-        sidePanel: [() => [(_, props) => !!props?.sidePanel], (sidePanel) => sidePanel],
+        panelId: [() => [(_, props) => props?.panelId || ''], (panelId) => panelId],
         onAcceptSessionFilters: [
             () => [
                 (_, props) =>
@@ -375,10 +382,9 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         threadLogicProps: [
-            (s) => [s.tabId, s.sidePanel, s.conversation, s.threadLogicKey],
-            (tabId, sidePanel, conversation, threadLogicKey) => ({
-                tabId,
-                sidePanel,
+            (s) => [s.panelId, s.conversation, s.threadLogicKey],
+            (panelId, conversation, threadLogicKey) => ({
+                panelId,
                 conversationId: threadLogicKey,
                 conversation,
             }),
@@ -438,13 +444,15 @@ export const maxLogic = kea<maxLogicType>([
             // Side panel Max stays mounted across the whole app, so its question reducer
             // already survives navigation — and there's no removeTab cleanup for it,
             // which would turn the persisted draft into a memory leak.
-            if (props.tabId && !props.sidePanel) {
-                actions.setChatDraftForTab(props.tabId, question)
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                actions.setChatDraftForTab(tabId, question)
             }
         },
         incrActiveStreamingThreads: () => {
-            if (props.tabId) {
-                updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                updateInactiveTab(tabId, { iconType: 'loading', badge: false })
             }
         },
         decrActiveStreamingThreads: () => {
@@ -453,8 +461,9 @@ export const maxLogic = kea<maxLogicType>([
             if (values.activeStreamingThreads > 0) {
                 return
             }
-            if (props.tabId) {
-                updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                updateInactiveTab(tabId, { iconType: 'chat', badge: true })
             }
         },
         // Listen for when the side panel state changes and check for initial prompt
@@ -577,8 +586,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
-            if (props.tabId && !props.sidePanel) {
-                actions.setChatDraftForTab(props.tabId, '')
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                actions.setChatDraftForTab(tabId, '')
             }
         },
     })),
@@ -587,8 +597,9 @@ export const maxLogic = kea<maxLogicType>([
     // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
     subscriptions(({ props }) => ({
         chatTitle: (title: string | null) => {
-            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY && props.tabId) {
-                updateInactiveTab(props.tabId, { title })
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY && tabId) {
+                updateInactiveTab(tabId, { title })
             }
         },
     })),
@@ -596,8 +607,9 @@ export const maxLogic = kea<maxLogicType>([
     afterMount(({ actions, values, props }) => {
         // Restore per-tab chat draft (typed but unsent input that should survive scene unmount).
         // Side panel Max is excluded — it stays mounted globally, doesn't go through removeTab cleanup.
-        if (!values.question && props.tabId && !props.sidePanel) {
-            const draft = values.chatDraftFor(props.tabId)
+        const tabId = sceneTabId(props.panelId, props.syncUrl)
+        if (!values.question && tabId) {
+            const draft = values.chatDraftFor(tabId)
             if (draft) {
                 actions.setQuestion(draft)
             }
@@ -683,10 +695,9 @@ export const maxLogic = kea<maxLogicType>([
     })),
 
     trackedActionToUrl(({ values, props }) => {
-        // The side panel chat floats over whatever page you're on, so it must never rewrite the
-        // scene route — only the scene instance (which owns the /ai route) syncs the URL. Without
-        // this guard, opening Max from e.g. an insight navigates you to /ai#panel=max.
-        if (props.sidePanel) {
+        // Embedded chats and the side panel float over another scene, so they must never rewrite the
+        // route. Only the scene instance, which owns /ai, syncs Max state into the URL.
+        if (!shouldSyncMaxUrl(props)) {
             return {}
         }
         return {

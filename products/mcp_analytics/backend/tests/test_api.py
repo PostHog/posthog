@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 
+from parameterized import parameterized
+
 from posthog.models.utils import uuid7
 
 from products.mcp_analytics.backend import intent_generation
@@ -375,3 +377,46 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
 
         assert len(sessions) == 1
         assert sessions[0].intent == "Persisted summary."
+
+
+class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """Session-detail queries bound the scan to SESSION_EVENTS_LOOKBACK so the
+    events sort key can prune instead of reading the team's full history."""
+
+    def _seed_tool_call(self, session_id: str, *, timestamp: datetime, tool: str, intent: str) -> None:
+        _create_event(
+            team=self.team,
+            event="mcp_tool_call",
+            distinct_id="seed",
+            timestamp=timestamp,
+            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "tool_calls",
+                lambda self, sid: [c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid)],
+                ["recent_tool"],
+            ),
+            (
+                "session_intents",
+                lambda self, sid: intent_generation.fetch_session_intents(self.team, sid),
+                ["recent intent"],
+            ),
+        ]
+    )
+    def test_excludes_events_older_than_lookback(self, _name, fetch, expected) -> None:
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_tool_call(
+            session_id, timestamp=now - timedelta(minutes=5), tool="recent_tool", intent="recent intent"
+        )
+        self._seed_tool_call(
+            session_id,
+            timestamp=now - intent_generation.SESSION_EVENTS_LOOKBACK - timedelta(days=1),
+            tool="ancient_tool",
+            intent="ancient intent",
+        )
+
+        assert fetch(self, session_id) == expected

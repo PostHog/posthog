@@ -46,6 +46,10 @@ jobs:
                   filters: |
                       console:
                         - .github/workflows/ci-agent-console.yml
+                        - 'products/agent_platform/services/agent-console/**'
+                        - 'products/agent_platform/packages/agent-chat/**'
+                        # Transitional: in-flight branches still have these at the
+                        # old paths. Drop once they've rebased onto the move.
                         - 'services/agent-console/**'
                         - 'packages/agent-chat/**'
                         - 'packages/quill/**'
@@ -87,7 +91,7 @@ jobs:
             # step tsc can't resolve the import. Same step as the build job
             # and the Dockerfile.
             - name: Build quill workspace dep
-              run: pnpm --dir packages/quill -r --filter '@posthog/quill...' build
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill...' --filter '@posthog/quill-charts...' build
 
             - name: Typecheck (also checks packages/agent-chat via workspace dep)
               run: pnpm --filter=@posthog/agent-console --filter=@posthog/agent-chat typescript:check
@@ -128,7 +132,7 @@ jobs:
             # `@posthog/quill` ships `main: ./dist/index.cjs`. Same step as the
             # Dockerfile's build stage — see services/agent-console/Dockerfile.
             - name: Build quill workspace dep
-              run: pnpm --dir packages/quill -r --filter '@posthog/quill...' build
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill...' --filter '@posthog/quill-charts...' build
 
             - name: Next.js production build
               run: pnpm --filter=@posthog/agent-console build
@@ -164,7 +168,7 @@ jobs:
               run: pnpm --filter='@posthog/agent-console...' install --frozen-lockfile
 
             - name: Build quill workspace dep
-              run: pnpm --dir packages/quill -r --filter '@posthog/quill...' build
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill...' --filter '@posthog/quill-charts...' build
 
             - name: Storybook static build
               run: pnpm --filter=@posthog/agent-console build-storybook

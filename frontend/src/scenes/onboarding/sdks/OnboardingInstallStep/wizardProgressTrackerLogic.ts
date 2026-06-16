@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
+import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import type { wizardProgressTrackerLogicType } from './wizardProgressTrackerLogicType'
 
 export type DisplayState =
@@ -78,7 +79,12 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus', 'lastError'],
         ],
-        actions: [wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }), ['connect', 'disconnect']],
+        actions: [
+            wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
+            ['connect', 'disconnect'],
+            wizardActiveSessionDetectorLogic,
+            ['markActive', 'scheduleMarkInactive'],
+        ],
     })),
     actions({
         appendActivity: (text: string) => ({ text, at: Date.now() }),
@@ -183,7 +189,7 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
                 connecting: 'connecting…',
                 open: 'connected, waiting for wizard',
                 closed: 'stream closed',
-                error: 'transport error — reconnecting…',
+                error: 'connection error — reconnecting…',
                 idle: '',
             }
             const text = messages[status as string]
@@ -197,8 +203,25 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
             }
             const now = Date.now()
             const updatedAt = new Date(session.updated_at).getTime()
-            if (!Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS) {
+            const isFresh = !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
+            if (isFresh) {
                 actions.markSessionCurrent()
+            }
+            // Keep the global detector in sync so the FAB survives a navigation
+            // away from the install step. Gate on the detector's shared
+            // eligibility predicate (server staleness + lifetime cap + terminal
+            // phase) so the SSE and REST paths agree on when streaming may
+            // continue — a wedged CLI heartbeating `updated_at` past the lifetime
+            // cap stops re-arming markActive, letting teardown actually run. Only
+            // schedule teardown on the eligible → ineligible *transition* so
+            // repeated re-polls don't reset the clock (the detector's
+            // `scheduleMarkInactive` is also idempotent as a belt-and-braces guard).
+            const eligible = isSessionActive(session)
+            const wasEligible = isSessionActive(prev)
+            if (eligible) {
+                actions.markActive()
+            } else if (wasEligible) {
+                actions.scheduleMarkInactive()
             }
             if (!prev) {
                 actions.appendActivity(`session started for ${session.skill_id}`)
@@ -234,6 +257,16 @@ export const wizardProgressTrackerLogic = kea<wizardProgressTrackerLogicType>([
         }, 'tick')
         cache.disposables.add(() => {
             const id = window.setInterval(() => {
+                // The kea-disposables plugin pauses timers when the tab is hidden and
+                // re-creates them on resume. That re-created interval can fire during a
+                // window where the connected wizardSessionStreamLogic has been torn down
+                // (e.g. the FAB unmounting after a feature-flag re-evaluation). Reading a
+                // value off an unmounted logic throws
+                // `[KEA] Can not find path "...wizardSessionStreamLogic..." in the store.`,
+                // so bail out unless the stream logic is currently mounted.
+                if (!wizardSessionStreamLogic.findMounted({ workflowId: WORKFLOW_ID })) {
+                    return
+                }
                 // Heartbeat: if the log has gone quiet for HEARTBEAT_QUIET_THRESHOLD_MS
                 // while the wizard is still running, append a "still working" line so
                 // the panel never looks frozen.

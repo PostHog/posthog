@@ -78,8 +78,10 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
         axisColor: readCssVar(style, '--color-graph-axis-label'),
         gridColor: readCssVar(style, '--color-graph-axis-line'),
         crosshairColor: readCssVar(style, '--color-graph-crosshair'),
-        tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-tooltip'),
-        tooltipColor: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary-inverse'),
+        // Surface-styled like quill's popover, not its inverse hint tooltip — stays dark in dark mode.
+        // Compat fallback matches the app's buildTheme() (--color-bg-surface-popover in lib/colors.ts).
+        tooltipBackground: readCssVar(style, '--card') ?? readCssVar(style, '--color-bg-surface-popover'),
+        tooltipColor: readCssVar(style, '--foreground') ?? readCssVar(style, '--color-text-primary'),
     }
 }
 

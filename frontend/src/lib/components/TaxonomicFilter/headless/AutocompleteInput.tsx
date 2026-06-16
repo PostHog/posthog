@@ -184,7 +184,7 @@ interface AutocompleteCtx {
     /** Currently controlled value from the orchestrator (raw, no item context). */
     value: TaxonomicFilterValue | undefined
     /** Ref to the search input — Input attaches it on mount. */
-    inputRef: RefObject<HTMLInputElement | null>
+    inputRef: RefObject<HTMLInputElement>
     /** Move focus to the search input. */
     focusInput: () => void
     /** Label for the default Trigger button when no entry is selected. */
@@ -346,7 +346,7 @@ export function Root({
     const [hasMenuTrigger, setHasMenuTrigger] = useState(false)
     const triggerRef = useRef<HTMLElement | null>(null)
     const seededRef = useRef(false)
-    const inputRef = useRef<HTMLInputElement | null>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
     const focusInput = useCallback((): void => {
         inputRef.current?.focus()
     }, [])

@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.agent_platform.backend.api import (
+from products.agent_platform.backend.presentation.views import (
     AgentApplicationViewSet,
     AgentFleetViewSet,
     AgentMemoryViewSet,

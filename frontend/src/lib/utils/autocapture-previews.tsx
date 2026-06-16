@@ -1,3 +1,5 @@
+import './autocapture-previews.scss'
+
 import posthog from 'posthog-js'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'

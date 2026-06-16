@@ -224,6 +224,7 @@ import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/Err
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -743,10 +744,6 @@ export class ApiRequest {
 
     public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
         return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('query')
     }
 
     public metricsValues(projectId?: ProjectType['id']): ApiRequest {
@@ -2623,6 +2620,7 @@ const api = {
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
+                    ActivityScope.OAUTH_APPLICATION,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2819,20 +2817,6 @@ const api = {
                 .get()
                 .then((response) => Boolean(response.hasMetrics))
         },
-        async query({
-            query,
-            signal,
-        }: {
-            query: {
-                metricName: string
-                aggregation: 'sum' | 'avg' | 'count' | 'p95'
-                dateFrom: string
-                dateTo?: string
-            }
-            signal?: AbortSignal
-        }): Promise<{ results: { time: string; value: number }[] }> {
-            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
-        },
         async values({
             search,
             limit,
@@ -2863,9 +2847,11 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
-                orderBy?: 'latest' | 'earliest'
+                orderBy?: 'timestamp' | 'duration'
+                orderDirection?: 'ASC' | 'DESC'
                 limit?: number
                 after?: string
+                offset?: number
                 prefetchSpans?: number
             },
             signal?: AbortSignal
@@ -2907,6 +2893,19 @@ const api = {
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
+        },
+        async durationHistogram(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            results: { bucket_ns: number; service: string; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
         },
         async aggregate(
             query: {
@@ -4400,6 +4399,11 @@ const api = {
         async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
+        async getCaptureDiagnostics(
+            recordingId: SessionRecordingType['id']
+        ): Promise<{ properties: Record<string, any> | null }> {
+            return await new ApiRequest().recording(recordingId).withAction('capture_diagnostics').get()
+        },
         async get(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {},
@@ -4796,6 +4800,21 @@ const api = {
         },
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
+        },
+        async markdownSave(
+            notebookId: NotebookType['short_id'],
+            data: {
+                client_id: string
+                /** The notebook version the content is based on (optimistic concurrency baseline). */
+                version: number
+                content: NotebookType['content']
+                text_content?: string
+                title?: string
+                /** The author's caret in the saved markdown, broadcast with the update event. */
+                cursor?: NotebookCollabCursorApi
+            }
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withAction('collab/markdown_save').create({ data })
         },
         async collabStream(
             notebookId: NotebookType['short_id'],
@@ -5916,14 +5935,18 @@ const api = {
         async list({
             insightId,
             dashboardId,
+            resourceType,
         }: {
             insightId?: number
             dashboardId?: number
+            resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
-            return await new ApiRequest()
-                .subscriptions()
-                .withQueryString(insightId ? `insight=${insightId}` : dashboardId ? `dashboard=${dashboardId}` : '')
-                .get()
+            const params = [
+                insightId ? `insight=${insightId}` : null,
+                dashboardId ? `dashboard=${dashboardId}` : null,
+                resourceType ? `resource_type=${resourceType}` : null,
+            ].filter(Boolean)
+            return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()

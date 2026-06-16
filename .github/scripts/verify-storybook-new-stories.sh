@@ -33,14 +33,24 @@ if [ -z "$changed_story_files" ]; then
     exit 0
 fi
 
-# Filter to files that still exist (skip deleted).
+# Filter to files that still exist (skip deleted) and that the main storybook app
+# actually serves — must mirror the `stories` globs in common/storybook/.storybook/main.ts.
+# Stories from other storybook apps (e.g. packages/quill/apps/storybook) aren't in the
+# test runner's testMatch, so including them makes Jest exit 1 with "No tests found".
 declare -a stories_to_verify=()
 while IFS= read -r story_file; do
     if [ ! -f "$story_file" ]; then
         echo "Skipping $story_file (deleted)"
         continue
     fi
-    stories_to_verify+=("$story_file")
+    case "$story_file" in
+        frontend/src/* | products/*/frontend/* | products/*/mcp/* | packages/quill/packages/charts/src/*)
+            stories_to_verify+=("$story_file")
+            ;;
+        *)
+            echo "Skipping $story_file (not served by the main storybook app)"
+            ;;
+    esac
 done <<< "$changed_story_files"
 
 if [ ${#stories_to_verify[@]} -eq 0 ]; then
@@ -84,10 +94,14 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
     set +e
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
     # pipefail is set at script level so tee preserves the exit code.
+    # --passWithNoTests: changed stories may live in a separate storybook
+    # (e.g. services/agent-console, packages/agent-chat) that the main runner's
+    # testMatch doesn't cover. Those are verified by their own CI, so finding no
+    # matching tests here is not a failure.
     pnpm --filter=@posthog/storybook exec test-storybook \
         $snapshot_flag --no-index-json --maxWorkers=1 \
         --browsers chromium \
-        -- --testPathPattern "$pattern" 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
+        -- --testPathPattern "$pattern" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
     exit_code=${PIPESTATUS[0]}
     set -e
 

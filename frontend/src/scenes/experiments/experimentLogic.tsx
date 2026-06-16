@@ -73,6 +73,7 @@ import {
 import {
     EXPERIMENT_AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
+    NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES,
     MetricInsightId,
 } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
@@ -166,7 +167,6 @@ export interface ExperimentWarning {
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
     formMode?: FormModes
-    tabId?: string
 }
 
 export type ExperimentTriggeredBy = 'page_load' | 'manual' | 'auto_refresh' | 'config_change'
@@ -386,6 +386,19 @@ export function getDisplayOrderedIndices(
     return ordered
 }
 
+/**
+ * Positional uuid list for one section's results arrays: inline metrics first,
+ * then shared metrics of that type — mirroring how loadPrimaryMetricsResults /
+ * loadSecondaryMetricsResults build their query lists.
+ */
+export function getSectionMetricUuids(experiment: Experiment, isSecondary: boolean): (string | undefined)[] {
+    const inlineMetrics = (isSecondary ? experiment.metrics_secondary : experiment.metrics) || []
+    const sharedMetrics = ((experiment.saved_metrics || []) as ExperimentSavedMetric[]).filter(
+        ({ metadata }) => metadata?.type === (isSecondary ? 'secondary' : 'primary')
+    )
+    return [...inlineMetrics.map((metric) => metric.uuid), ...sharedMetrics.map(({ query }) => query?.uuid)]
+}
+
 // Max concurrent metric queries to avoid overwhelming the celery queue's
 // per-team concurrency limit (10). Using runWithLimit instead of Promise.all
 // prevents mass rejections and retry churn when experiments have many metrics.
@@ -521,6 +534,28 @@ export function isNewExperimentResponse(
     return 'baseline' in response && response.baseline !== null
 }
 
+/**
+ * Whether a launched experiment's freshest cached result is older than `staleAfterMinutes`.
+ * Returns true when there are no cached results yet, so we refresh to populate them. The results
+ * array can be sparse — metrics that returned no baseline leave holes — so entries without a
+ * `last_refresh` are skipped.
+ */
+export function experimentResultsAreStale(
+    results: (CachedNewExperimentQueryResponse | undefined)[],
+    staleAfterMinutes: number
+): boolean {
+    const refreshTimes = results
+        .filter((result): result is CachedNewExperimentQueryResponse => !!result?.last_refresh)
+        .map((result) => dayjs(result.last_refresh))
+
+    if (refreshTimes.length === 0) {
+        return true
+    }
+
+    const freshest = refreshTimes.reduce((latest, current) => (current.isAfter(latest) ? current : latest))
+    return dayjs().diff(freshest, 'minute', true) >= staleAfterMinutes
+}
+
 const sharedMetricsToExperimentMetrics = (
     sharedMetrics: ExperimentSavedMetric[],
     type: 'primary' | 'secondary'
@@ -555,10 +590,7 @@ export type ExperimentSavedMetric = {
 
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
-    key((props) => {
-        const baseKey = props.experimentId ?? 'new'
-        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}`
-    }),
+    key((props) => props.experimentId ?? 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
         values: [
@@ -629,6 +661,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 'closeResumeExperimentModal',
                 'closeFinishExperimentModal',
                 'openReleaseConditionsModal',
+                'closePrimaryMetricsReorderModal',
+                'closeSecondaryMetricsReorderModal',
             ],
         ],
     })),
@@ -640,10 +674,16 @@ export const experimentLogic = kea<experimentLogicType>([
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
         setEndExperimentLoading: (loading: boolean) => ({ loading }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        refreshExperimentResults: (forceRefresh?: boolean, triggeredBy?: ExperimentTriggeredBy) => ({
+        refreshExperimentResults: (
+            forceRefresh?: boolean,
+            triggeredBy?: ExperimentTriggeredBy,
+            refreshIfStale?: boolean
+        ) => ({
             forceRefresh,
             triggeredBy: triggeredBy ?? 'manual',
+            refreshIfStale: !!refreshIfStale,
         }),
+        refreshStaleResultsOnReentry: true,
         markRefreshStarted: (refreshId: string, triggeredBy: ExperimentTriggeredBy) => ({
             refreshId,
             triggeredBy,
@@ -775,6 +815,12 @@ export const experimentLogic = kea<experimentLogicType>([
         }),
         // Semantic metric actions - each controls its own reload behavior
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
+        saveMetricsReorder: (
+            isSecondary: boolean,
+            orderedUuids: string[],
+            removedUuids: string[],
+            movedUuids: string[]
+        ) => ({ isSecondary, orderedUuids, removedUuids, movedUuids }),
         updateMetricBreakdown: (uuid: string, breakdown: Breakdown) => ({ uuid, breakdown }),
         removeMetricBreakdown: (uuid: string, index: number, breakdown: Breakdown) => ({ uuid, index, breakdown }),
         // METRICS RESULTS
@@ -1387,8 +1433,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
                 const navigateToExperiment = (): void => {
-                    const tabId = values.props.tabId
-                    const scene = tabId ? experimentSceneLogic.findMounted({ tabId }) : null
+                    const scene = experimentSceneLogic.findMounted()
                     if (scene) {
                         scene.actions.setSceneState(experimentId, FORM_MODES.update)
                     } else {
@@ -1411,9 +1456,18 @@ export const experimentLogic = kea<experimentLogicType>([
             const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
             experiment && actions.reportExperimentViewed(experiment, duration)
 
-            // Load metrics for launched experiments (will set up auto-refresh after load completes)
+            // Load metrics for launched experiments (sets up auto-refresh once the load completes).
+            // Shows cached results immediately, then force-refreshes once if the experiment is warming up.
             if (experiment && isLaunched(experiment)) {
-                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual')
+                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
+            }
+        },
+        refreshStaleResultsOnReentry: () => {
+            // In-app navigation back to an already-mounted experiment doesn't re-fire loadExperiment.
+            // Only warming-up experiments need a refresh on return — mature ones already show results
+            // and recomputes might be expensive, so we leave their cached state untouched (as before).
+            if (values.experiment && isLaunched(values.experiment) && !values.hasMinimumExposureForResults) {
+                actions.refreshExperimentResults(false, 'page_load', true)
             }
         },
         launchExperiment: async () => {
@@ -1526,7 +1580,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
         },
-        refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
+        refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
             const refreshId = generateRefreshId()
             const refreshStart = performance.now()
             const summaries: MetricLoadingSummary[] = []
@@ -1636,6 +1690,22 @@ export const experimentLogic = kea<experimentLogicType>([
                     values.isPageVisible
                 ) {
                     actions.resetAutoRefreshInterval()
+                }
+
+                // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
+                // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
+                // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
+                if (
+                    refreshIfStale &&
+                    !forceRefresh &&
+                    !caughtError &&
+                    !values.hasMinimumExposureForResults &&
+                    experimentResultsAreStale(
+                        [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
+                        NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
+                    )
+                ) {
+                    actions.refreshExperimentResults(true, 'page_load')
                 }
             }
         },
@@ -2171,6 +2241,131 @@ export const experimentLogic = kea<experimentLogicType>([
                 update_feature_flag_params: false,
             })
         },
+        saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+            const removed = new Set(removedUuids)
+            const moved = new Set(movedUuids)
+            const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+            const closeModal = isSecondary
+                ? actions.closeSecondaryMetricsReorderModal
+                : actions.closePrimaryMetricsReorderModal
+
+            // Pure reorder: only the ordering array changes, so the positional
+            // results arrays stay aligned and nothing needs reloading.
+            if (removed.size === 0 && moved.size === 0) {
+                await asyncActions.updateExperiment({
+                    [orderingField]: orderedUuids,
+                    update_feature_flag_params: false,
+                })
+                closeModal()
+                return
+            }
+
+            // Moves and removals don't change any metric's definition, so existing
+            // results stay valid — they only need realigning to the new positional
+            // layout. That's unsafe while a load is writing positional results
+            // concurrently.
+            const canReuseResults = !values.primaryMetricsResultsLoading && !values.secondaryMetricsResultsLoading
+
+            // Snapshot results/errors by uuid before the update changes the layout.
+            const resultsByUuid = new Map<string, CachedNewExperimentQueryResponse | undefined>()
+            const errorsByUuid = new Map<string, any>()
+            for (const section of [false, true]) {
+                const uuids = getSectionMetricUuids(values.experiment, section)
+                const results = section ? values.secondaryMetricsResults : values.primaryMetricsResults
+                const errors = section ? values.secondaryMetricsResultsErrors : values.primaryMetricsResultsErrors
+                uuids.forEach((uuid, index) => {
+                    if (uuid) {
+                        resultsByUuid.set(uuid, results[index])
+                        errorsByUuid.set(uuid, errors[index])
+                    }
+                })
+            }
+
+            const sourceField = isSecondary ? 'metrics_secondary' : 'metrics'
+            const targetField = isSecondary ? 'metrics' : 'metrics_secondary'
+            const sourceInlineMetrics = values.experiment[sourceField] || []
+            const movedInlineMetrics = sourceInlineMetrics.filter((m) => m.uuid && moved.has(m.uuid))
+            const remainingInlineMetrics = sourceInlineMetrics.filter(
+                (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
+            )
+
+            // The backend appends moved metrics to the target section's ordering
+            // from the metric list changes, so only the source ordering is sent.
+            const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                [sourceField]: remainingInlineMetrics,
+                [orderingField]: orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid)),
+                update_feature_flag_params: false,
+            }
+            if (movedInlineMetrics.length > 0) {
+                update[targetField] = [...(values.experiment[targetField] || []), ...movedInlineMetrics]
+            }
+
+            // Shared metrics live in saved_metrics: removing one drops its link,
+            // moving one flips the link type. Only send the links when affected.
+            const savedMetrics = (values.experiment.saved_metrics || []) as ExperimentSavedMetric[]
+            const sharedAffected = savedMetrics.some(({ query }) => {
+                const uuid = query?.uuid
+                return !!uuid && (removed.has(uuid) || moved.has(uuid))
+            })
+            if (sharedAffected) {
+                const targetType = isSecondary ? 'primary' : 'secondary'
+                update.saved_metrics_ids = savedMetrics
+                    .filter(({ query }) => !(query?.uuid && removed.has(query.uuid)))
+                    .map(({ saved_metric, metadata, query }) => ({
+                        id: saved_metric,
+                        metadata: query?.uuid && moved.has(query.uuid) ? { ...metadata, type: targetType } : metadata,
+                    }))
+            }
+
+            await asyncActions.updateExperiment(update)
+            closeModal()
+
+            if (!canReuseResults) {
+                actions.refreshExperimentResults(true, 'config_change')
+                return
+            }
+
+            const newPrimaryUuids = getSectionMetricUuids(values.experiment, false)
+            const newSecondaryUuids = getSectionMetricUuids(values.experiment, true)
+            actions.setPrimaryMetricsResults(
+                newPrimaryUuids.map((uuid) =>
+                    uuid ? resultsByUuid.get(uuid) : undefined
+                ) as CachedNewExperimentQueryResponse[]
+            )
+            actions.setPrimaryMetricsResultsErrors(
+                newPrimaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
+            )
+            actions.setSecondaryMetricsResults(
+                newSecondaryUuids.map((uuid) =>
+                    uuid ? resultsByUuid.get(uuid) : undefined
+                ) as CachedNewExperimentQueryResponse[]
+            )
+            actions.setSecondaryMetricsResultsErrors(
+                newSecondaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
+            )
+
+            // A moved metric without a result or error would be stuck rendering as
+            // loading in its new section — fetch just those. Sequentially, because
+            // the retry actions write back the whole positional array and would
+            // stomp each other's results if run concurrently.
+            if (isLaunched(values.experiment)) {
+                const targetUuids = isSecondary ? newPrimaryUuids : newSecondaryUuids
+                for (const uuid of movedUuids) {
+                    if (resultsByUuid.get(uuid) || errorsByUuid.get(uuid)) {
+                        continue
+                    }
+                    const newIndex = targetUuids.indexOf(uuid)
+                    if (newIndex === -1) {
+                        continue
+                    }
+                    if (isSecondary) {
+                        await asyncActions.retryPrimaryMetric(newIndex)
+                    } else {
+                        await asyncActions.retrySecondaryMetric(newIndex)
+                    }
+                }
+            }
+        },
         updateMetricBreakdown: async ({ uuid, breakdown }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
 
@@ -2464,7 +2659,11 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
-                return experiment?.parameters?.feature_flag_variants || []
+                return (
+                    experiment?.parameters?.feature_flag_variants ??
+                    experiment?.feature_flag?.filters?.multivariate?.variants ??
+                    []
+                )
             },
         ],
         excludedVariants: [
@@ -2600,6 +2799,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 singleVariantShipped: boolean,
                 shippedVariantKey: string | null
             ): ExperimentWarning | null => {
+                // A deleted flag distributes no traffic, so flag-state warnings don't apply.
+                if (experiment.feature_flag?.deleted) {
+                    return null
+                }
+
                 const filters = experiment.feature_flag?.filters
 
                 if (isExperimentRunning) {

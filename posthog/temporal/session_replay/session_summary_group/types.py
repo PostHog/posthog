@@ -4,8 +4,9 @@ from typing import Literal, TypedDict
 
 from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
 
+from products.replay.backend.models.session_summaries import FailedSessionCategory, FailedSessionInfo
+
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
-from ee.models.session_summaries import FailedSessionCategory, FailedSessionInfo
 
 # Re-exported so consumers don't reach into ee.models directly for these.
 __all__ = [

@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import CustomChannelRule
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -36,6 +34,8 @@ from posthog.queries.insight import insight_sync_execute
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 if TYPE_CHECKING:
+    from posthog.schema import CustomChannelRule
+
     from posthog.models.team import Team
 
 

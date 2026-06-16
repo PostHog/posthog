@@ -42,9 +42,18 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesCreateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                    threshold: zod
+                        .number()
+                        .nullish()
+                        .describe(
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                        ),
+                    hash: zod
+                        .string()
+                        .describe(
+                            "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                        ),
                     bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
@@ -71,14 +80,13 @@ export const HogFlowTemplatesCreateBody = /* @__PURE__ */ zod
                     description: zod.string().default(hogFlowTemplatesCreateBodyActionsItemDescriptionDefault),
                     on_error: zod
                         .union([
-                            zod
-                                .enum(['continue', 'abort', 'complete', 'branch'])
-                                .describe(
-                                    '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                                ),
+                            zod.enum(['continue', 'abort']).describe('\* `continue` - continue\n\* `abort` - abort'),
                             zod.null(),
                         ])
-                        .optional(),
+                        .optional()
+                        .describe(
+                            'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
+                        ),
                     created_at: zod.number().optional(),
                     updated_at: zod.number().optional(),
                     filters: zod
@@ -156,9 +164,18 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesUpdateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                    threshold: zod
+                        .number()
+                        .nullish()
+                        .describe(
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                        ),
+                    hash: zod
+                        .string()
+                        .describe(
+                            "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                        ),
                     bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
@@ -185,14 +202,13 @@ export const HogFlowTemplatesUpdateBody = /* @__PURE__ */ zod
                     description: zod.string().default(hogFlowTemplatesUpdateBodyActionsItemDescriptionDefault),
                     on_error: zod
                         .union([
-                            zod
-                                .enum(['continue', 'abort', 'complete', 'branch'])
-                                .describe(
-                                    '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                                ),
+                            zod.enum(['continue', 'abort']).describe('\* `continue` - continue\n\* `abort` - abort'),
                             zod.null(),
                         ])
-                        .optional(),
+                        .optional()
+                        .describe(
+                            'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
+                        ),
                     created_at: zod.number().optional(),
                     updated_at: zod.number().optional(),
                     filters: zod
@@ -271,9 +287,18 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                         .min(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMin)
                         .max(hogFlowTemplatesPartialUpdateBodyTriggerMaskingOneTtlMax)
                         .nullish()
-                        .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                    threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                    hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                        .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                    threshold: zod
+                        .number()
+                        .nullish()
+                        .describe(
+                            'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                        ),
+                    hash: zod
+                        .string()
+                        .describe(
+                            "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                        ),
                     bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                 }),
                 zod.null(),
@@ -304,13 +329,14 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
                         on_error: zod
                             .union([
                                 zod
-                                    .enum(['continue', 'abort', 'complete', 'branch'])
-                                    .describe(
-                                        '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                                    ),
+                                    .enum(['continue', 'abort'])
+                                    .describe('\* `continue` - continue\n\* `abort` - abort'),
                                 zod.null(),
                             ])
-                            .optional(),
+                            .optional()
+                            .describe(
+                                'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
+                            ),
                         created_at: zod.number().optional(),
                         updated_at: zod.number().optional(),
                         filters: zod
@@ -386,16 +412,25 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -451,16 +486,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Optional description.'),
                 on_error: zod
                     .union([
-                        zod
-                            .enum(['continue', 'abort', 'complete', 'branch'])
-                            .describe(
-                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                            ),
+                        zod.enum(['continue', 'abort']).describe('\* `continue` - continue\n\* `abort` - abort'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
                     ),
                 created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                 updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -490,12 +521,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsCreateBodyActionsItemTypeMax)
                     .describe(
-                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                        'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
@@ -542,16 +573,25 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -607,16 +647,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     .describe('Optional description.'),
                 on_error: zod
                     .union([
-                        zod
-                            .enum(['continue', 'abort', 'complete', 'branch'])
-                            .describe(
-                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                            ),
+                        zod.enum(['continue', 'abort']).describe('\* `continue` - continue\n\* `abort` - abort'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
                     ),
                 created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                 updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -646,12 +682,12 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsUpdateBodyActionsItemTypeMax)
                     .describe(
-                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                        'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
@@ -698,16 +734,25 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -763,16 +808,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .describe('Optional description.'),
                 on_error: zod
                     .union([
-                        zod
-                            .enum(['continue', 'abort', 'complete', 'branch'])
-                            .describe(
-                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                            ),
+                        zod.enum(['continue', 'abort']).describe('\* `continue` - continue\n\* `abort` - abort'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
                     ),
                 created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                 updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -802,12 +843,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsPartialUpdateBodyActionsItemTypeMax)
                     .describe(
-                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                        'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()
@@ -938,19 +979,25 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .min(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMin)
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax)
                             .nullish()
-                            .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
+                            .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
                         threshold: zod
                             .number()
                             .nullish()
-                            .describe('Min matching events before triggering (k-anonymity).'),
-                        hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                            .describe(
+                                'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                            ),
+                        hash: zod
+                            .string()
+                            .describe(
+                                "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                            ),
                         bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
                     }),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+                    "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
                 ),
             conversion: zod
                 .unknown()
@@ -1010,15 +1057,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         on_error: zod
                             .union([
                                 zod
-                                    .enum(['continue', 'abort', 'complete', 'branch'])
-                                    .describe(
-                                        '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                                    ),
+                                    .enum(['continue', 'abort'])
+                                    .describe('\* `continue` - continue\n\* `abort` - abort'),
                                 zod.null(),
                             ])
                             .optional()
                             .describe(
-                                'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                                'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
                             ),
                         created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                         updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -1050,12 +1095,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .string()
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemTypeMax)
                             .describe(
-                                'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                                'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                             ),
                         config: zod
                             .unknown()
                             .describe(
-                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                             ),
                         output_variable: zod
                             .unknown()
@@ -1197,16 +1242,25 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     .min(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin)
                     .max(hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax)
                     .nullish()
-                    .describe('Hash TTL in seconds (60 to ~94M \/ 3y).'),
-                threshold: zod.number().nullish().describe('Min matching events before triggering (k-anonymity).'),
-                hash: zod.string().describe("HogQL template, e.g. '{person.properties.email}'."),
+                    .describe('Seconds (60 to ~94M \/ 3y) to suppress repeat firings of the same hash.'),
+                threshold: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.'
+                    ),
+                hash: zod
+                    .string()
+                    .describe(
+                        "HogQL template defining the dedup\/grouping key, e.g. '{person.id}' (once per person) within ttl."
+                    ),
                 bytecode: zod.unknown().optional().describe('Auto-compiled from hash. Do not set.'),
             }),
             zod.null(),
         ])
         .optional()
         .describe(
-            'Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable.'
+            "Optional dedup\/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable."
         ),
     conversion: zod
         .unknown()
@@ -1262,16 +1316,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     .describe('Optional description.'),
                 on_error: zod
                     .union([
-                        zod
-                            .enum(['continue', 'abort', 'complete', 'branch'])
-                            .describe(
-                                '\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
-                            ),
+                        zod.enum(['continue', 'abort']).describe('\* `continue` - continue\n\* `abort` - abort'),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
-                        'On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).\n\n\* `continue` - continue\n\* `abort` - abort\n\* `complete` - complete\n\* `branch` - branch'
+                        'On failure: continue (skip the action and proceed) or abort (stop the run).\n\n\* `continue` - continue\n\* `abort` - abort'
                     ),
                 created_at: zod.number().optional().describe('Created at (epoch ms). Frontend-managed.'),
                 updated_at: zod.number().optional().describe('Updated at (epoch ms). Frontend-managed.'),
@@ -1301,12 +1351,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(hogFlowsBulkDeleteCreateBodyActionsItemTypeMax)
                     .describe(
-                        'trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                        'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
                     ),
                 config: zod
                     .unknown()
                     .describe(
-                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
+                        "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}."
                     ),
                 output_variable: zod
                     .unknown()

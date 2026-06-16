@@ -38,7 +38,7 @@ _HEADER = """
 """
 
 _RUNS = """
-    SELECT workflow_name, status, conclusion, run_started_at, updated_at
+    SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
     FROM __RUNS_SOURCE__ AS r
     WHERE head_sha = {head_sha}
     ORDER BY run_started_at ASC
@@ -116,13 +116,18 @@ def query_pr_lifecycle(
         else None
     )
     if runs is not None:
-        for workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
+        for run_id, workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
+            run_id = int(run_id) if run_id is not None else None
             events.append(
-                PRLifecycleEvent(kind=PRLifecycleEventKind.CI_STARTED, at=run_started_at, detail=workflow_name)
+                PRLifecycleEvent(
+                    kind=PRLifecycleEventKind.CI_STARTED, at=run_started_at, detail=workflow_name, run_id=run_id
+                )
             )
             if status == "completed":
                 detail = f"{workflow_name}: {conclusion}" if conclusion else workflow_name
-                events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.CI_FINISHED, at=updated_at, detail=detail))
+                events.append(
+                    PRLifecycleEvent(kind=PRLifecycleEventKind.CI_FINISHED, at=updated_at, detail=detail, run_id=run_id)
+                )
 
     if merged_at is not None:
         events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.MERGED, at=merged_at))

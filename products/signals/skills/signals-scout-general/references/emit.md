@@ -8,7 +8,6 @@ grade prose quality — that's on you.
 | Field         | Type   | Constraint      |
 | ------------- | ------ | --------------- |
 | `description` | string | non-empty prose |
-| `weight`      | float  | `[0.0, 1.0]`    |
 | `confidence`  | float  | `[0.0, 1.0]`    |
 | `evidence`    | list   | 0-20 entries    |
 
@@ -49,22 +48,11 @@ Quantify ("434 users") over qualitative ("many users"). Cite entity IDs (issue
 ids, recording ids, dashboard ids) inline so a human can pivot straight from
 prose to source.
 
-## Weight rubric (ranking score)
-
-`weight` ranks findings within the inbox feed. Higher = more attention-worthy to
-a human reviewer, not "more confident" — that's `confidence`.
-
-| Range       | Use when                                                                             |
-| ----------- | ------------------------------------------------------------------------------------ |
-| `0.85-1.00` | Active customer impact, large blast radius, or a deploy regression with a clear fix. |
-| `0.65-0.84` | Material pattern worth investigating today; not yet user-impacting at scale.         |
-| `0.40-0.64` | Notable but speculative; or a confirmed minor issue worth the team knowing about.    |
-| `0.20-0.39` | Curiosity-level.                                                                     |
-| `0.00-0.19` | Don't emit. Skip or write a scratchpad entry instead.                                |
-
 ## Confidence rubric (epistemic certainty)
 
-`confidence` is your certainty the finding is _real_ — independent of weight.
+`confidence` is your certainty the finding is _real_. It is the emit gate: a
+finding you can't stand behind belongs in the scratchpad, not the inbox. You do
+not rank findings yourself — the inbox handles ordering once you emit.
 
 | Range       | Use when                                                                                  |
 | ----------- | ----------------------------------------------------------------------------------------- |
@@ -136,7 +124,6 @@ Real finding from a shadow run on 2026-05-01:
 
 ```yaml
 finding_id: missing-migration-access-control-propertyaccesscontrol-2026-05-01
-weight: 0.92
 confidence: 0.9
 severity: P1
 hypothesis: >

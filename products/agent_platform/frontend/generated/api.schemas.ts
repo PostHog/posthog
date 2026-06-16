@@ -23,10 +23,11 @@ export interface AgentApplicationApi {
     /** @maxLength 255 */
     name: string
     /**
+     * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
      * @maxLength 63
      * @pattern ^[-a-zA-Z0-9_]+$
      */
-    slug: string
+    slug?: string
     description?: string
     /** @nullable */
     readonly live_revision: string | null
@@ -185,9 +186,9 @@ export interface AgentMemoryTreeResponseApi {
 
 /**
  * * `draft` - draft
- * `ready` - ready
- * `live` - live
- * `archived` - archived
+ * * `ready` - ready
+ * * `live` - live
+ * * `archived` - archived
  */
 export type AgentRevisionStateEnumApi = (typeof AgentRevisionStateEnumApi)[keyof typeof AgentRevisionStateEnumApi]
 
@@ -848,7 +849,7 @@ export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
 
 /**
  * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
-at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
+ * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
  */
 export interface WriteSkillRequestApi {
     /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
@@ -870,7 +871,7 @@ export interface WriteToolRequestApi {
 
 /**
  * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+ * payload.
  */
 export interface WriteTypedBundleRequestApi {
     agent_md: string
@@ -881,7 +882,7 @@ export interface WriteTypedBundleRequestApi {
 
 /**
  * Body shape for POST /revisions/<id>/clone_from/ — copy every file
-from `source_revision_id` into this (draft) revision.
+ * from `source_revision_id` into this (draft) revision.
  */
 export interface CloneFromRequestApi {
     source_revision_id: string
@@ -931,7 +932,7 @@ export type WriteSpecRequestApiSpec = { [key: string]: unknown }
 
 /**
  * Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
-is the author-facing slice (skills/tools are server-derived at freeze).
+ * is the author-facing slice (skills/tools are server-derived at freeze).
  */
 export interface WriteSpecRequestApi {
     spec: WriteSpecRequestApiSpec
@@ -942,7 +943,7 @@ export interface AgentRevisionSystemPromptResponseApi {
     revision_id: string
     /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
     framework_prompt_version: number
-    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
 }
 
@@ -962,9 +963,9 @@ export interface AgentRevisionValidateResponseApi {
 
 /**
  * Body shape for POST /revisions/clone_from/ — atomically create a new
-draft revision under `application_id` and clone its initial bundle from
-`source_revision_id`. Convenience for the "edit live" flow so the MCP
-doesn't have to do create-then-clone-from in two calls.
+ * draft revision under `application_id` and clone its initial bundle from
+ * `source_revision_id`. Convenience for the "edit live" flow so the MCP
+ * doesn't have to do create-then-clone-from in two calls.
  */
 export interface NewDraftRevisionRequestApi {
     application_id: string
@@ -987,6 +988,7 @@ export interface PatchedAgentApplicationApi {
     /** @maxLength 255 */
     name?: string
     /**
+     * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
      * @maxLength 63
      * @pattern ^[-a-zA-Z0-9_]+$
      */
@@ -1025,11 +1027,11 @@ export interface PatchedAgentApplicationApi {
 
 /**
  * * `queued` - queued
- * `approving` - approving
- * `dispatched` - dispatched
- * `dispatched_failed` - dispatched_failed
- * `rejected` - rejected
- * `expired` - expired
+ * * `approving` - approving
+ * * `dispatched` - dispatched
+ * * `dispatched_failed` - dispatched_failed
+ * * `rejected` - rejected
+ * * `expired` - expired
  */
 export type AgentApprovalRequestStateEnumApi =
     (typeof AgentApprovalRequestStateEnumApi)[keyof typeof AgentApprovalRequestStateEnumApi]
@@ -1099,13 +1101,13 @@ export interface AgentApprovalRequestApi {
     /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
     approver_scope: AgentApprovalRequestApiApproverScope
     /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
-
-  * `queued` - queued
-  * `approving` - approving
-  * `dispatched` - dispatched
-  * `dispatched_failed` - dispatched_failed
-  * `rejected` - rejected
-  * `expired` - expired */
+     *
+     * * `queued` - queued
+     * * `approving` - approving
+     * * `dispatched` - dispatched
+     * * `dispatched_failed` - dispatched_failed
+     * * `rejected` - rejected
+     * * `expired` - expired */
     state: AgentApprovalRequestStateEnumApi
     /**
      * UUID of the user who decided. Null while queued or expired.
@@ -1145,7 +1147,7 @@ export type DecideApprovalRequestApiEditedArgs = { [key: string]: unknown }
 
 /**
  * * `approve` - approve
- * `reject` - reject
+ * * `reject` - reject
  */
 export type DecisionEnumApi = (typeof DecisionEnumApi)[keyof typeof DecisionEnumApi]
 
@@ -1156,14 +1158,12 @@ export const DecisionEnumApi = {
 
 /**
  * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
-
-See docs/agent-platform/plans/approval-gated-tools.md.
  */
 export interface DecideApprovalRequestApi {
     /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
-
-  * `approve` - approve
-  * `reject` - reject */
+     *
+     * * `approve` - approve
+     * * `reject` - reject */
     decision: DecisionEnumApi
     /** Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422. */
     edited_args?: DecideApprovalRequestApiEditedArgs
@@ -1191,10 +1191,10 @@ export interface AgentApplicationEnvKeyStatusApi {
 
 /**
  * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
-
-The view merges `{KEY: value}` into the existing encrypted env block
-without touching other keys, so callers can set or rotate one secret
-without needing to read the whole block back.
+ *
+ * The view merges `{KEY: value}` into the existing encrypted env block
+ * without touching other keys, so callers can set or rotate one secret
+ * without needing to read the whole block back.
  */
 export interface SetEnvKeyRequestApi {
     value: string
@@ -1229,10 +1229,10 @@ export interface AgentSessionUsageTotalApi {
 
 /**
  * * `anonymous` - anonymous
- * `service` - service
- * `internal` - internal
- * `shared_secret` - shared_secret
- * `slack` - slack
+ * * `service` - service
+ * * `internal` - internal
+ * * `shared_secret` - shared_secret
+ * * `slack` - slack
  */
 export type AgentSessionPrincipalKindEnumApi =
     (typeof AgentSessionPrincipalKindEnumApi)[keyof typeof AgentSessionPrincipalKindEnumApi]
@@ -1247,12 +1247,12 @@ export const AgentSessionPrincipalKindEnumApi = {
 
 export interface AgentSessionPrincipalApi {
     /** What kind of principal authenticated the session start.
-
-  * `anonymous` - anonymous
-  * `service` - service
-  * `internal` - internal
-  * `shared_secret` - shared_secret
-  * `slack` - slack */
+     *
+     * * `anonymous` - anonymous
+     * * `service` - service
+     * * `internal` - internal
+     * * `shared_secret` - shared_secret
+     * * `slack` - slack */
     kind: AgentSessionPrincipalKindEnumApi
     /** Stable identifier for the principal (PAT id, slack user id, etc). Absent for anonymous sessions. */
     id?: string
@@ -1262,11 +1262,11 @@ export interface AgentSessionPrincipalApi {
 
 /**
  * * `queued` - queued
- * `running` - running
- * `completed` - completed
- * `closed` - closed
- * `cancelled` - cancelled
- * `failed` - failed
+ * * `running` - running
+ * * `completed` - completed
+ * * `closed` - closed
+ * * `cancelled` - cancelled
+ * * `failed` - failed
  */
 export type AgentSessionStateEnumApi = (typeof AgentSessionStateEnumApi)[keyof typeof AgentSessionStateEnumApi]
 
@@ -1347,10 +1347,10 @@ export const AgentConversationAssistantMessageApiRole = {
 
 /**
  * * `stop` - stop
- * `length` - length
- * `toolUse` - toolUse
- * `error` - error
- * `aborted` - aborted
+ * * `length` - length
+ * * `toolUse` - toolUse
+ * * `error` - error
+ * * `aborted` - aborted
  */
 export type StopReasonEnumApi = (typeof StopReasonEnumApi)[keyof typeof StopReasonEnumApi]
 
@@ -1446,9 +1446,9 @@ export type SetEnvRequestApiEnv = { [key: string]: string }
 
 /**
  * Body shape for AgentApplicationViewSet.set_env.
-
-`env` is a JSON object of string→string. The view encrypts it via the
-same Fernet schedule the worker uses to decrypt.
+ *
+ * `env` is a JSON object of string→string. The view encrypts it via the
+ * same Fernet schedule the worker uses to decrypt.
  */
 export interface SetEnvRequestApi {
     env: SetEnvRequestApiEnv

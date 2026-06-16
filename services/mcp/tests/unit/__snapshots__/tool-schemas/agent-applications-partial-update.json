@@ -16,6 +16,7 @@
             "type": "string"
         },
         "slug": {
+            "description": "Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).",
             "maxLength": 63,
             "pattern": "^[-a-zA-Z0-9_]+$",
             "type": "string"

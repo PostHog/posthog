@@ -16,6 +16,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -39,6 +40,7 @@ from products.tasks.backend.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskAutomationSerializer,
 )
+from products.tasks.backend.services.code_usage_gate import CodeUsageStatus, _gateway_usage_url, get_posthog_code_usage
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key, reset_sandbox_jwt_key_cache
 from products.tasks.backend.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
@@ -1708,6 +1710,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["pr_authorship_mode"] == "user"
         assert task_run.state["run_source"] == "manual"
         assert task_run.state["pr_base_branch"] == "main"
+        assert task_run.state["github_credential_source"] == "server_integration"
         task.refresh_from_db()
         assert task.github_user_integration_id == user_integration.id
         mock_workflow.assert_called_once()
@@ -1735,6 +1738,7 @@ class TestTaskAPI(BaseTaskAPITest):
         assert response.status_code == status.HTTP_200_OK
         task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert get_cached_github_user_token(str(task_run.id)) == github_user_token
+        assert task_run.state["github_credential_source"] == "caller_token"
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -2036,6 +2040,36 @@ class TestTaskAPI(BaseTaskAPITest):
             "attr": "reasoning_effort",
         }
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+            ("xhigh",),
+            ("max",),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_fable_reasoning_effort(self, reasoning_effort, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-fable-5",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["model"] == "claude-fable-5"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
@@ -3067,6 +3101,53 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         mock_signal.assert_called_once()
         mock_publish_stream_state_event.assert_called_once()
+
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_mutate_protected_credential_state_keys(self, _mock_publish):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={
+                "github_credential_source": "caller_token",
+                "pr_authorship_mode": "user",
+                "sandbox_id": "sb-real",
+            },
+        )
+
+        # A caller cannot escalate to the creator's integration, flip authorship, or repoint the
+        # credential-propagation target at a sandbox they control. Non-protected keys still merge.
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {
+                "state": {
+                    "github_credential_source": "server_integration",
+                    "pr_authorship_mode": "bot",
+                    "sandbox_id": "sb-attacker",
+                    "scratch": "ok",
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["github_credential_source"] == "caller_token"
+        assert run.state["pr_authorship_mode"] == "user"
+        assert run.state["sandbox_id"] == "sb-real"
+        assert run.state["scratch"] == "ok"  # non-protected keys still merge
+
+        # Nor can a caller remove a protected key to force a fallback or unguarded path.
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
+        assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.api.TaskRunViewSet._signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
@@ -6569,3 +6650,202 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
 
         task_run = TaskRun.objects.filter(task=task).latest("created_at")
         self.assertNotIn("sandbox_environment_id", task_run.state)
+
+
+class TestCloudUsageGate(BaseTaskAPITest):
+    OVER_LIMIT: ClassVar[CodeUsageStatus] = CodeUsageStatus(
+        is_rate_limited=True,
+        limit_type="burst",
+        reset_at="2026-06-09T00:00:00Z",
+        is_pro=False,
+    )
+
+    def _cloud_run(self, task, status_value=TaskRun.Status.QUEUED):
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=status_value,
+        )
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        self.assertEqual(response.json()["limit_type"], "burst")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_cloud_run_over_limit_returns_429_and_creates_no_run(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        self.assertFalse(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_create_local_run_is_not_gated(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "local"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_gate.assert_not_called()
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_start_over_limit_returns_429(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+        run = self._cloud_run(task)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_resume_in_cloud_over_limit_returns_429(self, mock_gate):
+        mock_gate.return_value = self.OVER_LIMIT
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.LOCAL,
+            status=TaskRun.Status.COMPLETED,
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "usage_limit_exceeded")
+
+    @parameterized.expand(
+        [
+            ("fail_open", None),
+            ("under_limit", CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False)),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    @patch("products.tasks.backend.services.code_usage_gate.get_posthog_code_usage")
+    def test_run_proceeds_when_not_blocked(self, _name, gate_return, mock_gate, mock_workflow):
+        mock_gate.return_value = gate_return
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_gate.assert_called_once()
+        self.assertTrue(TaskRun.objects.filter(task=task).exists())
+        mock_workflow.assert_called_once()
+
+
+class TestGetPosthogCodeUsage(TestCase):
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_parses_rate_limited_usage(self, mock_token, mock_get):
+        mock_token.return_value = "tok"
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "is_rate_limited": True,
+                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
+                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
+                "is_pro": True,
+            },
+        )
+
+        usage = get_posthog_code_usage(MagicMock(), 1)
+
+        assert usage is not None
+        self.assertTrue(usage.is_rate_limited)
+        self.assertEqual(usage.limit_type, "burst")
+        self.assertEqual(usage.reset_at, "2026-06-09T00:00:00Z")
+        self.assertTrue(usage.is_pro)
+        self.assertEqual(mock_get.call_args.args[0], "https://gateway.us.posthog.com/v1/usage/posthog_code")
+
+    @override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None)
+    def test_local_uses_localhost_gateway(self):
+        self.assertEqual(_gateway_usage_url(), "http://localhost:3308/v1/usage/posthog_code")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("products.tasks.backend.services.code_usage_gate.OAuthAccessToken")
+    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_token_cleanup_error_does_not_break_fail_open(self, mock_token, mock_get, mock_oauth_model):
+        mock_token.return_value = "tok"
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {
+                "is_rate_limited": True,
+                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
+                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
+                "is_pro": False,
+            },
+        )
+        mock_oauth_model.objects.filter.return_value.delete.side_effect = Exception("db down")
+
+        usage = get_posthog_code_usage(MagicMock(), 1)
+
+        assert usage is not None
+        self.assertTrue(usage.is_rate_limited)
+
+    @parameterized.expand(
+        [
+            ("non_200", 500, None),
+            ("network_error", None, None),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch("products.tasks.backend.services.code_usage_gate.requests.get")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_fails_open_on_gateway_error(self, _name, status_code, _unused, mock_token, mock_get):
+        mock_token.return_value = "tok"
+        if status_code is None:
+            mock_get.side_effect = requests.RequestException("boom")
+        else:
+            mock_get.return_value = MagicMock(status_code=status_code)
+
+        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
+    @patch("products.tasks.backend.services.code_usage_gate.create_oauth_access_token_for_user")
+    def test_fails_open_when_no_gateway_url(self, mock_token):
+        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
+        mock_token.assert_not_called()

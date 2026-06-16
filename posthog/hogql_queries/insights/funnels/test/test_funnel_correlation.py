@@ -2107,6 +2107,68 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         #     6,
         # )
 
+    def test_funnel_correlation_with_event_properties_autocapture_no_rows_for_actors_without_events(self):
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="user signed up"),
+                EventsNode(event="paid"),
+            ],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-14"),
+        )
+
+        for i in range(6):
+            _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id=f"user_{i}",
+                elements=[Element(nth_of_type=1, nth_child=0, tag_name="a", href="/movie")],
+                timestamp="2020-01-03T14:00:00Z",
+                properties={"$event_type": "click"},
+            )
+            _create_event(
+                team=self.team,
+                event="paid",
+                distinct_id=f"user_{i}",
+                timestamp="2020-01-04T14:00:00Z",
+            )
+
+        # Enough non-converting users without any $autocapture events to pass the
+        # significance filters, so a synthesized correlation row would show up.
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_fail_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="user signed up",
+                distinct_id=f"user_fail_{i}",
+                timestamp="2020-01-02T14:00:00Z",
+            )
+
+        result, _ = self._get_events_for_query(
+            query,
+            funnelCorrelationType=FunnelCorrelationResultsType.EVENT_WITH_PROPERTIES,
+            funnelCorrelationEventNames=["$autocapture"],
+        )
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
+                    "success_count": 6,
+                    "failure_count": 0,
+                    "odds_ratio": 28.0,
+                    "correlation_type": "success",
+                },
+            ],
+        )
+
 
 class TestCorrelationFunctions(unittest.TestCase):
     def test_are_results_insignificant(self):

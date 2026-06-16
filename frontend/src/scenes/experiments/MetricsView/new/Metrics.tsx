@@ -81,19 +81,17 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
                                 <AddMetricButton
                                     metricContext={isSecondary ? METRIC_CONTEXTS.secondary : METRIC_CONTEXTS.primary}
                                 />
-                                {metrics.length > 1 && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="xsmall"
-                                        onClick={() =>
-                                            isSecondary
-                                                ? openSecondaryMetricsReorderModal()
-                                                : openPrimaryMetricsReorderModal()
-                                        }
-                                        icon={<IconList />}
-                                        tooltip="Reorder metrics"
-                                    />
-                                )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    onClick={() =>
+                                        isSecondary
+                                            ? openSecondaryMetricsReorderModal()
+                                            : openPrimaryMetricsReorderModal()
+                                    }
+                                    icon={<IconList />}
+                                    tooltip="Reorder, move or remove metrics"
+                                />
                             </div>
                         )}
                     </div>

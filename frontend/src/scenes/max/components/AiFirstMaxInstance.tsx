@@ -15,6 +15,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { Thread } from '../Thread'
+import { MaxNotConfigured } from './MaxNotConfigured'
 import { SidebarQuestionInputWithSuggestions } from './SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './ThreadAutoScroller'
 
@@ -89,27 +90,32 @@ interface AiFirstMaxInstanceProps {
 }
 
 export function AiFirstMaxInstance({ tabId }: AiFirstMaxInstanceProps): JSX.Element {
-    const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId }))
-    const { startNewConversation } = useActions(maxLogic({ tabId }))
+    const { threadVisible, threadLogicKey, conversation, conversationId } = useValues(maxLogic({ panelId: tabId }))
+    const { startNewConversation } = useActions(maxLogic({ panelId: tabId }))
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
-        tabId,
+        panelId: tabId,
         conversationId: threadLogicKey,
         conversation,
     }
 
     return (
         <div className="flex grow overflow-hidden h-full">
-            <BindLogic logic={maxLogic} props={{ tabId }}>
+            <BindLogic logic={maxLogic} props={{ panelId: tabId }}>
                 <BindLogic logic={maxThreadLogic} props={threadProps}>
                     <div className="flex flex-col grow overflow-hidden">
                         <ChatHeader conversationId={conversationId} tabId={tabId} />
-                        <ChatArea
-                            threadVisible={threadVisible}
-                            conversationId={conversationId}
-                            conversation={conversation}
-                            onStartNewConversation={startNewConversation}
-                        />
+                        {isMaxAvailable ? (
+                            <ChatArea
+                                threadVisible={threadVisible}
+                                conversationId={conversationId}
+                                conversation={conversation}
+                                onStartNewConversation={startNewConversation}
+                            />
+                        ) : (
+                            <MaxNotConfigured />
+                        )}
                     </div>
                 </BindLogic>
             </BindLogic>

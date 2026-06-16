@@ -20,21 +20,6 @@ class PosthogJwtAudience(Enum):
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
 
 
-class AgentInternalAudience(Enum):
-    """Audiences for cross-service JWTs signed with `AGENT_INTERNAL_SIGNING_KEY`.
-
-    Both Django (mints) and the node services (verify) read the same key.
-    `aud` scopes a token to one receiving service so a token minted for
-    the janitor can't be replayed against the ingress.
-
-    Mirror constants in services/agent-shared/src/runtime/internal-jwt.ts —
-    if you add an audience, add it on both sides.
-    """
-
-    INGRESS_PREVIEW = "agent-ingress.preview"
-    JANITOR_RPC = "agent-janitor.rpc"
-
-
 def signing_key_fingerprint(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()[:16]
 
@@ -74,38 +59,6 @@ def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
             last_error = error
 
     raise last_error or jwt.InvalidSignatureError("Signature verification failed")
-
-
-def encode_agent_internal_jwt(
-    payload: dict[str, Any],
-    expiry_delta: timedelta,
-    audience: AgentInternalAudience,
-) -> str:
-    """HS256 JWT for trusted-service ↔ trusted-service calls in the agent platform.
-
-    Signed with `settings.AGENT_INTERNAL_SIGNING_KEY` (the same key the
-    node services verify against). Distinct from `encode_jwt` because the
-    latter signs with `SECRET_KEY` which the node services don't have.
-    """
-    key = settings.AGENT_INTERNAL_SIGNING_KEY
-    if not key:
-        raise RuntimeError("AGENT_INTERNAL_SIGNING_KEY is not configured")
-    return jwt.encode(
-        {
-            **payload,
-            "exp": datetime.now(tz=UTC) + expiry_delta,
-            "aud": audience.value,
-        },
-        key,
-        algorithm=JWT_ALGORITHM,
-    )
-
-
-def decode_agent_internal_jwt(token: str, audience: AgentInternalAudience) -> dict[str, Any]:
-    key = settings.AGENT_INTERNAL_SIGNING_KEY
-    if not key:
-        raise RuntimeError("AGENT_INTERNAL_SIGNING_KEY is not configured")
-    return jwt.decode(token, key, audience=audience.value, algorithms=[JWT_ALGORITHM])
 
 
 def get_oidc_verification_keys() -> list[Any]:

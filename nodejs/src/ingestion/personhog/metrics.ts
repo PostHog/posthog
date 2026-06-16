@@ -54,7 +54,13 @@ export const personhogErrorsTotal = new Counter({
 export const personhogRetriesTotal = new Counter({
     name: 'personhog_retries_total',
     help: 'Total PersonHog gRPC retries before success or exhaustion',
-    labelNames: ['source', 'error_type'] as const,
+    labelNames: ['method', 'client', 'error_type'] as const,
+})
+
+export const personhogTerminalErrorsTotal = new Counter({
+    name: 'personhog_terminal_errors_total',
+    help: 'PersonHog gRPC errors after retry exhaustion — the request was not fulfilled',
+    labelNames: ['method', 'client', 'error_type'] as const,
 })
 
 export function grpcErrorType(error: unknown): string {

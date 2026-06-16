@@ -1,0 +1,199 @@
+{
+    "model": "anthropic/claude-sonnet-4-6",
+    "triggers": [
+        {
+            "auth": {
+                "modes": [
+                    {
+                        "type": "shared_secret",
+                        "header": "X-Webhook-Secret",
+                        "secret_ref": "WEBHOOK_SECRET"
+                    }
+                ]
+            },
+            "type": "webhook",
+            "config": {
+                "path": "/webhook"
+            }
+        },
+        {
+            "type": "slack",
+            "config": {
+                "ack_reaction": "eyes",
+                "mention_only": true,
+                "trusted_workspaces": ["TSS5W8YQZ"],
+                "auto_resume_threads": true,
+                "allow_workspace_participants": false
+            }
+        },
+        {
+            "auth": {
+                "modes": [
+                    {
+                        "type": "posthog",
+                        "scopes": []
+                    }
+                ]
+            },
+            "type": "chat",
+            "config": {
+                "allow_restart": false
+            }
+        }
+    ],
+    "tools": [
+        {
+            "id": "@posthog/query",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/web-fetch",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/http-request",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/table-membership",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/table-append",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/table-query",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/memory-list",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/memory-search",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/memory-read",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 86400000,
+                "approvers": ["team_admins"],
+                "allow_edit": false,
+                "allow_agent_approver": false
+            },
+            "requires_approval": false
+        },
+        {
+            "id": "@posthog/memory-write",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 604800000,
+                "approvers": ["team_admins"],
+                "allow_edit": true,
+                "allow_agent_approver": false
+            },
+            "requires_approval": true
+        },
+        {
+            "id": "@posthog/memory-update",
+            "kind": "native",
+            "approval_policy": {
+                "ttl_ms": 604800000,
+                "approvers": ["team_admins"],
+                "allow_edit": true,
+                "allow_agent_approver": false
+            },
+            "requires_approval": true
+        }
+    ],
+    "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "INCIDENT_IO_TOKEN", "WEBHOOK_SECRET"],
+    "skills": [
+        {
+            "id": "triage-playbook",
+            "path": "skills/triage-playbook/SKILL.md",
+            "description": "Structured triage flow — phases for context gathering, hypothesis, and reporting. Load when starting an investigation."
+        },
+        {
+            "id": "slack-thread-protocol",
+            "path": "skills/slack-thread-protocol/SKILL.md",
+            "description": "Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
+        },
+        {
+            "id": "incident-io-playbook",
+            "path": "skills/incident-io-playbook/SKILL.md",
+            "description": "How to query and update incident.io — list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
+        },
+        {
+            "id": "runbook-memory",
+            "path": "skills/runbook-memory/SKILL.md",
+            "description": "The runbook corpus in agent memory — the folder taxonomy (runbooks/alerts, runbooks/systems, runbooks/procedures), how to read it during triage, how to write a GOOD runbook entry, and the approval-gated flow for proposing a new or updated runbook on a user's behalf. ALWAYS load before reading or proposing any change to a runbook — i.e. at the start of triage (to consult) and after a resolution (to capture the lesson)."
+        }
+    ],
+    "integrations": [],
+    "limits": {
+        "max_turns": 30,
+        "max_tool_calls": 100,
+        "max_wall_seconds": 600
+    },
+    "reasoning": "high",
+    "mcps": [],
+    "entrypoint": "agent.md"
+}

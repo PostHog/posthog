@@ -101,6 +101,19 @@
                     {
                         "name": "~/queries/schema",
                         "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                    },
+                    {
+                        "name": "monaco-editor",
+                        "message": "Value imports of monaco-editor statically couple ~4 MB of editor code into your chunk. Use `import type`, or render via the lazy facade in lib/monaco/CodeEditor.",
+                        "allowTypeImports": true
+                    },
+                    {
+                        "name": "lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                    },
+                    {
+                        "name": "~/lib/monaco/CodeEditorImpl",
+                        "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
                     }
                 ]
             }
@@ -198,7 +211,10 @@
             }
         },
         {
-            "files": ["packages/agent-chat/**/*.{ts,tsx}", "services/agent-console/**/*.{ts,tsx}"],
+            "files": [
+                "products/agent_platform/packages/agent-chat/**/*.{ts,tsx}",
+                "products/agent_platform/services/agent-console/**/*.{ts,tsx}"
+            ],
             "rules": {
                 "react/forbid-elements": "off",
                 "react/forbid-dom-props": "off",
@@ -207,14 +223,13 @@
         },
         {
             "files": [
-                "services/agent-shared/**/*.test.{ts,tsx}",
-                "services/agent-ingress/**/*.test.{ts,tsx}",
-                "services/agent-runner/**/*.test.{ts,tsx}",
-                "services/agent-janitor/**/*.test.{ts,tsx}",
-                "services/agent-tools/**/*.test.{ts,tsx}",
-                "services/agent-migrations/**/*.test.{ts,tsx}",
-                "services/agent-tests/**/*.test.{ts,tsx}",
-                "services/agent-sandbox-host/**/*.test.{ts,js}"
+                "products/agent_platform/services/agent-shared/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-ingress/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-runner/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-janitor/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tools/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-tests/**/*.test.{ts,tsx}",
+                "products/agent_platform/services/agent-sandbox-host/**/*.test.{ts,js}"
             ],
             "rules": {
                 "jest/no-export": "off",
@@ -226,11 +241,11 @@
         },
         {
             "files": [
-                "services/agent-shared/src/**/*.ts",
-                "services/agent-runner/src/**/*.ts",
-                "services/agent-tools/src/**/*.ts",
-                "services/agent-ingress/src/**/*.ts",
-                "services/agent-janitor/src/**/*.ts"
+                "products/agent_platform/services/agent-shared/src/**/*.ts",
+                "products/agent_platform/services/agent-runner/src/**/*.ts",
+                "products/agent_platform/services/agent-tools/src/**/*.ts",
+                "products/agent_platform/services/agent-ingress/src/**/*.ts",
+                "products/agent_platform/services/agent-janitor/src/**/*.ts"
             ],
             "rules": {
                 "no-restricted-globals": [
@@ -244,15 +259,48 @@
         },
         {
             "files": [
-                "services/agent-shared/src/runtime/http-client.ts",
-                "services/agent-shared/**/*.test.ts",
-                "services/agent-runner/**/*.test.ts",
-                "services/agent-tools/**/*.test.ts",
-                "services/agent-ingress/**/*.test.ts",
-                "services/agent-janitor/**/*.test.ts"
+                "products/agent_platform/services/agent-shared/src/runtime/http-client.ts",
+                "products/agent_platform/services/agent-shared/**/*.test.ts",
+                "products/agent_platform/services/agent-runner/**/*.test.ts",
+                "products/agent_platform/services/agent-tools/**/*.test.ts",
+                "products/agent_platform/services/agent-ingress/**/*.test.ts",
+                "products/agent_platform/services/agent-janitor/**/*.test.ts"
             ],
             "rules": {
                 "no-restricted-globals": "off"
+            }
+        },
+        {
+            "files": [
+                "frontend/src/lib/monaco/**",
+                "frontend/src/lib/components/MonacoDiffEditor.tsx",
+                "frontend/src/scenes/data-warehouse/editor/sqlEditorLogic.tsx",
+                "frontend/src/scenes/hog-functions/configuration/HogFunctionTest.tsx"
+            ],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "paths": [
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "chart.js",
+                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "chart.js/auto",
+                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
             }
         }
     ]
