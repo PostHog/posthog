@@ -66,6 +66,15 @@
             p {
                 margin-bottom: 0;
             }
+
+            // Render the tiptap placeholder (exposed only as a data-placeholder attribute).
+            .is-empty:first-child::before {
+                float: left;
+                height: 0;
+                color: var(--color-text-tertiary);
+                pointer-events: none;
+                content: attr(data-placeholder);
+            }
         }
     }
 
