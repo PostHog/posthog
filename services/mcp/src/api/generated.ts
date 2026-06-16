@@ -23898,6 +23898,23 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+     * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+     * the full report itself.
+     */
+    export interface LinkedSignalReport {
+      /** UUID of the linked `SignalReport`. */
+      id: string;
+      /**
+         * LLM-generated report title, or null if the report hasn't been summarised yet.
+         * @nullable
+         */
+      title: string | null;
+      /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+      status: string;
+    }
+
+    /**
      * Typed output for view set `list`.
      */
     export interface ListOutput {
@@ -41445,6 +41462,21 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    /**
+     * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+     *
+     * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+     * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+     */
+    export interface ScoutEmissionReportLink {
+      /** Stable id the finding was emitted under. */
+      finding_id: string;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+      source_id: string;
+      /** The inbox report this finding linked to, or null if none could be resolved. */
+      report: LinkedSignalReport | null;
     }
 
     /**
