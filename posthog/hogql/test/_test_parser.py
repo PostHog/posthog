@@ -7897,6 +7897,30 @@ def parser_test_factory(backend: HogQLParserBackend):
             with self.assertRaises(BaseHogQLError):
                 parse_expr("count() filter ()", backend=backend)
 
+        def test_filter_where_body_grammar_parsed_visitor_discarded(self):
+            # cpp's window FILTER (with OVER) grammar-parses the WHERE body but
+            # never visits it, so DATE/TIMESTAMP/INTERVAL string literals and
+            # ColumnTypeExprEnum cast types accept; aggregate FILTER (no OVER)
+            # visits and rejects them. Pin both arms of the boundary.
+            for query in (
+                "f() FILTER (WHERE date '') OVER w",
+                "f() FILTER (WHERE timestamp '') OVER w",
+                "f() FILTER (WHERE interval '') OVER w",
+                "f() FILTER (WHERE cast(1 as q('a' = 1))) OVER w",
+            ):
+                self.assertEqual(
+                    parse_expr(query, backend="cpp-json"),
+                    parse_expr(query, backend=backend),
+                    msg=query,
+                )
+            for query in (
+                "f() FILTER (WHERE date '')",
+                "f() FILTER (WHERE interval '')",
+                "f() FILTER (WHERE cast(1 as q('a' = 1)))",
+            ):
+                with self.assertRaises(BaseHogQLError, msg=query):
+                    parse_expr(query, backend=backend)
+
         def test_cast_type_enum_vs_param_fallback(self):
             # A cast type `q(...)` is `ColumnTypeExprEnum` only when every entry is a
             # `string '=' numberLiteral` (the visitor then rejects it as unsupported).

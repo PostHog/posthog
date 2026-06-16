@@ -223,6 +223,21 @@ def main() -> int:
             print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
             return 1
 
+    # `--shrink-failures` lazy-imports shrinkray (in `_shrink`) the first time a
+    # divergence is found. If the optional `hogql-parser-parity` dep group isn't
+    # installed, that import raises `ModuleNotFoundError` mid-run and the
+    # exception eats every divergence we found before the first call. Probe
+    # the import at startup so a missing group fails fast with zero data loss.
+    if args.shrink_failures:
+        try:
+            from posthog.hogql.scripts import _shrink as _shrink_probe  # noqa: F401, PLC0415
+        except ModuleNotFoundError as exc:
+            print(
+                f"ERROR: --shrink-failures requires the `hogql-parser-parity` dep group "
+                f"(missing: {exc.name!r}). Install with: uv sync --group hogql-parser-parity"
+            )
+            return 1
+
     counts: Counter[str] = Counter()
     # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`; we shrink ONCE per failure here and reuse it for both the JSONL writer and the summary print loop, since shrinking is the slow step and doing it twice is pure waste.
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
@@ -391,8 +406,8 @@ def main() -> int:
                 "oracle": oracle,
                 "candidate": candidate,
                 "query": query,
-                "oracle_root": bucket[0],
-                "candidate_root": bucket[1],
+                "oracle_root": mismatch_bucket[0],
+                "candidate_root": mismatch_bucket[1],
                 "diff_path": steps,
             },
             shrunk,
