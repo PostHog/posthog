@@ -1,12 +1,6 @@
 import { v4 } from 'uuid'
 
-import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
-import { createTestMessage } from '../../../tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
-import { parseJSON } from '../../utils/json-parse'
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '../common/outputs'
-import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineResultType } from '../pipelines/results'
 import {
     HandleClientIngestionWarningStepInput,
@@ -15,7 +9,6 @@ import {
 
 describe('handleClientIngestionWarningStep', () => {
     const eventUuid = v4()
-    const capturedAt = new Date('2023-12-15T14:32:01.987Z')
 
     const baseEvent = createTestPluginEvent({
         distinct_id: 'my_id',
@@ -27,34 +20,14 @@ describe('handleClientIngestionWarningStep', () => {
         uuid: eventUuid,
     })
 
-    let mockOutputs: jest.Mocked<IngestionOutputs<IngestionWarningsOutput>>
-    let baseInput: HandleClientIngestionWarningStepInput
-
-    beforeEach(() => {
-        mockOutputs = createMockIngestionOutputs<IngestionWarningsOutput>()
-        baseInput = {
-            event: baseEvent,
-            team: { id: 1 },
-            headers: createTestEventHeaders({ now: capturedAt }),
-            message: createTestMessage(),
-        }
-    })
-
-    function producedWarning(): { team_id: number; type: string; details: Record<string, any> } {
-        expect(mockOutputs.queueMessages).toHaveBeenCalledWith(INGESTION_WARNINGS_OUTPUT, [
-            { value: expect.any(Buffer) },
-        ])
-        const value = mockOutputs.queueMessages.mock.calls[0][1][0].value
-        if (value === null) {
-            throw new Error('expected warning message to have a value')
-        }
-        const parsed = parseJSON(value.toString())
-        return { ...parsed, details: parseJSON(parsed.details) }
+    const baseInput: HandleClientIngestionWarningStepInput = {
+        event: baseEvent,
     }
 
+    const handleStep = createHandleClientIngestionWarningStep()
+
     describe('$$client_ingestion_warning events', () => {
-        it('emits the warning and resolves ingested with the event info', async () => {
-            const step = createHandleClientIngestionWarningStep(mockOutputs)
+        it('processes $$client_ingestion_warning event and adds warning', async () => {
             const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
@@ -64,50 +37,42 @@ describe('handleClientIngestionWarningStep', () => {
                 },
             }
 
-            const result = await step(input)
+            const result = await handleStep(input)
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.ingested).toHaveLength(1)
-                expect(result.value.ingested).toEqual(result.sideEffects)
-                await expect(result.value.ingested[0]).resolves.toEqual({
-                    capturedAt,
-                    topic: 'test-topic',
-                    partition: 5,
-                })
+                expect(result.value).toBeUndefined()
             }
-
-            const warning = producedWarning()
-            expect(warning.team_id).toBe(1)
-            expect(warning.type).toBe('client_ingestion_warning')
-            expect(warning.details).toMatchObject({
-                eventUuid: eventUuid,
-                event: '$$client_ingestion_warning',
-                distinctId: 'my_id',
-                message: 'Test warning message',
+            expect(result.warnings).toHaveLength(1)
+            expect(result.warnings[0]).toMatchObject({
+                type: 'client_ingestion_warning',
+                details: {
+                    eventUuid: eventUuid,
+                    event: '$$client_ingestion_warning',
+                    distinctId: 'my_id',
+                    message: 'Test warning message',
+                },
+                alwaysSend: true,
             })
         })
 
-        it('handles missing warning message property', async () => {
-            const step = createHandleClientIngestionWarningStep(mockOutputs)
+        it('includes message property in warning details', async () => {
             const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
                     event: '$$client_ingestion_warning',
-                    properties: {},
+                    properties: { $$client_ingestion_warning_message: 'Custom error message!' },
                 },
             }
 
-            const result = await step(input)
+            const result = await handleStep(input)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(producedWarning().details.message).toBeUndefined()
+            expect(result.warnings[0].details.message).toBe('Custom error message!')
         })
 
-        it('resolves ingested with null when the warning could not be produced', async () => {
-            mockOutputs.queueMessages.mockRejectedValue(new Error('produce failed'))
-            const step = createHandleClientIngestionWarningStep(mockOutputs)
+        it('handles missing warning message property', async () => {
             const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
@@ -117,18 +82,15 @@ describe('handleClientIngestionWarningStep', () => {
                 },
             }
 
-            const result = await step(input)
+            const result = await handleStep(input)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                await expect(result.value.ingested[0]).resolves.toBeNull()
-            }
+            expect(result.warnings[0].details.message).toBeUndefined()
         })
     })
 
     describe('non-client ingestion warning events', () => {
         it.each([['$pageview'], ['$identify'], ['custom_event']])('DLQs %s events', async (eventName) => {
-            const step = createHandleClientIngestionWarningStep(mockOutputs)
             const input: HandleClientIngestionWarningStepInput = {
                 ...baseInput,
                 event: {
@@ -137,7 +99,7 @@ describe('handleClientIngestionWarningStep', () => {
                 },
             }
 
-            const result = await step(input)
+            const result = await handleStep(input)
 
             expect(result.type).toBe(PipelineResultType.DLQ)
             if (result.type === PipelineResultType.DLQ) {
@@ -145,7 +107,6 @@ describe('handleClientIngestionWarningStep', () => {
                 expect(result.error).toBeInstanceOf(Error)
                 expect((result.error as Error).message).toBe(`Expected $$client_ingestion_warning, got ${eventName}`)
             }
-            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
     })
 })

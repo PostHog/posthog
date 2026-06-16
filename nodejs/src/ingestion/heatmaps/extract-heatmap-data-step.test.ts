@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
+import { ingestionLagGauge } from '../../common/metrics'
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
@@ -373,7 +374,7 @@ describe('createExtractHeatmapDataStep', () => {
             expect(event.properties.$heatmap_data).toBeDefined()
         })
 
-        it('returns only the ingested handles', async () => {
+        it('produces no value — the event is not emitted onwards', async () => {
             const event = createTestEvent()
             const input = {
                 preparedEvent: event,
@@ -385,8 +386,7 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                // The event is not emitted onwards — the step returns only the lag handles.
-                expect(Object.keys(result.value)).toEqual(['ingested'])
+                expect(result.value).toBeUndefined()
             }
         })
     })
@@ -441,7 +441,7 @@ describe('createExtractHeatmapDataStep', () => {
 
             expect(result.type).toBe(PipelineResultType.OK)
             if (result.type === PipelineResultType.OK) {
-                expect(result.value.ingested).toEqual([])
+                expect(result.value).toBeUndefined()
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
@@ -469,9 +469,25 @@ describe('createExtractHeatmapDataStep', () => {
     })
 
     describe('ingestion lag tracking', () => {
-        const capturedAt = new Date('2023-12-15T14:32:01.987Z')
+        const FAKE_NOW_MS = 1702654321987 // 2023-12-15T14:32:01.987Z
+        const capturedAt = new Date(FAKE_NOW_MS - 4000)
 
-        it('resolves ingested with source event info once the produce is acked', async () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+            jest.setSystemTime(FAKE_NOW_MS)
+            ingestionLagGauge.reset()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const gaugeValue = async (topic: string, partition: string): Promise<number | undefined> => {
+            const metric = await ingestionLagGauge.get()
+            return metric.values.find((v) => v.labels.topic === topic && v.labels.partition === partition)?.value
+        }
+
+        it('records lag against the source topic/partition once the produce is acked', async () => {
             const event = createTestEvent()
             const headers = createTestEventHeaders({ now: capturedAt })
             const message = createTestMessage({ topic: 'heatmaps_topic', partition: 3 })
@@ -479,36 +495,30 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await runStep({ preparedEvent: event, headers, message })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.ingested).toHaveLength(1)
-                await expect(result.value.ingested[0]).resolves.toEqual({
-                    capturedAt,
-                    topic: 'heatmaps_topic',
-                    partition: 3,
-                })
-            }
+            // Lag is recorded in the ack callback; awaiting the side effect drains it.
+            await result.sideEffects[0]
+            expect(await gaugeValue('heatmaps_topic', '3')).toBe(4000)
         })
 
-        it('records no ingested handle when there is no heatmap data', async () => {
+        it('records no sample when there is no heatmap data', async () => {
             const event = createTestEvent()
             delete event.properties.$heatmap_data
-            const message = createTestMessage()
+            const message = createTestMessage({ topic: 'heatmaps_topic', partition: 3 })
 
             const result = await runStep({ preparedEvent: event, message })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.ingested).toEqual([])
-            }
+            expect(result.sideEffects).toEqual([])
+            expect(await gaugeValue('heatmaps_topic', '3')).toBeUndefined()
         })
 
-        // A failed produce must resolve the lag promise to null rather than reject it, so it
-        // can never surface as an unhandled rejection (the step's then() handles both branches).
-        // jest fails any test that leaks an unhandled rejection, so this also guards that.
-        it('resolves ingested to null when the produce fails, without rejecting', async () => {
+        // A failed produce must record no sample and never surface as an unhandled rejection
+        // (the step's ack.then() handles the reject branch as a no-op). jest fails any test
+        // that leaks an unhandled rejection, so this also guards that.
+        it('records no sample when the produce fails, without rejecting', async () => {
             mockOutputs.queueMessages.mockRejectedValue(new Error('produce failed'))
             const event = createTestEvent()
-            const message = createTestMessage()
+            const message = createTestMessage({ topic: 'heatmaps_topic', partition: 3 })
 
             const result = await runStep({
                 preparedEvent: event,
@@ -517,10 +527,8 @@ describe('createExtractHeatmapDataStep', () => {
             })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            if (result.type === PipelineResultType.OK) {
-                expect(result.value.ingested).toHaveLength(1)
-                await expect(result.value.ingested[0]).resolves.toBeNull()
-            }
+            await Promise.allSettled(result.sideEffects)
+            expect(await gaugeValue('heatmaps_topic', '3')).toBeUndefined()
         })
     })
 })

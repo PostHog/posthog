@@ -12,7 +12,6 @@ import {
     createEventFiltersBatchAppMetricsBeforeBatchStep,
     createFlushEventFiltersBatchAppMetricsStep,
 } from '../common/steps/event-filters-steps'
-import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { addTeamToContext } from '../common/subpipelines/helpers'
 import {
     createParseHeadersStep,
@@ -24,7 +23,6 @@ import {
 } from '../event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '../event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
-import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { createHandleClientIngestionWarningStep } from '../event-processing/handle-client-ingestion-warning-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { newBatchingPipeline } from '../pipelines/builders'
@@ -60,7 +58,7 @@ export function createClientWarningsPipeline<
         promiseScheduler,
     }
 
-    return newBatchingPipeline<TInput, EmitEventStepOutput, TContext, EventFiltersBatchContext, TContext>(
+    return newBatchingPipeline<TInput, void, TContext, EventFiltersBatchContext, TContext>(
         (beforeBatch) => beforeBatch.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)),
         (batch) =>
             batch
@@ -84,8 +82,7 @@ export function createClientWarningsPipeline<
                                             .pipe(createValidateEventPropertiesStep())
                                             .pipe(createApplyEventFiltersStep(eventFilterManager))
                                             .pipe(createDropOldEventsStep())
-                                            .pipe(createHandleClientIngestionWarningStep(outputs))
-                                            .pipe(createRecordIngestionLagStep())
+                                            .pipe(createHandleClientIngestionWarningStep())
                                     )
                                 )
                                 .handleIngestionWarnings(outputs)

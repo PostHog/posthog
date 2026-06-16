@@ -7,7 +7,6 @@ import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { AI_EVENT_TYPES } from '../ai'
 import { AiEventSubpipelineInput, createAiEventSubpipeline } from '../ai/pipelines/ai-event-subpipeline'
 import { IngestionWarningsOutput } from '../common/outputs'
-import { EmitEventStepOutput } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { SplitAiEventsStepConfig } from '../event-processing/split-ai-events-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -48,7 +47,7 @@ function classifyEvent(input: PerDistinctIdPipelineInput): EventBranch {
 export function createPerDistinctIdPipeline<TInput extends PerDistinctIdPipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
-): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
     const { options, outputs, splitAiEventsConfig, teamManager, groupTypeManager, hogTransformer, topHog } = config
 
     return builder.retry(

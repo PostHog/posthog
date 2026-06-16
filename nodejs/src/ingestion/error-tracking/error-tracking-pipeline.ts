@@ -17,7 +17,6 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '../common/outputs'
-import { createRecordIngestionLagStep } from '../common/steps/record-ingestion-lag'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -30,7 +29,7 @@ import {
     createSkipCookielessRateLimitToOverflowStep,
 } from '../event-preprocessing'
 import { createCreateEventStep } from '../event-processing/create-event-step'
-import { EmitEventStepOutput, createEmitEventStep } from '../event-processing/emit-event-step'
+import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '../event-processing/readonly-process-groups-step'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
@@ -55,11 +54,11 @@ export interface ErrorTrackingPipelineInput {
 }
 
 /**
- * The final step emits to Kafka and outputs handles to the in-flight
- * emissions. Successful events are produced to the output topic, while
- * failures are handled by the result handling pipeline (DLQ, drop, redirect).
+ * The pipeline output is void because the final step emits to Kafka.
+ * Successful events are produced to the output topic, while failures
+ * are handled by the result handling pipeline (DLQ, drop, redirect).
  */
-export type ErrorTrackingPipelineOutput = EmitEventStepOutput
+export type ErrorTrackingPipelineOutput = void
 
 export type ErrorTrackingOutputs = IngestionOutputs<
     EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | AppMetricsOutput
@@ -301,7 +300,6 @@ export function createErrorTrackingPipeline(
                                                         ]
                                                     )
                                                 )
-                                                .pipe(createRecordIngestionLagStep())
                                         )
                                 )
                             })

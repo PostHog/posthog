@@ -4,6 +4,7 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
+import { ingestionLagGauge } from '../../common/metrics'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
@@ -90,8 +91,7 @@ describe('emit-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.ingested).toHaveLength(1)
-                    expect(result.value.ingested).toEqual(result.sideEffects)
+                    expect(result.value).toBeUndefined()
                 }
                 expect(result.sideEffects).toHaveLength(1)
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
@@ -101,12 +101,8 @@ describe('emit-event-step', () => {
                     teamId: mockProcessedEvent.team_id,
                 })
 
-                // The ingested promise resolves with the event info once acked
-                await expect(result.sideEffects[0]).resolves.toEqual({
-                    capturedAt: mockHeaders.now,
-                    topic: mockMessage.topic,
-                    partition: mockMessage.partition,
-                })
+                // The emit promise (side effect) records lag and resolves once acked
+                await expect(result.sideEffects[0]).resolves.toBeUndefined()
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
             } finally {
                 jest.useRealTimers()
@@ -125,8 +121,8 @@ describe('emit-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             expect(result.sideEffects).toHaveLength(1)
 
-            // The event was not ingested, so the promise resolves with null
-            await expect(result.sideEffects[0]).resolves.toBeNull()
+            // The event was not ingested; the side effect resolves without recording lag
+            await expect(result.sideEffects[0]).resolves.toBeUndefined()
 
             expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, 'message_size_too_large', {
                 eventUuid: 'test-uuid',
@@ -243,6 +239,45 @@ describe('emit-event-step', () => {
 
                 // Metric should not be incremented on failure
                 expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
+            })
+
+            it('records ingestion lag at ack time, not at processing time', async () => {
+                jest.useFakeTimers()
+                jest.setSystemTime(1702654321987)
+                try {
+                    ingestionLagGauge.reset()
+                    let ack!: () => void
+                    mockOutputs.produce.mockReturnValue(
+                        new Promise<void>((resolve) => {
+                            ack = resolve
+                        })
+                    )
+                    const step = createEmitEventStep(config)
+                    const input: EmitEventStepInput<EventOutput> = {
+                        eventsToEmit: [{ event: mockProcessedEvent, output: EVENTS_OUTPUT }],
+                        teamId: 1,
+                        headers: createTestEventHeaders({ now: new Date(1702654321987 - 4000) }),
+                        message: createTestMessage({ topic: 'test-topic', partition: 5 }),
+                    }
+
+                    const result = await step(input)
+                    // Nothing recorded until the produce is acked.
+                    let metric = await ingestionLagGauge.get()
+                    expect(metric.values).toHaveLength(0)
+
+                    // The ack arrives one second later; the lag reflects ack time.
+                    jest.setSystemTime(1702654321987 + 1000)
+                    ack()
+                    await result.sideEffects[0]
+
+                    metric = await ingestionLagGauge.get()
+                    const sample = metric.values.find(
+                        (v) => v.labels.topic === 'test-topic' && v.labels.partition === '5'
+                    )
+                    expect(sample?.value).toBe(5000)
+                } finally {
+                    jest.useRealTimers()
+                }
             })
 
             it('should increment metric only once per successful emit', async () => {

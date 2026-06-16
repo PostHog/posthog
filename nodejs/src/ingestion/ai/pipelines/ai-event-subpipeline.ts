@@ -12,9 +12,8 @@ import { PersonsStoreForBatch } from '../../../worker/ingestion/persons/persons-
 import { AiEventOutput, AsyncOutput, EVENTS_OUTPUT, EventOutput } from '../../analytics/outputs'
 import { PersonDistinctIdsOutput, PersonsOutput } from '../../analytics/outputs'
 import { IngestionWarningsOutput } from '../../common/outputs'
-import { createRecordIngestionLagStep } from '../../common/steps/record-ingestion-lag'
 import { createCreateEventStep } from '../../event-processing/create-event-step'
-import { EmitEventStepOutput, createEmitEventStep } from '../../event-processing/emit-event-step'
+import { createEmitEventStep } from '../../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../../event-processing/event-pipeline-options'
 import { createHogTransformEventStep } from '../../event-processing/hog-transform-event-step'
 import { createNormalizeEventStep } from '../../event-processing/normalize-event-step'
@@ -53,7 +52,7 @@ export interface AiEventSubpipelineConfig {
 export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput, TContext>(
     builder: StartPipelineBuilder<TInput, TContext>,
     config: AiEventSubpipelineConfig
-): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
+): PipelineBuilder<TInput, void, TContext, AsyncOutput> {
     const { options, outputs, teamManager, groupTypeManager, hogTransformer, splitAiEventsConfig, topHog } = config
 
     return builder
@@ -134,5 +133,4 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                 ]
             )
         )
-        .pipe(createRecordIngestionLagStep())
 }

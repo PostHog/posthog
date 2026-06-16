@@ -5,7 +5,7 @@ import { EventHeaders, PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFo
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isDistinctIdIllegal } from '../../worker/ingestion/persons/person-merge-service'
-import { EmitEventStepOutput, IngestedEventInfo } from '../event-processing/emit-event-step'
+import { recordIngestionLag } from '../common/record-ingestion-lag'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineWarning } from '../pipelines/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '../pipelines/results'
@@ -19,32 +19,25 @@ export interface ExtractHeatmapDataStepInput {
 }
 
 /**
- * Terminal step of the heatmaps pipeline: extracts heatmap data and produces it to
- * Kafka. The event itself is not emitted onwards, so only the `ingested` handles
- * (for the lag step) are returned — see EmitEventStepOutput.
+ * Terminal step of the heatmaps pipeline: extracts heatmap data and produces it
+ * to Kafka. The event itself is not emitted onwards, so the step produces no
+ * value; it records ingestion lag in the produce ack callback.
  */
 export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataStepInput>(
     outputs: IngestionOutputs<HeatmapsOutput>
-): ProcessingStep<TInput, EmitEventStepOutput> {
-    return async function extractHeatmapDataStep(input: TInput): Promise<PipelineResult<EmitEventStepOutput>> {
+): ProcessingStep<TInput, void> {
+    return async function extractHeatmapDataStep(input: TInput): Promise<PipelineResult<void>> {
         const { preparedEvent, headers, message } = input
         const { eventUuid } = preparedEvent
 
         // When capture has already redirected heatmap data to the heatmaps topic,
         // skip extraction here — capture strips $heatmap_data before publishing.
         if (headers.skip_heatmap_processing) {
-            return Promise.resolve(ok({ ingested: [] }))
+            return Promise.resolve(ok(undefined))
         }
 
         const acks: Promise<void>[] = []
-        const ingested: Promise<IngestedEventInfo | null>[] = []
         const warnings: PipelineWarning[] = []
-
-        const ingestedInfo: IngestedEventInfo = {
-            capturedAt: headers.now,
-            topic: message.topic,
-            partition: message.partition,
-        }
 
         try {
             const extractResult = extractScrollDepthHeatmapData(preparedEvent)
@@ -66,14 +59,12 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
                     }))
                 )
                 acks.push(ack)
-                // Self-handle the lag-tracking branch so a produce failure can never surface
-                // as an unhandled rejection: a failed produce resolves to null (no lag sample).
-                // The raw `ack` in side effects still carries the error for normal handling.
-                ingested.push(
-                    ack.then(
-                        () => ingestedInfo,
-                        () => null
-                    )
+                // Record lag once the produce is acked. The rejection branch is a no-op so a
+                // failed produce records no sample and never surfaces as an unhandled rejection;
+                // the raw `ack` in side effects still carries the error for normal handling.
+                void ack.then(
+                    () => recordIngestionLag(headers, message),
+                    () => {}
                 )
             }
         } catch {
@@ -85,7 +76,7 @@ export function createExtractHeatmapDataStep<TInput extends ExtractHeatmapDataSt
             })
         }
 
-        return Promise.resolve(ok({ ingested }, acks, warnings))
+        return Promise.resolve(ok(undefined, acks, warnings))
     }
 }
 

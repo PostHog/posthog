@@ -8,6 +8,7 @@ import { castTimestampOrNow, castTimestampToClickhouseFormat } from '../../utils
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { emitIngestionWarning } from '../common/ingestion-warnings'
 import { IngestionWarningsOutput } from '../common/outputs'
+import { recordIngestionLag } from '../common/record-ingestion-lag'
 import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
@@ -28,44 +29,14 @@ export interface EmitEventStepInput<O extends string> {
     message: Message
 }
 
-/**
- * Info about an ingested event, resolved by `ingested` promises once the
- * event has been acked by Kafka.
- */
-export interface IngestedEventInfo {
-    /** Capture time from the `now` header; undefined when the header is missing. */
-    capturedAt?: Date
-    /** Topic and partition the event was consumed from. */
-    topic: string
-    partition: number
-}
-
-export interface EmitEventStepOutput {
-    /**
-     * One promise per emitted event, resolving with the event info once the
-     * emission has been acked by Kafka, or with null when the event was not
-     * ingested (e.g. rejected as too large). The same promises also flow
-     * through side effects for scheduling; this field lets downstream steps
-     * (e.g. ingestion lag recording) observe when the events have actually
-     * been ingested. Empty when nothing was emitted.
-     */
-    ingested: Promise<IngestedEventInfo | null>[]
-}
-
 export function createEmitEventStep<O extends string, T extends EmitEventStepInput<O>>(
     config: EmitEventStepConfig<O>
-): ProcessingStep<T, EmitEventStepOutput> {
+): ProcessingStep<T, void> {
     return function emitEventStep(input) {
         const { eventsToEmit, headers, message } = input
         const { outputs } = config
 
-        const ingestedInfo: IngestedEventInfo = {
-            capturedAt: headers.now,
-            topic: message.topic,
-            partition: message.partition,
-        }
-
-        const ingested: Promise<IngestedEventInfo | null>[] = []
+        const sideEffects: Promise<void>[] = []
 
         for (const { event, output } of eventsToEmit) {
             const serialized = serializeEvent(event)
@@ -82,7 +53,9 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                 })
                 .then(() => {
                     eventProcessedAndIngestedCounter.inc()
-                    return ingestedInfo
+                    // Lag is measured here, in the ack callback, so it reflects the
+                    // time from capture to the moment Kafka acknowledged the produce.
+                    recordIngestionLag(headers, message)
                 })
                 .catch(async (error) => {
                     // TODO: For now we have to live with the ingestion warning happening here
@@ -94,17 +67,16 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                             eventUuid: serialized.uuid,
                             distinctId: serialized.distinct_id,
                         })
-                        // The event was not ingested, so there is no info to resolve with
-                        return null
+                        // The event was not ingested, so no lag sample
                     } else {
                         throw error
                     }
                 })
 
-            ingested.push(emitPromise)
+            sideEffects.push(emitPromise)
         }
 
-        return Promise.resolve(ok({ ingested }, ingested))
+        return Promise.resolve(ok(undefined, sideEffects))
     }
 }
 
