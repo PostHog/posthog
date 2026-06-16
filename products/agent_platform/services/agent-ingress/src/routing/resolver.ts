@@ -151,7 +151,13 @@ export class RevisionResolver {
         if (!application || application.archived || !application.live_revision_id) {
             return null
         }
-        const revision = await this.opts.revisions.getRevision(application.live_revision_id)
+        // Scope the revision read to the resolved application — the live
+        // revision id always belongs to this app, so this is belt-and-braces
+        // against ever resolving across a tenant boundary.
+        const revision = await this.opts.revisions.getRevisionForApplication(
+            application.live_revision_id,
+            application.id
+        )
         if (!revision) {
             return null
         }

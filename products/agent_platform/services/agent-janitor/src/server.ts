@@ -160,6 +160,18 @@ function defaultSince(): string {
 }
 
 /**
+ * Read an approval by id, tenant-scoped to the `?application_id=` query param
+ * when Django supplies it (it always does for the per-app approval routes).
+ * Scoping here is defence-in-depth — Django also enforces the app/team gate —
+ * but it keeps a leaked approval id from resolving another tenant's row at the
+ * store layer. Falls back to the unscoped read when no application_id is given.
+ */
+async function getApprovalScoped(approvals: ApprovalStore, req: Request): Promise<ApprovalRequest | null> {
+    const applicationId = typeof req.query.application_id === 'string' ? req.query.application_id : undefined
+    return applicationId ? approvals.getForApplication(req.params.id, applicationId) : approvals.get(req.params.id)
+}
+
+/**
  * Compute the freeze-time spec: derive `spec.skills[]` + `spec.tools[]` from
  * the typed resources in the bundle and merge them with the author-written
  * non-custom (native/client) tools already on the spec. Pure — the freeze
@@ -580,7 +592,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             if (!needApprovalStore(res)) {
                 return
             }
-            const row = await opts.approvals!.get(req.params.id)
+            const row = await getApprovalScoped(opts.approvals!, req)
             if (!row) {
                 res.status(404).json({ error: 'not_found' })
                 return
@@ -596,7 +608,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const body = DecideApprovalBodySchema.parse(req.body)
-            const existing = await opts.approvals!.get(req.params.id)
+            const existing = await getApprovalScoped(opts.approvals!, req)
             if (!existing) {
                 res.status(404).json({ error: 'not_found' })
                 return

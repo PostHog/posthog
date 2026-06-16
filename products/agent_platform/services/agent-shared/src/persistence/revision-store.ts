@@ -23,6 +23,14 @@ export interface RevisionStore {
 
     getRevision(revisionId: string): Promise<AgentRevision | null>
     /**
+     * Tenant-scoped variant of `getRevision` for request-path callers: only
+     * returns the revision when it belongs to `applicationId`. Use this when
+     * the revision id came from a caller-influenced source so a leaked id can't
+     * resolve another tenant's revision; keep `getRevision` for trusted internal
+     * callers (runner session-start, janitor sweep).
+     */
+    getRevisionForApplication(revisionId: string, applicationId: string): Promise<AgentRevision | null>
+    /**
      * Same as `getRevision` but skips `AgentSpecSchema.parse`. For callers
      * that only need state / bundle pointers, or that are about to overwrite
      * the spec wholesale (e.g. `put_bundle`'s merge step). Lets a re-seed

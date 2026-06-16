@@ -232,4 +232,15 @@ describe('ApprovalStore (PG)', () => {
             expect(rejected[0].state).toBe('rejected')
         })
     })
+
+    describe('getForApplication (tenant-scoped read)', () => {
+        it('returns the row for the owning application and null for a mismatched one', async () => {
+            const { request } = await store.upsertQueued(buildInput())
+            const owned = await store.getForApplication(request.id, DEFAULT_APP_ID)
+            expect(owned?.id).toBe(request.id)
+            // A different application id must not resolve the row (no cross-tenant read).
+            const otherApp = await store.getForApplication(request.id, '00000000-0000-4000-8000-0000000060ff')
+            expect(otherApp).toBeNull()
+        })
+    })
 })

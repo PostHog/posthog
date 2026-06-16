@@ -84,6 +84,19 @@ export class PgRevisionStore implements RevisionStore {
         return r.rowCount === 0 ? null : rowToRev(r.rows[0])
     }
 
+    async getRevisionForApplication(revisionId: string, applicationId: string): Promise<AgentRevision | null> {
+        // Tenant-scoped read for request-path callers: the revision must belong
+        // to the resolved application, so a leaked/guessed revision id can't
+        // resolve another tenant's revision. Returns null on app mismatch.
+        const r = await this.pool.query(
+            `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,
+                    bundle_uri, bundle_sha256, spec
+             FROM agent_revision WHERE id = $1 AND application_id = $2`,
+            [revisionId, applicationId]
+        )
+        return r.rowCount === 0 ? null : rowToRev(r.rows[0])
+    }
+
     async getRevisionRaw(revisionId: string): Promise<AgentRevisionRaw | null> {
         const r = await this.pool.query(
             `SELECT id, application_id, parent_revision_id, created_by_id, created_at, state,

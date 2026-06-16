@@ -71,6 +71,18 @@ export class PgApprovalStore implements ApprovalStore {
         return r.rowCount === 0 ? null : rowToRequest(r.rows[0])
     }
 
+    async getForApplication(id: string, applicationId: string): Promise<ApprovalRequest | null> {
+        // Tenant-scoped read for request-path callers: the row must belong to
+        // the application in the request URL, so a leaked approval id can't
+        // resolve another tenant's request. A miss on app mismatch returns null
+        // (same as not-found) so we don't leak existence across tenants.
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS} FROM agent_tool_approval_request WHERE id = $1 AND application_id = $2`,
+            [id, applicationId]
+        )
+        return r.rowCount === 0 ? null : rowToRequest(r.rows[0])
+    }
+
     async findLatestByArgs(sessionId: string, toolName: string, argsHash: Buffer): Promise<ApprovalRequest | null> {
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
