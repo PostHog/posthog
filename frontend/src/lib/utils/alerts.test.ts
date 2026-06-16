@@ -1,6 +1,6 @@
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { PendingAlertNotification, buildAlertFilterConfig, buildHogFunctionPayload } from './alertUtils'
+import { PendingAlertNotification, buildAlertFilterConfig, buildHogFunctionPayload } from './alerts'
 
 describe('alertUtils', () => {
     describe('buildAlertFilterConfig', () => {
