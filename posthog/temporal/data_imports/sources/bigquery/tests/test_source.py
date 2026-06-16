@@ -86,31 +86,31 @@ def test_bigquery_get_columns_filters_existing_destination_tables():
     assert list(columns.keys()) == ["table"]
 
 
-def test_bigquery_get_columns_wraps_opaque_token_refresh_typeerror():
-    """A bad OAuth token endpoint makes google-auth raise an opaque `TypeError` during the
-    lazy token refresh. `get_columns` must surface a clear, non-retryable error instead."""
+@pytest.mark.parametrize(
+    "error_message,expected_type,is_token_refresh",
+    [
+        # A bad OAuth token endpoint makes google-auth raise this opaque `TypeError` during the
+        # lazy token refresh — `get_columns` must surface a clear, non-retryable error instead.
+        ("string indices must be integers, not 'str'", BigQueryTokenRefreshError, True),
+        # Any other `TypeError` indicates a genuine bug and must propagate unchanged.
+        ("unrelated bug", TypeError, False),
+    ],
+)
+def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, is_token_refresh):
+    """Token-refresh `TypeError`s are wrapped as `BigQueryTokenRefreshError`; others propagate."""
     fake_client = mock.MagicMock()
-    fake_client.query.side_effect = TypeError("string indices must be integers, not 'str'")
+    fake_client.query.side_effect = TypeError(error_message)
 
-    with pytest.raises(BigQueryTokenRefreshError) as exc_info:
+    with pytest.raises(expected_type) as exc_info:
         BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
 
-    # The raised message must carry the stable marker registered as non-retryable.
-    assert BIGQUERY_TOKEN_RESPONSE_ERROR in str(exc_info.value)
-    assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
-
-
-def test_bigquery_get_columns_propagates_unrelated_typeerror():
-    """Only the google-auth token-refresh signature is converted — other `TypeError`s,
-    which indicate genuine bugs, must propagate unchanged."""
-    fake_client = mock.MagicMock()
-    fake_client.query.side_effect = TypeError("unrelated bug")
-
-    with pytest.raises(TypeError) as exc_info:
-        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
-
-    assert not isinstance(exc_info.value, BigQueryTokenRefreshError)
-    assert "unrelated bug" in str(exc_info.value)
+    assert isinstance(exc_info.value, BigQueryTokenRefreshError) == is_token_refresh
+    if is_token_refresh:
+        # The raised message must carry the stable marker registered as non-retryable.
+        assert BIGQUERY_TOKEN_RESPONSE_ERROR in str(exc_info.value)
+        assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
+    else:
+        assert error_message in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
