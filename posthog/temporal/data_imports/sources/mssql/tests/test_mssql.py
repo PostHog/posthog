@@ -456,3 +456,33 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_connection_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real SQL Server error 229 surfaced by pymssql when the connecting user lacks SELECT
+            # permission on a table/view being imported. The object/database/schema names vary,
+            # so the match is on the stable phrase only.
+            "SQL Server message 229, severity 14, state 5, procedure b'', line 1:\n"
+            "b\"The SELECT permission was denied on the object 'SeTe_DetalladoRentabilidad', "
+            "database 'VirtualMedios', schema 'dbo'.DB-Lib error message 20018, severity 14:\n"
+            'General SQL Server error: Check messages from the SQL Server\n"',
+            "The SELECT permission was denied on the object 'Orders', database 'Sales', schema 'dbo'.",
+        ],
+    )
+    def test_permission_errors_are_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Transient/infra errors must stay retryable.
+            "DB-Lib error message 20003, severity 9:\nAdaptive Server connection timed out",
+            "ConnectionResetError: [Errno 104] Connection reset by peer",
+            "Read timed out.",
+        ],
+    )
+    def test_transient_errors_stay_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
