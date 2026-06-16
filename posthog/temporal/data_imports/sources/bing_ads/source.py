@@ -64,7 +64,8 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "invalid_grant": auth_friendly,
             "invalid_client": auth_friendly,
             "unauthorized_client": auth_friendly,
-            # Bing Ads service-level auth error codes surfaced via suds.WebFault details.
+            # Bing Ads service-level auth error codes surfaced via suds.WebFault details
+            # (see BingAdsClient.get_customer_id / extract_webfault_detail).
             "AuthenticationTokenExpired": auth_friendly,
             "AuthenticationFailed": auth_friendly,
             "InvalidCredentials": auth_friendly,
@@ -74,6 +75,19 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
             # the customer has to reconnect.
             "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
+            # CustomerManagementService.GetUser returns the generic SOAP fault "Invalid client data.
+            # Check the SOAP fault details for more information." when the connected account can't be
+            # used — revoked/expired credentials, a work/school identity instead of a personal Microsoft
+            # account (WorkIdentityNotAvailable), or no access to the Microsoft Advertising account.
+            # GetUser takes no request parameters, so this is never a malformed-request bug on our side;
+            # retrying can't recover it. When the specific code above is present in the fault detail it
+            # matches first; this catches the generic umbrella message otherwise.
+            "Invalid client data": (
+                "PostHog could not use the connected Bing Ads account (Microsoft returned 'Invalid client data'). "
+                "This usually means the account's credentials are no longer valid, or the Microsoft account does not "
+                "have access to the Microsoft Advertising account. Please reconnect your Bing Ads integration and make "
+                "sure the signed-in account can access the account in Microsoft Advertising."
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
