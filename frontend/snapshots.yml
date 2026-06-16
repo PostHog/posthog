@@ -736,6 +736,10 @@ snapshots:
         hash: v1.k794b7964.8d705f1946799a1a5f51a9bfbf7a3b1180e07a50a1ed63c33eac9cbcc73d83ec.JOYzqA_2imgBQQPSnvfIuOGeNeGf-phBMLT5KEnbLw4
     components-hogcharts-slopechart--empty--light:
         hash: v1.k794b7964.b60a9b53862703b0650c509f6efc52030ce9b892f98277b04db561e8eafbba37.yBlrhw2i9aAlxDq65nSAZ1g9-13awj42D6riEmYT__o
+    components-hogcharts-slopechart--incomplete-end--dark:
+        hash: v1.k794b7964.c20bbbeb5881733ea773011c9e1b3950dd08b07a04cbc0131c3e57b7efbc9440.VEnYJrfNO4b1DEjKCMNQL25NXoxX8dzKNPOYd6RJ3fA
+    components-hogcharts-slopechart--incomplete-end--light:
+        hash: v1.k794b7964.7152a8945cbe26c205284ddf9799eb4d808e4413babf9a87e5ec0860cdc6f850.JfQpbS54cCv0ATEec9Afhk1fHervgDL_4qMlXbMJW7E
     components-hogcharts-slopechart--legend-right--dark:
         hash: v1.k794b7964.5a3bd59b3c452187180052e9642e8f5b28fbee80eb37c147b326d9d886070cc4.ClqpcWz4o-XlMOOF9U5V6VHlURr6NnpmYhEhaAJ_HO8
     components-hogcharts-slopechart--legend-right--light:
@@ -5306,6 +5310,10 @@ snapshots:
         hash: v1.k794b7964.6f48e3b26fa1dbcf874be5762183c59636a377033cabe4576701713a19fdb59d.yZOisLKz7E1FMLYJPW3JbH95A6ROCnbK-fdqHGd53MA
     scenes-app-insights-trendsslopegraph--trends-slope-graph-incomplete-period--light:
         hash: v1.k794b7964.9f0d760ee25679e5b817dc81b7df7ef326983eeef514c093d10cf8a08fc7679f.XmDKnPfkcpkFOYvnFDfh6gvJiKM0JL5HZS0Lj5SOkpI
+    scenes-app-insights-trendsslopegraph--trends-slope-graph-with-legend--dark:
+        hash: v1.k794b7964.828419ff8c260e3794e58b96e316dce5eea4f7577c269e7f337ac22a94f66a35.SEgHO0d83_dMCXDlDXyvs6thyJKeOwg9RWrve5PtTNk
+    scenes-app-insights-trendsslopegraph--trends-slope-graph-with-legend--light:
+        hash: v1.k794b7964.f69c8a996a7ed866d6f9c8f0eefc4db3959b1a38c4baeef46c4187c9c16a0d16.6HSKTeiFXbRGVfzwDHFKqE6GJYoLJt-if1LFCMMI10M
     scenes-app-insights-trendsvalue--trends-area--dark:
         hash: v1.k794b7964.3fce948481d1b3be054893a8e99508e85bdff69723c91f864e311ca498389e87.VY094hyWWNRusfn5-e_sxtQ3JZMauWFWoD9Nu0X8x4E
     scenes-app-insights-trendsvalue--trends-area--light:
