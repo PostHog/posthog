@@ -23,14 +23,14 @@ export function ExperimentsListWidgetPreview(): JSX.Element {
                                 <span className="truncate text-xs text-muted">Created by {creatorName}</span>
                             ) : null}
                         </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1">
-                            <StatusTag status={experiment.status as ExperimentStatus} />
+                        <div className="flex shrink-0 items-center gap-2">
                             {conclusionConfig ? (
                                 <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
                                     <span className={clsx('size-2 shrink-0 rounded-full', conclusionConfig.color)} />
                                     {conclusionConfig.title}
                                 </span>
                             ) : null}
+                            <StatusTag status={experiment.status as ExperimentStatus} />
                         </div>
                     </div>
                 )

@@ -80,8 +80,8 @@ function ExperimentsListWidgetRowItem({ experiment }: { experiment: ExperimentsL
                 </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-                <StatusTag status={experiment.status as ExperimentStatus} />
                 {experiment.conclusion ? <ExperimentConclusionLabel conclusion={experiment.conclusion} /> : null}
+                <StatusTag status={experiment.status as ExperimentStatus} />
             </div>
         </div>
     )
