@@ -93,11 +93,16 @@ function posthogPrincipalFrom(me: PosthogMeResponse): SessionPrincipal {
  * PostHog credential verifier. Accepts a bearer (Personal API key today, OAuth
  * later) and validates it against `/api/users/@me/`. Produces a `posthog`
  * principal + a `posthog_api` credential for tools.
+ *
+ * The bearer only proves "is a valid PostHog user somewhere" — it carries no
+ * tenant binding of its own. We therefore require the user's active team to
+ * match the agent's owning team (`application.team_id`); otherwise any valid
+ * bearer from any org would pass a `posthog`-gated agent (cross-team-open).
  */
 export function posthogVerifier(introspector: PosthogIdentityIntrospector): AuthVerifier {
     return {
         modeType: 'posthog',
-        async verify(req: Request, _mode: AuthMode, _app: AgentApplication): Promise<VerifyResult> {
+        async verify(req: Request, _mode: AuthMode, application: AgentApplication): Promise<VerifyResult> {
             const bearer = readBearer(req)
             if (!bearer) {
                 return { ok: false, status: 0, reason: 'skip' }
@@ -105,6 +110,12 @@ export function posthogVerifier(introspector: PosthogIdentityIntrospector): Auth
             const me = await introspector.introspect(bearer)
             if (!me) {
                 return { ok: false, status: 401, reason: 'invalid_token' }
+            }
+            // Tenant gate: the verified user must belong to the agent's team.
+            // `me.team?.id` is the user's active project; a stranger from
+            // another org is rejected even with a valid bearer.
+            if (me.team?.id !== application.team_id) {
+                return { ok: false, status: 403, reason: 'wrong_team' }
             }
             const credentials: CredentialMap = {
                 posthog_api: { kind: 'posthog_bearer', token: bearer },
