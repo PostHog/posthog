@@ -15,8 +15,9 @@ from products.signals.backend.facade.api import (
     emit_signal,
 )
 from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.buffer import BufferSignalsWorkflow, _emit_signal_buffered_event
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
+from products.signals.backend.temporal.types import EmitSignalInputs
 
 
 @pytest.fixture
@@ -251,3 +252,29 @@ class TestTelemetryPropsFromExtra:
     def test_truncates_long_strings(self) -> None:
         props = _telemetry_props_from_extra({"error_message": "x" * 1000})
         assert len(props["error_message"]) == _MAX_TELEMETRY_STR_LEN
+
+
+class TestSignalBufferedTelemetry:
+    def test_emit_signal_buffered_event(self, team_stub) -> None:
+        signal = EmitSignalInputs(
+            team_id=1,
+            source_product="github",
+            source_type="issue",
+            source_id="posthog/posthog#42",
+            description="A valid signal",
+            extra=GITHUB_ISSUE_EXTRA,
+        )
+        with patch("products.signals.backend.temporal.buffer.posthoganalytics.capture") as capture:
+            _emit_signal_buffered_event(team_stub, signal)
+
+        assert capture.call_count == 1
+        call = capture.call_args
+        assert call.kwargs["event"] == "signal_buffered"
+        assert call.kwargs["distinct_id"] == str(team_stub.uuid)
+        # Same property shape as signal_emitted so the funnel joins on source_id: flattened
+        # scalars only (the `labels` list dropped), core source_* keys present.
+        assert call.kwargs["properties"]["source_id"] == "posthog/posthog#42"
+        assert call.kwargs["properties"]["source_product"] == "github"
+        assert call.kwargs["properties"]["number"] == 42
+        assert "labels" not in call.kwargs["properties"]
+        assert "project" in call.kwargs["groups"]

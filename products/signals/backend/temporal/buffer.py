@@ -14,10 +14,14 @@ from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, RetryPolicy
 
+from posthog.event_usage import groups
+from posthog.models import Team
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.facade.api import _telemetry_props_from_extra
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
@@ -93,8 +97,47 @@ class SubmitSignalToBufferInput:
 BACKPRESSURE_POLL_INTERVAL_SECONDS = 1
 
 
+def _emit_signal_buffered_event(team: Team, signal: EmitSignalInputs) -> None:
+    """Fire the `signal_buffered` lifecycle event for a signal that has landed in the buffer."""
+    posthoganalytics.capture(
+        event="signal_buffered",
+        distinct_id=str(team.uuid),
+        # Mirror signal_emitted's shape so the two join on source_id: flattened scalar `extra`
+        # only (nested customer-derived values dropped), core source_* keys win on conflict.
+        properties={
+            **_telemetry_props_from_extra(signal.extra),
+            "source_product": signal.source_product,
+            "source_type": signal.source_type,
+            "source_id": signal.source_id,
+        },
+        groups=groups(team.organization, team),
+    )
+
+
+async def _capture_signal_buffered(signal: EmitSignalInputs) -> None:
+    """Best-effort `signal_buffered` telemetry; never raises into the submit path.
+
+    Pairs with `signal_emitted`, which fires when the per-signal emitter workflow is merely
+    STARTED (facade/api.py). A signal whose emitter is killed by its 10-min run_timeout while
+    backpressure-blocking never reaches here, so the emitted -> buffered gap isolates emit-handoff
+    loss from later (grouping/report) loss — the previously-undifferentiated `emitted_unassigned`.
+    """
+    try:
+        team = await Team.objects.select_related("organization").aget(pk=signal.team_id)
+        _emit_signal_buffered_event(team, signal)
+    except Exception as e:
+        # Swallow: a failed analytics event must never break (or retry) signal submission.
+        posthoganalytics.capture_exception(e)
+        logger.exception(
+            "Failed to capture signal_buffered event",
+            team_id=signal.team_id,
+            source_id=signal.source_id,
+        )
+
+
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> None:
     """Poll the buffer workflow's size via query, then send the signal once there's space."""
     client = await async_connect()
@@ -109,6 +152,9 @@ async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> 
         await asyncio.sleep(BACKPRESSURE_POLL_INTERVAL_SECONDS + jitter)
 
     await handle.signal(BufferSignalsWorkflow.submit_signal, input.signal)
+
+    # The signal has now landed in the buffer workflow — emit the buffered checkpoint.
+    await _capture_signal_buffered(input.signal)
 
 
 @temporalio.workflow.defn(name="buffer-signals")
