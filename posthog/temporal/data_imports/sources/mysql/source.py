@@ -100,8 +100,8 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="public",
+                        required=False,
+                        placeholder="Leave blank to include all databases",
                         secret=False,
                     ),
                     SourceFieldSelectConfig(

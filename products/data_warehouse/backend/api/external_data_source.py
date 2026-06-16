@@ -950,11 +950,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
                 name_substitutions: dict[str, str] = {}
                 if updated_source.source_type == ExternalDataSourceType.POSTGRES:
-                    # MySQL discovery always returns plain table names within the configured
-                    # schema, so the qualified-name rename machinery is Postgres-only.
                     name_substitutions = reconcile_postgres_refresh_name_substitutions(
                         source=updated_source,
                         source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                elif source_namespace_is_blank(updated_source) and is_multi_schema_capable_sql_source(
+                    updated_source.source_type
+                ):
+                    name_substitutions = apply_sql_warehouse_refresh_migration(
+                        source=updated_source,
                         team_id=instance.team_id,
                     )
                 if name_substitutions:
@@ -3035,7 +3040,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type=ExternalDataSourceType.POSTGRES,
+                source_type__in=(ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL),
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")

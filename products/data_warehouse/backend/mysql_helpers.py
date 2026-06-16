@@ -45,9 +45,11 @@ type MySQLSourceLocation = tuple[str, str]
 
 
 def get_default_mysql_schema(source: ExternalDataSource) -> str | None:
-    """The connection-level namespace for a MySQL source — `schema` with `database` fallback."""
+    """The configured MySQL namespace, preserving old rows that predate the explicit `schema` key."""
     job_inputs = source.job_inputs or {}
-    return normalize_namespace(job_inputs.get("schema")) or normalize_namespace(job_inputs.get("database"))
+    if "schema" in job_inputs:
+        return normalize_namespace(job_inputs.get("schema"))
+    return normalize_namespace(job_inputs.get("database"))
 
 
 def mysql_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> MySQLDwhColumns:
@@ -90,8 +92,6 @@ def get_mysql_source_location(
         inferred_schema, inferred_table = schema_name.split(".", 1)
         return inferred_schema, inferred_table
 
-    # MySQL sources always carry a connection-level namespace (`schema`/`database` are
-    # required fields), so an empty fallback should be unreachable in practice.
     return normalized_default or "", schema_name
 
 
