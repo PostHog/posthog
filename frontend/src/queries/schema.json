@@ -21092,6 +21092,7 @@
                 "WikipediaPageviews",
                 "YahooFinance",
                 "Clarifai",
+                "Adapty",
                 "Custom"
             ],
             "type": "string"
