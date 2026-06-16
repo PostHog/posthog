@@ -509,6 +509,7 @@ export class Worker {
                 analytics: this.deps.analytics,
                 applicationName: application?.name || application?.slug,
                 shutdownSignal: this.shutdownController.signal,
+                getSessionState: async (id) => (await this.deps.queue.get(id))?.state ?? null,
                 useGatewayCost: this.deps.useGatewayCost,
                 gatewayHeaders,
                 gatewayUsage,

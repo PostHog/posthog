@@ -112,6 +112,15 @@ export interface RunSessionDeps {
     credentialBroker?: CredentialBroker
     /** Aborting this signal mid-turn cancels the LLM call and stops the loop. */
     shutdownSignal?: AbortSignal
+    /**
+     * Fresh read of the session's persisted state, called once at start-of-run
+     * to catch a `/cancel` that landed in the gap between `queue.claim()` and
+     * our bus subscription (the bus event is fire-and-forget, so a cancel
+     * published before we subscribed is lost — but ingress also writes the
+     * durable `cancelled` state). Wired from `queue.get` in the worker; absent
+     * in unit tests that don't exercise the race.
+     */
+    getSessionState?: (sessionId: string) => Promise<AgentSession['state'] | null>
     /** Called once per turn after the assistant message + tool results are appended. */
     onTurnPersist?: (session: AgentSession) => Promise<void>
     /**
@@ -317,7 +326,20 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // try/finally below — otherwise the bus would accumulate one
     // subscriber per session handled by this worker.
     const pendingClientCalls = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+    // Per-session stop signal. Fired by a `cancel` bus event (user hit the chat
+    // stop button) — aborts the in-flight provider call and reopens the session
+    // as `completed` rather than re-queuing it. Merged with `shutdownSignal`
+    // before it reaches the loop; the two are kept distinct so their outcomes
+    // can diverge (cancel → completed/open, shutdown → suspended/requeued).
+    const cancelController = new AbortController()
     const clientResultUnsub = bus.subscribe(session.id, (e) => {
+        if (e.kind === 'cancel') {
+            if (!cancelController.signal.aborted) {
+                runLog.info({}, 'session.cancel.received')
+                cancelController.abort()
+            }
+            return
+        }
         if (e.kind !== 'client_tool_result') {
             return
         }
@@ -404,8 +426,23 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return { state: 'suspended', reason: 'shutdown', turns: 0 }
         }
 
+        // Stop signal that landed before we subscribed (the publish→subscribe
+        // race, or a session marked `cancelled` while still queued): the bus
+        // event is gone, but ingress also wrote the durable `cancelled` state.
+        // Reopen as `completed` so the conversation stays live — nothing ran,
+        // so there is no partial output or usage to account for.
+        if (cancelController.signal.aborted || (await deps.getSessionState?.(session.id)) === 'cancelled') {
+            await emit('interrupted', { turns: 0 })
+            return { state: 'completed', turns: 0 }
+        }
+
         // Per-run state the sink accumulates; outcome derivation reads it after the loop.
         let turn = 0
+        // Text streamed during the current turn, accumulated from `text_delta`
+        // so a mid-stream cancel can persist the partial assistant reply. Reset
+        // at `turn_start`; cleared at assistant `message_end` (the full message
+        // is already in the conversation, so there is nothing partial to keep).
+        let partialAssistantText = ''
         let inputSnapshot: ConversationMessage[] = []
         let turnStart = 0
         let genSpan = ''
@@ -508,6 +545,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 case 'turn_start': {
                     turn++
                     controlThisTurn = undefined
+                    partialAssistantText = ''
                     await emit('turn_started', { turn })
                     // Show "working on it" in the thread while this turn runs.
                     await slackStatus?.start(':hourglass_flowing_sand: _Working on it…_')
@@ -527,6 +565,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 case 'message_update': {
                     const e = event.assistantMessageEvent
                     if (e.type === 'text_delta') {
+                        partialAssistantText += e.delta
                         await emit('assistant_text_delta', { turn, text: e.delta })
                     } else if (e.type === 'thinking_delta') {
                         await emit('assistant_thinking_delta', { turn, thinking: e.delta })
@@ -537,6 +576,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     // Every finalized message (steering/user, assistant, tool result)
                     // lands in the persisted transcript in emission order.
                     session.conversation.push(event.message as ConversationMessage)
+                    // The assistant turn finalized normally — drop the partial
+                    // buffer so a cancel between turns doesn't re-persist it.
+                    if (event.message.role === 'assistant') {
+                        partialAssistantText = ''
+                    }
                     return
                 }
                 case 'tool_execution_start': {
@@ -745,6 +789,57 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         // so the map can't grow unbounded). Populated on the gateway path only.
         const turnRequestIds = new Map<number, string>()
 
+        // Cleanup for a cancel that interrupted an in-flight turn: persist the
+        // partial reply and recover its usage, then reopen the session as
+        // `completed`. The guards make it a no-op when the turn actually
+        // finalized (cancel caught *between* turns) — `turn_end` already
+        // persisted the message, cleared `partialAssistantText`, and deleted
+        // the request id, so there's nothing left to do but emit the event.
+        const finishInterrupted = async (): Promise<RunOutcome> => {
+            if (partialAssistantText.trim().length > 0) {
+                session.conversation.push({
+                    role: 'assistant',
+                    content: [{ type: 'text', text: partialAssistantText }],
+                    model: deps.model.id,
+                    provider: deps.model.provider,
+                    stopReason: 'aborted',
+                    timestamp: Date.now(),
+                } satisfies AssistantMessageRecord)
+                partialAssistantText = ''
+            }
+            // Mid-stream abort skips `turn_end`, so recover the interrupted
+            // turn's tokens/cost here. The gateway settles usage for a
+            // client-aborted request keyed on our `X-Request-Id`, and
+            // `getUsage` already retries the small settle window. Best-effort:
+            // billing is also captured gateway-side via its own
+            // `$ai_generation`, so a miss only dents the session row's total.
+            if (deps.gatewayUsage && turn > 0) {
+                const requestId = turnRequestIds.get(turn)
+                if (requestId) {
+                    try {
+                        const usage = await deps.gatewayUsage.client.getUsage(requestId, {
+                            phc: deps.gatewayUsage.phc,
+                        })
+                        if (usage) {
+                            const cost = Number(usage.cost_usd)
+                            session.usage_total = {
+                                ...session.usage_total,
+                                tokens_in: session.usage_total.tokens_in + (usage.input_tokens ?? 0),
+                                tokens_out: session.usage_total.tokens_out + (usage.output_tokens ?? 0),
+                                cost_total: session.usage_total.cost_total + (Number.isFinite(cost) ? cost : 0),
+                            }
+                        }
+                    } catch (err) {
+                        runLog.warn({ turn, requestId, err: (err as Error).message }, 'cancel.usage.fetch_failed')
+                    }
+                    turnRequestIds.delete(turn)
+                }
+            }
+            await emit('interrupted', { turns: turn })
+            await deps.onTurnPersist?.(session)
+            return { state: 'completed', turns: turn }
+        }
+
         // Tools are registered under their original ids so the loop matches calls
         // by name. Sanitize names on the wire (strict providers reject `@`/`/`) and
         // translate provider-echoed names back to the original before the loop sees
@@ -779,6 +874,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 'max_output_tokens.clamped'
             )
         }
+
+        // The loop aborts on EITHER a worker shutdown or a user cancel. The two
+        // controllers stay separate so the outcome can diverge (cancel →
+        // completed, shutdown → suspended); this merged view is only what the
+        // provider call and the per-turn stop hook watch.
+        const runSignal = deps.shutdownSignal
+            ? AbortSignal.any([deps.shutdownSignal, cancelController.signal])
+            : cancelController.signal
 
         try {
             await runAgentLoop(
@@ -965,7 +1068,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         return out as unknown as AgentMessage[]
                     },
                     shouldStopAfterTurn: async (): Promise<boolean> => {
-                        if (deps.shutdownSignal?.aborted) {
+                        if (runSignal.aborted) {
                             return true
                         }
                         if (turn >= rev.spec.limits.max_turns) {
@@ -976,11 +1079,16 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     },
                 },
                 sink,
-                deps.shutdownSignal,
+                runSignal,
                 streamFn
             )
         } catch (err) {
             const e = err as Error & { name?: string }
+            // A user cancel beats a shutdown: it persists the partial reply and
+            // reopens the session (`completed`) rather than re-queuing it.
+            if (cancelController.signal.aborted) {
+                return await finishInterrupted()
+            }
             if (e.name === 'AbortError' || deps.shutdownSignal?.aborted) {
                 return { state: 'suspended', reason: 'shutdown', turns: turn }
             }
@@ -1026,9 +1134,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             ])
         }
 
-        // Outcome derivation — order matters (shutdown beats a stale terminal state).
+        // Outcome derivation — order matters (cancel beats shutdown beats a
+        // stale terminal state). A cancel caught between turns lands here (the
+        // loop returned cleanly rather than throwing); `finishInterrupted` is a
+        // no-op for the already-finalized turn and just reopens as `completed`.
         let outcome: RunOutcome
-        if (deps.shutdownSignal?.aborted || lastStopReason === 'aborted') {
+        if (cancelController.signal.aborted) {
+            outcome = await finishInterrupted()
+        } else if (deps.shutdownSignal?.aborted || lastStopReason === 'aborted') {
             outcome = { state: 'suspended', reason: 'shutdown', turns: turn }
         } else if (lastControl?.kind === 'close') {
             await emit('closed', { turns: turn, summary: lastControl.summary })

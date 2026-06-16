@@ -741,4 +741,53 @@ describe('driver runSession', () => {
             expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
         })
     })
+
+    /**
+     * The chat stop button: ingress publishes a `cancel` bus event (caught by
+     * the runner's existing per-session subscription) and writes the durable
+     * `cancelled` state. The runner interrupts the in-flight turn and reopens
+     * the session as `completed` — open, restartable — rather than re-queuing
+     * it (shutdown) or marking it terminal.
+     */
+    describe('cancel / interrupt', () => {
+        it('reopens as completed (turns=0) when the session was cancelled before the run started', async () => {
+            // The publish→subscribe race / a queued session marked cancelled
+            // before claim: the bus event is gone, but the durable state isn't.
+            const session = makeSession()
+            const out = await run(makeRev(), session, {
+                script: [stop('never')],
+                getSessionState: async () => 'cancelled',
+            })
+            expect(out).toEqual({ state: 'completed', turns: 0 })
+            // The model never ran — only the seeded user message is present.
+            expect(session.conversation).toHaveLength(1)
+        })
+
+        it('a cancel mid-run stops between turns and reopens as completed', async () => {
+            const session = makeSession()
+            let published = false
+            const streamFn: Parameters<typeof runSession>[2]['streamFn'] = async (model, ctx, opts) => {
+                if (!published) {
+                    published = true
+                    await driverTestBus.publish({
+                        session_id: session.id,
+                        kind: 'cancel',
+                        data: {},
+                        ts: new Date().toISOString(),
+                    })
+                    // Let the runner's subscription deliver + abort before this
+                    // turn ends (local Redis round-trips in ~1ms; ample margin).
+                    await new Promise((r) => setTimeout(r, 150))
+                }
+                return streamSimple(model, ctx, opts)
+            }
+            const out = await run(makeRev({ tools: [{ kind: 'native', id: '@posthog/query' }] }), session, {
+                // Turn 1 calls a tool (loop would continue); the cancel stops it
+                // before turn 2's `stop` is ever reached.
+                script: [toolUse([call('@posthog/query', { query: 'x' })]), stop('should not reach')],
+                streamFn,
+            })
+            expect(out).toEqual({ state: 'completed', turns: 1 })
+        })
+    })
 })

@@ -158,6 +158,29 @@ async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySc
         res.json({ ok: true, idempotent: true, state: existing.state })
         return
     }
+    // Two signals, deliberately both:
+    //   - The bus event interrupts a session a worker is *actively
+    //     running* — it's subscribed to this channel (same path it
+    //     reads `client_tool_result` on) and aborts the in-flight
+    //     provider call, then reopens as `completed`.
+    //   - The `cancelled` state write is the durable backstop. A
+    //     queued session never claimed stays `cancelled` (terminal);
+    //     a running session the runner reopens overwrites it with
+    //     `completed`. It also closes the publish/subscribe race — a
+    //     cancel that lands in the gap between claim and subscribe is
+    //     caught by the runner's start-of-run state recheck.
+    // Best-effort: the publish only matters for an actively-running worker, so
+    // a Redis hiccup must not skip the durable `cancelled` write below.
+    try {
+        await deps.bus.publish({
+            session_id: sessionId,
+            kind: 'cancel',
+            data: {},
+            ts: new Date().toISOString(),
+        })
+    } catch {
+        // Swallow — the state write is the durable cancel signal.
+    }
     await deps.queue.update(sessionId, { state: 'cancelled' })
     res.json({ ok: true, state: 'cancelled' })
 }
