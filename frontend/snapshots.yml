@@ -340,6 +340,10 @@ snapshots:
         hash: v1.k794b7964.bba20fd9be09dfbdf15cf5d0defee05e01ec7f592c7e4263bb9a862689f7f405.KEE_9obRfUkXM5lwekd8w5Ev_KqKBQfdUSftso_690s
     components-definition-popover--action--light:
         hash: v1.k794b7964.e04f3796a4f04cad8873ce1afdc158e4cc6a0540b8a920a8c5d918daf5199dbf.FAUSpdd2xVG1T6eZCXSQQBisUiX30_g-Q4BwRvRoE_g
+    components-definition-popover--data-warehouse-column-mapping--dark:
+        hash: v1.k794b7964.6f535af764881ae419ed9ac52aeca390ef92f802fbe4691778cf79fb92b5422e.VDUBeHyJ28_h-hJCnxhRXHG4SiryFPiCOOrOIMVLPMo
+    components-definition-popover--data-warehouse-column-mapping--light:
+        hash: v1.k794b7964.63a2124f9b72369793988678f8fc92999ae15d4812a53a3e17d2068bd3670b7d.gvgiL7tjCAmOdbH_2eMJsNb7nFdGojZs41KXBV2sbsM
     components-definition-popover--event--dark:
         hash: v1.k794b7964.3da91158e1c88f8e9827213de348d341a3b3d1d8f64e1d53211b298d465133d4.oU3XnkSjwx3rnKksGGv2QOtnpMPTICcd62RII4xBReU
     components-definition-popover--event--light:
@@ -2145,9 +2149,9 @@ snapshots:
     filters-taxonomic-filter--three-groups-default-layout--light:
         hash: v1.k794b7964.7d03de4d736f21437d1009fc19719734175f0c0822cd2ccdbc380ffa8f5e627c.lGDn7Z4UhsMOqLuuLQ9_TO9FuIbd45s3RKUs7A69z7s
     filters-taxonomic-filter-menu-rebuild--data-warehouse-config--dark:
-        hash: v1.k794b7964.61be2aec314f24a2a2c0a7a4faa1bd26e03544fbb57c33e5442a2f8abac5f4b2.YmOETQ3Yvu-wJftFxEn54OYXueKU6Ppo9pHnx2itpKk
+        hash: v1.k794b7964.569842a2260c8d733d246dfe531215ef3a3d43693476adb54c851cbf8d17da7b.Ca6MIi6JxgqrWDq997ImIvtzWdbiYL0qzUS2-tXZC-I
     filters-taxonomic-filter-menu-rebuild--data-warehouse-config--light:
-        hash: v1.k794b7964.865f2c1d5b304c7267d14c1c0b36f283d8f1d004c5c577505bdd83874ddbbdc5.l3aN8SkWTC3GdoKxQ9tsSv-ozOv9ejOK-R-pEzvXahY
+        hash: v1.k794b7964.7013ab5215c8ea2feebb430426dd7e01e528ccdee53ede68f596c50eca150998.wbsgCZgLFEkmJXYwEdUGz33ABZ1t20TDbI-HtrE35Qo
     filters-taxonomic-filter-menu-rebuild--events-and-actions--dark:
         hash: v1.k794b7964.658adcb2dd4233e9fbfe4a8c62759a6e8fe9619fe22141e691b8ab7e421ebce8.JXXooKz-3MXbjt8D2MNdWnb9xYSJD_ZglAdj1gZbZc4
     filters-taxonomic-filter-menu-rebuild--events-and-actions--light:
