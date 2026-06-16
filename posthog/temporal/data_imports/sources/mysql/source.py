@@ -179,6 +179,20 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
                 or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
+            # Connection/credential failures we already classify as non-retryable during sync
+            # (an unreachable host, a refused connection, a blocked host, an SSL mismatch, ...)
+            # are expected user/upstream errors, not bugs on our side. Surface the friendly
+            # message without reporting them to error tracking — only genuinely unexpected
+            # failures get captured. Mirrors the Postgres and MSSQL `validate_credentials` handling.
+            error_msg = " ".join(str(arg) for arg in e.args) if e.args else str(e)
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if pattern in error_msg:
+                    return (
+                        False,
+                        friendly_error
+                        or f"Could not connect to {self.get_source_config.name}. Please check all connection details are valid.",
+                    )
+
             capture_exception(e)
             return (
                 False,

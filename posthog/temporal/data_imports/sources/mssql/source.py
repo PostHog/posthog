@@ -49,6 +49,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
             "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
             "Login failed for user": None,
+            # SQL Server error 229 — the login PostHog connects with was authenticated but lacks
+            # SELECT permission on a table/view being synced. This is a server-side GRANT the
+            # customer has to make (db_datareader or an explicit GRANT SELECT); retrying with the
+            # same login can never succeed. Match the stable message text, not the object/database
+            # names that follow it.
+            "The SELECT permission was denied on the object": "Your SQL Server login doesn't have permission to read one of the tables or views being synced. Grant it SELECT access (for example via the db_datareader role or an explicit GRANT SELECT) on the objects you want to import, then re-enable the sync.",
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
