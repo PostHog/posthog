@@ -4,6 +4,7 @@ Business logic for business_knowledge.
 All ORM access, chunking, quota enforcement, and search queries.
 """
 
+import json
 import uuid
 import datetime
 from collections import defaultdict
@@ -1899,8 +1900,6 @@ def _parse_rerank_response(response_text: str, candidate_ids: set[UUID]) -> list
 
     Validates that all returned IDs exist in the candidate set and dedupes.
     """
-    import json
-
     try:
         data = json.loads(response_text.strip())
         if not isinstance(data, list):
@@ -1931,6 +1930,30 @@ def _parse_rerank_response(response_text: str, candidate_ids: set[UUID]) -> list
         return results if results else None
     except (json.JSONDecodeError, KeyError, TypeError):
         return None
+
+
+def _apply_rerank_results(
+    response_text: str,
+    candidate_ids: set[UUID],
+    id_to_result: dict[UUID, KnowledgeSearchResult],
+    results: list[KnowledgeSearchResult],
+    top_k: int,
+    team_id: int,
+) -> list[KnowledgeSearchResult]:
+    """Post-process LLM response: parse, build reranked list, log, or fallback."""
+    parsed = _parse_rerank_response(response_text, candidate_ids)
+
+    if parsed is None:
+        logger.warning("bk_rerank_parse_failed", team_id=team_id, response_length=len(response_text))
+        return results[:top_k]
+
+    reranked = [id_to_result[rr.chunk_id] for rr in parsed[:top_k] if rr.chunk_id in id_to_result]
+
+    if not reranked:
+        return results[:top_k]
+
+    logger.info("bk_rerank_success", team_id=team_id, candidate_count=len(results), reranked_count=len(reranked))
+    return reranked
 
 
 async def async_rerank_chunks(
@@ -1980,31 +2003,7 @@ async def async_rerank_chunks(
         )
 
         response_text = response.choices[0].message.content or ""
-        parsed = _parse_rerank_response(response_text, candidate_ids)
-
-        if parsed is None:
-            logger.warning(
-                "bk_rerank_parse_failed",
-                team_id=team_id,
-                response_preview=response_text[:200],
-            )
-            return results[:top_k]
-
-        reranked: list[KnowledgeSearchResult] = []
-        for rr in parsed[:top_k]:
-            if rr.chunk_id in id_to_result:
-                reranked.append(id_to_result[rr.chunk_id])
-
-        if not reranked:
-            return results[:top_k]
-
-        logger.info(
-            "bk_rerank_success",
-            team_id=team_id,
-            candidate_count=len(results),
-            reranked_count=len(reranked),
-        )
-        return reranked
+        return _apply_rerank_results(response_text, candidate_ids, id_to_result, results, top_k, team_id)
 
     except Exception:
         logger.warning("bk_rerank_failed", team_id=team_id, exc_info=True)
@@ -2053,31 +2052,7 @@ def rerank_chunks(
         )
 
         response_text = response.choices[0].message.content or ""
-        parsed = _parse_rerank_response(response_text, candidate_ids)
-
-        if parsed is None:
-            logger.warning(
-                "bk_rerank_parse_failed",
-                team_id=team_id,
-                response_preview=response_text[:200],
-            )
-            return results[:top_k]
-
-        reranked: list[KnowledgeSearchResult] = []
-        for rr in parsed[:top_k]:
-            if rr.chunk_id in id_to_result:
-                reranked.append(id_to_result[rr.chunk_id])
-
-        if not reranked:
-            return results[:top_k]
-
-        logger.info(
-            "bk_rerank_success",
-            team_id=team_id,
-            candidate_count=len(results),
-            reranked_count=len(reranked),
-        )
-        return reranked
+        return _apply_rerank_results(response_text, candidate_ids, id_to_result, results, top_k, team_id)
 
     except Exception:
         logger.warning("bk_rerank_failed", team_id=team_id, exc_info=True)

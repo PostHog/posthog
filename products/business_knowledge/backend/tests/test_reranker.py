@@ -251,73 +251,76 @@ class TestRerankChunksSync(unittest.TestCase):
         assert result[1].chunk_id == results[2].chunk_id
 
 
-class TestAsyncRerankChunks(unittest.TestCase):
-    team_id = 12345
+TEAM_ID = 12345
 
-    @pytest.mark.asyncio
-    @parameterized.expand(
-        [
-            ("empty_results", [], 5, 0),
-            ("fewer_than_top_k", 3, 5, 3),
-        ]
-    )
-    async def test_no_llm_call_needed(self, _name: str, num_results: int | list, top_k: int, expected_len: int) -> None:
-        results = [] if num_results == [] else [_make_result() for _ in range(num_results)]
-        result = await async_rerank_chunks(self.team_id, "query", results, top_k=top_k)
-        assert len(result) == expected_len
-        if results:
-            assert result == results
 
-    @pytest.mark.asyncio
-    @patch("posthog.llm.gateway_client.get_async_llm_client")
-    async def test_successful_rerank_reorders(self, mock_get_client: MagicMock) -> None:
-        r1 = _make_result()
-        r2 = _make_result()
-        r3 = _make_result()
-        results = [r1, r2, r3]
+@pytest.mark.asyncio
+async def test_async_rerank_empty_results_returns_empty() -> None:
+    result = await async_rerank_chunks(TEAM_ID, "query", [])
+    assert result == []
 
-        mock_response = MagicMock()
-        mock_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content=f'[{{"id": "{r3.chunk_id}", "score": 0.9}}, {{"id": "{r1.chunk_id}", "score": 0.8}}]'
-                )
+
+@pytest.mark.asyncio
+async def test_async_rerank_fewer_than_top_k_returns_all() -> None:
+    results = [_make_result() for _ in range(3)]
+    result = await async_rerank_chunks(TEAM_ID, "query", results, top_k=5)
+    assert len(result) == 3
+    assert result == results
+
+
+@pytest.mark.asyncio
+@patch("posthog.llm.gateway_client.get_async_llm_client")
+async def test_async_rerank_successful_reorders(mock_get_client: MagicMock) -> None:
+    r1 = _make_result()
+    r2 = _make_result()
+    r3 = _make_result()
+    results = [r1, r2, r3]
+
+    mock_response = MagicMock()
+    mock_response.choices = [
+        MagicMock(
+            message=MagicMock(
+                content=f'[{{"id": "{r3.chunk_id}", "score": 0.9}}, {{"id": "{r1.chunk_id}", "score": 0.8}}]'
             )
-        ]
-        mock_client = MagicMock()
+        )
+    ]
+    mock_client = MagicMock()
+    mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+    mock_get_client.return_value = mock_client
+
+    result = await async_rerank_chunks(TEAM_ID, "query", results, top_k=2)
+
+    assert len(result) == 2
+    assert result[0].chunk_id == r3.chunk_id
+    assert result[1].chunk_id == r1.chunk_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response_content,side_effect",
+    [
+        ("invalid json", None),
+        (None, Exception("LLM error")),
+        (None, TimeoutError()),
+    ],
+    ids=["parse_failure", "llm_exception", "timeout"],
+)
+@patch("posthog.llm.gateway_client.get_async_llm_client")
+async def test_async_rerank_fallback_to_original_order(
+    mock_get_client: MagicMock, response_content: str | None, side_effect: Exception | None
+) -> None:
+    results = [_make_result() for _ in range(5)]
+
+    mock_client = MagicMock()
+    if side_effect:
+        mock_client.chat.completions.create = AsyncMock(side_effect=side_effect)
+    else:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=response_content))]
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_client
+    mock_get_client.return_value = mock_client
 
-        result = await async_rerank_chunks(self.team_id, "query", results, top_k=2)
+    result = await async_rerank_chunks(TEAM_ID, "query", results, top_k=3)
 
-        assert len(result) == 2
-        assert result[0].chunk_id == r3.chunk_id
-        assert result[1].chunk_id == r1.chunk_id
-
-    @pytest.mark.asyncio
-    @parameterized.expand(
-        [
-            ("parse_failure", "invalid json", None),
-            ("llm_exception", None, Exception("LLM error")),
-            ("timeout", None, TimeoutError()),
-        ]
-    )
-    @patch("posthog.llm.gateway_client.get_async_llm_client")
-    async def test_fallback_to_original_order(
-        self, _name: str, response_content: str | None, side_effect: Exception | None, mock_get_client: MagicMock
-    ) -> None:
-        results = [_make_result() for _ in range(5)]
-
-        mock_client = MagicMock()
-        if side_effect:
-            mock_client.chat.completions.create = AsyncMock(side_effect=side_effect)
-        else:
-            mock_response = MagicMock()
-            mock_response.choices = [MagicMock(message=MagicMock(content=response_content))]
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_client
-
-        result = await async_rerank_chunks(self.team_id, "query", results, top_k=3)
-
-        assert len(result) == 3
-        assert result == results[:3]
+    assert len(result) == 3
+    assert result == results[:3]
