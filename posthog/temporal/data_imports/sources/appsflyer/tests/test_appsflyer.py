@@ -126,6 +126,15 @@ class TestValidateCredentials:
             validate_credentials("token", "id123")
         assert str(status_code) in str(exc.value)
 
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_credentials_uses_daily_report_endpoint(self, mock_session):
+        mock_session.return_value.get.return_value = _response("")
+
+        assert validate_credentials("token", "id123") is True
+
+        url = mock_session.return_value.get.call_args.args[0]
+        assert urlparse(url).path == "/api/agg-data/export/app/id123/daily_report/v5"
+
     @pytest.mark.parametrize("status_code", [429, 500, 503])
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_raises_on_transient_status(self, mock_session, status_code):

@@ -105,8 +105,9 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
             "(e.g. 'id123456789' for iOS or the package name for Android)."
         ) from None
     today = datetime.now(UTC).strftime("%Y-%m-%d")
+    daily_report = APPSFLYER_ENDPOINTS["daily_report"].report
     response = _get_session(api_token).get(
-        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/daily_report/v5"
+        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/{daily_report}/v5"
         f"?{urlencode({'from': today, 'to': today})}",
         timeout=30,
     )
