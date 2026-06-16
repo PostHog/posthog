@@ -591,6 +591,7 @@ def capture_events(api_key: str, host: str, events: list[JsonObject], timeout_se
         method="POST",
     )
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- host is CI config, not request input
         with urllib.request.urlopen(request, timeout=timeout_seconds):
             pass
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
