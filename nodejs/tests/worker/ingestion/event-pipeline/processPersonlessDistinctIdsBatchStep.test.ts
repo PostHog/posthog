@@ -10,12 +10,23 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
     let mockPersonsStore: jest.Mocked<PersonsStoreForBatch>
     let team: Team
     let processPersonlessDistinctIdsBatchStep: typeof import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep').processPersonlessDistinctIdsBatchStep
+    let personlessDistinctIdCacheOperationsCounter: typeof import('../../../../src/worker/ingestion/persons/personless-distinct-id-cache').personlessDistinctIdCacheOperationsCounter
+
+    // Reads the freshly-imported counter the step writes to (resetModules gives each test its own).
+    const counterValue = async (operation: string, source: string): Promise<number> => {
+        const metric = await personlessDistinctIdCacheOperationsCounter.get()
+        return metric.values.find((v) => v.labels.operation === operation && v.labels.source === source)?.value ?? 0
+    }
 
     beforeEach(async () => {
         // Reset modules to get a fresh LRU cache for each test
         jest.resetModules()
         const module = await import('~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsBatchStep.js')
         processPersonlessDistinctIdsBatchStep = module.processPersonlessDistinctIdsBatchStep
+        // Import the cache module from the same fresh graph so the counter is the one the step increments.
+        personlessDistinctIdCacheOperationsCounter = (
+            await import('../../../../src/worker/ingestion/persons/personless-distinct-id-cache.js')
+        ).personlessDistinctIdCacheOperationsCounter
 
         team = createTestTeam()
 
@@ -28,24 +39,26 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
     const createInput = (
         distinctId: string,
         processPerson: boolean | undefined = undefined,
-        overrides: Partial<PluginEvent> = {}
+        overrides: Partial<PluginEvent> = {},
+        eventTeam: Team = team
     ): { event: PluginEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch } => ({
         event: createTestPluginEvent({
             distinct_id: distinctId,
-            team_id: team.id,
+            team_id: eventTeam.id,
             properties: processPerson === undefined ? {} : { $process_person_profile: processPerson },
             uuid: `uuid-${distinctId}`,
             ...overrides,
         }),
-        team,
+        team: eventTeam,
         personsStoreForBatch: mockPersonsStore,
     })
 
     const createFlagCalledInput = (
         distinctId: string,
-        properties: PluginEvent['properties'] = {}
+        properties: PluginEvent['properties'] = {},
+        eventTeam: Team = team
     ): { event: PluginEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch } =>
-        createInput(distinctId, undefined, { event: '$feature_flag_called', properties })
+        createInput(distinctId, undefined, { event: '$feature_flag_called', properties }, eventTeam)
 
     describe('when enabled', () => {
         it('should process personless events and call batch insert', async () => {
@@ -172,6 +185,25 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
         })
 
+        it('should only insert flag-called candidates from teams in the matcher, not others in the same batch', async () => {
+            const otherTeam = createTestTeam({ id: team.id + 1 })
+            const step = processPersonlessDistinctIdsBatchStep(true, String(team.id)) // only `team` enabled
+
+            const events = [
+                createFlagCalledInput('enabled-user'),
+                createFlagCalledInput('other-team-user', {}, otherTeam),
+            ]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(2)
+            expect(results.every((r) => r.type === PipelineResultType.OK)).toBe(true)
+            // Only the enabled team's distinct ID is inserted; the other team's flag-called event is skipped.
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'enabled-user' },
+            ])
+        })
+
         it('should support "*" to enable flag-called batching for all teams', async () => {
             const step = processPersonlessDistinctIdsBatchStep(true, '*')
             const events = [createFlagCalledInput('user-1')]
@@ -232,6 +264,20 @@ describe('processPersonlessDistinctIdsBatchStep', () => {
             await step(events)
 
             expect(mockPersonsStore.processPersonlessDistinctIdsBatch).not.toHaveBeenCalled()
+        })
+
+        it('should count hits and misses per source on the cache counter', async () => {
+            const step = processPersonlessDistinctIdsBatchStep(true, '*')
+
+            // First batch: one flag-called and one explicit-personless distinct ID, both cold -> one miss each.
+            await step([createFlagCalledInput('ff-1'), createInput('batch-1', false)])
+            // Second batch: ff-1 is warm in the LRU now -> one flag_called hit, no new insert.
+            await step([createFlagCalledInput('ff-1')])
+
+            expect(await counterValue('miss', 'flag_called')).toBe(1)
+            expect(await counterValue('miss', 'batch')).toBe(1)
+            expect(await counterValue('hit', 'flag_called')).toBe(1)
+            expect(await counterValue('hit', 'batch')).toBe(0)
         })
     })
 })
