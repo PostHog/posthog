@@ -20,6 +20,7 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-this-version) below.
 | **Auto-triggered by incident.io webhooks** | `webhook` trigger at `/agents/<slug>/webhook` — point incident.io's webhook config here for hands-off alert response.             |
 | Triggered by Grafana / alertmanager        | Same `webhook` endpoint, different payload shape — auto-detected by the agent.                                                    |
 | Triggered by Slack `@mention`              | `slack` trigger, `mention_only: true`                                                                                             |
+| **DM the bot directly**                    | `slack` trigger, `allow_direct_messages: true` — on-call asks it privately; one rolling session per DM, idle-reset by the sweep   |
 | Chattable from the agent console           | `chat` trigger — open the agent in the console and use the playground dock                                                        |
 | Calls the Slack Web API directly           | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)                                           |
 | **Reads + writes incident.io directly**    | `@posthog/http-request` + `INCIDENT_IO_TOKEN` secret — lists active incidents, posts triage updates onto the timeline.            |
@@ -152,9 +153,12 @@ fresh PostHog org:
    app's Event Subscriptions page and incident.io's webhook config
    respectively.
 6. **Smoke-test.** `@mention` the bot in a test Slack channel; it
-   should react with `:eyes:` and reply. Fire a synthetic incident.io
-   webhook (`curl <webhook_url> -d @sample.json`) and confirm a
-   timeline update lands on the test incident.
+   should react with `:eyes:` and reply. **DM the bot** from its
+   Messages tab (enabled by `allow_direct_messages`) and confirm it
+   answers in the 1:1 — a follow-up DM continues the same session
+   until it goes idle. Fire a synthetic incident.io webhook
+   (`curl <webhook_url> -d @sample.json`) and confirm a timeline
+   update lands on the test incident.
 
 The point of doing this through the concierge — rather than the
 janitor REST API below — is that every step is gated, logged, and

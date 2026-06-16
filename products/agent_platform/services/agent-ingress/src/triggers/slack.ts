@@ -63,6 +63,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                   mention_only?: boolean
                   auto_resume_threads?: boolean
                   allow_workspace_participants?: boolean
+                  allow_direct_messages?: boolean
                   ack_reaction?: string
               })
             : ({} as {
@@ -70,6 +71,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
                   mention_only?: boolean
                   auto_resume_threads?: boolean
                   allow_workspace_participants?: boolean
+                  allow_direct_messages?: boolean
                   ack_reaction?: string
               })
     const trusted = slackConfig.trusted_workspaces
@@ -105,8 +107,24 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
     // above already authorized the workspace.
     const allowWorkspaceParticipants = slackConfig.allow_workspace_participants ?? false
     const ackReaction = slackConfig.ack_reaction
+    // DM surface. `im` = 1:1, `mpim` = group DM. A DM is inherently directed at
+    // the bot (there's no @-mention in a 1:1), so it bypasses `mention_only`.
+    const allowDirectMessages = slackConfig.allow_direct_messages ?? false
+    const isDm = event.channel_type === 'im' || event.channel_type === 'mpim'
+    // A DM arriving while the surface isn't opted in must not be silently
+    // processed — drop it with a structured reason.
+    if (isDm && !allowDirectMessages) {
+        log.info(
+            { slug: resolved.application.slug, channel: event.channel, channel_type: event.channel_type },
+            'slack_event_dropped_dm_not_enabled'
+        )
+        res.json({ ok: true, dropped: 'dm_not_enabled' })
+        return
+    }
     // We need `externalKey` for both the gate and the enqueue below; compute once.
-    const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
+    // DMs have no thread, so they key per-channel — one rolling session per DM
+    // conversation. Channels/groups stay thread-scoped.
+    const externalKey = isDm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`
     // For non-mention events: track whether we're accepting because the message
     // is a reply in a thread the bot already owns. The seed message surfaces
     // this so the model can judge whether the user is actually talking to it.
@@ -120,11 +138,12 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             thread_ts: event.thread_ts ?? null,
             mention_only: mentionOnly,
             auto_resume_threads: autoResumeThreads,
+            is_dm: isDm,
             ack_reaction: ackReaction ?? null,
         },
         'slack_event_received'
     )
-    if (!isAppMention && mentionOnly) {
+    if (!isAppMention && !isDm && mentionOnly) {
         if (!autoResumeThreads || !event.thread_ts) {
             log.info(
                 { slug: resolved.application.slug, channel: event.channel, ts: event.ts },
@@ -212,6 +231,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         `workspace: ${workspaceId}`,
         `user: ${event.user}`,
         `mention: ${isAppMention ? 'true' : 'false'}`,
+        `dm: ${isDm ? 'true' : 'false'}`,
         ...(resumedOwnedThread ? ['resumed_owned_thread: true'] : []),
         ``,
         event.text ?? '',
@@ -531,6 +551,9 @@ async function resolveSlackUserId(
 interface SlackEvent {
     type: string
     channel: string
+    /** `"im"` for a 1:1 DM, `"mpim"` for a group DM, `"channel"`/`"group"`
+     *  otherwise. Present on `message` events; absent on `app_mention`. */
+    channel_type?: string
     user: string
     team?: string
     text?: string

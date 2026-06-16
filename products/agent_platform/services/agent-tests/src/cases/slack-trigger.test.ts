@@ -40,6 +40,9 @@ function slackEvent(opts: {
     /** Slack delivers `app_mention` for @-mentions; defaults to `message` for
      *  legacy "any channel message" subscribers. The ingress accepts both. */
     eventType?: 'message' | 'app_mention'
+    /** `"im"` (1:1 DM) / `"mpim"` (group DM) / `"channel"` etc. Slack stamps
+     *  it on `message` events; the DM gate keys off it. */
+    channel_type?: string
     /** Per-event uuid Slack stamps on every callback; identical across
      *  retries of the same event, unique per real event. Used by the ingress
      *  as the idempotency key. Defaults to a value derived from `ts` so each
@@ -54,6 +57,7 @@ function slackEvent(opts: {
         event: {
             type: opts.eventType ?? 'message',
             channel: opts.channel ?? 'C01',
+            channel_type: opts.channel_type,
             user: opts.user ?? 'U01',
             text: opts.text ?? 'hi',
             ts,
@@ -899,6 +903,101 @@ describe('slack trigger: real e2e', () => {
             )
             expect(res.status).toBe(200)
             expect(res.body.dropped).toBe('mention_only_no_owned_thread')
+            expect(res.body.session_id).toBeUndefined()
+        })
+    })
+
+    describe('allow_direct_messages', () => {
+        /** Slack trigger with a DM surface, optionally still gating channel
+         *  messages behind @-mentions. */
+        function dmSpec(opts: { allow_direct_messages: boolean; mention_only?: boolean }): Record<string, unknown> {
+            return {
+                triggers: [
+                    {
+                        type: 'slack',
+                        config: {
+                            mention_only: opts.mention_only ?? true,
+                            auto_resume_threads: false,
+                            allow_direct_messages: opts.allow_direct_messages,
+                            trusted_workspaces: '*',
+                        },
+                    },
+                ],
+                auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
+            }
+        }
+
+        it('DM (channel_type=im) enqueues a session even under mention_only', async () => {
+            // A DM is inherently directed at the bot — it must bypass the
+            // mention_only drop that would reject a plain channel message.
+            c.setScript([fauxText('dm reply')])
+            await c.deployAgent({
+                slug: 'dm-bot',
+                spec: dmSpec({ allow_direct_messages: true, mention_only: true }),
+                encrypted_env: SLACK_ENV,
+            })
+            const res = await c.slackPost(
+                'dm-bot',
+                'events',
+                slackEvent({ eventType: 'message', channel_type: 'im', channel: 'D01', text: 'hey bot' }),
+                SLACK_SECRET
+            )
+            expect(res.status).toBe(200)
+            expect(res.body.session_id).toBeTruthy()
+            expect(res.body.dropped).toBeUndefined()
+
+            await c.drain()
+            const session = await c.queue.get(res.body.session_id)
+            const userMsg = session!.conversation.find((m) => m.role === 'user') as
+                | { role: 'user'; content: string }
+                | undefined
+            // Seed flags the 1:1 so the model knows there's no @-mention.
+            expect(userMsg?.content).toMatch(/^dm: true$/m)
+            expect(userMsg?.content).toContain('hey bot')
+        })
+
+        it('second DM in the same channel resumes the same session (stable per-channel key)', async () => {
+            c.setScript([fauxText('first'), fauxText('second')])
+            await c.deployAgent({
+                slug: 'dm-resume',
+                spec: dmSpec({ allow_direct_messages: true }),
+                encrypted_env: SLACK_ENV,
+            })
+            const first = await c.slackPost(
+                'dm-resume',
+                'events',
+                slackEvent({ eventType: 'message', channel_type: 'im', channel: 'D01', text: 'one', ts: '1.0' }),
+                SLACK_SECRET
+            )
+            expect(first.body.resumed).toBe(false)
+            await c.drain()
+
+            // No thread_ts — a DM keys per-channel, so the second message lands
+            // on the same session.
+            const second = await c.slackPost(
+                'dm-resume',
+                'events',
+                slackEvent({ eventType: 'message', channel_type: 'im', channel: 'D01', text: 'two', ts: '2.0' }),
+                SLACK_SECRET
+            )
+            expect(second.body.resumed).toBe(true)
+            expect(second.body.session_id).toBe(first.body.session_id)
+        })
+
+        it('DM dropped when allow_direct_messages is false', async () => {
+            await c.deployAgent({
+                slug: 'dm-disabled',
+                spec: dmSpec({ allow_direct_messages: false }),
+                encrypted_env: SLACK_ENV,
+            })
+            const res = await c.slackPost(
+                'dm-disabled',
+                'events',
+                slackEvent({ eventType: 'message', channel_type: 'im', channel: 'D01', text: 'anyone home?' }),
+                SLACK_SECRET
+            )
+            expect(res.status).toBe(200)
+            expect(res.body.dropped).toBe('dm_not_enabled')
             expect(res.body.session_id).toBeUndefined()
         })
     })

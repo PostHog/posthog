@@ -23,7 +23,8 @@
                 "mention_only": true,
                 "trusted_workspaces": ["TSS5W8YQZ"],
                 "auto_resume_threads": true,
-                "allow_workspace_participants": false
+                "allow_workspace_participants": false,
+                "allow_direct_messages": true
             }
         },
         {

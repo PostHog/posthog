@@ -96,10 +96,17 @@ export const TriggerSchema = z.discriminatedUnion('type', [
      *     `message.*` events for channels the bot has joined.
      *   - `SLACK_SIGNING_SECRET` (verify inbound) and `SLACK_BOT_TOKEN` (call
      *     Slack APIs) must be set in the agent's encrypted env.
+     *   - Direct messages (`allow_direct_messages: true`): subscribe to
+     *     `message.im` / `message.mpim`, add the `im:history` / `mpim:history`
+     *     scopes, and enable the App Home Messages tab (otherwise users can't
+     *     open a DM with the bot). The manifest builder emits all three.
      *
-     * The session key is always the thread: `slack:<channel>:<thread_ts>`
-     * (the opening @-mention's `ts` becomes the thread root). Every later
-     * event in that thread resumes the same session.
+     * The session key for a channel/thread is `slack:<channel>:<thread_ts>`
+     * (the opening @-mention's `ts` becomes the thread root); every later event
+     * in that thread resumes the same session. A DM has no thread, so its
+     * session is keyed per-channel (`slack:<channel>`) — one rolling session per
+     * DM conversation, idle-reset via `spec.resume` (the janitor closes the
+     * `completed` session at its TTL, and the next DM rolls onto a fresh one).
      */
     z.object({
         type: z.literal('slack'),
@@ -161,6 +168,18 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              * "reaction landed". When unset, no ack reaction.
              */
             ack_reaction: z.string().optional(),
+            /**
+             * Opt-in DM surface. When true, the bot also handles direct
+             * messages (`channel_type: "im"`) and group DMs
+             * (`channel_type: "mpim"`), not just channel mentions. Drives both
+             * the manifest builder (subscribes `message.im` / `message.mpim`,
+             * adds `im:history` / `mpim:history`, enables the App Home Messages
+             * tab) and the ingress gate (a DM arriving while this is false is
+             * dropped). A DM is inherently directed at the bot, so it bypasses
+             * `mention_only` and is keyed per-channel (`slack:<channel>`) for
+             * one rolling session per conversation. Default false.
+             */
+            allow_direct_messages: z.boolean().default(false),
             /**
              * Required. Workspaces (Slack team ids, e.g. "T01ABC") allowed to
              * invoke this agent. Use the literal string `"*"` to opt into an

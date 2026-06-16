@@ -8,6 +8,7 @@
                 "mention_only": true,
                 "auto_resume_threads": true,
                 "ack_reaction": "raised_hands",
+                "allow_direct_messages": true,
                 "trusted_workspaces": ["T0XXXXXXX"]
             }
         },
