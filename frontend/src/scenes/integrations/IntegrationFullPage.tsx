@@ -1,10 +1,10 @@
-import { useValues } from 'kea'
-import posthog from 'posthog-js'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationDefinition, SettingsSectionComponent } from './integrationTypes'
@@ -61,11 +61,10 @@ function ConnectView({
     definition: IntegrationDefinition
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+
     const onConnectClick = (): void => {
-        posthog.capture('integration_connect_clicked', {
-            integration: definition.slug,
-            integration_kind: definition.kind,
-        })
+        reportIntegrationConnectClicked(definition.slug, definition.kind)
     }
 
     return (
