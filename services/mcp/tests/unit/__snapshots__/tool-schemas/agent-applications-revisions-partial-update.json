@@ -29,6 +29,30 @@
                     "default": "agent.md",
                     "type": "string"
                 },
+                "framework_prompt": {
+                    "properties": {
+                        "omit": {
+                            "default": [],
+                            "items": {
+                                "enum": [
+                                    "meta_tool_guidance",
+                                    "state_contract",
+                                    "tool_failure_guidance",
+                                    "approval_guidance",
+                                    "reasoning_hint"
+                                ],
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "version_pin": {
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
                 "integrations": {
                     "default": [],
                     "items": {
@@ -38,11 +62,24 @@
                 },
                 "limits": {
                     "default": {
+                        "max_cpu_cores": 0.25,
+                        "max_memory_mb": 512,
                         "max_tool_calls": 200,
                         "max_turns": 50,
                         "max_wall_seconds": 900
                     },
                     "properties": {
+                        "max_cpu_cores": {
+                            "default": 0.25,
+                            "exclusiveMinimum": 0,
+                            "type": "number"
+                        },
+                        "max_memory_mb": {
+                            "default": 512,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        },
                         "max_output_tokens": {
                             "exclusiveMinimum": 0,
                             "maximum": 200000,
@@ -171,6 +208,21 @@
                 "reasoning": {
                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
                     "type": "string"
+                },
+                "resume": {
+                    "properties": {
+                        "enabled": {
+                            "default": false,
+                            "type": "boolean"
+                        },
+                        "max_completed_age_ms": {
+                            "default": 604800000,
+                            "exclusiveMinimum": 0,
+                            "maximum": 2147483647,
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
                 },
                 "secrets": {
                     "default": [],
