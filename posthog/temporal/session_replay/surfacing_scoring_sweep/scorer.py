@@ -117,8 +117,29 @@ def warmup() -> None:
     fetch latency. Also surfaces `ModelNotConfiguredError` /
     `FeatureSchemaDriftError` / `MissingFeatureRangeError` at boot rather
     than on the first chunk.
+
+    Raises on any model problem — callers that must not crash (e.g. the shared
+    session-replay worker, where surfacing is one of several workflows) should
+    use `warmup_best_effort()` instead.
     """
     _load_booster()
+
+
+def warmup_best_effort() -> bool:
+    """`warmup()` that never raises — for the shared session-replay worker.
+
+    Surfacing scoring runs alongside other replay workflows on that worker, so a
+    model problem (env var unset, model missing from S3, schema drift) must not
+    take the whole pod down. Logs and returns False instead; the scoring
+    activities will then fail (and retry per their policy) until the model is
+    fixed, while the rest of the worker keeps running. Returns True on success.
+    """
+    try:
+        warmup()
+        return True
+    except Exception:
+        logger.exception("surfacing_scoring_sweep.warmup_failed_worker_continuing")
+        return False
 
 
 def get_feature_names() -> tuple[str, ...]:
