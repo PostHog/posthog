@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { mockIntegration } from '~/test/mocks'
 import { Realm } from '~/types'
@@ -8,16 +8,13 @@ import { Realm } from '~/types'
 import { Slack } from './definitions'
 import { IntegrationFullPage } from './IntegrationFullPage'
 
-type StoryArgs = { connected?: boolean }
-
-const meta: Meta<StoryArgs> = {
+const meta: Meta<typeof IntegrationFullPage> = {
     title: 'Scenes-Other/Integration landing page',
+    component: IntegrationFullPage,
     parameters: { layout: 'fullscreen', viewMode: 'story' },
-    render: ({ connected = false }) => {
-        useStorybookMocks({
+    decorators: [
+        mswDecorator({
             get: {
-                // integrationsLogic loads from the environments endpoint, not projects
-                '/api/environments/:id/integrations': { results: connected ? [mockIntegration] : [] },
                 // slack_service.available drives whether the "Add to Slack" connect button shows
                 '/_preflight': {
                     ...preflightJson,
@@ -25,17 +22,19 @@ const meta: Meta<StoryArgs> = {
                     slack_service: { available: true, client_id: 'test-client-id' },
                 },
             },
-        })
-
-        return <IntegrationFullPage definition={Slack} SettingsSection={Slack.SettingsSection} />
-    },
+        }),
+    ],
+    render: () => <IntegrationFullPage definition={Slack} SettingsSection={Slack.SettingsSection} />,
 }
 export default meta
 
-type Story = StoryObj<StoryArgs>
+type Story = StoryObj<typeof IntegrationFullPage>
 
-export const NotConnected: Story = {}
+// integrationsLogic loads from the environments endpoint, not projects
+export const NotConnected: Story = {
+    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [] } } })],
+}
 
 export const Connected: Story = {
-    args: { connected: true },
+    decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
 }
