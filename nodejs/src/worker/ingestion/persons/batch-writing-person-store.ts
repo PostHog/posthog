@@ -1477,9 +1477,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         await (tx || this.personRepository).updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID)
     }
 
-    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
+    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string, batchId: number): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId', distinctId)
-        return await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
+        const isMerged = await this.personRepository.addPersonlessDistinctId(teamId, distinctId)
+        // Cache the result so later events for this distinct ID in the same batch skip the insert.
+        this.personCache.obtainForBatchId(batchId).setPersonlessBatchResult(teamId, distinctId, isMerged)
+        return isMerged
     }
 
     async addPersonlessDistinctIdForMerge(
@@ -1517,6 +1520,10 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
     }
 
+    // Returns the cached merge result for a distinct ID inserted earlier this batch:
+    // true if the row was merged, false if addPersonlessDistinctId inserted it without a
+    // merge, undefined if no insert was recorded. The batch and forMerge paths only cache
+    // merged rows, so a non-merged insert from those paths also reads back as undefined.
     getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined {
         return this.personCache.getPersonlessBatchResult(teamId, distinctId)
     }

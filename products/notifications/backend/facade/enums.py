@@ -15,6 +15,7 @@ class NotificationType(str, Enum):
     PIPELINE_FAILURE = "pipeline_failure"
     PROJECT_CREATED = "project_created"
     USAGE_SPIKE = "usage_spike"
+    WEB_ANALYTICS_DIGEST = "web_analytics_digest"
 
 
 class Priority(str, Enum):
