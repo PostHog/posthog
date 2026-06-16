@@ -83,6 +83,10 @@ SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 # sustained and surfaced as the non-retryable "successive SerializationFailure errors" abort.
 _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
 
+# How many times `_connect_with_dropped_retry` attempts a connect before giving up when each
+# attempt hits a transient connection-dropped error (tunnel hiccup, mid-handshake EOF).
+_MAX_CONNECT_DROPPED_RETRY_ATTEMPTS = 5
+
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
@@ -187,7 +191,7 @@ def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
     *,
-    max_attempts: int = 5,
+    max_attempts: int = _MAX_CONNECT_DROPPED_RETRY_ATTEMPTS,
 ) -> psycopg.Connection:
     """Open a connection via `connect`, retrying transient connection-dropped errors.
 

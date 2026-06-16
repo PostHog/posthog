@@ -39,6 +39,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     should_preserve_asc_sort,
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    _MAX_CONNECT_DROPPED_RETRY_ATTEMPTS,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     FORCE_UTF8_CLIENT_ENCODING,
     SSL_REQUIRED_AFTER_DATE,
@@ -489,15 +490,31 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
 
         assert connect_mock.call_count == 1
 
-    def test_connection_dropped_while_opening_setup_connection_is_retried(self):
-        # A transient drop while opening the setup connection ("server closed the connection
-        # unexpectedly") is the same class of error the read path already recovers from. The setup
-        # connect must retry in-process with bounded backoff instead of failing on the first drop.
-        err = psycopg.OperationalError(
-            'connection failed: connection to server at "3.151.121.165", port 5432 failed: '
-            "server closed the connection unexpectedly"
-        )
-
+    @pytest.mark.parametrize(
+        "err,expected_call_count",
+        [
+            # A transient drop while opening the setup connection ("server closed the connection
+            # unexpectedly") is the same class of error the read path already recovers from, so the
+            # setup connect retries in-process up to the helper's limit instead of failing on the
+            # first drop (before the fix it escaped on the first connect, call_count == 1).
+            (
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "3.151.121.165", port 5432 failed: '
+                    "server closed the connection unexpectedly"
+                ),
+                _MAX_CONNECT_DROPPED_RETRY_ATTEMPTS,
+            ),
+            # A permanent connect failure (bad password) embeds "connection to server …" but must
+            # not be retried by the dropped-connection handler — it propagates on the first attempt.
+            (
+                psycopg.OperationalError(
+                    'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "u"'
+                ),
+                1,
+            ),
+        ],
+    )
+    def test_setup_connect_retries_only_transient_drops(self, err, expected_call_count):
         with patch(
             "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             side_effect=err,
@@ -506,26 +523,25 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
                 with pytest.raises(psycopg.OperationalError):
                     self._call_postgres_source()
 
-        # `_connect_with_dropped_retry` defaults to 5 attempts; before the fix the drop escaped on
-        # the first connect (call_count == 1).
-        assert connect_mock.call_count == 5
+        assert connect_mock.call_count == expected_call_count
 
-    def test_permanent_error_while_opening_setup_connection_is_not_retried(self):
-        # A permanent connect failure (bad password) must not be retried by the dropped-connection
-        # handler — it should propagate on the first attempt.
-        err = psycopg.OperationalError(
-            'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "u"'
-        )
+    def test_transient_connection_drop_during_setup_connect_recovers(self):
+        # One transient drop on connect, then a successful reconnect: the setup phase moves past
+        # the connect retry instead of failing. A sentinel raised by the cursor proves we got
+        # past the connect (and onto the metadata queries) on the second attempt.
+        drop = psycopg.OperationalError("server closed the connection unexpectedly")
+        sentinel = RuntimeError("reached setup cursor")
+        good_conn = self._make_failing_connection(sentinel)
 
         with patch(
             "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
-            side_effect=err,
+            side_effect=[drop, good_conn],
         ) as connect_mock:
             with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
-                with pytest.raises(psycopg.OperationalError):
+                with pytest.raises(RuntimeError, match="reached setup cursor"):
                     self._call_postgres_source()
 
-        assert connect_mock.call_count == 1
+        assert connect_mock.call_count == 2
 
 
 class TestIsConnectionDroppedError:
