@@ -310,13 +310,13 @@ async fn consume_loop(
 
         metrics::histogram!(COALESCED_TEAMS).record(by_team.len() as f64);
 
+        let mut interrupted = false;
         for (team_id, team_batch) in by_team {
             // Stop between teams once shutdown is signalled: a large batch (up to
             // max_batch unique teams, each with retry backoff) could otherwise
-            // outrun the graceful-shutdown budget and be killed mid-build. Offsets
-            // for finished teams are already stored; the commit below flushes them,
-            // and any unprocessed teams simply re-deliver on the next startup.
+            // outrun the graceful-shutdown budget and be killed mid-build.
             if shutdown.is_cancelled() {
+                interrupted = true;
                 break;
             }
             // Also tick per team: a large batch of unique teams (with retry
@@ -331,6 +331,20 @@ async fn consume_loop(
                 team_batch,
             )
             .await;
+        }
+
+        if interrupted {
+            // Don't commit a partially processed batch. Kafka commits a single
+            // per-partition high-water mark, and one partition holds many teams'
+            // messages interleaved (each team is keyed to a partition, but a
+            // partition carries many teams). Committing now would advance the
+            // commit point past the offsets of teams we haven't built yet —
+            // including any with a *lower* offset than a team we did build —
+            // dropping their invalidations for good: the cache keeps serving the
+            // stale entry, and the lazy request-path fill only rebuilds on a miss.
+            // Leave the whole batch uncommitted so it re-delivers on restart;
+            // builds are idempotent, so reprocessing the finished teams is cheap.
+            break;
         }
 
         commit_offsets(&consumer);
