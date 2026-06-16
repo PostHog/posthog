@@ -208,6 +208,10 @@ export class CyclotronV2Worker {
                 cyclotron_jobs.lock_id`,
             [this.config.queueName, limit, lockId]
         )
+        // Within-batch order is undefined (UPDATE...RETURNING doesn't preserve
+        // the CTE's ORDER BY), but the fairness guarantee is *across* batches:
+        // the CTE picks the rows with the lowest dequeue_seq values, so a
+        // small-tenant job never gets stuck behind a large-tenant backlog.
         return result.rows
     }
 
