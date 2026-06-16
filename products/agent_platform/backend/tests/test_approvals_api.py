@@ -93,12 +93,17 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        # The pre-flight read is tenant-scoped to the application in the URL.
+        mock_janitor.return_value.get_approval.assert_called_once_with(
+            self.approval_id, application_id=str(self.application.id)
+        )
         mock_janitor.return_value.decide_approval.assert_called_once_with(
             self.approval_id,
             decision="approve",
             decided_by=str(self.user.uuid),
             edited_args=None,
             reason="looks good",
+            application_id=str(self.application.id),
         )
 
     @patch("products.agent_platform.backend.presentation.views._janitor")
