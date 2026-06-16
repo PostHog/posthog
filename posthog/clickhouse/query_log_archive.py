@@ -747,8 +747,10 @@ def WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(cluster=None):
 
 
 # The MV stays trivial: real columns pass through, team_id is extracted as a concrete
-# value (sort key), and the raw log_comment String is cast into the JSON column on insert
-# (the column's type hints + SKIP rules do the curation). ProfileEvents is copied as-is.
+# value (sort key), and the log_comment String is cast into the JSON column on insert
+# (the column's type hints + SKIP rules do the curation). system.query_log records every
+# query, and internal/system queries log an empty log_comment that fails the String->JSON
+# cast, so non-object values are normalized to '{}'. ProfileEvents is copied as-is.
 MV_SELECT_SQL_OPS = """
 SELECT
     hostname,
@@ -785,7 +787,7 @@ SELECT
     stack_trace,
 
     JSONExtractInt(log_comment, 'team_id') as team_id,
-    log_comment,
+    if(isValidJSON(log_comment), log_comment, '{}') AS log_comment,
     ProfileEvents
 FROM system.query_log
 WHERE
