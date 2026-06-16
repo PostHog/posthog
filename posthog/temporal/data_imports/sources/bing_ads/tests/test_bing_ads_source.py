@@ -232,7 +232,7 @@ class TestBingAdsSource:
             self.source.source_for_pipeline(self.valid_config, resumable_manager, inputs)
 
     @pytest.mark.parametrize(
-        "pattern,raised_message",
+        "pattern,raised_message,expected_message_fragment",
         [
             # Auth-specific substrings — wrapped by BingAdsClient.get_customer_id as
             # `ValueError("Failed to fetch customer ID: <ExcType>: <msg>")`, so the substring
@@ -240,63 +240,57 @@ class TestBingAdsSource:
             (
                 "OAuthTokenRequestException",
                 "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+                None,
             ),
             (
                 "invalid_grant",
                 "Failed to fetch customer ID: OAuthTokenRequestException: invalid_grant ...",
+                None,
             ),
             (
                 "AuthenticationTokenExpired",
                 "Failed to fetch customer ID: WebFault: ... AuthenticationTokenExpired ...",
+                None,
             ),
             (
                 "InvalidCredentials",
                 "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
+                None,
             ),
             # Specific Azure AD code — tenant missing service principal for the Microsoft Advertising API.
             (
                 "AADSTS650052",
                 "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
                 "The app is trying to access a service that your organization lacks a service principal for.",
+                None,
             ),
             # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
             # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
             ("Integration not found", "Integration not found: 160672"),
             # Generic Microsoft Advertising client-side SOAP fault. suds drops the inner auth codes
             # from str(WebFault), leaving only this faultstring, so we match it directly. The
-            # raised_message mimics the raw WebFault str() seen for GetCampaignsByAccountId.
+            # raised_message mimics the raw WebFault str() seen for GetCampaignsByAccountId — note the
+            # volatile trailing "TrackingId: <uuid>", which the key must NOT include so a fault with a
+            # different TrackingId still resolves. The fragment asserts the user gets the reconnect guidance.
             (
                 "Invalid client data. Check the SOAP fault details for more information",
                 "Server raised fault: 'Invalid client data. Check the SOAP fault details for more information. "
                 "TrackingId: 004a5499-9b6e-4dcb-8b21-37fbadf5fdcf.'",
+                "reconnect your Bing Ads integration",
             ),
             # Deterministic credential/config errors raised in source_for_pipeline.
-            ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
-            ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
-            ("Bing Ads developer token not configured", "Bing Ads developer token not configured"),
+            ("Bing Ads access token not found", "Bing Ads access token not found for job abc", None),
+            ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc", None),
+            ("Bing Ads developer token not configured", "Bing Ads developer token not configured", None),
         ],
     )
-    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message):
+    def test_get_non_retryable_errors_pattern_recognised(self, pattern, raised_message, expected_message_fragment):
         non_retryable_errors = self.source.get_non_retryable_errors()
 
         assert pattern in non_retryable_errors
         assert pattern in raised_message
-
-    def test_invalid_client_data_webfault_is_non_retryable_with_friendly_message(self):
-        # A raw suds WebFault from GetCampaignsByAccountId stringifies to only the generic faultstring;
-        # the specific auth codes live in the (dropped) detail XML. The volatile TrackingId must not
-        # be part of the matched key, so a fault with a different TrackingId still resolves.
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        webfault_message = (
-            "Server raised fault: 'Invalid client data. Check the SOAP fault details for more information. "
-            "TrackingId: f2ca8055-bc8b-4cf1-a4db-6afad3335a2e.'"
-        )
-
-        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in webfault_message]
-
-        assert len(friendly_errors) >= 1
-        assert friendly_errors[0] is not None
-        assert "reconnect your Bing Ads integration" in friendly_errors[0]
+        if expected_message_fragment is not None:
+            assert expected_message_fragment in non_retryable_errors[pattern]
 
     @pytest.mark.parametrize(
         "transient_message",
