@@ -53,7 +53,7 @@
         "esbuild": "^0.25.11",
         "eventsource-parser": "^3.0.0",
         "fflate": "^0.8.2",
-        "hono": "^4.12.18",
+        "hono": "^4.12.21",
         "ioredis": "^4.28.5",
         "jose": "^6.2.3",
         "lucide-react": "^0.577.0",
