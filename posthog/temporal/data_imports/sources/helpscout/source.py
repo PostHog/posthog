@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class HelpScoutSource(SimpleSource[HelpScoutSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HELP_SCOUT,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
+            keywords=["helpscout"],
             label="Help Scout",
             iconPath="/static/services/helpscout.png",
             fields=cast(list[FieldType], []),
