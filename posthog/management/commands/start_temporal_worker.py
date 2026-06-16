@@ -58,6 +58,10 @@ from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
+from posthog.temporal.delete_teams import (
+    ACTIVITIES as DELETE_TEAMS_ACTIVITIES,
+    WORKFLOWS as DELETE_TEAMS_WORKFLOWS,
+)
 from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
     WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
@@ -141,6 +145,10 @@ from posthog.temporal.session_replay.session_summary_group import (
 from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
+)
+from posthog.temporal.session_replay.surfacing_scoring_sweep import (
+    SURFACING_SCORING_SWEEP_ACTIVITIES,
+    SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
@@ -236,6 +244,7 @@ _task_queue_specs = [
         settings.GENERAL_PURPOSE_TASK_QUEUE,
         PROXY_SERVICE_WORKFLOWS
         + DELETE_PERSONS_WORKFLOWS
+        + DELETE_TEAMS_WORKFLOWS
         + SALESFORCE_ENRICHMENT_WORKFLOWS
         + PRODUCT_ANALYTICS_WORKFLOWS
         + LLM_ANALYTICS_WORKFLOWS
@@ -248,6 +257,7 @@ _task_queue_specs = [
         + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
+        + DELETE_TEAMS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
@@ -379,6 +389,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.SURFACING_SCORING_SWEEP_TASK_QUEUE,
+        SURFACING_SCORING_SWEEP_WORKFLOWS,
+        SURFACING_SCORING_SWEEP_ACTIVITIES,
     ),
 ]
 
@@ -623,6 +638,11 @@ class Command(BaseCommand):
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
             )
             logger.info("Starting Temporal Worker")
+
+            if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
+                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup
+
+                warmup()
 
             worker = runner.run(
                 create_worker(

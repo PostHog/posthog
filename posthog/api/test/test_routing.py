@@ -8,16 +8,17 @@ import pytest
 from posthog.test.base import APIBaseTest
 
 from django.apps import apps
-from django.conf import settings
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -75,6 +76,37 @@ scoped_test_organizations_router.register(
 urlpatterns = [
     path("api/", include(test_router.urls)),
 ]
+
+
+@override_settings(ROOT_URLCONF=__name__)
+class TestTeamAndOrgViewSetMixinSpanTagging(APIBaseTest):
+    """The request (root) span should be tagged with team_id for team/project views."""
+
+    def _recording_tracer(self):
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider.get_tracer("test"), exporter
+
+    def _root_span(self, exporter):
+        spans = [s for s in exporter.get_finished_spans() if s.name == "test-request-root"]
+        self.assertEqual(len(spans), 1)
+        return spans[0]
+
+    def test_team_view_tags_request_span_with_team_id(self):
+        tracer, exporter = self._recording_tracer()
+        with tracer.start_as_current_span("test-request-root"):
+            response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._root_span(exporter).attributes["team_id"], self.team.id)
+
+    def test_organization_view_does_not_tag_team_id(self):
+        # Org-scoped views have no single team, so the stamp must not fire.
+        tracer, exporter = self._recording_tracer()
+        with tracer.start_as_current_span("test-request-root"):
+            response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("team_id", self._root_span(exporter).attributes or {})
 
 
 @override_settings(ROOT_URLCONF=__name__)  # Use `urlpatterns` from this file and not from `posthog.urls`
@@ -183,13 +215,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         )
 
 
-@override_settings(
-    ROOT_URLCONF=__name__,
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
+@override_settings(ROOT_URLCONF=__name__)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     """Test that OAuth access tokens work through the routing layer with proper permissions"""
 

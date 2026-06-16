@@ -13,7 +13,12 @@ from pydantic import RootModel as PydanticRootModel
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ExperimentApiExposureCriteria, ExperimentApiMetric, ExperimentParameters
+from posthog.schema import (
+    ExperimentApiExposureCriteria,
+    ExperimentApiMetric,
+    ExperimentParameters,
+    ExperimentRunningTimeCalculation,
+)
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -95,6 +100,11 @@ class ExperimentExposureCriteriaField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(ExperimentRunningTimeCalculation)  # type: ignore[arg-type]
+class ExperimentRunningTimeCalculationField(serializers.JSONField):
+    pass
+
+
 class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(
         source="get_feature_flag_key",
@@ -153,7 +163,20 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "`recommended_running_time`, `recommended_sample_size`, "
             "`custom_exposure_filter`, and `excluded_variants` "
             "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded)."
+            "the baseline variant and holdout pseudo-variants cannot be excluded). "
+            "The running-time calculator keys (`minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
+            "are deprecated here — prefer `running_time_calculation`."
+        ),
+    )
+    running_time_calculation = ExperimentRunningTimeCalculationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
+            "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
+            "which historically lived in `parameters`; values are kept in sync with `parameters` "
+            "during the deprecation window."
         ),
     )
     metrics = ExperimentMetricsField(
@@ -241,6 +264,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "holdout_id",
             "exposure_cohort",
             "parameters",
+            "running_time_calculation",
             "secondary_metrics",
             "saved_metrics",
             "saved_metrics_ids",
@@ -304,7 +328,8 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
         # Refresh action names in inline metrics (metrics and metrics_secondary)
-        for metrics_list in [data.get("metrics", []), data.get("metrics_secondary", [])]:
+        # The columns are nullable, so the keys can be present with a None value
+        for metrics_list in [data.get("metrics") or [], data.get("metrics_secondary") or []]:
             for i, metric in enumerate(metrics_list):
                 # Refresh action names to show current names instead of stale cached values
                 refreshed_metric = refresh_action_names_in_metric(metric, instance.team)
@@ -351,6 +376,10 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ExperimentService.validate_experiment_parameters(value)
         return value
 
+    def validate_running_time_calculation(self, value):
+        ExperimentService.validate_running_time_calculation(value)
+        return value
+
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
         ExperimentService.validate_experiment_exposure_criteria(exposure_criteria)
         return exposure_criteria
@@ -382,6 +411,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             description=self.validated_data.get("description", ""),
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
+            running_time_calculation=self.validated_data.get("running_time_calculation"),
             metrics=self.validated_data.get("metrics"),
             metrics_secondary=self.validated_data.get("metrics_secondary"),
             secondary_metrics=self.validated_data.get("secondary_metrics"),
@@ -419,6 +449,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "description",
             "type",
             "parameters",
+            "running_time_calculation",
             "metrics",
             "metrics_secondary",
             "secondary_metrics",

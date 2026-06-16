@@ -9,6 +9,7 @@ export interface EditorSizingLogicProps {
     navigatorRef: React.RefObject<HTMLDivElement>
     sidebarRef: React.RefObject<HTMLDivElement>
     databaseTreeRef: React.RefObject<HTMLDivElement>
+    queryPaneDefaultHeight?: number
     sourceNavigatorResizerProps: ResizerLogicProps
     sidebarResizerProps: ResizerLogicProps
     queryPaneResizerProps: ResizerLogicProps
@@ -99,9 +100,12 @@ export const editorSizingLogic = kea<editorSizingLogicType>([
             (desiredSize) => Math.max(desiredSize || NAVIGATOR_DEFAULT_WIDTH, MINIMUM_NAVIGATOR_WIDTH),
         ],
         queryPaneHeight: [
-            (s) => [s.queryPaneDesiredSize],
-            (queryPaneDesiredSize) =>
-                Math.max(queryPaneDesiredSize || DEFAULT_QUERY_PANE_HEIGHT, MINIMUM_QUERY_PANE_HEIGHT),
+            (s) => [s.queryPaneDesiredSize, (_, props: EditorSizingLogicProps) => props.queryPaneDefaultHeight],
+            (queryPaneDesiredSize, queryPaneDefaultHeight) =>
+                Math.max(
+                    queryPaneDesiredSize || queryPaneDefaultHeight || DEFAULT_QUERY_PANE_HEIGHT,
+                    MINIMUM_QUERY_PANE_HEIGHT
+                ),
         ],
         queryTabsWidth: [(s) => [s.queryPaneDesiredSize], (desiredSize) => desiredSize || NAVIGATOR_DEFAULT_WIDTH],
         sourceNavigatorResizerProps: [

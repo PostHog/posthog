@@ -518,6 +518,13 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         _mark_outbox_failed(outbox, "no customer email")
         return
 
+    # Defense-in-depth: never send out a comment that itself arrived via inbound
+    # email — mirrors the from_email signal guard at the last mile, so a future
+    # regression in outbox enqueueing can't echo inbound mail back to recipients.
+    if isinstance(comment.item_context, dict) and comment.item_context.get("from_email"):
+        _mark_outbox_failed(outbox, "comment originated from inbound email")
+        return
+
     author_name = ""
     if comment.created_by:
         author_name = (

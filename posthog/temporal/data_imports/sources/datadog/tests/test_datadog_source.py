@@ -55,7 +55,7 @@ class TestDatadogSource:
 
         assert config.name.value == "Datadog"
         assert config.label == "Datadog"
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.iconPath == "/static/services/datadog.svg"
 

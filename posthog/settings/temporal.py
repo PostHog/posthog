@@ -113,6 +113,11 @@ MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
 REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
+# Dedicated queue for the XGBoost-based session surfacing scoring sweep. Workers
+# pulling this queue need libomp + xgboost installed and a sized CPU budget
+# (see posthog/temporal/session_replay/surfacing_scoring_sweep/README.md for
+# `OMP_NUM_THREADS` guidance).
+SURFACING_SCORING_SWEEP_TASK_QUEUE = _set_temporal_task_queue("surfacing-scoring-sweep-task-queue")
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-task-queue")
@@ -123,6 +128,11 @@ EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
+# Error tracking
+ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(os.getenv("ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS", "")) if team_id
+]
+
 # Signals inbox notification: how long to wait for an auto-started implementation PR before
 # notifying anyway, and how often to poll for it.
 SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS: int = get_from_env(
@@ -131,3 +141,6 @@ SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS: int = get_from_env(
 SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
     "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
 )
+
+# Incoming webhook for experiment precompute canary divergence alerts. Unset: Slack alerting is skipped.
+EXPERIMENT_CANARY_SLACK_WEBHOOK_URL: str = os.getenv("EXPERIMENT_CANARY_SLACK_WEBHOOK_URL", "")

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -47,9 +48,9 @@ class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DATADOG,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Datadog",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Connect your Datadog account to sync logs, events, monitors, dashboards, and more into the PostHog Data warehouse.
 
 Create an API key and an application key in your [Datadog organization settings](https://app.datadoghq.com/organization-settings/api-keys). The application key should be granted read scopes for the data you want to sync, for example:

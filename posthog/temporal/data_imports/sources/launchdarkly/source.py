@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,9 +39,10 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LAUNCH_DARKLY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            keywords=["feature flags"],
             label="LaunchDarkly",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, metrics, members, and audit log into the PostHog Data warehouse.
 
 You can create a personal or service access token in your [LaunchDarkly account settings](https://app.launchdarkly.com/settings/authorization). A token with the **Reader** role grants read access to every resource this source syncs.""",
