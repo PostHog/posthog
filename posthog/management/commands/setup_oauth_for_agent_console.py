@@ -52,6 +52,14 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        # SECURITY: this command provisions an `is_first_party=True` OAuth app,
+        # which skips the OAuth consent screen for EVERY org/user. That's fine
+        # for a throwaway local-dev app, but it must NEVER be created this way
+        # in a real deployment — prod's first-party app is provisioned by ops
+        # through the admin UI with appropriate scoping. These two guards are
+        # the control that keeps the consent-skip blast radius local-only; do
+        # not relax them. (`DEBUG` is False in every deployed environment;
+        # `CLOUD_DEPLOYMENT` is the belt-and-braces catch for a misconfig.)
         if not settings.DEBUG:
             raise CommandError("This command can only run with DEBUG=True")
         if settings.CLOUD_DEPLOYMENT:
