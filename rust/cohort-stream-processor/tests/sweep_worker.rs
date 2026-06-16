@@ -317,6 +317,66 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
 }
 
 #[tokio::test]
+async fn event_then_sweep_in_one_batch_emits_entered_before_left() {
+    // Regression: event-path changes accumulate in the buffer and were produced *after* the message
+    // loop, while the Sweep arm produces inline mid-loop. So a single `[Event, Sweep]` batch where the
+    // event enters then the sweep immediately ages it out used to emit `Left` (inline) before `Entered`
+    // (post-loop) — out of state-commit order. A last-write-wins consumer of the shadow topic would then
+    // read "member" while RocksDB says "left", a false parity mismatch. The buffer is now flushed before
+    // the Sweep arm, so produce order matches commit order: Entered then Left.
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let alice = person(1);
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let deadline = event_ms + 7 * DAY_MS;
+
+    // One batch: the event enters and schedules eviction at `deadline`; the sweep's cutoff is already
+    // past it, so the same batch ages the key out. The fix must order Entered (event) before Left (sweep).
+    tracker.mark_dispatched(PARTITION_ID as i32, 1);
+    tx.send(vec![
+        ShuffleMessage::Event {
+            event: event_at(alice, ts, 0),
+            cse_offset: 0,
+        },
+        ShuffleMessage::Sweep {
+            due_before_ms: deadline + DAY_MS,
+        },
+    ])
+    .await
+    .unwrap();
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let statuses: Vec<MembershipStatus> =
+        sink.changes().iter().map(|change| change.status).collect();
+    assert_eq!(
+        statuses,
+        vec![MembershipStatus::Entered, MembershipStatus::Left],
+        "within one batch the event's Entered must be produced before the sweep's inline Left",
+    );
+    assert!(
+        state_at(&store, lsk, alice).is_none(),
+        "the fully-expired single is deleted by the in-batch sweep",
+    );
+    assert_eq!(
+        tracker.committable_offsets().get(&(PARTITION_ID as i32)),
+        Some(&1),
+        "both produces acked, so the batch's offset advances past the event",
+    );
+}
+
+#[tokio::test]
 async fn sweep_full_expiry_delete_retracts_the_person_index_entry() {
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);

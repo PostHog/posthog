@@ -107,6 +107,9 @@ async fn run_worker(
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
+        // Set when a pre-arm buffer flush fails mid-loop: we then hold the whole batch's offset (skip
+        // `mark_processed`) exactly like the post-loop flush failure does, so Kafka replays the batch.
+        let mut held = false;
 
         for message in batch {
             match message {
@@ -122,6 +125,11 @@ async fn run_worker(
                     re_keys.extend(effects.re_keys);
                 }
                 ShuffleMessage::Sweep { due_before_ms } => {
+                    if flush_event_changes_before_inline(&sink, &mut buffer, partition_id, &mut held)
+                        .await
+                    {
+                        break;
+                    }
                     handle_sweep(
                         partition_id,
                         &store,
@@ -134,6 +142,11 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::Merge { event, offset } => {
+                    if flush_event_changes_before_inline(&sink, &mut buffer, partition_id, &mut held)
+                        .await
+                    {
+                        break;
+                    }
                     handle_merge(
                         partition_id,
                         &store,
@@ -148,6 +161,11 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::Transfer { transfer, offset } => {
+                    if flush_event_changes_before_inline(&sink, &mut buffer, partition_id, &mut held)
+                        .await
+                    {
+                        break;
+                    }
                     handle_apply(
                         partition_id,
                         &store,
@@ -178,6 +196,12 @@ async fn run_worker(
                     );
                 }
             }
+        }
+
+        // A mid-loop pre-arm flush already warned and consumed the buffer; hold the whole batch's
+        // offset (skip re-keys and `mark_processed`) so Kafka replays it, just like the post-loop path.
+        if held {
+            continue;
         }
 
         if !buffer.is_empty() {
@@ -224,6 +248,40 @@ async fn run_worker(
     }
 
     info!(partition_id, "stage 1 worker stopped");
+}
+
+/// Produce any buffered event-path membership changes so they land before an inline
+/// (sweep/merge/transfer) produce in the same batch — keeping produce order in state-commit order.
+/// No-op (and success) when the buffer is empty, so it adds no produce call to event-free or
+/// already-flushed sub-batches. Returns the failed-ack count (`0` = fully acked / empty).
+async fn flush_membership_buffer(sink: &Arc<dyn MembershipSink>, buffer: &mut OutputBuffer) -> usize {
+    if buffer.is_empty() {
+        return 0;
+    }
+    produce_membership(sink, buffer.take()).await
+}
+
+/// Flush buffered event-path changes ahead of an inline sweep/merge/transfer produce. Returns `true`
+/// when the flush failed and the batch must be held: it sets `held`, warns identically to the
+/// post-loop failure, and the caller `break`s the message loop so `mark_processed` is skipped and
+/// Kafka replays the whole batch. Returns `false` (empty buffer or all acked) to run the arm normally.
+async fn flush_event_changes_before_inline(
+    sink: &Arc<dyn MembershipSink>,
+    buffer: &mut OutputBuffer,
+    partition_id: u16,
+    held: &mut bool,
+) -> bool {
+    let errors = flush_membership_buffer(sink, buffer).await;
+    if errors > 0 {
+        *held = true;
+        warn!(
+            partition_id,
+            errors,
+            "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+        );
+        return true;
+    }
+    false
 }
 
 pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
