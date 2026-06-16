@@ -47,11 +47,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # key value (volatile) followed by this stable type-coercion phrase. The account id is a
             # fixed config value, so retrying can't help — fail fast and tell the user to fix it.
             "must be of type 'java.lang.Long'": "LinkedIn rejected the configured Account ID. It must be the numeric LinkedIn ad account ID (digits only). Please correct the Account ID in your source settings and re-sync.",
-            # LinkedIn returns 404 RESOURCE_NOT_FOUND / "No virtual resource found" when the
-            # account-scoped resource can't be resolved — the configured ad account doesn't exist
-            # or PostHog no longer has access to it. Retrying can't fix a missing resource, so we
-            # stop and surface a config-facing message instead of burning retries every schedule.
-            "No virtual resource found": "LinkedIn could not find the configured ad account. Please check that the Account ID is correct and that PostHog still has access to it, then try again.",
+            # LinkedIn returns a 404 with this stable error code when the requested ad account /
+            # resource can't be resolved — typically a deleted account, a wrong Account ID, or lost
+            # access. Retrying can't recover it, so stop syncing instead of looping the 404.
+            "RESOURCE_NOT_FOUND": "LinkedIn could not find the requested ad account. It may have been deleted, the configured Account ID may be wrong, or PostHog may have lost access. Check the Account ID and re-authorize the LinkedIn Ads integration.",
             # The Account ID is a free-text field. A malformed value (a profile URL, a name, stray
             # whitespace) makes LinkedIn reject the `urn:li:sponsoredAccount:<id>` accounts param with
             # a deterministic 400 ("...is invalid. Reason: Deserializing output ... failed"). Retrying

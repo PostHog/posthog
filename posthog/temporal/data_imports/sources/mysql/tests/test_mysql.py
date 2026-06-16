@@ -911,3 +911,46 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
+
+
+class TestMySQLSourceValidateCredentials:
+    @pytest.fixture
+    def source(self, mocker):
+        source = MySQLSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        return source
+
+    @pytest.mark.parametrize(
+        "raised",
+        [
+            # The exact error that fired this triage: an unreachable host surfaces as a
+            # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+            ),
+            pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
+            ),
+            pymysql.err.OperationalError(1045, "Access denied for user 'u'@'1.2.3.4' (using password: YES)"),
+        ],
+    )
+    def test_known_connection_errors_are_not_captured(self, source, mocker, raised):
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(source, "get_schemas", side_effect=raised)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        capture.assert_not_called()
+
+    def test_unexpected_errors_are_still_captured(self, source, mocker):
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.source.capture_exception")
+        mocker.patch.object(source, "get_schemas", side_effect=RuntimeError("something genuinely unexpected"))
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error is not None
+        capture.assert_called_once()

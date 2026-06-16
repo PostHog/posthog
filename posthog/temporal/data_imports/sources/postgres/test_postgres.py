@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
 import pytest
@@ -48,12 +48,15 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    SafeTimeLoader,
     SafeTimestampLoader,
     SafeTimestamptzLoader,
+    SafeTimetzLoader,
     _build_count_query,
     _build_query,
     _connect_to_postgres,
     _connect_with_dropped_retry,
+    _connect_with_options_fallback,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -64,6 +67,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
     _is_recovery_conflict_error,
@@ -162,6 +166,51 @@ class TestSafeTimestamptzLoader:
         # timestamptz columns map to a UTC-aware Arrow type, so clamps must stay aware
         # to avoid mixing naive and aware datetimes in the same column.
         assert loader.load(b"200082-12-31 18:30:00+00").tzinfo is UTC
+
+
+class TestSafeTimeLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimeLoader(oid=1083)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            # Postgres allows 24:00:00 (end-of-day) but Python's time caps at 23 — clamp to max.
+            (b"24:00:00", time.max),
+            (b"24:00:00.000000", time.max),
+            # Normal values are parsed unchanged.
+            (b"00:00:00", time(0, 0, 0)),
+            (b"13:45:30", time(13, 45, 30)),
+            (b"13:45:30.123456", time(13, 45, 30, 123456)),
+            (b"23:59:59.999999", time(23, 59, 59, 999999)),
+        ],
+    )
+    def test_load_times(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+    def test_non_hour_24_errors_still_propagate(self, loader):
+        with pytest.raises(psycopg.DataError):
+            loader.load(b"99:99:99")
+
+
+class TestSafeTimetzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimetzLoader(oid=1266)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"24:00:00+00", time.max.replace(tzinfo=UTC)),
+            (b"24:00:00.000000+00", time.max.replace(tzinfo=UTC)),
+            (b"24:00:00+05:30", time.max.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))),
+            (b"24:00:00-08", time.max.replace(tzinfo=timezone(timedelta(hours=-8)))),
+            (b"13:45:30+02", time(13, 45, 30, tzinfo=timezone(timedelta(hours=2)))),
+        ],
+    )
+    def test_load_timetz(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
 
 
 class TestPostgresImplementationWiring:
@@ -597,6 +646,71 @@ class TestConnectForcesUtf8ClientEncoding:
         assert connect_mock.call_args.kwargs["options"] == f"{FORCE_UTF8_CLIENT_ENCODING} -c statement_timeout=5000"
 
 
+# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)
+# reject the libpq `options` startup parameter we send to pin client_encoding=UTF8. When they do, we
+# drop `options` and retry rather than failing the connection.
+class TestConnectOptionsStartupParamFallback:
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            (
+                'connection to server at "1.2.3.4", port 6543 failed: FATAL:  unsupported startup parameter: options',
+                True,
+            ),
+            (
+                "connection failed: FATAL:  Feature not supported: RDS Proxy currently "
+                "doesn’t support command-line options.",
+                True,
+            ),
+            ("password authentication failed for user", False),
+            ("server closed the connection unexpectedly", False),
+        ],
+    )
+    def test_detects_options_unsupported_message(self, message, expected):
+        assert _is_options_startup_param_unsupported(psycopg.OperationalError(message)) is expected
+
+    def test_non_operational_error_is_not_matched(self):
+        assert _is_options_startup_param_unsupported(ValueError("unsupported startup parameter: options")) is False
+
+    def test_retries_without_options_when_pooler_rejects_it(self):
+        good_conn = mock.MagicMock()
+        connect_mock = mock.MagicMock(
+            side_effect=[
+                psycopg.OperationalError("FATAL:  unsupported startup parameter: options"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            result = _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+
+        assert result is good_conn
+        assert connect_mock.call_count == 2
+        # First attempt carries options, retry drops it entirely.
+        assert connect_mock.call_args_list[0].kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
+        assert "options" not in connect_mock.call_args_list[1].kwargs
+
+    def test_does_not_retry_when_no_options_were_sent(self):
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError("FATAL:  unsupported startup parameter: options")
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_options_fallback(host="db")
+
+        assert connect_mock.call_count == 1
+
+    def test_unrelated_operational_error_is_not_retried(self):
+        connect_mock = mock.MagicMock(side_effect=psycopg.OperationalError("password authentication failed for user"))
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+
+        assert connect_mock.call_count == 1
+
+
 class TestStatementTimeoutAsNonRetryable:
     @pytest.mark.parametrize(
         "should_use_incremental_field,incremental_field,expected_substr",
@@ -906,6 +1020,14 @@ class TestValidateCredentialsErrorMapping:
                 "consuming input failed: SSL connection has been closed unexpectedly",
                 "The SSL/TLS connection to your database was closed unexpectedly. "
                 "Check your database's SSL configuration and that the port is correct.",
+            ),
+            (
+                'connection failed: connection to server at "127.0.0.1", port 43185 failed: '
+                "server closed the connection unexpectedly\n\tThis probably means the server terminated abnormally\n"
+                "\tbefore or while processing the request.",
+                "Your database closed the connection unexpectedly while connecting. This usually means the host "
+                "or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel "
+                "dropped the connection. Check your host, port, and SSL settings.",
             ),
             # Unmapped errors fall back to the generic message.
             (

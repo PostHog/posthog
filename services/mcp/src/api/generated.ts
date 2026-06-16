@@ -1640,6 +1640,120 @@ export namespace Schemas {
       Stale: 'STALE',
     } as const;
 
+    export type ActivityEventsListWidgetAddRequestOpenApiWidgetType = typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetAddRequestOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface _WidgetTileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface _WidgetTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _WidgetTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: _WidgetTileLayoutBoxOpenApi;
+    }
+
+    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
+
+
+    export const WidgetDateRangeDateFrom = {
+      '1h': '-1h',
+      '3h': '-3h',
+      '24h': '-24h',
+      '7d': '-7d',
+      '14d': '-14d',
+      '30d': '-30d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      date_from?: WidgetDateRangeDateFrom;
+    }
+
+    export interface WidgetFilterEntry {
+      /** @minLength 1 */
+      filterId: string;
+      /** @minLength 1 */
+      propertyName: string;
+      /** @minLength 1 */
+      optionId: string;
+      operator: PropertyOperator;
+      value?: string | string[] | null;
+    }
+
+    export type ActivityEventsListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterEntry} | null;
+
+    export interface ActivityEventsListWidgetConfig {
+      dateRange?: WidgetDateRange | null;
+      filterTestAccounts?: boolean | null;
+      widgetFilters?: ActivityEventsListWidgetConfigWidgetFilters;
+      /**
+         * Maximum number of events to return.
+         * @minimum 1
+         * @maximum 50
+         */
+      limit?: number;
+    }
+
+    export interface ActivityEventsListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: ActivityEventsListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the recent events widget. */
+      config: ActivityEventsListWidgetConfig;
+    }
+
+    export type ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetCatalogEntryOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface ActivityEventsListWidgetCatalogEntryOpenApi {
+      widget_type: ActivityEventsListWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: ActivityEventsListWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+    }
+
+    /**
+     * * `activity_events_list` - activity_events_list
+     */
+    export type ActivityEventsListWidgetTypeEnum = typeof ActivityEventsListWidgetTypeEnum[keyof typeof ActivityEventsListWidgetTypeEnum];
+
+
+    export const ActivityEventsListWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -3813,58 +3927,12 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface _WidgetTileLayoutBoxOpenApi {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface _WidgetTileLayoutsOpenApi {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: _WidgetTileLayoutBoxOpenApi;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: _WidgetTileLayoutBoxOpenApi;
-    }
-
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
     export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
-
-    export type WidgetDateRangeDateFrom = typeof WidgetDateRangeDateFrom[keyof typeof WidgetDateRangeDateFrom] | null;
-
-
-    export const WidgetDateRangeDateFrom = {
-      '1h': '-1h',
-      '3h': '-3h',
-      '24h': '-24h',
-      '7d': '-7d',
-      '14d': '-14d',
-      '30d': '-30d',
-      '90d': '-90d',
-    } as const;
-
-    export interface WidgetDateRange {
-      date_from?: WidgetDateRangeDateFrom;
-    }
-
-    export interface WidgetFilterEntry {
-      /** @minLength 1 */
-      filterId: string;
-      /** @minLength 1 */
-      propertyName: string;
-      /** @minLength 1 */
-      optionId: string;
-      operator: PropertyOperator;
-      value?: string | string[] | null;
-    }
 
     /**
      * Issue ranking column.
@@ -4030,14 +4098,14 @@ export namespace Schemas {
       config: SessionReplayListWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -7020,7 +7088,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -13672,6 +13740,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
      * * `session_replay_list` - session_replay_list
      */
@@ -13679,6 +13748,7 @@ export namespace Schemas {
 
 
     export const DashboardPatchWidgetOpenApiWidgetTypeEnum = {
+      ActivityEventsList: 'activity_events_list',
       ErrorTrackingList: 'error_tracking_list',
       SessionReplayList: 'session_replay_list',
     } as const;
@@ -13688,6 +13758,7 @@ export namespace Schemas {
       id?: string;
       /** Widget type identifier (cannot be changed on update).
        *
+       * * `activity_events_list` - activity_events_list
        * * `error_tracking_list` - error_tracking_list
        * * `session_replay_list` - session_replay_list */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
@@ -45275,7 +45346,7 @@ export namespace Schemas {
       is_organization_first_user: boolean;
     }
 
-    export type WidgetCatalogEntry = ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -51806,6 +51877,10 @@ export namespace Schemas {
      * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
      */
     query: string;
+    /**
+     * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
+     */
+    rerank?: boolean;
     };
 
     export type BusinessKnowledgeSourcesListParams = {

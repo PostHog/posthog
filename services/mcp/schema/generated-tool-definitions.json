@@ -1174,7 +1174,7 @@
         "feature_flag": "product-business-knowledge"
     },
     "business-knowledge-documents-search": {
-        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs.",
+        "description": "Hybrid (semantic + full-text) search over the project's business knowledge base. Returns ranked chunks with document_id and ordinal — pass these to the document-window tool to drill down into surrounding context. Use for any question about the team's own product, policies, domain knowledge, or internal docs. Set rerank=true for a listwise LLM rerank pass when top-result precision matters.",
         "category": "Business knowledge",
         "feature": "business_knowledge",
         "summary": "Search business knowledge",
@@ -4851,6 +4851,36 @@
             "readOnlyHint": false
         },
         "requires_ai_consent": true,
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-feedback-submit": {
+        "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Submit MCP feedback",
+        "title": "Submit MCP feedback",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-missing-capability-report": {
+        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Report missing capability",
+        "title": "Report missing capability",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
         "feature_flag": "mcp-analytics"
     },
     "notebooks-create": {
