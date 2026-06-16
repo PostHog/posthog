@@ -38,6 +38,57 @@ export const AggregationEnumApi = {
     P95: 'p95',
 } as const
 
+/**
+ * * `eq` - eq
+ * * `neq` - neq
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ */
+export type OpEnumApi = (typeof OpEnumApi)[keyof typeof OpEnumApi]
+
+export const OpEnumApi = {
+    Eq: 'eq',
+    Neq: 'neq',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+/**
+ * * `resource` - resource
+ * * `attribute` - attribute
+ * * `auto` - auto
+ */
+export type _MetricFilterScopeEnumApi = (typeof _MetricFilterScopeEnumApi)[keyof typeof _MetricFilterScopeEnumApi]
+
+export const _MetricFilterScopeEnumApi = {
+    Resource: 'resource',
+    Attribute: 'attribute',
+    Auto: 'auto',
+} as const
+
+export interface _MetricFilterApi {
+    /**
+     * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
+     * @maxLength 255
+     */
+    key: string
+    /** Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.
+     *
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex */
+    op?: OpEnumApi
+    /** Value to compare against. For regex operators this is the pattern. */
+    value: string
+    /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
+     *
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto */
+    scope?: _MetricFilterScopeEnumApi
+}
+
 export interface _MetricQueryBodyApi {
     /**
      * Exact metric name to query (e.g. 'http.server.duration').
@@ -51,6 +102,8 @@ export interface _MetricQueryBodyApi {
      * * `count` - count
      * * `p95` - p95 */
     aggregation?: AggregationEnumApi
+    /** Label predicates ANDed together. Rows must satisfy every filter. */
+    filters?: _MetricFilterApi[]
     /** Lower bound (inclusive) for the query range. ISO 8601. */
     dateFrom: string
     /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
