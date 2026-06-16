@@ -35451,7 +35451,7 @@ export namespace Schemas {
 
     export interface PersonSplitRequest {
       /**
-         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
          * @nullable
          */
       main_distinct_id?: string | null;
