@@ -22,20 +22,19 @@ use crate::observability::metrics::{
     COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, MERGE_APPLY_DURATION_SECONDS,
     MERGE_DRAIN_DURATION_SECONDS, MERGE_HELD_OFFSET_GAUGE, MERGE_OUTBOX_CLEAR_FAILURE_TOTAL,
     MERGE_PENDING_TRANSFERS_GAUGE, MERGE_TRANSFERS_SKIPPED_EMPTY_TOTAL,
-    MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL,
-    OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS, STAGE1_TRANSITIONS,
+    MERGE_TRANSFER_FORWARDS_TOTAL, MERGE_TRANSFER_PRODUCE_FAILURE_TOTAL, STAGE1_TRANSITIONS,
 };
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::producer::{
     map_transition, CaptureStreamEventSink, CaptureTransferSink, CohortMembershipChange,
-    MembershipSink, MembershipStatus, StreamEventSink, TransferSink,
+    MembershipSink, StreamEventSink, TransferSink,
 };
 use crate::stage1::key::Stage1Key;
 use crate::stage1::transition::LeafTransition;
 use crate::store::{CohortStore, PendingTransferKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::stage2_path::compose_stage2;
-use crate::workers::worker::{count_by_status, transition_metric_label};
+use crate::workers::worker::{produce_membership, transition_metric_label};
 
 /// Inline bounded backoff for the transfer produce.
 ///
@@ -504,25 +503,13 @@ async fn produce_merge_transitions(
         return;
     }
 
-    let (entered, left) = count_by_status(&changes);
-    let acks = sink.produce(changes).await;
-    let errors = acks.iter().filter(|result| result.is_err()).count();
+    let errors = produce_membership(sink, changes).await;
     if errors > 0 {
-        counter!(OUTPUT_PRODUCE_ERRORS).increment(errors as u64);
         warn!(
             partition_id,
             errors,
             "merge membership produce failed; dropping (state already committed, at-most-once)",
         );
-        return;
-    }
-    if entered > 0 {
-        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
-            .increment(entered);
-    }
-    if left > 0 {
-        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
-            .increment(left);
     }
 }
 

@@ -182,25 +182,14 @@ async fn run_worker(
 
         if !buffer.is_empty() {
             let changes = buffer.take();
-            let (entered, left) = count_by_status(&changes);
-            let results = sink.produce(changes).await;
-            let errors = results.iter().filter(|result| result.is_err()).count();
+            let errors = produce_membership(&sink, changes).await;
             if errors > 0 {
-                counter!(OUTPUT_PRODUCE_ERRORS).increment(errors as u64);
                 warn!(
                     partition_id,
                     errors,
                     "produce to cohort_membership_changed_shadow failed; holding offset for replay",
                 );
                 continue;
-            }
-            if entered > 0 {
-                counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
-                    .increment(entered);
-            }
-            if left > 0 {
-                counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
-                    .increment(left);
             }
         }
 
@@ -244,6 +233,31 @@ pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) 
             MembershipStatus::Entered => (entered + 1, left),
             MembershipStatus::Left => (entered, left + 1),
         })
+}
+
+/// Produce membership `changes`, await acks, and book the result metrics. On success increments
+/// `OUTPUT_MEMBERSHIP_CHANGES_EMITTED`; on failure increments `OUTPUT_PRODUCE_ERRORS`. Returns the
+/// failed-ack count (`0` = fully acked). The caller owns the per-site warn and recovery action.
+pub(crate) async fn produce_membership(
+    sink: &Arc<dyn MembershipSink>,
+    changes: Vec<CohortMembershipChange>,
+) -> usize {
+    let (entered, left) = count_by_status(&changes);
+    let acks = sink.produce(changes).await;
+    let errors = acks.iter().filter(|result| result.is_err()).count();
+    if errors > 0 {
+        counter!(OUTPUT_PRODUCE_ERRORS).increment(errors as u64);
+        return errors;
+    }
+    if entered > 0 {
+        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
+            .increment(entered);
+    }
+    if left > 0 {
+        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
+            .increment(left);
+    }
+    0
 }
 
 #[derive(Default)]
@@ -457,11 +471,8 @@ async fn handle_sweep(
     }
 
     if !changes.is_empty() {
-        let (entered, left) = count_by_status(&changes);
-        let acks = sink.produce(changes).await;
-        let errors = acks.iter().filter(|result| result.is_err()).count();
+        let errors = produce_membership(sink, changes).await;
         if errors > 0 {
-            counter!(OUTPUT_PRODUCE_ERRORS).increment(errors as u64);
             warn!(
                 partition_id,
                 errors,
@@ -469,14 +480,6 @@ async fn handle_sweep(
             );
             reschedule_all(queue, &popped);
             return;
-        }
-        if entered > 0 {
-            counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
-                .increment(entered);
-        }
-        if left > 0 {
-            counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
-                .increment(left);
         }
     }
 
@@ -557,25 +560,13 @@ async fn handle_sweep(
         return;
     }
 
-    let (entered, left) = count_by_status(&stage2_changes);
-    let acks = sink.produce(stage2_changes).await;
-    let errors = acks.iter().filter(|result| result.is_err()).count();
+    let errors = produce_membership(sink, stage2_changes).await;
     if errors > 0 {
-        counter!(OUTPUT_PRODUCE_ERRORS).increment(errors as u64);
         warn!(
             partition_id,
             errors,
             "sweep stage 2 produce to cohort_membership_changed_shadow failed; dropping (cf_stage2 already committed, at-most-once)",
         );
-        return;
-    }
-    if entered > 0 {
-        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
-            .increment(entered);
-    }
-    if left > 0 {
-        counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Left.as_str())
-            .increment(left);
     }
 }
 
