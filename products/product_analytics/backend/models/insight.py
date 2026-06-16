@@ -418,10 +418,8 @@ class Insight(RootTeamMixin, FileSystemSyncMixin, models.Model):
     @property
     def alertable_query_kind(self) -> NodeKind | None:
         """The insight's alert-capable query kind (trends or SQL today), or None if alerts aren't
-        supported for it. This is a pure kind check — the SQL feature flag is enforced by the
-        caller that creates the alert, not here, so existing alerts keep displaying and survive
-        insight edits regardless of the flag. Callers layer their own constraint: alert creation
-        gates SQL on the flag; Max's tooling accepts only trends; display checks just for None."""
+        supported. Pure kind check — feature-flag gating is the caller's responsibility, so existing
+        alerts keep displaying and survive insight edits regardless of the flag."""
         kind = self._unwrapped_query_kind()
         return NodeKind(kind) if kind in (NodeKind.TRENDS_QUERY, NodeKind.HOG_QL_QUERY) else None
 

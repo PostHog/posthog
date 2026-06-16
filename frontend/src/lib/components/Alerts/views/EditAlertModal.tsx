@@ -155,7 +155,6 @@ export function EditAlertModal({
                           calculation_interval: alert.calculation_interval,
                           schedule_restriction: alert.schedule_restriction,
                           skip_weekend: alert.skip_weekend,
-                          // Only trends alerts have an ongoing-interval concept; SQL/funnel alerts don't.
                           config: supportsOngoingInterval(alert.config)
                               ? { check_ongoing_interval: alert.config.check_ongoing_interval }
                               : null,

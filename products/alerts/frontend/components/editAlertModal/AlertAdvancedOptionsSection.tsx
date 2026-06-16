@@ -54,8 +54,6 @@ export function AlertAdvancedOptionsSection({
                         },
                         content: (
                             <div className="space-y-2">
-                                {/* Ongoing-period checks only exist for trends — SQL and funnel alerts
-                                    evaluate whatever the query returns, so there's no partial interval. */}
                                 {supportsOngoingInterval(alertForm?.config) && (
                                     <Group name={['config']}>
                                         <div className="flex gap-1">

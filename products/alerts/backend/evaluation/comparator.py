@@ -12,8 +12,7 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult
 from products.alerts.backend.evaluation.contract import ExtractionResult
 
 # Aggregated (any-row) breach lists are capped so a wide violation doesn't flood the notification.
-# The persisted structured detail uses the same cap — there's no value seeing more rows than the
-# customer was notified about, since investigation starts from what they saw.
+# The persisted structured detail uses the same cap.
 MAX_BREACH_MESSAGES = 5
 
 
