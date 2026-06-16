@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
+from parameterized import parameterized
 
 from products.business_knowledge.backend.logic import KnowledgeSearchResult, rerank_chunks
 
@@ -37,25 +38,27 @@ class TestRerankChunks(BaseTest):
         assert len(reranked) == 2
         assert [result.chunk_id for result in reranked] == reordered_ids[:2]
 
-    def test_rrf_fallback_on_parse_failure(self) -> None:
-        results = [self._make_result(f"content {index}") for index in range(3)]
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = AIMessage(content="not valid uuids here")
+    @parameterized.expand(
+        [
+            ("parse_failure", 3, "invalid_response"),
+            ("model_failure", 2, "init_error"),
+        ]
+    )
+    def test_rrf_fallback_on_llm_failure(self, _name: str, num_results: int, failure_mode: str) -> None:
+        results = [self._make_result(f"content {index}") for index in range(num_results)]
+        top_k = 2
 
-        with patch("products.business_knowledge.backend.logic.MaxChatAnthropic", return_value=mock_llm):
-            reranked = rerank_chunks(self.team, "query", results, top_k=2)
+        if failure_mode == "invalid_response":
+            mock_llm = MagicMock()
+            mock_llm.invoke.return_value = AIMessage(content="not valid uuids here")
+            patch_kwargs: dict = {"return_value": mock_llm}
+        else:
+            patch_kwargs = {"side_effect": RuntimeError("llm unavailable")}
 
-        assert [result.chunk_id for result in reranked] == [result.chunk_id for result in results[:2]]
+        with patch("products.business_knowledge.backend.logic.MaxChatAnthropic", **patch_kwargs):
+            reranked = rerank_chunks(self.team, "query", results, top_k=top_k)
 
-    def test_rrf_fallback_on_model_failure(self) -> None:
-        results = [self._make_result("alpha"), self._make_result("beta")]
-
-        with patch(
-            "products.business_knowledge.backend.logic.MaxChatAnthropic", side_effect=RuntimeError("llm unavailable")
-        ):
-            reranked = rerank_chunks(self.team, "query", results, top_k=2)
-
-        assert [result.chunk_id for result in reranked] == [result.chunk_id for result in results]
+        assert [result.chunk_id for result in reranked] == [result.chunk_id for result in results[:top_k]]
 
     def test_ranking_order(self) -> None:
         first = self._make_result("refund policy details")

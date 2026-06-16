@@ -468,7 +468,8 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"query": "This query parameter is required."})
         limit = self._parse_int_param(request, "limit", required=False, default=10)
         rerank = self._parse_bool_param(request, "rerank", default=False)
-        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=limit)
+        search_limit = limit * 2 if rerank else limit
+        results = logic.search_knowledge_for_team(self.team, query.strip(), limit=search_limit)
         if rerank:
             results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit)
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
