@@ -1,46 +1,25 @@
-import base64
 import datetime as dt
-
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
 
 from posthog.schema import DateRange
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.tracing.backend.logic import run_tree_query
+from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
-DATE_FROM = "2026-06-02T07:00:00Z"
-DATE_TO = "2026-06-02T09:00:00Z"
 # Child starts 40ms after its parent. In nanoseconds that's 40_000_000 — the unit the
 # avg_start_offset_nano column claims to report.
 CHILD_OFFSET_MS = 40
 EXPECTED_OFFSET_NANO = CHILD_OFFSET_MS * 1_000_000
 
 
-def _b64(raw: bytes) -> str:
-    return base64.b64encode(raw).decode("ascii")
-
-
-class TestTraceSpansTreeStartOffset(ClickhouseTestMixin, APIBaseTest):
-    CLASS_DATA_LEVEL_SETUP = True
-
+class TestTraceSpansTreeStartOffset(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        tag_queries(product="tracing", feature="query")
-        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
-        sync_execute("DROP TABLE IF EXISTS trace_spans")
-        sync_execute(TRACE_SPANS_TABLE_SQL())
-        # is_root_span ships via a separate logs-cluster migration, not the Python DDL.
-        sync_execute(
-            "ALTER TABLE trace_spans ADD COLUMN IF NOT EXISTS "
-            "is_root_span Bool MATERIALIZED (replaceAll(trimRight(parent_span_id, '='), 'A', '')) = ''"
-        )
-        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
+        cls._recreate_trace_spans_tables()
 
         trace_id = _b64((1).to_bytes(16, "big"))
         parent_span_id = _b64((1).to_bytes(8, "big"))
@@ -66,14 +45,6 @@ class TestTraceSpansTreeStartOffset(ClickhouseTestMixin, APIBaseTest):
             "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
         )
 
-    @classmethod
-    def tearDownClass(cls):
-        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
-        sync_execute("DROP TABLE IF EXISTS trace_spans")
-        sync_execute(TRACE_SPANS_TABLE_SQL())
-        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
-        super().tearDownClass()
-
     @parameterized.expand(
         [
             # Pre-fix the child returned ~0.04 (seconds), not 40_000_000 (nanos).
@@ -90,3 +61,53 @@ class TestTraceSpansTreeStartOffset(ClickhouseTestMixin, APIBaseTest):
         )
         edge = next(node for node in response.results if node.name == edge_name)
         self.assertEqual(edge.avg_start_offset_nano, expected_offset_nano)
+
+
+class TestTraceSpansTreeCallRatio(_TraceSpansTestBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        # Two traces, each: one entry-op root fanning out to three child-op spans. The
+        # (entry-op → child-op) edge counts 6 children over 2 parent invocations → ratio 3.
+        ts_str = dt.datetime(2026, 6, 2, 8, 0, 0).strftime("%Y-%m-%d %H:%M:%S.%f")
+        rows: list[str] = []
+        for trace_no in (1, 2):
+            trace_id = _b64(trace_no.to_bytes(16, "big"))
+            root_span_id = _b64((trace_no * 100).to_bytes(8, "big"))
+            rows.append(
+                f"('019e875a-0000-0000-{trace_no:04d}-000000000000', {cls.team.id}, '{trace_id}', "
+                f"'{root_span_id}', '', 'entry-op', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, 'web')"
+            )
+            for child_no in range(1, 4):
+                child_span_id = _b64((trace_no * 100 + child_no).to_bytes(8, "big"))
+                rows.append(
+                    f"('019e875a-0000-0000-{trace_no:04d}-{child_no:012d}', {cls.team.id}, '{trace_id}', "
+                    f"'{child_span_id}', '{root_span_id}', 'child-op', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, 'web')"
+                )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    def test_fan_out_edge_reports_calls_per_parent_invocation(self):
+        response = run_tree_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            span_name="entry-op",
+            service_name="web",
+        )
+        child_edge = next(node for node in response.results if node.name == "child-op")
+        self.assertEqual(child_edge.count, 6)
+        self.assertEqual(child_edge.calls_per_parent_invocation, 3.0)
+
+    def test_root_edge_has_no_parent_invocation_ratio(self):
+        response = run_tree_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            span_name="entry-op",
+            service_name="web",
+        )
+        root_edge = next(node for node in response.results if node.parent_name == "<ROOT>")
+        self.assertIsNone(root_edge.calls_per_parent_invocation)

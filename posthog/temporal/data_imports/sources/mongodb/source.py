@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -51,13 +52,19 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "AuthenticationFailed": auth_failed_msg,
             "Authentication failed": auth_failed_msg,
             "SSL handshake failed": None,
-            # pymongo raises ServerSelectionTimeoutError ("No servers found yet" / "No replica set
-            # members found yet") when it can't reach any cluster node for the whole selection
-            # timeout. On a managed cluster this is a persistent connectivity problem — the worker
-            # IP isn't allowlisted, or the cluster is paused/decommissioned — not a momentary blip
-            # (a mid-sync outage surfaces differently), so retrying the job won't recover it.
-            "No servers found yet": _MONGO_UNREACHABLE_MESSAGE,
-            "No replica set members found yet": _MONGO_UNREACHABLE_MESSAGE,
+            # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node
+            # for the whole selection timeout. The reason varies — "No servers found yet" / "No
+            # replica set members found yet" when nothing was ever discovered, or a per-server
+            # "<host>: connection closed ... error=AutoReconnect(...)" when a host resolves but every
+            # connection attempt is dropped for the entire window. All of these carry the
+            # "Topology Description:" suffix that only ServerSelectionTimeoutError emits, so we key
+            # off that single marker. On a managed cluster this is a persistent connectivity problem
+            # — the worker IP isn't allowlisted, the cluster is paused/decommissioned, or the
+            # connection string points at an endpoint the driver can't speak to — not a momentary
+            # blip, so retrying the job won't recover it. A transient mid-sync drop surfaces
+            # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
+            # stays retryable.
+            "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
         }
 
     def get_schemas(
@@ -157,6 +164,8 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MONGO_DB,
+            category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["mongo"],
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
             releaseStatus=ReleaseStatus.GA,

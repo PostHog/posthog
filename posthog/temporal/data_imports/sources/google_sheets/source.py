@@ -5,6 +5,7 @@ from django.conf import settings
 import gspread
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -105,6 +106,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets)",
             releaseStatus=ReleaseStatus.GA,

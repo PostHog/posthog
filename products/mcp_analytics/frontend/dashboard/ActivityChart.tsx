@@ -1,12 +1,12 @@
 import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     type Series,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
 import { type DailyActivity } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
@@ -46,7 +46,7 @@ export function ActivityChart({
             <CardState
                 loading={loading}
                 isEmpty={daily.labels.length === 0}
-                skeleton={<LemonSkeleton className="min-h-[300px] flex-1" />}
+                skeleton={<Skeleton className="min-h-[300px] flex-1" />}
                 empty={
                     <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
                         No activity yet.

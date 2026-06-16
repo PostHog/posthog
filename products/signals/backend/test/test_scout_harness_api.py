@@ -15,15 +15,17 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.ai_observability.backend.models.skills import LLMSkill
 from products.signals.backend.models import (
     SignalProjectProfile,
+    SignalReport,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -255,6 +257,88 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         run = _make_run(other)
         _make_emission(other, run, finding_id="f-a")
         response = self.client.get(self._emissions_url(str(run.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
+_FETCH_REPORT_IDS = "products.signals.backend.scout_harness.views.fetch_report_ids_for_source_ids"
+
+
+class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
+    def _url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emissions/reports/"
+
+    def test_pairs_each_finding_with_its_linked_report(self) -> None:
+        run = _make_run(self.team, emitted_finding_ids=["f-a", "f-b"])
+        linked = _make_emission(self.team, run, finding_id="f-a")
+        _make_emission(self.team, run, finding_id="f-b")  # unmatched — no report
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+        with patch(_FETCH_REPORT_IDS, return_value={linked.source_id: str(report.id)}) as mock_fetch:
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        # The helper is called once for the whole run with every finding's source_id.
+        assert sorted(mock_fetch.call_args.args[1]) == sorted(
+            [f"run:{run.id}:finding:f-a", f"run:{run.id}:finding:f-b"]
+        )
+        body = {row["finding_id"]: row for row in response.json()}
+        assert body["f-a"]["report"] == {
+            "id": str(report.id),
+            "title": "Checkout 500s",
+            "status": "ready",
+        }
+        assert body["f-a"]["source_id"] == linked.source_id
+        # A finding whose signal never grouped into a report links to null, not an error.
+        assert body["f-b"]["report"] is None
+
+    def test_deleted_report_is_treated_as_no_link(self) -> None:
+        # ClickHouse soft-delete and Postgres status can drift, so the reverse lookup can resolve a
+        # report id that's since been deleted — surface that as "no link", not a dangling chip.
+        run = _make_run(self.team)
+        emission = _make_emission(self.team, run, finding_id="f-a")
+        deleted = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
+        with patch(_FETCH_REPORT_IDS, return_value={emission.source_id: str(deleted.id)}):
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["report"] is None
+
+    def test_suppressed_report_is_treated_as_no_link(self) -> None:
+        # The inbox hides suppressed reports from its default flow, so a chip to one would deep-link
+        # to a page that can't load it — surface suppressed reports as "no link" here too.
+        run = _make_run(self.team)
+        emission = _make_emission(self.team, run, finding_id="f-a")
+        suppressed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
+        with patch(_FETCH_REPORT_IDS, return_value={emission.source_id: str(suppressed.id)}):
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["report"] is None
+
+    def test_clickhouse_failure_degrades_to_null_links(self) -> None:
+        # A transient CH/HogQL failure shouldn't 500 the whole page — each finding still
+        # comes back, just with `report: null` instead of a resolved link.
+        run = _make_run(self.team, emitted_finding_ids=["f-a"])
+        _make_emission(self.team, run, finding_id="f-a")
+        with patch(_FETCH_REPORT_IDS, side_effect=Exception("ClickHouse timeout")):
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["report"] is None
+
+    def test_empty_run_returns_empty_and_skips_clickhouse(self) -> None:
+        run = _make_run(self.team)
+        with patch(_FETCH_REPORT_IDS) as mock_fetch:
+            response = self.client.get(self._url(str(run.id)))
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
+        mock_fetch.assert_not_called()
+
+    def test_unknown_run_returns_404(self) -> None:
+        response = self.client.get(self._url("00000000-0000-0000-0000-000000000000"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_other_teams_run_returns_404(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="Other")
+        run = _make_run(other)
+        _make_emission(other, run, finding_id="f-a")
+        response = self.client.get(self._url(str(run.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
@@ -676,6 +760,45 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["description"] == "Foo scout."
+        # The partial_update path resolves skill_info independently of list — assert origin too.
+        assert response.json()["scout_origin"] == "custom"
+
+    @parameterized.expand(
+        [
+            # (label, skill_name, metadata, expected). `signals-scout-general` is a real on-disk
+            # canonical scout; `signals-scout-my-fork` is a name the harness never ships.
+            (
+                "harness_seeded_canonical_name",
+                "signals-scout-general",
+                {"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+                "canonical",
+            ),
+            ("hand_authored_no_metadata", "signals-scout-general", {}, "custom"),
+            ("hand_authored_other_seed", "signals-scout-general", {"seeded_by": "some_other_thing"}, "custom"),
+            # A fork via duplicate_skill() inherits the source row's seeded_by tag, but a fork can
+            # never take a canonical name — so the name guard reclassifies it as custom.
+            ("seeded_tag_but_non_canonical_name", "signals-scout-my-fork", {"seeded_by": HARNESS_SEEDED_BY}, "custom"),
+        ]
+    )
+    def test_list_classifies_origin_from_skill_metadata(
+        self, _name: str, skill_name: str, metadata: dict, expected_origin: str
+    ) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="...", metadata=metadata)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_origin"] == expected_origin
+
+    def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
+        # A config with no live skill row isn't a canonical scout.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_origin"] == "custom"
 
     def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)

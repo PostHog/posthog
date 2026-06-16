@@ -514,6 +514,8 @@ export namespace Schemas {
       /** Match accounts whose account owner is any of these user ids (OR semantics). */
       accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
+      /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+      assignedToUserIds?: number[] | null;
       /** Match accounts whose CSM is any of these user ids (OR semantics). */
       csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
@@ -2452,6 +2454,8 @@ export namespace Schemas {
       aggregation_group_type_index?: number | null;
       /** Breakdown of the events and actions */
       breakdownFilter?: BreakdownFilter | null;
+      /** Compare to date range */
+      compareFilter?: CompareFilter | null;
       /** Colors used in the insight's visualization */
       dataColorTheme?: number | null;
       /** Date range for the query */
@@ -6248,6 +6252,8 @@ export namespace Schemas {
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
+      useQueryV2?: boolean | null;
+      useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
       volumeResolution: number;
@@ -7103,6 +7109,595 @@ export namespace Schemas {
       uploads: UploadTarget[];
     }
 
+    export interface AgentAggregateStats {
+      /** Sessions currently in a live state (queued / running). */
+      liveCount: number;
+      /** Sessions created within the `since` window across all states. */
+      sessionsInWindowCount: number;
+      /** Sum of `usage_total.cost_total` across sessions in the window. */
+      spendInWindowUsd: number;
+      /**
+         * ISO timestamp of the most recent session update — null when there are no sessions.
+         * @nullable
+         */
+      lastActivityAt: string | null;
+      /** Sessions in `failed` state created within the window. */
+      failedInWindowCount: number;
+      /** Approval-gated tool requests across the team currently awaiting a decision. 0 on the per-application aggregate (which doesn't roll up approvals). */
+      pendingApprovalsCount: number;
+    }
+
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type AgentApplicationCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    export interface AgentApplication {
+      readonly id: string;
+      readonly team_id: number;
+      /** @maxLength 255 */
+      name: string;
+      /**
+         * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
+         * @maxLength 63
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      description?: string;
+      /** @nullable */
+      readonly live_revision: string | null;
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
+      /** @nullable */
+      readonly created_by_id: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by: AgentApplicationCreatedBy;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /**
+         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
+         * @nullable
+         */
+      readonly slack_events_url: string | null;
+      /**
+         * Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. Same source + null behaviour as `slack_events_url`.
+         * @nullable
+         */
+      readonly slack_interactivity_url: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url: string | null;
+    }
+
+    /**
+     * * `queued` - queued
+     * * `approving` - approving
+     * * `dispatched` - dispatched
+     * * `dispatched_failed` - dispatched_failed
+     * * `rejected` - rejected
+     * * `expired` - expired
+     */
+    export type AgentApprovalRequestStateEnum = typeof AgentApprovalRequestStateEnum[keyof typeof AgentApprovalRequestStateEnum];
+
+
+    export const AgentApprovalRequestStateEnum = {
+      Queued: 'queued',
+      Approving: 'approving',
+      Dispatched: 'dispatched',
+      DispatchedFailed: 'dispatched_failed',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    /**
+     * Arguments the model proposed. Frozen at intercept time.
+     */
+    export type AgentApprovalRequestProposedArgs = { [key: string]: unknown };
+
+    /**
+     * Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.
+     * @nullable
+     */
+    export type AgentApprovalRequestDecidedArgs = { [key: string]: unknown } | null;
+
+    /**
+     * Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning.
+     */
+    export type AgentApprovalRequestAssistantMessage = { [key: string]: unknown };
+
+    /**
+     * Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.
+     */
+    export type AgentApprovalRequestApproverScope = { [key: string]: unknown };
+
+    /**
+     * `{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.
+     * @nullable
+     */
+    export type AgentApprovalRequestDispatchOutcome = { [key: string]: unknown } | null;
+
+    export interface AgentApprovalRequest {
+      /** Approval request UUID — stable, used in /approvals/<id>/decide. */
+      id: string;
+      /** UUID of the session that proposed the gated call. */
+      session_id: string;
+      /** UUID of the parent agent application. */
+      application_id: string;
+      /** Team that owns the agent. */
+      team_id: number;
+      /** Revision the gated call was proposed against. */
+      revision_id: string;
+      /** Turn number within the session that emitted the call. */
+      turn: number;
+      /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
+      tool_call_id: string;
+      /** Tool id the model invoked (e.g. `@posthog/team-delete`). */
+      tool_name: string;
+      /** Arguments the model proposed. Frozen at intercept time. */
+      proposed_args: AgentApprovalRequestProposedArgs;
+      /**
+         * Approver-edited arguments. Present iff `approval_policy.allow_edit` was true and the approver supplied edits.
+         * @nullable
+         */
+      decided_args: AgentApprovalRequestDecidedArgs;
+      /** Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning. */
+      assistant_message: AgentApprovalRequestAssistantMessage;
+      /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
+      approver_scope: AgentApprovalRequestApproverScope;
+      /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
+       *
+       * * `queued` - queued
+       * * `approving` - approving
+       * * `dispatched` - dispatched
+       * * `dispatched_failed` - dispatched_failed
+       * * `rejected` - rejected
+       * * `expired` - expired */
+      state: AgentApprovalRequestStateEnum;
+      /**
+         * UUID of the user who decided. Null while queued or expired.
+         * @nullable
+         */
+      decision_by: string | null;
+      /**
+         * ISO timestamp of the decision. Null while queued.
+         * @nullable
+         */
+      decision_at: string | null;
+      /**
+         * Free-form reason supplied by the approver. Optional.
+         * @nullable
+         */
+      decision_reason: string | null;
+      /**
+         * `{result: ...}` on a successful approved dispatch, `{error: "..."}` when the tool threw. Null until the runner has finalised.
+         * @nullable
+         */
+      dispatch_outcome: AgentApprovalRequestDispatchOutcome;
+      /** When the model proposed the gated call. */
+      created_at: string;
+      /** When the queued request auto-rejects if no decision arrives. */
+      expires_at: string;
+    }
+
+    export interface AgentApplicationApprovalsListResponse {
+      /** Approval requests for this application, newest first. */
+      results: AgentApprovalRequest[];
+    }
+
+    export interface AgentApplicationEnvKeyStatus {
+      key: string;
+      /** True if the key is present in the env block. The value itself is never returned. */
+      is_set: boolean;
+    }
+
+    export interface AgentApplicationEnvKeysResponse {
+      /** Names of env variables currently set on the application. Values are never returned. */
+      keys: string[];
+    }
+
+    export interface AgentApplicationPreviewTokenResponse {
+      /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
+      token: string;
+      /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
+      expires_in: number;
+      /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix. */
+      ingress_slug: string;
+      /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode. */
+      endpoints: unknown;
+      /** How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
+      auth: unknown;
+      /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
+      preview_proxy: unknown;
+    }
+
+    export interface LogEntry {
+      log_source_id: string;
+      instance_id: string;
+      timestamp: string;
+      level: string;
+      message: string;
+    }
+
+    export interface AgentApplicationSessionLogsResponse {
+      results: LogEntry[];
+    }
+
+    export interface AgentSessionUsageTotal {
+      tokens_in: number;
+      tokens_out: number;
+      cache_read: number;
+      cache_write: number;
+      cost_input: number;
+      cost_output: number;
+      cost_cache_read: number;
+      cost_cache_write: number;
+      cost_total: number;
+    }
+
+    /**
+     * * `anonymous` - anonymous
+     * * `service` - service
+     * * `internal` - internal
+     * * `shared_secret` - shared_secret
+     * * `slack` - slack
+     */
+    export type AgentSessionPrincipalKindEnum = typeof AgentSessionPrincipalKindEnum[keyof typeof AgentSessionPrincipalKindEnum];
+
+
+    export const AgentSessionPrincipalKindEnum = {
+      Anonymous: 'anonymous',
+      Service: 'service',
+      Internal: 'internal',
+      SharedSecret: 'shared_secret',
+      Slack: 'slack',
+    } as const;
+
+    export interface AgentSessionPrincipal {
+      /** What kind of principal authenticated the session start.
+       *
+       * * `anonymous` - anonymous
+       * * `service` - service
+       * * `internal` - internal
+       * * `shared_secret` - shared_secret
+       * * `slack` - slack */
+      kind: AgentSessionPrincipalKindEnum;
+      /** Stable identifier for the principal (PAT id, slack user id, etc). Absent for anonymous sessions. */
+      id?: string;
+      /** Team the principal belongs to. Absent for anonymous sessions. */
+      team_id?: number;
+    }
+
+    /**
+     * * `queued` - queued
+     * * `running` - running
+     * * `completed` - completed
+     * * `closed` - closed
+     * * `cancelled` - cancelled
+     * * `failed` - failed
+     */
+    export type AgentSessionStateEnum = typeof AgentSessionStateEnum[keyof typeof AgentSessionStateEnum];
+
+
+    export const AgentSessionStateEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Closed: 'closed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
+
+    export interface AgentSessionSummary {
+      usage_total: AgentSessionUsageTotal;
+      principal: AgentSessionPrincipal | null;
+      id: string;
+      application_id: string;
+      revision_id: string;
+      state: AgentSessionStateEnum;
+      /** @nullable */
+      external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentSessionSummaryTriggerMetadata;
+      /** Count of messages in the conversation — the full transcript ships on the detail endpoint. */
+      turns: number;
+      /**
+         * Last assistant text (~120 chars). Null for sessions with no assistant turns yet.
+         * @nullable
+         */
+      preview: string | null;
+      retry_count: number;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface AgentApplicationSessionsListResponse {
+      results: AgentSessionSummary[];
+      /** Total matching sessions before pagination. */
+      count: number;
+    }
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentApplicationSessionsRetrieveResponseTriggerMetadata = { [key: string]: unknown } | null;
+
+    export type AgentConversationUserMessageRole = typeof AgentConversationUserMessageRole[keyof typeof AgentConversationUserMessageRole];
+
+
+    export const AgentConversationUserMessageRole = {
+      User: 'user',
+    } as const;
+
+    export interface AgentConversationUserMessage {
+      role: AgentConversationUserMessageRole;
+      /** String shorthand, or array of {type:'text'|'image', ...} parts. */
+      content: unknown;
+      /** Epoch milliseconds. */
+      timestamp: number;
+    }
+
+    export type AgentConversationAssistantMessageRole = typeof AgentConversationAssistantMessageRole[keyof typeof AgentConversationAssistantMessageRole];
+
+
+    export const AgentConversationAssistantMessageRole = {
+      Assistant: 'assistant',
+    } as const;
+
+    /**
+     * * `stop` - stop
+     * * `length` - length
+     * * `toolUse` - toolUse
+     * * `error` - error
+     * * `aborted` - aborted
+     */
+    export type StopReasonEnum = typeof StopReasonEnum[keyof typeof StopReasonEnum];
+
+
+    export const StopReasonEnum = {
+      Stop: 'stop',
+      Length: 'length',
+      ToolUse: 'toolUse',
+      Error: 'error',
+      Aborted: 'aborted',
+    } as const;
+
+    export type AgentConversationAssistantMessageUsage = { [key: string]: unknown };
+
+    export interface AgentConversationAssistantMessage {
+      role: AgentConversationAssistantMessageRole;
+      /** Array of text/thinking/toolCall parts. */
+      content: unknown[];
+      /** Epoch milliseconds. */
+      timestamp: number;
+      api?: string;
+      provider?: string;
+      model?: string;
+      usage?: AgentConversationAssistantMessageUsage;
+      stopReason?: StopReasonEnum;
+      errorMessage?: string;
+    }
+
+    export type AgentConversationToolResultMessageRole = typeof AgentConversationToolResultMessageRole[keyof typeof AgentConversationToolResultMessageRole];
+
+
+    export const AgentConversationToolResultMessageRole = {
+      ToolResult: 'toolResult',
+    } as const;
+
+    export interface AgentConversationToolResultMessage {
+      role: AgentConversationToolResultMessageRole;
+      toolCallId: string;
+      toolName: string;
+      /** Array of {type:'text'|'image', ...} parts. */
+      content: unknown[];
+      isError: boolean;
+      /** Epoch milliseconds. */
+      timestamp: number;
+    }
+
+    export type AgentConversationMessage = AgentConversationUserMessage | AgentConversationAssistantMessage | AgentConversationToolResultMessage;
+
+    export interface AgentApplicationSessionsRetrieveResponse {
+      usage_total: AgentSessionUsageTotal;
+      principal: AgentSessionPrincipal | null;
+      id: string;
+      application_id: string;
+      revision_id: string;
+      team_id: number;
+      /** @nullable */
+      external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentApplicationSessionsRetrieveResponseTriggerMetadata;
+      state: AgentSessionStateEnum;
+      /** Full transcript, or the trailing `last_n` messages if `?last_n=` was supplied. */
+      conversation: AgentConversationMessage[];
+      /** Messages that arrived while a turn was in flight; drained into `conversation` at the start of the next turn. */
+      pending_inputs: AgentConversationMessage[];
+      /** Times the janitor has re-queued this session after a stuck-running detection. */
+      retry_count: number;
+      created_at: string;
+      updated_at: string;
+      /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
+      conversation_trimmed: boolean;
+      /** Total messages in the untrimmed conversation. Present only when `conversation_trimmed=true`. */
+      conversation_total_turns?: number;
+    }
+
+    export interface AgentApprovalsDecideResponse {
+      /** Always `true` on a successful decision. */
+      ok: boolean;
+      /** The approval row's new state — `approving` for approve, `rejected` for reject. */
+      state: string;
+    }
+
+    /**
+     * * `assistant` - assistant
+     */
+    export type AgentConversationAssistantMessageRoleEnum = typeof AgentConversationAssistantMessageRoleEnum[keyof typeof AgentConversationAssistantMessageRoleEnum];
+
+
+    export const AgentConversationAssistantMessageRoleEnum = {
+      Assistant: 'assistant',
+    } as const;
+
+    /**
+     * * `toolResult` - toolResult
+     */
+    export type AgentConversationToolResultMessageRoleEnum = typeof AgentConversationToolResultMessageRoleEnum[keyof typeof AgentConversationToolResultMessageRoleEnum];
+
+
+    export const AgentConversationToolResultMessageRoleEnum = {
+      ToolResult: 'toolResult',
+    } as const;
+
+    /**
+     * * `user` - user
+     */
+    export type AgentConversationUserMessageRoleEnum = typeof AgentConversationUserMessageRoleEnum[keyof typeof AgentConversationUserMessageRoleEnum];
+
+
+    export const AgentConversationUserMessageRoleEnum = {
+      User: 'user',
+    } as const;
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentFleetLiveSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
+
+    export interface AgentFleetLiveSessionSummary {
+      usage_total: AgentSessionUsageTotal;
+      principal: AgentSessionPrincipal | null;
+      id: string;
+      application_id: string;
+      revision_id: string;
+      team_id: number;
+      state: AgentSessionStateEnum;
+      /** @nullable */
+      external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentFleetLiveSessionSummaryTriggerMetadata;
+      /** Messages in the conversation so far. */
+      turns: number;
+      /**
+         * Last assistant text (~120 chars). Null when no assistant turns yet.
+         * @nullable
+         */
+      preview: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    export interface AgentFleetLiveSessionsResponse {
+      results: AgentFleetLiveSessionSummary[];
+    }
+
+    export interface AgentMemoryFile {
+      /** Full markdown body. */
+      content: string;
+    }
+
+    export interface AgentMemoryHeader {
+      /** Relative path within the agent's memory, e.g. 'incidents/db.md'. */
+      path: string;
+      /** One-line summary from the file's frontmatter. */
+      description: string;
+      /** Frontmatter tags (lowercase a-z 0-9 _ - only). */
+      tags: string[];
+      /**
+         * ISO-8601 timestamp stamped on create. Null for files written before this field was introduced.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 timestamp stamped on every write.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    export interface AgentMemoryListResponse {
+      /** Number of entries returned. */
+      count: number;
+      /** Headers (frontmatter only) — no file bodies. Use the read endpoint for the body. */
+      entries: AgentMemoryHeader[];
+    }
+
+    export interface AgentMemorySearchResult {
+      path: string;
+      description: string;
+      tags: string[];
+      /** BM25 relevance score. */
+      score: number;
+      /**
+         * Body snippet around the earliest match. Null when only the header matched.
+         * @nullable
+         */
+      snippet: string | null;
+    }
+
+    export interface AgentMemorySearchResponse {
+      /** The original search cue, echoed back. */
+      cue: string;
+      count: number;
+      results: AgentMemorySearchResult[];
+    }
+
+    /**
+     * Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}.
+     */
+    export type AgentMemoryTreeResponseRoot = { [key: string]: unknown };
+
+    export interface AgentMemoryTreeResponse {
+      /** Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}. */
+      root: AgentMemoryTreeResponseRoot;
+    }
+
+    /**
+     * Body shape for AgentMemoryViewSet.write_file (create).
+     */
+    export interface AgentMemoryWriteRequest {
+      /** Where to store the file. Lowercase a-z 0-9 _ - / only, must end in .md. */
+      path: string;
+      /**
+         * One-line summary, max 280 chars. Surfaces in list/search results.
+         * @maxLength 280
+         */
+      description: string;
+      /** Full markdown body. */
+      content: string;
+      /** Optional flat tags for search ranking. Lowercase a-z 0-9 _ - only. */
+      tags?: string[];
+    }
+
     /**
      * * `product_analytics` - product_analytics
      * * `sql` - sql
@@ -7137,6 +7732,409 @@ export namespace Schemas {
       CustomerAnalytics: 'customer_analytics',
     } as const;
 
+    export type AgentNativeToolEntrySchema = { [key: string]: unknown };
+
+    export interface AgentNativeToolEntry {
+      id: string;
+      schema: AgentNativeToolEntrySchema;
+    }
+
+    export interface AgentNativeToolsListResponse {
+      tools: AgentNativeToolEntry[];
+    }
+
+    export type AgentRevisionSpecTriggersItem = {
+      type: 'slack';
+      config: {
+      channel_id?: string;
+      mention_only: boolean;
+      auto_resume_threads: boolean;
+      allow_workspace_participants: boolean;
+      ack_reaction?: string;
+      trusted_workspaces: string[] | '*';
+    };
+    } | {
+      type: 'webhook';
+      config: {
+      path: string;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'cron';
+      config: {
+      /** @minLength 1 */
+      name: string;
+      /** @minLength 1 */
+      schedule: string;
+      timezone?: string;
+      /**
+         * @minLength 1
+         * @maxLength 4096
+         */
+      prompt: string;
+      external_key?: string;
+      catch_up?: 'all' | 'most_recent' | 'skip';
+      /**
+         * @minimum 1
+         * @maximum 604800
+         */
+      max_catch_up_age_seconds?: number;
+    };
+    } | {
+      type: 'chat';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'mcp';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    };
+
+    export type AgentRevisionSpecToolsItem = {
+      kind: 'native';
+      id: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom';
+      id: string;
+      path: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom_template';
+      from_template: string;
+      alias: string;
+      /** @minimum 0 */
+      version?: number;
+    } | {
+      kind: 'client';
+      /** @minLength 1 */
+      id: string;
+      /** @minLength 1 */
+      description: string;
+      args_schema?: { [key: string]: unknown };
+      required?: boolean;
+      /**
+         * @minimum 1
+         * @maximum 600000
+         */
+      timeout_ms?: number;
+      interactive?: boolean;
+    };
+
+    export type AgentRevisionSpecMcpsItemAuth = {
+      integration?: string;
+    };
+
+    export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
+    export type AgentRevisionSpecMcpsItemToolsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    };
+
+    export type AgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: AgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      headers?: AgentRevisionSpecMcpsItemHeaders;
+      tools?: AgentRevisionSpecMcpsItemToolsItem[];
+    };
+
+    export type AgentRevisionSpecSkillsItem = {
+      id: string;
+      path: string;
+      description?: string;
+      from_template?: string;
+      alias?: string;
+      /** @minimum 0 */
+      version?: number;
+    };
+
+    export type AgentRevisionSpecLimits = {
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_turns: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_tool_calls: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_wall_seconds: number;
+      /**
+         * @maximum 200000
+         * @exclusiveMinimum 0
+         */
+      max_output_tokens?: number;
+    };
+
+    export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
+
+
+    export const AgentRevisionSpecReasoning = {
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+    } as const;
+
+    export type AgentRevisionSpec = {
+      /** @minLength 1 */
+      model: string;
+      triggers: AgentRevisionSpecTriggersItem[];
+      tools: AgentRevisionSpecToolsItem[];
+      mcps: AgentRevisionSpecMcpsItem[];
+      skills: AgentRevisionSpecSkillsItem[];
+      integrations: string[];
+      secrets: string[];
+      limits: AgentRevisionSpecLimits;
+      entrypoint: string;
+      reasoning?: AgentRevisionSpecReasoning;
+    };
+
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type AgentRevisionCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    /**
+     * * `draft` - draft
+     * * `ready` - ready
+     * * `live` - live
+     * * `archived` - archived
+     */
+    export type AgentRevisionStateEnum = typeof AgentRevisionStateEnum[keyof typeof AgentRevisionStateEnum];
+
+
+    export const AgentRevisionStateEnum = {
+      Draft: 'draft',
+      Ready: 'ready',
+      Live: 'live',
+      Archived: 'archived',
+    } as const;
+
+    export interface AgentRevision {
+      readonly id: string;
+      readonly application: string;
+      /** @nullable */
+      parent_revision?: string | null;
+      readonly state: AgentRevisionStateEnum;
+      bundle_uri?: string;
+      /** @nullable */
+      readonly bundle_sha256: string | null;
+      spec?: AgentRevisionSpec;
+      /** @nullable */
+      readonly created_by_id: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by: AgentRevisionCreatedBy;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface AgentRevisionCronFireRequest {
+      /** `name` of the cron trigger in `spec.triggers[]` to fire. */
+      cron_name: string;
+      /**
+         * Stable client-supplied id so repeated clicks of the same UI 'Fire now' button resolve to the same session id rather than firing twice. The janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit to fire unconditionally — every call generates a fresh UUID.
+         * @nullable
+         */
+      request_id?: string | null;
+    }
+
+    export interface AgentRevisionCronFireResponse {
+      ok: boolean;
+      /** ID of the session the cron firing created (or returned, on dedupe). */
+      session_id: string;
+      /** ISO-8601 timestamp the firing was attributed to. */
+      fired_at: string;
+      /** Composed dedupe key — `cron-manual:<rev>:<name>:<request_id>`. Returned so the UI can correlate. */
+      idempotency_key: string;
+      /** The request id the firing used (echoed back, or freshly minted). */
+      request_id: string;
+    }
+
+    export interface AgentRevisionSlackManifestResponse {
+      revision_id: string;
+      /** Slack app manifest (JSON) ready to paste into https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and event subscriptions are derived from the agent's slack trigger config + tools. */
+      manifest: unknown;
+      /** Reminders the manifest can't enforce (e.g. invite the bot to its channels). */
+      notes: string[];
+      /**
+         * The Event Subscriptions Request URL baked into the manifest.
+         * @nullable
+         */
+      events_url: string | null;
+      /**
+         * The Interactivity Request URL (used by approval-gated tools).
+         * @nullable
+         */
+      interactivity_url: string | null;
+    }
+
+    export interface AgentRevisionSystemPromptResponse {
+      /** UUID of the revision the prompt was rendered for. */
+      revision_id: string;
+      /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
+      framework_prompt_version: number;
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+      system_prompt: string;
+    }
+
+    export interface AgentRevisionValidationError {
+      code: string;
+      message: string;
+      pointer: string;
+    }
+
+    export interface AgentRevisionValidateResponse {
+      ok: boolean;
+      revision_id: string;
+      revision_state: string;
+      errors: AgentRevisionValidationError[];
+      resolved_natives: string[];
+    }
+
+    export interface AgentTableHeader {
+      /** Table name. */
+      name: string;
+      /** Object size in bytes. */
+      size: number;
+    }
+
+    export type AgentTableRowsResponseRowsItem = { [key: string]: unknown };
+
+    export interface AgentTableRowsResponse {
+      name: string;
+      /** Total rows in the table. */
+      total: number;
+      /** Rows in this response (capped by limit). */
+      returned: number;
+      limit: number;
+      /** The rows (arbitrary JSON objects). */
+      rows: AgentTableRowsResponseRowsItem[];
+    }
+
+    export interface AgentTablesListResponse {
+      /** Number of tables. */
+      count: number;
+      /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
+      tables: AgentTableHeader[];
+    }
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
@@ -7153,6 +8151,8 @@ export namespace Schemas {
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -7162,6 +8162,8 @@ export namespace Schemas {
       Avg: 'avg',
       Count: 'count',
       P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -7573,6 +8575,8 @@ export namespace Schemas {
        * * `notify` - Notify
        * * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface AlertSimulate {
@@ -7835,6 +8839,14 @@ export namespace Schemas {
          * @nullable
          */
       delete_verified_at: string | null;
+    }
+
+    export interface AttributeBreakdownRow {
+      count: number;
+      error_count: number;
+      p50_duration_nano: number;
+      p95_duration_nano: number;
+      value: string;
     }
 
     export interface UnmatchedUtmSample {
@@ -8807,10 +9819,10 @@ export namespace Schemas {
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes
      */
-    export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
+    export type BatchExportIntervalEnum = typeof BatchExportIntervalEnum[keyof typeof BatchExportIntervalEnum];
 
 
-    export const IntervalEnum = {
+    export const BatchExportIntervalEnum = {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
@@ -8959,7 +9971,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether this BatchExport is paused or not. */
       paused?: boolean;
       /** The timestamp at which this BatchExport was created. */
@@ -9755,7 +10767,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -9913,6 +10925,18 @@ export namespace Schemas {
       label: string;
       value: string | number;
     }
+
+    /**
+     * * `span_attribute` - span_attribute
+     * * `span_resource_attribute` - span_resource_attribute
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
 
     export interface BreakdownValue {
       count: number;
@@ -10956,6 +11980,14 @@ export namespace Schemas {
       readonly person: ClickhouseEventPerson;
       readonly elements: readonly EventElement[];
       readonly elements_chain: string;
+    }
+
+    /**
+     * Body shape for POST /revisions/<id>/clone_from/ — copy every file
+     * from `source_revision_id` into this (draft) revision.
+     */
+    export interface CloneFromRequest {
+      source_revision_id: string;
     }
 
     export interface DiffCluster {
@@ -12300,6 +13332,7 @@ export namespace Schemas {
       removed_identifiers?: string[];
       purpose?: string;
       metadata?: CreateRunInputMetadata;
+      is_partial?: boolean;
     }
 
     export interface CreateRunResult {
@@ -14160,6 +15193,40 @@ export namespace Schemas {
     export interface DayItem {
       label: string;
       value: string | number;
+    }
+
+    /**
+     * Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422.
+     */
+    export type DecideApprovalRequestEditedArgs = { [key: string]: unknown };
+
+    /**
+     * * `approve` - approve
+     * * `reject` - reject
+     */
+    export type DecisionEnum = typeof DecisionEnum[keyof typeof DecisionEnum];
+
+
+    export const DecisionEnum = {
+      Approve: 'approve',
+      Reject: 'reject',
+    } as const;
+
+    /**
+     * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
+     *
+     * See docs/agent-platform/plans/approval-gated-tools.md.
+     */
+    export interface DecideApprovalRequest {
+      /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
+       *
+       * * `approve` - approve
+       * * `reject` - reject */
+      decision: DecisionEnum;
+      /** Approver-edited tool arguments. Only honoured when the tool's `approval_policy.allow_edit` is `true`; otherwise the janitor returns 422. */
+      edited_args?: DecideApprovalRequestEditedArgs;
+      /** Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user. */
+      reason?: string;
     }
 
     /**
@@ -16875,6 +17942,23 @@ export namespace Schemas {
       key_id: string;
     }
 
+    export interface EvaluationContextSuggestionRequest {
+      /**
+         * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+         * @maxLength 255
+         */
+      context_name: string;
+    }
+
+    export interface EvaluationContextSuggestionResponse {
+      /** Whether the suggestion visibility change was applied. */
+      success: boolean;
+      /** Normalized name of the affected evaluation context. */
+      name: string;
+      /** Whether the context is now hidden from the flag editor's suggestion list. */
+      hidden_from_suggestions: boolean;
+    }
+
     export interface EvaluationPattern {
       title: string;
       description: string;
@@ -19287,6 +20371,8 @@ export namespace Schemas {
       approve_all?: boolean;
       /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
       commit_to_github?: boolean;
+      /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+      add_images_to_comment_on_pr?: boolean;
     }
 
     export interface FlagValueItem {
@@ -20077,8 +21163,6 @@ export namespace Schemas {
     /**
      * * `continue` - continue
      * * `abort` - abort
-     * * `complete` - complete
-     * * `branch` - branch
      */
     export type OnErrorEnum = typeof OnErrorEnum[keyof typeof OnErrorEnum];
 
@@ -20086,8 +21170,6 @@ export namespace Schemas {
     export const OnErrorEnum = {
       Continue: 'continue',
       Abort: 'abort',
-      Complete: 'complete',
-      Branch: 'branch',
     } as const;
 
     /**
@@ -20134,12 +21216,10 @@ export namespace Schemas {
       name: string;
       /** Optional description. */
       description?: string;
-      /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+      /** On failure: continue (skip the action and proceed) or abort (stop the run).
        *
        * * `continue` - continue
-       * * `abort` - abort
-       * * `complete` - complete
-       * * `branch` - branch */
+       * * `abort` - abort */
       on_error?: OnErrorEnum | null;
       /** Created at (epoch ms). Frontend-managed. */
       created_at?: number;
@@ -20148,11 +21228,11 @@ export namespace Schemas {
       /** Property filters gating this action. */
       filters?: HogFunctionFilters | null;
       /**
-         * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+         * trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
          * @maxLength 100
          */
       type: string;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
       config: unknown;
       /** Output variable definition for downstream actions. */
       output_variable?: unknown;
@@ -20358,6 +21438,10 @@ export namespace Schemas {
       /** @maxLength 400 */
       name: string;
       description?: string;
+      /** On failure: continue (skip the action and proceed) or abort (stop the run).
+       *
+       * * `continue` - continue
+       * * `abort` - abort */
       on_error?: OnErrorEnum | null;
       created_at?: number;
       updated_at?: number;
@@ -21329,6 +22413,8 @@ export namespace Schemas {
       avg_duration_nano: number;
       /** Average nanoseconds from the parent span's start to this span's start. Zero for root spans. Used to order children left-to-right by typical start time in the flame graph. */
       avg_start_offset_nano: number;
+      /** How many times this child runs per parent invocation (edge count / parent span count). Separates fan-out volume from per-call cost: a child can dominate total_duration_nano purely by running many times per parent. Null for root edges (no parent invocation to ratio against). */
+      calls_per_parent_invocation?: number | null;
       count: number;
       error_count: number;
       name: string;
@@ -21376,6 +22462,65 @@ export namespace Schemas {
       serviceNames?: string[] | null;
       /** Span name to scope the matched trace set. Required because the `(trace_id, parent_span_id)` self-join is prohibitive without bounding the matched traces — at high name cardinality the query becomes unsafe to run. */
       spanName: string;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    export type TraceSpanBreakdownType = typeof TraceSpanBreakdownType[keyof typeof TraceSpanBreakdownType];
+
+
+    export const TraceSpanBreakdownType = {
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export type TraceSpanBreakdownOrderBy = typeof TraceSpanBreakdownOrderBy[keyof typeof TraceSpanBreakdownOrderBy];
+
+
+    export const TraceSpanBreakdownOrderBy = {
+      Count: 'count',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface TraceSpansAttributeBreakdownQueryResponse {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: AttributeBreakdownRow[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AttributeBreakdownRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface TraceSpansAttributeBreakdownQuery {
+      /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+      breakdownKey: string;
+      /** Where the key lives: span-level attributes or resource-level attributes. */
+      breakdownType: TraceSpanBreakdownType;
+      /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+      compareFilter?: CompareFilter | null;
+      dateRange: DateRange;
+      filterGroup?: PropertyGroupFilter | null;
+      kind?: 'TraceSpansAttributeBreakdownQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Order rows by span count or error count, descending. Defaults to count. */
+      orderBy?: TraceSpanBreakdownOrderBy | null;
+      response?: TraceSpansAttributeBreakdownQueryResponse | null;
+      serviceNames?: string[] | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -21739,7 +22884,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -21765,7 +22910,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -22751,6 +23896,23 @@ export namespace Schemas {
       Burst: 'burst',
       Sustained: 'sustained',
     } as const;
+
+    /**
+     * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+     * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+     * the full report itself.
+     */
+    export interface LinkedSignalReport {
+      /** UUID of the linked `SignalReport`. */
+      id: string;
+      /**
+         * LLM-generated report title, or null if the report hasn't been summarised yet.
+         * @nullable
+         */
+      title: string | null;
+      /** Current report status (e.g. `potential`, `ready`, `resolved`). */
+      status: string;
+    }
 
     /**
      * Typed output for view set `list`.
@@ -23893,6 +25055,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto
+     */
+    export type MetricAttributeScopeEnum = typeof MetricAttributeScopeEnum[keyof typeof MetricAttributeScopeEnum];
+
+
+    export const MetricAttributeScopeEnum = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    /**
      * * `precise` - PRECISE
      * * `coarse` - COARSE
      * * `partial` - PARTIAL
@@ -23904,6 +25080,30 @@ export namespace Schemas {
       Precise: 'precise',
       Coarse: 'coarse',
       Partial: 'partial',
+    } as const;
+
+    /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `minute_5` - minute_5
+     * * `minute_15` - minute_15
+     * * `hour` - hour
+     * * `hour_6` - hour_6
+     * * `day` - day
+     * * `week` - week
+     */
+    export type MetricQueryIntervalEnum = typeof MetricQueryIntervalEnum[keyof typeof MetricQueryIntervalEnum];
+
+
+    export const MetricQueryIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Minute5: 'minute_5',
+      Minute15: 'minute_15',
+      Hour: 'hour',
+      Hour6: 'hour_6',
+      Day: 'day',
+      Week: 'week',
     } as const;
 
     export interface MinimalPerson {
@@ -23974,6 +25174,17 @@ export namespace Schemas {
       Full: 'full',
       Custom: 'custom',
     } as const;
+
+    /**
+     * Body shape for POST /revisions/clone_from/ — atomically create a new
+     * draft revision under `application_id` and clone its initial bundle from
+     * `source_revision_id`. Convenience for the "edit live" flow so the MCP
+     * doesn't have to do create-then-clone-from in two calls.
+     */
+    export interface NewDraftRevisionRequest {
+      application_id: string;
+      source_revision_id: string;
+    }
 
     /**
      * * `table` - Table
@@ -24167,6 +25378,12 @@ export namespace Schemas {
     }
 
     /**
+     * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+     * @nullable
+     */
+    export type NotificationEventMetadata = { [key: string]: unknown } | null;
+
+    /**
      * * `replay` - REPLAY
      * * `notebook` - NOTEBOOK
      * * `insight` - INSIGHT
@@ -24212,6 +25429,11 @@ export namespace Schemas {
       source_type: NotificationEventSourceTypeEnum | null;
       /** @nullable */
       source_id: string | null;
+      /**
+         * Optional structured payload for rich client-side rendering, specific to the notification type. For `web_analytics_digest`, holds the weekly metrics (visitors, pageviews, sessions, bounce rate, session duration with week-over-week change), top pages, and top sources used to render the digest card.
+         * @nullable
+         */
+      metadata?: NotificationEventMetadata;
       created_at: string;
     }
 
@@ -24443,6 +25665,22 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+    } as const;
+
+    /**
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     */
+    export type OpEnum = typeof OpEnum[keyof typeof OpEnum];
+
+
+    export const OpEnum = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
     } as const;
 
     /**
@@ -24928,6 +26166,11 @@ export namespace Schemas {
          * @nullable
          */
       detail?: string | null;
+      /**
+         * GitHub Actions run id for ci_started/ci_finished events, null otherwise.
+         * @nullable
+         */
+      run_id?: number | null;
     }
 
     export interface PRLifecycle {
@@ -24977,6 +26220,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ActivityLog[];
+    }
+
+    export interface PaginatedAgentApplicationList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgentApplication[];
+    }
+
+    export interface PaginatedAgentRevisionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AgentRevision[];
     }
 
     export interface PaginatedAlertList {
@@ -29214,6 +30475,355 @@ export namespace Schemas {
       person_ids?: string[];
     }
 
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type PatchedAgentApplicationCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    export interface PatchedAgentApplication {
+      readonly id?: string;
+      readonly team_id?: number;
+      /** @maxLength 255 */
+      name?: string;
+      /**
+         * Globally-unique URL identifier. Server-minted as an opaque random slug on create; only allowlisted first-party teams may set it explicitly. Slugs live in one global namespace (domain-mode ingress routing carries no team).
+         * @maxLength 63
+         * @pattern ^[-a-zA-Z0-9_]+$
+         */
+      slug?: string;
+      description?: string;
+      /** @nullable */
+      readonly live_revision?: string | null;
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at?: string | null;
+      /** @nullable */
+      readonly created_by_id?: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by?: PatchedAgentApplicationCreatedBy;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      /**
+         * Public URL to paste into the Slack app dashboard under Event Subscriptions → Request URL. Computed from the agent slug and the deployment's ingress routing mode (`AGENT_INGRESS_DOMAIN_SUFFIX` in domain mode, `AGENT_INGRESS_PUBLIC_URL` in path mode). Null when no public agent-ingress URL is configured (e.g. local dev without a tunnel).
+         * @nullable
+         */
+      readonly slack_events_url?: string | null;
+      /**
+         * Public URL to paste into the Slack app dashboard under Interactivity & Shortcuts → Request URL. Same source + null behaviour as `slack_events_url`.
+         * @nullable
+         */
+      readonly slack_interactivity_url?: string | null;
+      /**
+         * Mode-aware base URL the agent's trigger routes hang off — append `/webhook`, `/run`, `/mcp`, etc. Domain mode: `https://<slug><suffix>`; path mode: `<public_url>/agents/<slug>`. Same source + null behaviour as `slack_events_url` (null when no public ingress URL is configured).
+         * @nullable
+         */
+      readonly ingress_base_url?: string | null;
+    }
+
+    /**
+     * Body shape for AgentMemoryViewSet.update_file. Omitted fields preserve the existing value.
+     */
+    export interface PatchedAgentMemoryUpdateRequest {
+      /** @maxLength 280 */
+      description?: string;
+      content?: string;
+      tags?: string[];
+    }
+
+    export type PatchedAgentRevisionSpecTriggersItem = {
+      type: 'slack';
+      config: {
+      channel_id?: string;
+      mention_only: boolean;
+      auto_resume_threads: boolean;
+      allow_workspace_participants: boolean;
+      ack_reaction?: string;
+      trusted_workspaces: string[] | '*';
+    };
+    } | {
+      type: 'webhook';
+      config: {
+      path: string;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'cron';
+      config: {
+      /** @minLength 1 */
+      name: string;
+      /** @minLength 1 */
+      schedule: string;
+      timezone?: string;
+      /**
+         * @minLength 1
+         * @maxLength 4096
+         */
+      prompt: string;
+      external_key?: string;
+      catch_up?: 'all' | 'most_recent' | 'skip';
+      /**
+         * @minimum 1
+         * @maximum 604800
+         */
+      max_catch_up_age_seconds?: number;
+    };
+    } | {
+      type: 'chat';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    } | {
+      type: 'mcp';
+      config?: {
+      allow_restart?: boolean;
+    };
+      auth: {
+      modes?: ({
+      type: 'public';
+      acknowledge_public_exposure: true;
+    } | {
+      type: 'posthog';
+      scopes?: string[];
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+      /** @minLength 1 */
+      secret_ref: string;
+    } | {
+      type: 'posthog_internal';
+    })[];
+    };
+    };
+
+    export type PatchedAgentRevisionSpecToolsItem = {
+      kind: 'native';
+      id: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom';
+      id: string;
+      path: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    } | {
+      kind: 'custom_template';
+      from_template: string;
+      alias: string;
+      /** @minimum 0 */
+      version?: number;
+    } | {
+      kind: 'client';
+      /** @minLength 1 */
+      id: string;
+      /** @minLength 1 */
+      description: string;
+      args_schema?: { [key: string]: unknown };
+      required?: boolean;
+      /**
+         * @minimum 1
+         * @maximum 600000
+         */
+      timeout_ms?: number;
+      interactive?: boolean;
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItemAuth = {
+      integration?: string;
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
+    export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: PatchedAgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      headers?: PatchedAgentRevisionSpecMcpsItemHeaders;
+      tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
+    };
+
+    export type PatchedAgentRevisionSpecSkillsItem = {
+      id: string;
+      path: string;
+      description?: string;
+      from_template?: string;
+      alias?: string;
+      /** @minimum 0 */
+      version?: number;
+    };
+
+    export type PatchedAgentRevisionSpecLimits = {
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_turns: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_tool_calls: number;
+      /**
+         * @maximum 2147483647
+         * @exclusiveMinimum 0
+         */
+      max_wall_seconds: number;
+      /**
+         * @maximum 200000
+         * @exclusiveMinimum 0
+         */
+      max_output_tokens?: number;
+    };
+
+    export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
+
+
+    export const PatchedAgentRevisionSpecReasoning = {
+      Minimal: 'minimal',
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Xhigh: 'xhigh',
+    } as const;
+
+    export type PatchedAgentRevisionSpec = {
+      /** @minLength 1 */
+      model: string;
+      triggers: PatchedAgentRevisionSpecTriggersItem[];
+      tools: PatchedAgentRevisionSpecToolsItem[];
+      mcps: PatchedAgentRevisionSpecMcpsItem[];
+      skills: PatchedAgentRevisionSpecSkillsItem[];
+      integrations: string[];
+      secrets: string[];
+      limits: PatchedAgentRevisionSpecLimits;
+      entrypoint: string;
+      reasoning?: PatchedAgentRevisionSpecReasoning;
+    };
+
+    /**
+     * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+     * @nullable
+     */
+    export type PatchedAgentRevisionCreatedBy = {
+      readonly id?: number;
+      readonly first_name?: string;
+      readonly email?: string;
+    } | null;
+
+    export interface PatchedAgentRevision {
+      readonly id?: string;
+      readonly application?: string;
+      /** @nullable */
+      parent_revision?: string | null;
+      readonly state?: AgentRevisionStateEnum;
+      bundle_uri?: string;
+      /** @nullable */
+      readonly bundle_sha256?: string | null;
+      spec?: PatchedAgentRevisionSpec;
+      /** @nullable */
+      readonly created_by_id?: number | null;
+      /**
+         * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
+         * @nullable
+         */
+      readonly created_by?: PatchedAgentRevisionCreatedBy;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedAlert {
       readonly id?: string;
       readonly created_by?: UserBasic;
@@ -29282,6 +30892,8 @@ export namespace Schemas {
        * * `notify` - Notify
        * * `suppress` - Suppress */
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
+      /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedAnnotation {
@@ -29379,7 +30991,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval?: IntervalEnum;
+      interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -33610,6 +35222,14 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
+
+
+    export const ScoutOriginEnum = {
+      Canonical: 'canonical',
+      Custom: 'custom',
+    } as const;
+
     /**
      * Per-(team, skill) scout config: schedule, enablement, and emit posture.
      *
@@ -33622,6 +35242,8 @@ export namespace Schemas {
       readonly skill_name?: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description?: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin?: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -37385,7 +39007,7 @@ export namespace Schemas {
        * ```
        *
        * For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
        * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
        * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -39131,12 +40753,34 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative82 {
+      /** Result rows for the comparison period when `compareFilter.compare` is true. */
+      compare?: AttributeBreakdownRow[] | null;
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      /** Generated HogQL query. */
+      hogql?: string | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: AttributeBreakdownRow[];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+      warnings?: DataWarehouseSyncWarning[] | null;
+    }
+
+    export interface QueryResponseAlternative83 {
       questions: string[];
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative83 {
+    export interface QueryResponseAlternative84 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -39159,7 +40803,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative84 {
+    export interface QueryResponseAlternative85 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -39182,7 +40826,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative85 {
+    export interface QueryResponseAlternative86 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39202,7 +40846,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative86 {
+    export interface QueryResponseAlternative87 {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -39226,7 +40870,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative88 {
+    export interface QueryResponseAlternative89 {
       /** Timestamp of the newer trace */
       newerTimestamp?: string | null;
       /** ID of the newer trace (chronologically after current) */
@@ -39241,7 +40885,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative89 {
+    export interface QueryResponseAlternative90 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39261,7 +40905,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative90 {
+    export interface QueryResponseAlternative91 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39281,7 +40925,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative91 {
+    export interface QueryResponseAlternative92 {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -39309,7 +40953,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative92 {
+    export interface QueryResponseAlternative93 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39329,7 +40973,7 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative93 {
+    export interface QueryResponseAlternative94 {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -39354,9 +40998,9 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export type QueryResponseAlternative94ResultsItem = { [key: string]: unknown };
+    export type QueryResponseAlternative95ResultsItem = { [key: string]: unknown };
 
-    export interface QueryResponseAlternative94 {
+    export interface QueryResponseAlternative95 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39369,14 +41013,14 @@ export namespace Schemas {
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative94ResultsItem[];
+      results: QueryResponseAlternative95ResultsItem[];
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export interface QueryResponseAlternative95 {
+    export interface QueryResponseAlternative96 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -39396,18 +41040,18 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative88 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative26 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | QueryResponseAlternative38 | unknown | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative45 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative55 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative60 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative70 | QueryResponseAlternative71 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative81 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative89 | QueryResponseAlternative90 | QueryResponseAlternative91 | QueryResponseAlternative92 | QueryResponseAlternative93 | QueryResponseAlternative94 | QueryResponseAlternative95 | QueryResponseAlternative96;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QuotaResourceLimit {
@@ -39821,6 +41465,21 @@ export namespace Schemas {
     }
 
     /**
+     * One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+     *
+     * Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+     * grouped into a report yet, was de-duplicated away, or its signal was deleted.
+     */
+    export interface ScoutEmissionReportLink {
+      /** Stable id the finding was emitted under. */
+      finding_id: string;
+      /** Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store. */
+      source_id: string;
+      /** The inbox report this finding linked to, or null if none could be resolved. */
+      report: LinkedSignalReport | null;
+    }
+
+    /**
      * `SignalScratchpad` projection used by `search-memory` and `remember`.
      */
     export interface ScratchpadEntry {
@@ -40108,6 +41767,29 @@ export namespace Schemas {
     }
 
     /**
+     * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+     *
+     * The view merges `{KEY: value}` into the existing encrypted env block
+     * without touching other keys, so callers can set or rotate one secret
+     * without needing to read the whole block back.
+     */
+    export interface SetEnvKeyRequest {
+      value: string;
+    }
+
+    export type SetEnvRequestEnv = {[key: string]: string};
+
+    /**
+     * Body shape for AgentApplicationViewSet.set_env.
+     *
+     * `env` is a JSON object of string→string. The view encrypts it via the
+     * same Fernet schedule the worker uses to decrypt.
+     */
+    export interface SetEnvRequest {
+      env: SetEnvRequestEnv;
+    }
+
+    /**
      * * `trace` - trace
      * * `debug` - debug
      * * `info` - info
@@ -40214,6 +41896,8 @@ export namespace Schemas {
       readonly skill_name: string;
       /** Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description. */
       readonly description: string;
+      /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
+      readonly scout_origin: ScoutOriginEnum;
       /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
@@ -43396,7 +45080,22 @@ export namespace Schemas {
       results: WidgetCatalogEntry[];
     }
 
+    export interface WorkflowHealthDay {
+      /** UTC calendar day. */
+      day: string;
+      /** Runs started that day. */
+      run_count: number;
+      /** Runs that completed that day. */
+      completed: number;
+      /** Completed runs with conclusion 'success' that day. */
+      successes: number;
+    }
+
     export interface WorkflowHealthItem {
+      /** Repository the workflow runs in. */
+      repo: RepoRef;
+      /** Daily run history across the whole window, oldest first, zero-filled. */
+      daily: WorkflowHealthDay[];
       /** GitHub Actions workflow name. */
       workflow_name: string;
       /** Total runs started in the window. */
@@ -43430,6 +45129,58 @@ export namespace Schemas {
       succeeded: number;
       /** Failed invocations in the window. */
       failed: number;
+    }
+
+    /**
+     * Body shape for PUT /revisions/<id>/agent_md/.
+     */
+    export interface WriteAgentMdRequest {
+      content: string;
+    }
+
+    /**
+     * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
+     * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
+     */
+    export interface WriteSkillRequest {
+      /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
+      description: string;
+      /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
+      body: string;
+    }
+
+    export type WriteSpecRequestSpec = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/spec/. The body's `spec` object
+     * is the author-facing slice (skills/tools are server-derived at freeze).
+     */
+    export interface WriteSpecRequest {
+      spec: WriteSpecRequestSpec;
+    }
+
+    export type WriteToolRequestArgsSchema = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/tools/<tool_id>/.
+     */
+    export interface WriteToolRequest {
+      description: string;
+      args_schema: WriteToolRequestArgsSchema;
+      source: string;
+    }
+
+    export type WriteTypedBundleRequestSpec = { [key: string]: unknown };
+
+    /**
+     * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
+     * payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+     */
+    export interface WriteTypedBundleRequest {
+      agent_md: string;
+      skills?: WriteSkillRequest[];
+      tools?: WriteToolRequest[];
+      spec: WriteTypedBundleRequestSpec;
     }
 
     export interface _CompareFilter {
@@ -43843,6 +45594,43 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface _MetricFilter {
+      /**
+         * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op?: OpEnum;
+      /** Value to compare against. For regex operators this is the pattern. */
+      value: string;
+      /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
+    export interface _MetricGroupBy {
+      /**
+         * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -43861,13 +45649,30 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName: string;
-      /** Aggregation applied per time bucket.
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
-       * * `p95` - p95 */
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase */
       aggregation?: AggregationEnum;
+      /** Label predicates ANDed together. Rows must satisfy every filter. */
+      filters?: _MetricFilter[];
+      /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
+      groupBy?: _MetricGroupBy[];
+      /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `minute_5` - minute_5
+       * * `minute_15` - minute_15
+       * * `hour` - hour
+       * * `hour_6` - hour_6
+       * * `day` - day
+       * * `week` - week */
+      interval?: MetricQueryIntervalEnum | null;
       /** Lower bound (inclusive) for the query range. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
@@ -43886,9 +45691,31 @@ export namespace Schemas {
       query: _MetricQueryBody;
     }
 
-    export interface _MetricQueryResponse {
+    /**
+     * Label values identifying this series. Empty for an ungrouped query.
+     */
+    export type _MetricSeriesLabels = {[key: string]: string};
+
+    export interface _MetricSeries {
+      /** Label values identifying this series. Empty for an ungrouped query. */
+      labels: _MetricSeriesLabels;
       /** Time-bucketed points, ordered by time ascending. */
-      results: _MetricQueryPoint[];
+      points: _MetricQueryPoint[];
+      /**
+         * Metric the series was computed from. Null for formula results.
+         * @nullable
+         */
+      metric_name?: string | null;
+      /**
+         * Name of the query clause that produced this series.
+         * @nullable
+         */
+      clause?: string | null;
+    }
+
+    export interface _MetricQueryResponse {
+      /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
+      results: _MetricSeries[];
     }
 
     /**
@@ -43993,12 +45820,52 @@ export namespace Schemas {
       query: _TracingAggregationQueryBody;
     }
 
+    /**
+     * * `count` - count
+     * * `error_count` - error_count
+     */
+    export type _TracingAttributeBreakdownQueryBodyOrderByEnum = typeof _TracingAttributeBreakdownQueryBodyOrderByEnum[keyof typeof _TracingAttributeBreakdownQueryBodyOrderByEnum];
+
+
+    export const _TracingAttributeBreakdownQueryBodyOrderByEnum = {
+      Count: 'count',
+      ErrorCount: 'error_count',
+    } as const;
+
+    export interface _TracingAttributeBreakdownQueryBody {
+      /** Attribute key to group by (e.g. "server.address", "http.response.status_code"). Discover keys with apm-attributes-list. */
+      breakdownKey: string;
+      /** Where the key lives: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+       *
+       * * `span_attribute` - span_attribute
+       * * `span_resource_attribute` - span_resource_attribute */
+      breakdownType: BreakdownTypeEnum;
+      /** Order rows by span count or error count, descending. Defaults to count.
+       *
+       * * `count` - count
+       * * `error_count` - error_count */
+      orderBy?: _TracingAttributeBreakdownQueryBodyOrderByEnum;
+      /** Date range for the primary window. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Optional comparison-window configuration. When omitted, only the primary window is returned. */
+      compareFilter?: _CompareFilter;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Property filters scoping the spans the breakdown runs over (e.g. only error spans). */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingAttributeBreakdownRequest {
+      /** The attribute breakdown query to execute. */
+      query: _TracingAttributeBreakdownQueryBody;
+    }
+
     export interface _TracingCountBody {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Property filters for the count. */
       filterGroup?: _SpanPropertyFilter[];
@@ -44031,7 +45898,7 @@ export namespace Schemas {
       dateRange?: _TracingDateRange;
       /** Filter by service names. */
       serviceNames?: string[];
-      /** Filter by HTTP status codes. */
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
       statusCodes?: number[];
       /** Column to order by. Defaults to timestamp. Ordering by timestamp paginates via the keyset cursor ('after'); ordering by duration paginates via 'offset'.
        *
@@ -48298,7 +50165,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -48325,7 +50192,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -48712,6 +50579,13 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
     };
 
     export type RoleExternalReferencesListParams = {
@@ -49297,6 +51171,220 @@ export namespace Schemas {
      * @nullable
      */
     was_impersonated?: boolean | null;
+    };
+
+    export type AgentApplicationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AgentMemoryListFilesParams = {
+    /**
+     * Optional path prefix to scope the list, e.g. 'incidents/'.
+     */
+    prefix?: string;
+    };
+
+    export type AgentMemoryGetFileParams = {
+    /**
+     * Memory path returned by the list endpoint, e.g. 'incidents/db.md'.
+     */
+    path: string;
+    };
+
+    export type AgentMemoryUpdateFileParams = {
+    /**
+     * Memory path to update.
+     */
+    path: string;
+    };
+
+    export type AgentMemoryDeleteFileParams = {
+    /**
+     * Memory path to delete.
+     */
+    path: string;
+    };
+
+    export type AgentMemorySearchParams = {
+    /**
+     * Max results (default 10, max 100).
+     */
+    limit?: number;
+    /**
+     * Optional path prefix to scope the search.
+     */
+    prefix?: string;
+    /**
+     * Search cue — plain natural language is fine.
+     */
+    q: string;
+    };
+
+    export type AgentMemoryReadTableParams = {
+    /**
+     * Max rows to return (default 500, max 5000).
+     */
+    limit?: number;
+    };
+
+    export type AgentApplicationsRevisionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AgentApplicationsApprovalsListParams = {
+    limit?: number;
+    offset?: number;
+    /**
+     * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
+     */
+    state?: string;
+    };
+
+    export type AgentApplicationsPreviewProxyGetParams = {
+    format?: AgentApplicationsPreviewProxyGetFormat;
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsPreviewProxyGetFormat = typeof AgentApplicationsPreviewProxyGetFormat[keyof typeof AgentApplicationsPreviewProxyGetFormat];
+
+
+    export const AgentApplicationsPreviewProxyGetFormat = {
+      Json: 'json',
+      Sse: 'sse',
+    } as const;
+
+    export type AgentApplicationsPreviewProxyParams = {
+    format?: AgentApplicationsPreviewProxyFormat;
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsPreviewProxyFormat = typeof AgentApplicationsPreviewProxyFormat[keyof typeof AgentApplicationsPreviewProxyFormat];
+
+
+    export const AgentApplicationsPreviewProxyFormat = {
+      Json: 'json',
+      Sse: 'sse',
+    } as const;
+
+    export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsSessionsListParams = {
+    /**
+     * ISO datetime — return sessions with created_at >= this.
+     */
+    created_after?: string;
+    /**
+     * ISO datetime — return sessions with created_at <= this.
+     */
+    created_before?: string;
+    limit?: number;
+    offset?: number;
+    /**
+     * Only return sessions started against this specific revision.
+     */
+    revision_id?: string;
+    /**
+     * Filter by session state. Comma-separated list accepted (e.g. `completed,failed`). Valid values: queued, running, completed, closed, cancelled, failed.
+     */
+    state?: string;
+    };
+
+    export type AgentApplicationsSessionsRetrieveParams = {
+    /**
+     * If set, return only the most recent N messages from the conversation. `usage_total` is still computed over the full session — only the transcript is trimmed. The response includes `conversation_trimmed: true` and `conversation_total_turns` so the caller knows how much was hidden.
+     */
+    last_n?: number;
+    };
+
+    export type AgentApplicationsSessionLogsParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type AgentApplicationsStatsParams = {
+    /**
+     * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
+     */
+    since?: string;
+    };
+
+    export type AgentFleetApprovalsListParams = {
+    /**
+     * Optional agent UUID — narrows the listing to one application.
+     */
+    agent_id?: string;
+    limit?: number;
+    offset?: number;
+    /**
+     * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
+     */
+    state?: string;
+    };
+
+    export type AgentFleetLiveSessionsParams = {
+    /**
+     * Cap on returned sessions (default 100, max 500).
+     */
+    limit?: number;
+    };
+
+    export type AgentFleetStatsParams = {
+    /**
+     * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
+     */
+    since?: string;
     };
 
     export type AlertsListParams = {
@@ -50467,6 +52555,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
+    /**
+     * Name of the evaluation context to restore to suggestions.
+     */
+    context_name: string;
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
@@ -54201,7 +56296,7 @@ export namespace Schemas {
      */
     source_product?: string;
     /**
-     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.
+     * Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.
      */
     status?: string;
     /**
@@ -54968,7 +57063,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
@@ -54995,7 +57090,7 @@ export namespace Schemas {
      */
     recent_days?: number;
     /**
-     * Filter to observations of a specific session recording.
+     * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
     /**
