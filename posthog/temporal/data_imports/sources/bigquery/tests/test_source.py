@@ -303,6 +303,24 @@ def test_non_retryable_errors_does_not_match_transient_refresh_failures(transien
     assert not any(key in transient_error for key in non_retryable_errors)
 
 
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Dataset ID entered project-qualified — the source read path (`get_table`) fails.
+        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
+        "got my-project.my-project.my_dataset.my_table",
+        # Same misconfiguration surfacing on the temp-table cleanup path.
+        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
+        "got my-project.my-project.my_dataset.__posthog_import_abc_def_123",
+    ],
+)
+def test_non_retryable_errors_match_project_qualified_dataset_id(observed_error):
+    """A Dataset ID entered as `project.dataset` makes us build a 4-part table reference that
+    BigQuery rejects. Retrying can't fix a misconfigured ID, so the sync must be disabled."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
 def _run_delete_all_temp_destination_tables(side_effect, logger):
     bq = mock.MagicMock()
     bq.list_tables.side_effect = side_effect

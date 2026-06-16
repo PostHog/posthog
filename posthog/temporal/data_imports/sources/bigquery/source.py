@@ -60,6 +60,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # customer's service account — retrying can't resolve them; the user must grant the
             # missing permission (or the referenced table/dataset must exist).
             "Access Denied:": "BigQuery denied access to a table or dataset. Please ensure your service account has read access (the bigquery.tables.getData permission, e.g. the BigQuery Data Viewer role) on every dataset and table you're syncing, then reconnect the source.",
+            # Raised by the BigQuery client's `TableReference.from_string` when the identifier we
+            # build (`project.dataset.table`) has the wrong number of dot-separated parts. The only
+            # component that can carry a stray dot is a user-supplied identifier — the project comes
+            # from the service-account key file, the table name from schema listing, and the temp
+            # prefix/job-id/timestamp contain no dots. In practice this fires when the Dataset ID is
+            # entered project-qualified (e.g. `my-project.my_dataset`), so we prepend the project a
+            # second time and produce a 4-part name. Retrying can't fix a misconfigured ID; the user
+            # must correct it. Matched on the stable library message, not the volatile `got ...` tail.
+            "table_id must be a fully-qualified ID in standard SQL format": "Your BigQuery Dataset ID appears to include the project (for example `my-project.my_dataset`). Enter only the dataset name in the Dataset ID field — if the dataset lives in a different project, enable the separate dataset-project option instead.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
