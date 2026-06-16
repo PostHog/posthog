@@ -4806,6 +4806,53 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "mcp-analytics-intent-clusters-recompute": {
+        "description": "Trigger an asynchronous recompute of the intent-cluster snapshot: embed the project's recorded agent intents and re-cluster them. Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Recompute intent clusters",
+        "title": "Recompute intent clusters",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-analytics-intent-clusters-retrieve": {
+        "description": "Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents, each with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Get intent cluster snapshot",
+        "title": "Get intent cluster snapshot",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-analytics-sessions-generate-intent": {
+        "description": "Generate (or return the cached) LLM summary of the agent's goal for a session, derived from the session's recorded intents. The first call summarises and persists the result; subsequent calls return the stored summary.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Generate session intent summary",
+        "title": "Generate session intent summary",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "mcp-analytics"
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
         "category": "Notebooks",
