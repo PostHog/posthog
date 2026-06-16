@@ -165,7 +165,12 @@
             "requires_approval": true
         }
     ],
-    "secrets": ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET", "INCIDENT_IO_TOKEN", "WEBHOOK_SECRET"],
+    "secrets": [
+        { "name": "SLACK_BOT_TOKEN", "allowed_hosts": ["slack.com"] },
+        "SLACK_SIGNING_SECRET",
+        { "name": "INCIDENT_IO_TOKEN", "allowed_hosts": ["api.incident.io"] },
+        "WEBHOOK_SECRET"
+    ],
     "skills": [
         {
             "id": "triage-playbook",
