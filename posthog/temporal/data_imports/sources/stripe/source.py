@@ -232,6 +232,10 @@ If automatic creation failed due to a permissions error and you're using a restr
             "403 Client Error: Forbidden for url: https://api.stripe.com": "Your Stripe credentials do not have permissions to access endpoint. Please check your configuration and permissions in Stripe, then try again.",
             "Expired API Key provided": "Your Stripe API key has expired. Please create a new key and reconnect.",
             "Invalid API Key provided": None,
+            # Stripe rejects the request when the restricted key has an IP allowlist that doesn't
+            # include PostHog's egress IPs. This is a customer-side key configuration that retrying
+            # can never satisfy, so stop retrying. Match the stable phrase, not the appended IP.
+            "does not allow requests from your IP address": "Your Stripe API key restricts requests by IP address and is blocking PostHog. Remove the IP restriction on your restricted key in Stripe (or allowlist PostHog's IP addresses), then try again.",
             # Surface Stripe's raw permission message — it names the specific scope that's missing
             # (e.g. "Having the 'rak_payment_method_read' permission would allow this request to
             # continue"), which is more actionable than a generic "check your permissions" toast.
