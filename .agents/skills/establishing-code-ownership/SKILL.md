@@ -1,6 +1,6 @@
 ---
 name: establishing-code-ownership
-description: Determine which PostHog team owns a file, directory, or code path, or enumerate all code a team owns (via `products/*/product.yaml` and `.github/CODEOWNERS`). Use when assigning a reviewer, attributing a bug or slow query to a team, routing work, scoping a team-wide audit, or answering "who owns X" / "what does team Y own".
+description: Determine which PostHog team owns a file, directory, or code path, or enumerate all code a team owns (via `products/*/product.yaml` and `.github/CODEOWNERS(-soft)?`). Use when assigning a reviewer, attributing a bug or slow query to a team, routing work, scoping a team-wide audit, or answering "who owns X" / "what does team Y own".
 ---
 
 # Establishing code ownership
