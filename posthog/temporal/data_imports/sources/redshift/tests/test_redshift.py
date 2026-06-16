@@ -338,6 +338,27 @@ class TestExplainQuery:
 
         cursor.connection.rollback.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            psycopg.errors.InFailedSqlTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            ),
+            RuntimeError("boom"),
+        ],
+    )
+    def test_does_not_capture_exception_on_failure(self, exc, logger):
+        # Regardless of the failure type — an already-aborted transaction (`InFailedSqlTransaction`)
+        # or any other error — the debug-only EXPLAIN probe must never report to error tracking.
+        cursor = MagicMock()
+        cursor.execute.side_effect = exc
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            _explain_query(cursor, sql.SQL("SELECT 1").format(), logger)
+
+        mock_capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     def _inner(self):
