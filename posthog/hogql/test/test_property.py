@@ -1771,6 +1771,8 @@ class TestProperty(BaseTest):
         )
         self.assertIsInstance(result, ast.And)
         self.assertEqual(cast(ast.And, result).exprs[0], ast.Constant(value=1))
+        # The person filter must survive as a real comparison, not collapse to neutral too
+        self.assertIsInstance(cast(ast.And, result).exprs[1], ast.CompareOperation)
 
 
 class TestPropertyIsSetIsNotSetWithData(APIBaseTest):

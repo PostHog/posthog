@@ -8130,6 +8130,59 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
 
+    def test_user_blast_radius_with_groups_and_flag_dependency(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # The flag dependency is neutral for group-scoped blast radius too: it must not raise
+        # on the missing group_type_index, and the group property filter still applies
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag.pk),
+                            "type": "flag",
+                            "value": True,
+                            "operator": "flag_evaluates_to",
+                        },
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
+
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
         for i in range(8):
