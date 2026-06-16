@@ -129,6 +129,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.agent_platform"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.alerts"
 depends_on = [
     "ee",
