@@ -2,10 +2,13 @@
 
 Reuses the strategies from `test_parser_grammar_pbt.py` (the
 auto-generated grammar PBT introduced in PR #58627) but runs as an
-ad-hoc CLI rather than a pytest collection. Backend-agnostic:
-defaults to `cpp-json` vs `rust-json` (the two compiled backends);
-point `--candidate` at `python` or any other backend in a feature
-branch that adds one.
+ad-hoc CLI rather than a pytest collection. Defaults to `cpp-json` vs
+`rust-py` (the primary parity target — `rust-json` was a stepping
+stone and may end up in a future wasm build, but isn't the primary
+production candidate). The `python` antlr4 visitor is intentionally
+excluded from `--oracle` / `--candidate` — it's order-of-magnitude
+slower and useless for the tight diagnose-then-fix loop the grind is
+built for.
 
 Distinct from the pytest PBT in five ways:
 
@@ -38,7 +41,7 @@ The shared parse / AST-diff / divergence-shape vocabulary lives in
 
 Typical usage:
 
-    # Default: cpp-json vs python (works in master out of the box)
+    # Default: cpp-json vs rust-py
     PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py --n 5000
 
     # With auto-shrinking on every failure
@@ -81,6 +84,9 @@ django.setup()
 
 from hypothesis import assume, given, settings
 
+# Eager so a missing `hogql-parser-parity` dep group fails at script-load,
+# not mid-grind where shrink_to_shape would lose every finding so far.
+from posthog.hogql.scripts import _shrink  # noqa: F401
 from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,
     _ast_mismatch_shape,
@@ -179,15 +185,19 @@ def main() -> int:
             "so the match denominator is exactly --n."
         ),
     )
+    # `python` excluded — too slow for the diagnose-then-fix loop (see module docstring).
+    _BACKENDS = ("cpp-json", "rust-json", "rust-py")
     parser.add_argument(
         "--oracle",
         default=os.environ.get("ORACLE_BACKEND", "cpp-json"),
+        choices=_BACKENDS,
         help="Source-of-truth backend (default: cpp-json)",
     )
     parser.add_argument(
         "--candidate",
-        default=os.environ.get("CANDIDATE_BACKEND", "rust-json"),
-        help="Backend under test (default: rust-json; override in feature branches that add a fourth backend)",
+        default=os.environ.get("CANDIDATE_BACKEND", "rust-py"),
+        choices=_BACKENDS,
+        help="Backend under test (default: rust-py)",
     )
     parser.add_argument(
         "--max-mismatch-samples",
@@ -221,21 +231,6 @@ def main() -> int:
         err = _probe_backend(args.rule, backend)
         if err is not None:
             print(f"ERROR: {label} backend {backend!r} unavailable: {err}")
-            return 1
-
-    # `--shrink-failures` lazy-imports shrinkray (in `_shrink`) the first time a
-    # divergence is found. If the optional `hogql-parser-parity` dep group isn't
-    # installed, that import raises `ModuleNotFoundError` mid-run and the
-    # exception eats every divergence we found before the first call. Probe
-    # the import at startup so a missing group fails fast with zero data loss.
-    if args.shrink_failures:
-        try:
-            from posthog.hogql.scripts import _shrink as _shrink_probe  # noqa: F401, PLC0415
-        except ModuleNotFoundError as exc:
-            print(
-                f"ERROR: --shrink-failures requires the `hogql-parser-parity` dep group "
-                f"(missing: {exc.name!r}). Install with: uv sync --group hogql-parser-parity"
-            )
             return 1
 
     counts: Counter[str] = Counter()

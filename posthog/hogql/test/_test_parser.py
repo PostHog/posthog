@@ -7915,6 +7915,7 @@ def parser_test_factory(backend: HogQLParserBackend):
                 )
             for query in (
                 "f() FILTER (WHERE date '')",
+                "f() FILTER (WHERE timestamp '')",
                 "f() FILTER (WHERE interval '')",
                 "f() FILTER (WHERE cast(1 as q('a' = 1)))",
             ):
