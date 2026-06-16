@@ -75,10 +75,8 @@ function normalizeItemId(itemId: string | undefined): string | number | null {
     return itemId
 }
 
-// A query materialized as a new product analytics insight (e.g. a persons-modal drill-down opened via
-// "Open as new insight"/"View events") must carry a productKey, otherwise its ClickHouse execution is
-// rejected as untagged. The executed query is the node's source (TrendsQuery, ActorsQuery, EventsQuery,
-// …), so tag there. Leaves an existing productKey untouched.
+// Tag a new insight's query with the product_analytics productKey (on the executed source query) so
+// ClickHouse doesn't reject it as untagged. Leaves an existing productKey untouched.
 function withDefaultProductAnalyticsTags(query: Node): Node {
     if (isInsightVizNode(query) && !query.source.tags?.productKey) {
         return {
@@ -86,8 +84,8 @@ function withDefaultProductAnalyticsTags(query: Node): Node {
             source: { ...query.source, tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
         } as Node
     }
-    // EventsNode is the only DataTableNode source kind without a `tags` field; its schema forbids extra
-    // keys, so injecting tags there would make the query payload invalid. Skip it.
+    // EventsNode is the only DataTableNode source kind without a `tags` field and its schema forbids
+    // extra keys, so tagging it would make the payload invalid.
     if (isDataTableNode(query) && query.source.kind !== NodeKind.EventsNode) {
         const source = query.source as { tags?: QueryLogTags | null }
         if (!source.tags?.productKey) {

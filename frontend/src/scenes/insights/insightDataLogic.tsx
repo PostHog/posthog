@@ -318,22 +318,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (isInsightSceneInstance(props)) {
                 const insightId = insightSceneLogic.findMounted()?.values.insightId
                 const { pathname, searchParams, hashParams } = router.values.currentLocation
-                // A new insight scene briefly renders the default query before a drill-down query
-                // (e.g. from a persons modal "Open as new insight") is applied. That transient default
-                // must not overwrite a drill-down query already present in the #q= hash.
-                const wouldClobberDrillDownQuery =
-                    !values.queryChanged && query != null && !!hashParams.q && !objectsEqual(hashParams.q, query)
-                if (!wouldClobberDrillDownQuery) {
-                    if (query && (values.queryChanged || insightId === 'new')) {
-                        const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
-                        router.actions.replace(pathname, searchParams, {
-                            ...hash,
-                            q: query,
-                        })
-                    } else {
-                        const { q: _, ...hash } = hashParams // remove existing insight query hash param
-                        router.actions.replace(pathname, searchParams, hash)
-                    }
+                if (query && (values.queryChanged || insightId === 'new')) {
+                    const { insight: _, ...hash } = hashParams // remove existing /new#insight=TRENDS param
+                    router.actions.replace(pathname, searchParams, {
+                        ...hash,
+                        q: query,
+                    })
+                } else {
+                    const { q: _, ...hash } = hashParams // remove existing insight query hash param
+                    router.actions.replace(pathname, searchParams, hash)
                 }
             }
 

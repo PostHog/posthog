@@ -11,7 +11,6 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
@@ -140,55 +139,6 @@ describe('insightSceneLogic', () => {
             .toMatchValues({
                 hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
             })
-    })
-
-    it('does not let a transient default query clobber the drill-down #q= hash', async () => {
-        // Regression for the retention "Open as new insight" path. On /insights/new the scene first
-        // renders the default Trends query before the drill-down DataTableNode is applied; that render
-        // fires insightVizDataLogic.setQuery(default) -> props.setQuery -> insightDataLogic.setQuery.
-        // That transient default must NOT overwrite the drill-down query already in the #q= hash.
-        const dataTableQuery = {
-            kind: NodeKind.DataTableNode,
-            source: {
-                kind: NodeKind.ActorsQuery,
-                select: ['person'],
-            },
-        }
-
-        // In-app navigation to the drill-down query (Open as new insight)
-        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
-        logic = insightSceneLogic()
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        // Mark the Insight scene active so insightDataLogic's URL-sync path runs
-        sceneLogic.actions.setExportedScene(
-            { logic: insightSceneLogic, component: () => null as any },
-            Scene.Insight,
-            'insightNew',
-            sceneLogic.values.activeTabId || '',
-            { params: {}, searchParams: {}, hashParams: {} }
-        )
-        sceneLogic.actions.setScene(
-            Scene.Insight,
-            'insightNew',
-            sceneLogic.values.activeTabId || '',
-            { params: {}, searchParams: {}, hashParams: {} },
-            false
-        )
-
-        // Simulate the render-driven default setQuery that insightVizDataLogic forwards via props.setQuery
-        const defaultQuery = getDefaultQuery(InsightType.TRENDS, false)
-        logic.values.insightDataLogicRef?.logic.actions.setQuery(defaultQuery)
-        await expectLogic(logic).delay(1)
-
-        // The drill-down query must still be in the hash, not the default Trends query.
-        // kea-router may hold the hash param as a JSON string (URL-decoded) or an object, so normalize.
-        const hashQuery =
-            typeof router.values.hashParams.q === 'string'
-                ? JSON.parse(router.values.hashParams.q)
-                : router.values.hashParams.q
-        expect(hashQuery).toEqual(dataTableQuery)
     })
 
     it('tags a DataTableNode drill-down query on cold load via the upgrade path', async () => {
