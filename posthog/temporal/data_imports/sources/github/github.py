@@ -23,6 +23,14 @@ class GithubRetryableError(Exception):
     pass
 
 
+class GithubEmptyRepositoryError(Exception):
+    """Raised when GitHub's commits endpoint reports an empty repository (no
+    commits yet). A valid empty state, not a failure — the caller treats it as
+    zero rows. See `_is_empty_repository_response` for detection details."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -332,9 +340,9 @@ def get_rows(
             raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
         # An empty repository (no commits) is a valid state, not an error — the
-        # loop stops cleanly with zero rows. Return before raise_for_status.
+        # caller stops cleanly with zero rows. Signal it before raise_for_status.
         if _is_empty_repository_response(response):
-            return response
+            raise GithubEmptyRepositoryError(endpoint)
 
         if not response.ok:
             logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
@@ -343,9 +351,9 @@ def get_rows(
         return response
 
     while True:
-        response = fetch_page(url)
-
-        if _is_empty_repository_response(response):
+        try:
+            response = fetch_page(url)
+        except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository is empty, no rows for endpoint {endpoint}")
             break
 
