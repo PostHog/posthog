@@ -39,9 +39,6 @@ tools:
     cimd-verification-tokens-list:
         operation: cimd_verification_tokens_list
         enabled: false
-    cohorts-used-in-retrieve:
-        operation: cohorts_used_in_retrieve
-        enabled: false
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
