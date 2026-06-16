@@ -15,7 +15,9 @@ concurrency:
 jobs:
     review:
         # Write access is required to apply the stamphog label, so no
-        # additional author_association check is needed.
+        # additional author_association check is needed. Bot-authored PRs are
+        # hard-excluded regardless of who applies the label — see the
+        # bot-author-skip job, which strips the label and explains why.
         # Triggers: explicit `stamphog` label, ready_for_review with the
         # label already present, or `synchronize` where decide-delta
         # asked for re-review (or itself failed — fail closed for safety).
@@ -23,6 +25,9 @@ jobs:
         if: >-
             always()
             && !github.event.pull_request.draft
+            && github.event.pull_request.user.type != 'Bot'
+            && !contains(github.event.pull_request.user.login, '[bot]')
+            && github.event.pull_request.user.login != 'posthog-bot'
             && (
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
@@ -147,6 +152,9 @@ jobs:
         if: >-
             github.event.action == 'synchronize'
             && !github.event.pull_request.draft
+            && github.event.pull_request.user.type != 'Bot'
+            && !contains(github.event.pull_request.user.login, '[bot]')
+            && github.event.pull_request.user.login != 'posthog-bot'
             && contains(github.event.pull_request.labels.*.name, 'stamphog')
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -228,6 +236,9 @@ jobs:
             always()
             && github.event.action == 'synchronize'
             && !github.event.pull_request.draft
+            && github.event.pull_request.user.type != 'Bot'
+            && !contains(github.event.pull_request.user.login, '[bot]')
+            && github.event.pull_request.user.login != 'posthog-bot'
             && (
               needs.decide-delta.outputs.dismiss_approval == 'true'
               || needs.decide-delta.result == 'failure'
@@ -260,3 +271,44 @@ jobs:
                         -f message="New commits pushed (delta classified \`$REASON\`) — stamphog approval dismissed; re-review running automatically." \
                         -f event=DISMISS
                   done
+
+    # stamphog never reviews bot-authored PRs (dependabot, mendral, other
+    # agents). A human applying the label can't override this — bot output
+    # isn't a trusted basis for an auto-approval. review / decide-delta /
+    # dismiss are gated to skip bot authors; this job runs instead to strip
+    # the label and leave a note, so the labeler sees the skip was deliberate
+    # rather than a silent drop. Same bot definition as those job gates, and
+    # as the review script's defense-in-depth REFUSE.
+    bot-author-skip:
+        if: >-
+            !github.event.pull_request.draft
+            && (
+              github.event.pull_request.user.type == 'Bot'
+              || contains(github.event.pull_request.user.login, '[bot]')
+              || github.event.pull_request.user.login == 'posthog-bot'
+            )
+            && (
+              github.event.label.name == 'stamphog'
+              || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+            - name: Comment and strip label
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+                  gh pr comment "$PR" --repo "$REPO" \
+                    --body "stamphog does not review bot-authored PRs — removing the \`stamphog\` label. This change needs a human reviewer."
+                  gh pr edit "$PR" --repo "$REPO" --remove-label stamphog
