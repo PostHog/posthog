@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-15 20:58:51 UTC
+// Generated at: 2026-06-16 11:45:46 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -17,6 +17,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
+    | 'ambient'
     | 'ambient-fp8'
     | 'ambient-int4'
     | 'anthropic'
@@ -84,6 +85,7 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'modelrun-fp4'
+    | 'moonshotai-highspeed'
     | 'moonshotai-int4'
     | 'morph'
     | 'nebius-base'

@@ -149,6 +149,7 @@
           ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
           ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
           ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
+          ExternalDataSourceType.GRAFANA: GrafanaSourceConfig,
           ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
           ExternalDataSourceType.GREENHOUSE: GreenhouseSourceConfig,
           ExternalDataSourceType.GURU: GuruSourceConfig,

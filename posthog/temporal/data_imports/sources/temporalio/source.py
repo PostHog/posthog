@@ -45,7 +45,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             # decoded at all (vs the alerts above, which reject an otherwise-parseable cert). The blobs
             # come straight from the source config, so this is a malformed-credential problem — retrying
             # can never recover.
-            "CertificateParseError": "Temporal could not parse this source's TLS credentials. Check that the client certificate, client private key, and server root CA are valid PEM and re-enter them on the source.",
+            "CertificateParseError": "PostHog could not parse the TLS certificate or key configured for this source. Check that the client certificate, client private key, and server client root CA are valid PEM and were pasted in full, including the BEGIN and END lines.",
         }
 
     def get_schemas(
