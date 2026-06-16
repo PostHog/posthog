@@ -1020,7 +1020,9 @@ class SafeTimestampLoader(TimestampLoader):
     `SafeDateLoader`. `timestamp` columns map to a naive Arrow type, so the clamp stays naive.
     """
 
-    def load(self, data) -> datetime | None:
+    # psycopg short-circuits SQL NULL before the loader, so `data` is never None in practice;
+    # the guard mirrors SafeDateLoader's defensive parity, hence the widened return + override ignore.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
         if data is None:
             return None
         try:
@@ -1036,7 +1038,8 @@ class SafeTimestamptzLoader(TimestamptzLoader):
     avoid mixing naive and aware datetimes in the same Arrow column.
     """
 
-    def load(self, data) -> datetime | None:
+    # See SafeTimestampLoader.load for why the override is widened/ignored.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
         if data is None:
             return None
         try:
