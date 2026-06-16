@@ -1,6 +1,7 @@
 import time
 import random
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, TypeVar
 
 from django.conf import settings
 
@@ -43,6 +44,12 @@ max_attempts = 10
 jitter_in_seconds = 10
 sleep_per_attempt_in_seconds = 30
 
+# Transient Google Sheets API failures worth retrying: 429 (per-minute quota exhausted) plus the
+# 5xx server-side errors Google returns intermittently (e.g. "[500]: Internal error encountered.").
+# Google's API guidance is to retry these with backoff — they are not caused by our request and
+# usually clear on the next attempt, so re-raising immediately turns a blip into a failed sync.
+_RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
+
 # gspread raises a bare `PermissionError` (with no message) when the Google Sheets
 # API returns 403 — see gspread/client.py: `raise PermissionError from ex`.
 # `str(PermissionError())` is an empty string, which means the non-retryable error
@@ -50,20 +57,15 @@ sleep_per_attempt_in_seconds = 30
 # stable, descriptive message so downstream matching can identify it.
 _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
 
+T = TypeVar("T")
 
-@cached(cache)
-def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
-    """Attempt to get a worksheet with linear backoff. Google Sheets has a 300
-    request quota per minute. We add a +- 10s jitter to the sleep per attempt so
-    that multiple jobs blocked by quota limits dont all retry at the same time"""
 
-    def execute():
-        client = google_sheets_client()
-        try:
-            spreadsheet = client.open_by_url(spreadsheet_url)
-        except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
-        return spreadsheet.get_worksheet_by_id(worksheet_id)
+def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
+    """Run `execute` with linear backoff, retrying transient Google Sheets API
+    errors. Google Sheets has a 300 request quota per minute, and also returns
+    transient 5xx server errors (see `_RETRYABLE_API_ERROR_CODES`). We retry both
+    and add a +- 10s jitter to the sleep per attempt so that multiple jobs blocked
+    by quota limits dont all retry at the same time."""
 
     attempts = 1
 
@@ -71,7 +73,7 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
         try:
             return execute()
         except gspread.exceptions.APIError as e:
-            if e.code != 429 or attempts >= max_attempts:
+            if e.code not in _RETRYABLE_API_ERROR_CODES or attempts >= max_attempts:
                 raise
 
             jitter = random.uniform(-jitter_in_seconds, jitter_in_seconds)
@@ -81,15 +83,34 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
             attempts = attempts + 1
 
 
+@cached(cache)
+def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+    def execute():
+        client = google_sheets_client()
+        try:
+            spreadsheet = client.open_by_url(spreadsheet_url)
+        except PermissionError as e:
+            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        return spreadsheet.get_worksheet_by_id(worksheet_id)
+
+    return _retry_on_transient_api_error(execute)
+
+
 def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
-    client = google_sheets_client()
-    try:
-        spreadsheet = client.open_by_url(config.spreadsheet_url)
-    except PermissionError as e:
-        raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
-    worksheets = spreadsheet.worksheets()
+    # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
+    # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
+    # rather than letting a transient blip fail the whole sync during schema discovery.
+    def execute():
+        client = google_sheets_client()
+        try:
+            spreadsheet = client.open_by_url(config.spreadsheet_url)
+        except PermissionError as e:
+            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        return spreadsheet.worksheets()
+
+    worksheets = _retry_on_transient_api_error(execute)
 
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 
@@ -155,7 +176,9 @@ def google_sheets_source(
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-        values = worksheet.get_all_records()
+        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
+        # columns that legitimately have gaps. None lets blank cells import as null instead.
+        values = worksheet.get_all_records(default_blank=None)
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]

@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class ZohoCRMSource(SimpleSource[ZohoCRMSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZOHO_CRM,
+            category=DataWarehouseSourceCategory.CRM,
+            keywords=["zoho"],
             label="Zoho CRM",
             iconPath="/static/services/zoho_crm.png",
             fields=cast(list[FieldType], []),
