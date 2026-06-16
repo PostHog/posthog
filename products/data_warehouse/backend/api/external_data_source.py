@@ -2398,11 +2398,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "CDC prerequisite checks are only supported for Postgres and Supabase."},
+                data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
-        # Supabase is Postgres on the wire, so the Postgres impl handles config parsing and
-        # the live prerequisite checks for both.
         source_impl: PostgresSource = PostgresSource()
         is_valid, errors = source_impl.validate_config(request.data)
         if not is_valid:

@@ -5,6 +5,26 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
 
+ManagementMode = Literal["posthog", "self_managed"]
+
+
+@dataclass(frozen=True)
+class CDCConfig:
+    """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
+
+    Holds fields that apply to any change-stream engine (slot/publication-style
+    identifiers, lag thresholds, management policy). Engine adapters return their
+    own subclasses (e.g. ``PostgresCDCConfig``) and add engine-specific fields.
+    """
+
+    enabled: bool
+    slot_name: str
+    publication_name: str
+    management_mode: ManagementMode
+    lag_warning_threshold_mb: int
+    lag_critical_threshold_mb: int
+    auto_drop_slot: bool
+
 
 class CDCPosition(Protocol):
     """Opaque replication position. PG=LSN, MySQL=GTID set."""

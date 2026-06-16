@@ -14,37 +14,19 @@ register it in ``_cdc_adapters`` below.
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
 
+from posthog.temporal.data_imports.cdc.types import CDCConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
 if TYPE_CHECKING:
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
-    from products.data_warehouse.backend.types import ExternalDataSourceType
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-
-ManagementMode = Literal["posthog", "self_managed"]
-
-
-@dataclasses.dataclass(frozen=True)
-class CDCConfig:
-    """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
-
-    Holds fields that apply to any change-stream engine (slot/publication-style
-    identifiers, lag thresholds, management policy). Engine adapters return their
-    own subclasses (e.g. ``PostgresCDCConfig``) and add engine-specific fields.
-    """
-
-    enabled: bool
-    slot_name: str
-    publication_name: str
-    management_mode: ManagementMode
-    lag_warning_threshold_mb: int
-    lag_critical_threshold_mb: int
-    auto_drop_slot: bool
 
 
 CDCConfigT_co = TypeVar("CDCConfigT_co", bound=CDCConfig, covariant=True)
@@ -147,10 +129,6 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
     """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source
     is a single entry here — everything else derives from this map."""
-    from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
     # Supabase is Postgres on the wire, so it reuses the Postgres adapter verbatim.
     postgres_adapter = PostgresCDCAdapter()
     return {
@@ -164,8 +142,6 @@ def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
 
     Raises ValueError if the source type doesn't support CDC.
     """
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
     try:
         source_type = ExternalDataSourceType(source.source_type)
     except ValueError as e:
@@ -184,8 +160,6 @@ def cdc_supported_source_types() -> list[ExternalDataSourceType]:
 
 def source_type_supports_cdc(source_type: ExternalDataSourceType | str | None) -> bool:
     """Whether the given source type (enum or raw string) supports CDC."""
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
     try:
         resolved = ExternalDataSourceType(source_type)
     except ValueError:

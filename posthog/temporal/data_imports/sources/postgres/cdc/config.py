@@ -11,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 from typing import TYPE_CHECKING
 
-from posthog.temporal.data_imports.cdc.adapters import CDCConfig, ManagementMode
+from posthog.temporal.data_imports.cdc.types import CDCConfig, ManagementMode
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
