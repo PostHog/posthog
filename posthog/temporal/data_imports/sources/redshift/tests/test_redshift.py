@@ -694,20 +694,26 @@ def build_pipeline_mocks(mocker):
     # methods, so a single cursor mock can serve both connections —
     # only the streaming connection requires `conn.adapters` to be set.
     state = {"first_conn": True}
+    created_conns: list = []
 
     def connect_side_effect(*args, **kwargs):
         conn = MagicMock()
         conn.__enter__.return_value = conn
         conn.cursor.return_value = streaming_cursor
+        # psycopg requires autocommit be set before a transaction starts; default the mock to
+        # False so a test can assert build_pipeline flips it on the metadata connection.
+        conn.autocommit = False
         if not state["first_conn"]:
             conn.adapters = MagicMock()
         state["first_conn"] = False
+        created_conns.append(conn)
         return conn
 
     mock_connect = mocker.patch(
         "posthog.temporal.data_imports.sources.redshift.redshift.psycopg.connect",
         side_effect=connect_side_effect,
     )
+    mock_connect.created_conns = created_conns
     return mock_connect, streaming_cursor
 
 
@@ -720,6 +726,17 @@ class TestBuildPipeline:
         assert response.primary_keys == ["id"]
         # psycopg.connect was called at least once for the metadata pass
         assert mock_connect.called
+
+    def test_metadata_connection_uses_autocommit(self, build_pipeline_mocks):
+        # Regression: discovery probes share one connection. Without autocommit a single failing
+        # best-effort probe leaves the transaction aborted (INERROR) and every probe after it —
+        # `has_duplicate_primary_keys` was the reported one — raises `InFailedSqlTransaction`.
+        mock_connect, _ = build_pipeline_mocks
+        impl = RedshiftImplementation()
+        impl.build_pipeline(_make_config(), _make_inputs())
+
+        metadata_conn = mock_connect.created_conns[0]
+        assert metadata_conn.autocommit is True
 
     def test_streaming_drains_without_error(self, build_pipeline_mocks):
         _, streaming_cursor = build_pipeline_mocks

@@ -145,6 +145,21 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _is_recovery_conflict_error(error: BaseException) -> bool:
+    """True if `error` is a Postgres standby recovery conflict.
+
+    A read replica cancels an in-flight query when WAL replay needs to remove row
+    versions the query might still read ("canceling statement due to conflict with
+    recovery", SQLSTATE 40001 -> psycopg SerializationFailure). It's transient and
+    expected on replicas — the row-streaming reader already retries it in-process and
+    `get_non_retryable_errors` deliberately keeps the raw message retryable — so
+    best-effort probes should degrade quietly rather than alert on a handled condition.
+    """
+    return isinstance(error, psycopg.errors.SerializationFailure) and "conflict with recovery" in " ".join(
+        str(arg) for arg in error.args
+    )
+
+
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -1408,7 +1423,12 @@ def _get_partition_settings(
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
-        capture_exception(e)
+        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
+        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
+        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
+        # unexpected failures are still captured.
+        if not _is_recovery_conflict_error(e):
+            capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
 
