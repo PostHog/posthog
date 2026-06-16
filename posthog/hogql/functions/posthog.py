@@ -36,8 +36,10 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "lookupPaidMediumType": HogQLFunctionMeta("lookupPaidMediumType", 1, 1),
     "lookupOrganicSourceType": HogQLFunctionMeta("lookupOrganicSourceType", 1, 1),
     "lookupOrganicMediumType": HogQLFunctionMeta("lookupOrganicMediumType", 1, 1),
-    # Expanded to SQL in the printer's visit_call; never maps to a real CH function.
+    # Expanded to SQL in the printer's visit_call; these never map to a real CH function. (The
+    # __preview_* traffic functions are registered further down; the printer expands them too.)
     "_defaultChannelType": HogQLFunctionMeta("_defaultChannelType", 7, 7),
+    "_initialDomainType": HogQLFunctionMeta("_initialDomainType", 1, 1),
     # posthog/models/exchange_rate/sql.py
     # convertCurrency(from_currency, to_currency, amount, timestamp?)
     "convertCurrency": HogQLFunctionMeta(

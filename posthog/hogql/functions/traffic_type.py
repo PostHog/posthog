@@ -139,3 +139,14 @@ def get_bot_type(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
                 'social_crawler', 'monitoring', 'http_client', 'headless_browser', 'no_user_agent', ''
     """
     return _build_bot_array_lookup(args[0], "category", default="", empty_ua_value="no_user_agent")
+
+
+# The printer's visit_call expands these to SQL; they never map to a real ClickHouse function.
+TRAFFIC_TYPE_PRINTER_BUILDERS = {
+    "__preview_isBot": is_bot,
+    "__preview_getTrafficType": get_traffic_type,
+    "__preview_getTrafficCategory": get_traffic_category,
+    "__preview_getBotName": get_bot_name,
+    "__preview_getBotOperator": get_bot_operator,
+    "__preview_getBotType": get_bot_type,
+}

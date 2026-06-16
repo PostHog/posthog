@@ -28,6 +28,7 @@ from posthog.hogql.functions.mapping import (
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
 )
+from posthog.hogql.functions.printer_expansions import maybe_expand_printer_only_function
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
@@ -930,12 +931,9 @@ class BasePrinter(Visitor[str]):
         )
 
     def visit_call(self, node: ast.Call):
-        if node.name == "_defaultChannelType":
-            from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid printer->schema import cycle
-                expand_default_channel_type_call,
-            )
-
-            return self.visit(expand_default_channel_type_call(node.args))
+        expanded = maybe_expand_printer_only_function(node)
+        if expanded is not None:
+            return self.visit(expanded)
 
         func_meta = (
             find_hogql_aggregation(node.name)

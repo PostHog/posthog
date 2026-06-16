@@ -45,24 +45,14 @@ class ChannelTypeExprs:
 def create_initial_domain_type(
     name: str, timings: Optional[HogQLTimings] = None, properties_path: Optional[list[str]] = None
 ) -> ExpressionField:
-    if timings is None:
-        timings = HogQLTimings()
-
     if not properties_path:
         properties_path = ["properties"]
-
-    with timings.measure("initial_domain_type_expr"):
-        expr = _initial_domain_type_expr()
-
+    # One call expanded in the printer (see expand_initial_domain_type_call), like the channel type.
     return ExpressionField(
         name=name,
-        expr=replace_placeholders(
-            expr,
-            {
-                "referring_domain": ast.Call(
-                    name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
-                )
-            },
+        expr=ast.Call(
+            name=INITIAL_DOMAIN_TYPE_FUNCTION,
+            args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])])],
         ),
         isolate_scope=True,
     )
@@ -79,6 +69,15 @@ if(
 )
 """
     )
+
+
+# Default referring-domain classification; expanded to SQL in the printer's visit_call (never a real CH function).
+INITIAL_DOMAIN_TYPE_FUNCTION = "_initialDomainType"
+
+
+def expand_initial_domain_type_call(args: list[ast.Expr]) -> ast.Expr:
+    # Printer-side expansion of _initialDomainType(referring_domain).
+    return replace_placeholders(_initial_domain_type_expr(), {"referring_domain": args[0]})
 
 
 def create_initial_channel_type(
