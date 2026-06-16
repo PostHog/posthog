@@ -1840,6 +1840,22 @@ class TestGetPartitionSettings:
             assert result is not None
             assert result.partition_size > 0
 
+    def test_missing_table_falls_back_to_none_without_capturing(self):
+        # The selected table was dropped/renamed before this best-effort probe, so psycopg raises
+        # UndefinedTable (42P01). The real extraction query surfaces "does not exist" through the
+        # non-retryable path, so this helper must degrade quietly (None) instead of flooding error
+        # tracking with a handled duplicate.
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedTable('relation "public.store_source" does not exist')
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            result = _get_partition_settings(cast(Any, cursor), "public", "store_source", logger, is_partitioned=False)
+
+        assert result is None
+        mock_capture.assert_not_called()
+
     def test_reuses_passed_is_partitioned_flag(self):
         # When the caller already knows the table is partitioned, skip re-detecting it.
         logger = structlog.get_logger()
