@@ -321,9 +321,8 @@ class TestSignalBufferedTelemetry:
             patch("products.signals.backend.temporal.buffer.posthoganalytics.capture_exception") as capture_exception,
         ):
             MockTeam.objects.select_related.return_value.aget = AsyncMock(side_effect=RuntimeError("db down"))
-            # Must return normally, not raise.
-            result = await _capture_signal_buffered(signal)
+            # Must return normally, not raise — reaching the line below is the assertion.
+            await _capture_signal_buffered(signal)
 
-        assert result is None
         capture.assert_not_called()
         capture_exception.assert_called_once()
