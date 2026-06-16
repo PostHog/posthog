@@ -34,10 +34,9 @@ If you can't answer it concretely — name the bug, the code path, the input tha
 A good answer sounds like: _"if someone makes `parse_filters` drop the `team_id` clause, this fails"_ or _"empty-cohort input used to 500; this locks in the 400."_
 That is a test worth keeping.
 
-**Write tests for the sorts of mistakes you actually make** (Kent Beck).
-The bug a test guards against should resemble something PostHog really ships and reverts — not a hypothetical.
-The recurring failure modes we hit, with the kind of test that catches each, are catalogued in [references/mistakes-we-make.md](references/mistakes-we-make.md).
-If your test doesn't map to one of those classes, be sceptical it's worth keeping.
+Aim each test at a failure mode we actually hit, not a hypothetical.
+The bugs PostHog ships and reverts cluster into a handful of shapes — catalogued with the test that catches each, and the failure modes no unit test should, in [references/mistakes-we-make.md](references/mistakes-we-make.md).
+If your test doesn't map to one of them, be sceptical it's worth keeping.
 
 ## Don't write it — the four no's
 
