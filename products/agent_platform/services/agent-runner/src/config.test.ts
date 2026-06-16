@@ -1,5 +1,18 @@
 import { AgentRunnerConfigSchema, defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 
+// Minimal prod env satisfying every `requiredInProd` field, so prod tests can
+// load the config and assert the remaining (still-optional) fields.
+const PROD_REQUIRED = {
+    // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+    REDIS_URL: 'redis://prod-redis:6379',
+    HTTPS_PROXY: 'http://smokescreen:4750',
+    ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
+    POSTHOG_API_BASE_URL: 'https://app.example.com',
+    AGENT_MEMORY_S3_ENDPOINT: 'https://s3.example.com',
+    AGENT_MEMORY_S3_BUCKET: 'prod-memory',
+    AGENT_BUNDLE_S3_BUCKET: 'prod-bundles',
+}
+
 describe('loadAgentRunnerConfig', () => {
     afterEach(() => {
         vi.unstubAllEnvs()
@@ -7,15 +20,19 @@ describe('loadAgentRunnerConfig', () => {
 
     it('returns prod-safe defaults when NODE_ENV=production', () => {
         vi.stubEnv('NODE_ENV', 'production')
-        const cfg = loadAgentRunnerConfig({})
+        const cfg = loadAgentRunnerConfig(PROD_REQUIRED)
         expect(cfg.maxConcurrency).toBe(8)
         expect(cfg.useAiGateway).toBe(false)
         expect(cfg.aiGatewayUrl).toBe('http://ai-gateway/v1')
-        expect(cfg.encryptionSaltKeys).toBe('')
+        expect(cfg.encryptionSaltKeys).toBe('00beef0000beef0000beef0000beef00')
         expect(cfg.logLevel).toBe('info')
-        // S3 fields fall back to undefined in prod — fail-fast at boot lives in index.ts.
-        expect(cfg.bundleS3Bucket).toBeUndefined()
-        expect(cfg.memoryS3Bucket).toBeUndefined()
+        expect(cfg.bundleS3Bucket).toBe('prod-bundles')
+        expect(cfg.memoryS3Bucket).toBe('prod-memory')
+    })
+
+    it('fails closed at config-load in prod when required infra env is unset', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        expect(() => loadAgentRunnerConfig({})).toThrow(/REDIS_URL|HTTPS_PROXY|AGENT_(MEMORY|BUNDLE)_S3/)
     })
 
     it('exposes dev SeaweedFS defaults when NODE_ENV is not production', () => {
@@ -33,7 +50,7 @@ describe('loadAgentRunnerConfig', () => {
 
     it('leaves sandboxBackend unset in prod so selectSandboxPool fails fast at boot', () => {
         vi.stubEnv('NODE_ENV', 'production')
-        const cfg = loadAgentRunnerConfig({})
+        const cfg = loadAgentRunnerConfig(PROD_REQUIRED)
         expect(cfg.sandboxBackend).toBeUndefined()
     })
 
@@ -49,7 +66,7 @@ describe('loadAgentRunnerConfig', () => {
 
     it('leaves sandboxHostImage unset in prod so SANDBOX_HOST_IMAGE must be set explicitly', () => {
         vi.stubEnv('NODE_ENV', 'production')
-        const cfg = loadAgentRunnerConfig({})
+        const cfg = loadAgentRunnerConfig(PROD_REQUIRED)
         expect(cfg.sandboxHostImage).toBeUndefined()
     })
 

@@ -1,14 +1,41 @@
 import { AgentIngressConfigSchema, loadAgentIngressConfig } from './config'
 
+// Minimal prod env satisfying every `requiredInProd` field; a test can omit one
+// and assert it's what trips the loader.
+const PROD_REQUIRED = {
+    AGENT_INTERNAL_SIGNING_KEY: 'prod-signing-key',
+    // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+    REDIS_URL: 'redis://prod-redis:6379',
+    HTTPS_PROXY: 'http://smokescreen:4750',
+    ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00',
+    POSTHOG_API_BASE_URL: 'https://app.example.com',
+}
+
 describe('loadAgentIngressConfig', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs()
+    })
+
     it('returns defaults for an empty env', () => {
         const cfg = loadAgentIngressConfig({})
         expect(cfg.port).toBe(8080)
         expect(cfg.routingMode).toBe('path')
         expect(cfg.pathPrefix).toBe('/agents')
-        expect(cfg.internalSigningKey).toBeUndefined()
+        // Dev default — backs the preview-token gate + posthog_internal mode locally.
+        expect(cfg.internalSigningKey).toBe('dev-internal-signing-key-do-not-use-in-prod')
         expect(cfg.publicUrl).toBeUndefined()
         expect(cfg.logLevel).toBe('info')
+    })
+
+    it('fails closed at config-load in prod when AGENT_INTERNAL_SIGNING_KEY is unset', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        const { AGENT_INTERNAL_SIGNING_KEY: _omit, ...rest } = PROD_REQUIRED
+        expect(() => loadAgentIngressConfig(rest)).toThrow(/AGENT_INTERNAL_SIGNING_KEY/)
+    })
+
+    it('fails closed at config-load in prod when REDIS_URL / HTTPS_PROXY are unset', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        expect(() => loadAgentIngressConfig({ AGENT_INTERNAL_SIGNING_KEY: 'k' })).toThrow(/REDIS_URL|HTTPS_PROXY/)
     })
 
     it('publicUrl comes from AGENT_INGRESS_PUBLIC_URL', () => {

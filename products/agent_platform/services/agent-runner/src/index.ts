@@ -79,26 +79,15 @@ async function main(): Promise<void> {
     }
 
     // Outbound HTTP — every tool fetch, gateway fetch, and MCP transport
-    // dispatches through here. In prod `config.httpsProxy` points at
-    // smokescreen so author-supplied URLs (web-fetch, http-request,
-    // external MCPs) get SSRF protection. Fail-fast in non-dev when unset
-    // rather than silently bypassing the proxy.
-    if (!config.httpsProxy && !isDev()) {
-        throw new Error(
-            'HTTPS_PROXY must be set — outbound fetches must route through smokescreen in prod. Wire `httpProxy.enabled: true` in the chart.'
-        )
-    }
+    // dispatches through here. In prod `config.httpsProxy` points at smokescreen
+    // so author-supplied URLs (web-fetch, http-request, external MCPs) get SSRF
+    // protection; required in prod, enforced at config-load (config.ts).
     const http = new HttpClient({ proxyUrl: config.httpsProxy })
 
-    // S3 bundle storage is required — sessions need to load the revision's
-    // compiled code + spec + skills at start. Fail-fast at boot rather than
-    // silently no-oping per-session and confusing the operator with a wall
-    // of `session.bundle_missing` failures. Endpoint is optional — unset
-    // means "use the AWS SDK's regional default" (prod path); SeaweedFS in
+    // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
+    // dev default, fail closed at config-load in prod). Endpoint is optional:
+    // unset means "use the AWS SDK's regional default" (prod path); SeaweedFS in
     // dev sets it explicitly.
-    if (!config.bundleS3Bucket) {
-        throw new Error('AGENT_BUNDLE_S3_BUCKET must be set — the runner cannot start sessions without bundle storage.')
-    }
     const bundleS3 = new S3Client({
         endpoint: config.bundleS3Endpoint,
         region: config.bundleS3Region,
@@ -146,15 +135,9 @@ async function main(): Promise<void> {
         return integrations.resolveForSpec(session.team_id, kinds)
     }
 
-    // Cross-process event bus. REDIS_URL is required — ingress /listen on
-    // host A subscribes to events the runner publishes on host B via the
-    // same Redis. Fail closed at boot if unset rather than silently
-    // noop-publishing (the previous fallback behavior).
-    if (!config.redisUrl) {
-        throw new Error(
-            'REDIS_URL must be set — runner cannot publish session lifecycle events without it. Wire valkey-agent-platform via the chart.'
-        )
-    }
+    // Cross-process event bus. REDIS_URL is required — ingress /listen on host A
+    // subscribes to events the runner publishes on host B via the same Redis.
+    // Required in prod, enforced at config-load (config.ts).
     const bus = new RedisSessionEventBus({ url: config.redisUrl })
     await bus.connect()
 
@@ -216,15 +199,9 @@ async function main(): Promise<void> {
 
     // Agent memory: S3-backed file store. Required everywhere — the runner
     // refuses to boot without it so the `@posthog/memory-*` + `@posthog/table-*`
-    // tools always work the same way in dev as in prod. Dev gets a default
-    // pointing at SeaweedFS (provisioned by `hogli start`); prod must wire its
-    // bucket + endpoint via env. No more `memory_store_unavailable` surfacing
-    // to the model on a misconfigured dev box.
-    if (!config.memoryS3Bucket || !config.memoryS3Endpoint) {
-        throw new Error(
-            'AGENT_MEMORY_S3_BUCKET and AGENT_MEMORY_S3_ENDPOINT must both be set — the runner refuses to start without memory storage. Dev: SeaweedFS via `hogli start` (defaults wired in `agent-shared/src/config/platform.ts`). Prod: real S3 / equivalent.'
-        )
-    }
+    // tools always work the same way in dev as in prod. Bucket + endpoint are
+    // enforced in config (dev defaults via SeaweedFS / `hogli start`; fail closed
+    // at config-load in prod).
     const memoryS3 = new S3Client({
         endpoint: config.memoryS3Endpoint,
         region: config.memoryS3Region,

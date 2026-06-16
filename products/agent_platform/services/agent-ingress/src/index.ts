@@ -20,7 +20,6 @@ import {
     EncryptedFields,
     HttpClient,
     installProcessHandlers,
-    isDev,
     PgCredentialBroker,
     PgIdentityStore,
     PgIntegrationStore,
@@ -42,35 +41,13 @@ async function main(): Promise<void> {
     const posthogDb = createAgentPool(config.posthogDbUrl)
     const agentDb = createAgentPool(config.agentDbUrl)
 
-    // SSE /listen is the consumer side of the same bus the runner publishes
-    // to. REDIS_URL is required — without cross-host fan-out, /listen on
-    // ingress pod A would silently miss events from runner pod B. Fail
-    // closed at boot rather than serving a /listen that returns nothing.
-    if (!config.redisUrl) {
-        throw new Error(
-            'REDIS_URL must be set — ingress /listen SSE needs the SessionEventBus subscribe side. Wire valkey-agent-platform via the chart.'
-        )
-    }
+    // REDIS_URL (cross-host /listen bus), HTTPS_PROXY (smokescreen — Slack bridge
+    // + PostHog introspect), and AGENT_INTERNAL_SIGNING_KEY (preview-token gate +
+    // posthog_internal mode) are all required in prod and enforced at config-load
+    // (config.ts: dev defaults, fail closed in prod) — no boot guards needed here.
     const bus = new RedisSessionEventBus({ url: config.redisUrl })
     await bus.connect()
 
-    // Outbound HTTP — Slack identity bridge + PostHog API introspect both
-    // dispatch through here. In prod `config.httpsProxy` points at
-    // smokescreen so outbound calls match the runner's posture. Fail-fast
-    // in non-dev when unset rather than silently bypassing the proxy.
-    if (!config.httpsProxy && !isDev()) {
-        throw new Error(
-            'HTTPS_PROXY must be set — outbound fetches must route through smokescreen in prod. Wire `httpProxy.enabled: true` in the chart.'
-        )
-    }
-    // The internal signing key backs both the preview-token gate and the
-    // `posthog_internal` auth verifier — required in prod, fail-fast rather than
-    // booting with that mode silently disabled.
-    if (!config.internalSigningKey && !isDev()) {
-        throw new Error(
-            'AGENT_INTERNAL_SIGNING_KEY must be set — it backs the preview-token gate and the posthog_internal auth mode.'
-        )
-    }
     const http = new HttpClient({ proxyUrl: config.httpsProxy })
 
     // Slack → PostHog user bridge needs the integration store to fetch the
@@ -102,7 +79,7 @@ async function main(): Promise<void> {
             introspector,
             jwtSecretResolver: secretResolver,
             sharedSecretResolver: secretResolver,
-            internalSecret: config.internalSigningKey ?? '',
+            internalSecret: config.internalSigningKey,
         }),
     }
     // Encrypted-at-rest credential broker (separate row per session,
