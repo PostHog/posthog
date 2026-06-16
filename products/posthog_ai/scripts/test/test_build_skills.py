@@ -636,6 +636,7 @@ _REF_TOOLS = {
     "external-data-schemas-partial-update",
     "read-data-schema",
     "signals-scout-runs-list",
+    "signals-scout-emit-signal",
 }
 _REF_SKILLS = {"finding-experiments", "creating-experiments"}
 
@@ -644,14 +645,14 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
     "text,expected_names",
     [
         ("search flags with the feature-flags-get-all tool first", ["feature-flags-get-all"]),
-        ("Use the `experiment_results_summary` tool", ["experiment_results_summary"]),
+        ("load the finding-experiment skill first", ["finding-experiment"]),
         ("use the launch, end, or ship_variant tools instead", ["ship_variant"]),
         ("`execute_sql`: query the experiments table", ["execute_sql"]),
         ("use the `execute_sql` tool", ["execute_sql"]),
-        ("load the `managing-unicorns` skill first", ["managing-unicorns"]),
-        ("load the finding-experiment skill first", ["finding-experiment"]),
-        ("query it via `does-not-exist-here`", ["does-not-exist-here"]),
-        ('fetch the entity via `read_data("experiments", id)`', ["read_data"]),
+        ("Use the `experiment_results_summary` tool", []),
+        ("load the `managing-unicorns` skill first", []),
+        ("query it via `does-not-exist-here`", []),
+        ('fetch the entity via `read_data("experiments", id)`', []),
         ("use the read-data-schema tool to discover events", []),
         ("change the sync type with the `partial-update` tool", []),
         ("browse with the feature-flag tools", []),
@@ -662,17 +663,18 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
         ("load the finding-experiments skill first", []),
         ("resolve the reference via `creating-experiments`", []),
         ('check `get_feature_flag("key", distinct_id)` in the SDK', []),
+        ('then `emit_signal("anomaly", ...)` from the SDK', []),
     ],
     ids=[
         "renamed-tool-near-miss",
-        "fictional-snake-case-tool-in-backticks",
+        "renamed-skill-near-miss",
         "snake-case-in-plural-phrase",
         "wrong-casing",
-        "one-report-when-phrase-and-casing-rules-overlap",
-        "nonexistent-skill-in-backticks",
-        "renamed-skill-near-miss",
-        "invocation-of-unknown-tool",
-        "call-syntax-fictional-tool",
+        "one-finding-when-phrase-and-casing-rules-overlap",
+        "fictional-backticked-tool-no-resemblance",
+        "fictional-backticked-skill-no-resemblance",
+        "fictional-invocation-no-resemblance",
+        "sdk-call-syntax-no-resemblance",
         "exact-tool-name",
         "suffix-shorthand",
         "plural-family-reference",
@@ -682,13 +684,13 @@ _REF_SKILLS = {"finding-experiments", "creating-experiments"}
         "entity-noun-after-backticks",
         "existing-skill",
         "skill-name-in-invocation-context",
-        "allowlisted-sdk-call",
+        "sdk-call-distinct-name",
+        "sdk-call-colliding-with-tool-suffix",
     ],
 )
 def test_check_tool_references(text: str, expected_names: list[str]) -> None:
-    errors = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
-    found = [err.split("'")[1] for err in errors]
-    assert found == expected_names
+    findings = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
+    assert [f.name for f in findings] == expected_names
 
 
 @pytest.mark.parametrize(
@@ -699,5 +701,12 @@ def test_check_tool_references(text: str, expected_names: list[str]) -> None:
     ],
 )
 def test_check_tool_references_suggests_real_tool(text: str, expected_suggestion: str) -> None:
-    (error,) = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
-    assert expected_suggestion in error
+    (finding,) = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
+    assert expected_suggestion in finding.message
+
+
+def test_check_tool_references_reports_line_and_column() -> None:
+    text = "intro line\nsearch with the feature-flags-get-all tool here\n"
+    (finding,) = _check_tool_references(text, "skill.md", _REF_TOOLS, _REF_SKILLS)
+    assert (finding.line, finding.col) == (2, 17)
+    assert finding.name == "feature-flags-get-all"
