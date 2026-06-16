@@ -11,7 +11,6 @@ type StoryArgs = { instanceConfigured?: boolean; integrated?: boolean }
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Integrations/Slack',
-    component: SlackIntegration,
     parameters: {},
     render: ({ instanceConfigured = true, integrated = false }) => {
         useAvailableFeatures([AvailableFeature.SUBSCRIPTIONS])
