@@ -415,8 +415,8 @@ tools:
         title: Update evaluation
         description: >
             Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the
-            evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for
-            llm_judge evaluations.
+            evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge
+            evaluations.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false
