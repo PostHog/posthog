@@ -6757,12 +6757,6 @@ class TestSurveySummarizeByQuestionId(APIBaseTest):
         self.team.organization.is_ai_data_processing_approved = True
         self.team.organization.save()
 
-    @override_settings(GEMINI_API_KEY="test-key")
-    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
-    @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
-    @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")
-    @patch("products.surveys.backend.api.survey.summarize_responses")
-    @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["because it's great"])
     @parameterized.expand(
         [
             # index 0 is falsy — guard against `if not question_index` style regressions
@@ -6770,6 +6764,12 @@ class TestSurveySummarizeByQuestionId(APIBaseTest):
             ("second_question", "q1", 1),
         ]
     )
+    @override_settings(GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
+    @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="summary")
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["because it's great"])
     def test_summarize_by_question_id_backfills_index(
         self, _name, question_id, expected_index, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
     ):
