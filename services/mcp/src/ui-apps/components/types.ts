@@ -21,6 +21,7 @@ export type ChartDisplayType =
     | 'ActionsPie'
     | 'ActionsTable'
     | 'WorldMap'
+    | 'SlopeGraph'
 
 export interface TrendsFilter {
     display?: ChartDisplayType
@@ -77,6 +78,9 @@ export interface TrendsResultItem {
     days?: string[]
     count?: number
     aggregated_value?: number
+    /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
+     * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
+    incomplete_end?: boolean
     action?: {
         name?: string
     }

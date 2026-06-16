@@ -1936,6 +1936,7 @@ export const ChartDisplayTypeApi = {
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
+    SlopeGraph: 'SlopeGraph',
 } as const
 
 export interface TrendsFormulaNodeApi {
