@@ -76,7 +76,12 @@ def _git_python_files(repo_root: Path) -> list[Path]:
 
 
 def scan_references(name: str, files: list[Path], repo_root: Path) -> list[Reference]:
-    """Find every cross-boundary reference to the product's internals (non-facade)."""
+    """Cross-boundary references to the product's internals (non-facade) in Python source.
+
+    Scans only the given files (``git ls-files *.py``), so dotted-path references
+    in non-Python files (YAML config, TS) are out of scope; the string-reference
+    kind covers ``@patch`` paths and config strings that live *in* Python.
+    """
     dotted = re.compile(rf"products\.{re.escape(name)}\.backend(?:\.[\w.]*\w)?")
     import_line = re.compile(rf"^\s*(?:from|import)\s+products\.{re.escape(name)}\.backend")
     own_prefix = f"products/{name}/"
@@ -281,31 +286,74 @@ def absolutize_relative_imports(text: str, package: str) -> tuple[str, list[str]
     return "".join(out_lines), warnings
 
 
+def _args_span(text: str, open_idx: int) -> int | None:
+    """Index just past the ``)`` that balances the ``(`` at ``text[open_idx]``.
+
+    Counts nesting and skips string literals, so decorator args that contain
+    their own parens (``expires=timedelta(hours=1)``) are matched whole instead
+    of being truncated at the first ``)``. Returns None if the parens never
+    balance.
+    """
+    depth = 0
+    quote: str | None = None
+    i = open_idx
+    while i < len(text):
+        ch = text[i]
+        if quote is not None:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
 def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
     """Pin ``@shared_task`` registration names to their pre-move dotted path.
 
     Moving ``tasks.py`` into a ``tasks/`` package silently renames every task's
     registration path, stranding queued messages at deploy. Tasks that already
-    pass ``name=`` are left alone; decorators the regex can't safely handle are
-    reported for manual pinning.
+    pass ``name=`` are left alone; every decorator that can't be pinned safely
+    (unbalanced args, not sitting directly above its ``def``) is reported, so a
+    partial failure can't hide behind a sibling that did get pinned.
     """
     warnings: list[str] = []
-
-    def _pin(match: re.Match[str]) -> str:
-        decorator, args, fn = match.group("decorator"), match.group("args"), match.group("fn")
-        pinned_name = f"{module_path}.{fn}"
+    def_after = re.compile(r"\s*\ndef (?P<fn>\w+)\(")
+    # Rewrite back-to-front so each splice leaves earlier match offsets valid.
+    for dec in reversed(list(re.finditer(r"@shared_task\b", text))):
+        body_start = dec.end()
+        if body_start < len(text) and text[body_start] == "(":
+            args_end = _args_span(text, body_start)
+            if args_end is None:
+                warnings.append("a @shared_task decorator has unbalanced args — pin name= manually")
+                continue
+            args: str | None = text[body_start:args_end]
+        else:
+            args_end = body_start
+            args = None
+        following = def_after.match(text, args_end)
+        if following is None:
+            warnings.append("a @shared_task decorator is not directly above its def — pin name= manually")
+            continue
+        if args is not None and "name=" in args:
+            continue
+        pinned_name = f"{module_path}.{following.group('fn')}"
         if args is None:
-            return f'{decorator}(name="{pinned_name}")\ndef {fn}('
-        if "name=" in args:
-            return match.group(0)
-        inner = args[1:-1].strip()
-        joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
-        return f"{decorator}({joined})\ndef {fn}("
-
-    pattern = re.compile(r"(?P<decorator>@shared_task)(?P<args>\([^)]*\))?\s*\ndef (?P<fn>\w+)\(")
-    text = pattern.sub(_pin, text)
-    if "@shared_task" in text and 'name="' not in text:
-        warnings.append("a @shared_task decorator could not be pinned automatically — pin name= manually")
+            replacement = f'@shared_task(name="{pinned_name}")'
+        else:
+            inner = args[1:-1].strip()
+            joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
+            replacement = f"@shared_task({joined})"
+        text = text[: dec.start()] + replacement + text[args_end:]
     return text, warnings
 
 
@@ -402,15 +450,19 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
     name = plan.product
     backend_dir = PRODUCTS_DIR / name / "backend"
 
+    # The rewrite reads and writes every tracked .py repo-wide, so a modified
+    # tracked file anywhere — not just under products/<name> — gets the rewrite
+    # mixed into its existing edits and loses the clean `git diff`. Untracked
+    # files are never touched (they aren't in `git ls-files`), so ignore them.
     dirty = subprocess.run(
-        ["git", "status", "--porcelain", "--", f"products/{name}"],
+        ["git", "status", "--porcelain", "--untracked-files=no"],
         cwd=repo_root,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip()
     if dirty and not dry_run:
-        raise ValueError(f"products/{name} has uncommitted changes — commit or stash first so the move is revertable")
+        raise ValueError("tracked files have uncommitted changes — commit or stash first so the move stays revertable")
 
     for src, dst in plan.view_moves:
         log.append(f"move {src.relative_to(repo_root)} -> {dst.relative_to(repo_root)}")
@@ -454,9 +506,19 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
                     "re-anchor resource paths for the new module depth"
                 )
         api_dir = backend_dir / "api"
-        if api_dir.is_dir() and not any(p for p in api_dir.iterdir() if p.name != "__pycache__"):
-            shutil.rmtree(api_dir)
-            log.append(f"removed empty {api_dir.relative_to(repo_root)}")
+        if api_dir.is_dir():
+            leftover = sorted(p.name for p in api_dir.iterdir() if p.name != "__pycache__")
+            if leftover:
+                # Test subpackages (api/test/) reach the moved modules via relative
+                # imports (`from ...api.x`), which the repo-wide rewrite — absolute
+                # paths only — can't follow. Flag it loudly instead of leaving it broken.
+                log.append(
+                    f"WARNING {api_dir.relative_to(repo_root)} still holds {leftover} after the move — "
+                    "move those subpackages or absolutize their relative imports into the moved modules by hand"
+                )
+            else:
+                shutil.rmtree(api_dir)
+                log.append(f"removed empty {api_dir.relative_to(repo_root)}")
 
     if plan.serializers_move:
         src, dst = plan.serializers_move
@@ -473,13 +535,22 @@ def execute_move_plan(plan: MovePlan, repo_root: Path = REPO_ROOT, dry_run: bool
         src, dst = plan.tasks_move
         dst.parent.mkdir(exist_ok=True)
         subprocess.run(["git", "mv", str(src), str(dst)], cwd=repo_root, check=True)
-        pinned, warnings = pin_task_names(dst.read_text(), f"products.{name}.backend.tasks")
+        # Relative imports resolved against backend/ at the old depth — absolutize
+        # before the extra package level changes what `.` means, same as the views.
+        absolutized, abs_warnings = absolutize_relative_imports(dst.read_text(), f"products.{name}.backend")
+        pinned, pin_warnings = pin_task_names(absolutized, f"products.{name}.backend.tasks")
         dst.write_text(pinned)
-        log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in warnings)
+        log.extend(f"WARNING {dst.relative_to(repo_root)}: {w}" for w in abs_warnings + pin_warnings)
+        # Re-export the whole pre-move module surface, not just the task functions:
+        # callers reach constants, imported collaborators, and @patch targets through
+        # `products.<name>.backend.tasks`, and a task-only re-export breaks them.
+        init_lines = [f"from products.{name}.backend.tasks.tasks import *  # noqa: F401,F403"]
         task_names = shared_task_names(dst)
-        imports = f"from products.{name}.backend.tasks.tasks import {', '.join(sorted(task_names))}\n"
-        exports = "__all__ = [" + ", ".join(f'"{n}"' for n in sorted(task_names)) + "]\n"
-        (dst.parent / "__init__.py").write_text(imports + "\n" + exports if task_names else "")
+        if task_names:
+            init_lines.append(
+                f"from products.{name}.backend.tasks.tasks import {', '.join(sorted(task_names))}  # noqa: F401"
+            )
+        (dst.parent / "__init__.py").write_text("\n".join(init_lines) + "\n")
 
     if plan.module_renames:
         changed = 0

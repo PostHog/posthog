@@ -149,7 +149,7 @@ def cmd_isolate_scan(name: str, as_json: bool) -> None:
 @click.option(
     "--views",
     multiple=True,
-    help="View module filenames to move (default: auto-detect ViewSet modules at backend root)",
+    help="Backend-relative view module paths to move, e.g. api/heatmaps_api.py (default: auto-detect ViewSet modules at backend root)",
 )
 @click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
 def cmd_isolate_move(name: str, views: tuple[str, ...], dry_run: bool) -> None:

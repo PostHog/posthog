@@ -68,6 +68,16 @@ source of truth for the rest of the flow:
 `--json` emits the machine-readable recipe — keep it with the PR; regenerating the
 migration against fresh master starts from a fresh scan.
 
+## When the tooling doesn't fit, fix the tooling
+
+Don't quietly hand-work-around it. If `isolate:scan`/`:move` misses your product's
+shape — a layout it doesn't detect, a coupling channel it can't see — and other
+products share that shape, extend the tool and update this skill so the next
+migration inherits the fix. That's how `backend/api/`-subpackage support and the
+Dagster-assets channel got added. Reserve a manual work-around (called out in the
+PR) for a true one-off; a silent hand-hack just leaves the next product to hit the
+same wall.
+
 ## "No in-process callers, so no facade" is the wrong test
 
 The core-coupling count sizes the **sweep** — zero importers means a single-PR

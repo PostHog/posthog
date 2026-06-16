@@ -143,23 +143,39 @@ def test_absolutize_relative_imports() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_pin_task_names_with_args() -> None:
-    text = "@shared_task(ignore_result=True)\ndef cleanup_task() -> None:\n    pass\n"
-    result, warnings = pin_task_names(text, "products.logs.backend.tasks")
-    assert '@shared_task(ignore_result=True, name="products.logs.backend.tasks.cleanup_task")' in result
+@pytest.mark.parametrize(
+    "source,expected_fragment",
+    [
+        ("@shared_task\ndef other_task():\n    pass\n", '@shared_task(name="products.logs.backend.tasks.other_task")'),
+        (
+            "@shared_task(ignore_result=True)\ndef cleanup_task() -> None:\n    pass\n",
+            '@shared_task(ignore_result=True, name="products.logs.backend.tasks.cleanup_task")',
+        ),
+        # nested parens in the args must not truncate the match at the inner )
+        (
+            "@shared_task(expires=timedelta(hours=1))\ndef expiring():\n    pass\n",
+            '@shared_task(expires=timedelta(hours=1), name="products.logs.backend.tasks.expiring")',
+        ),
+    ],
+)
+def test_pin_task_names(source: str, expected_fragment: str) -> None:
+    result, warnings = pin_task_names(source, "products.logs.backend.tasks")
+    assert expected_fragment in result
     assert warnings == []
-
-
-def test_pin_task_names_bare_decorator() -> None:
-    text = "@shared_task\ndef other_task():\n    pass\n"
-    result, _ = pin_task_names(text, "products.logs.backend.tasks")
-    assert '@shared_task(name="products.logs.backend.tasks.other_task")' in result
 
 
 def test_pin_task_names_existing_name_untouched() -> None:
     text = '@shared_task(name="legacy.name")\ndef named_task():\n    pass\n'
-    result, _ = pin_task_names(text, "products.logs.backend.tasks")
+    result, warnings = pin_task_names(text, "products.logs.backend.tasks")
     assert result == text
+    assert warnings == []
+
+
+def test_pin_task_names_warns_when_not_directly_above_def() -> None:
+    text = "@shared_task\n@wraps(inner)\ndef stacked():\n    pass\n"
+    result, warnings = pin_task_names(text, "products.logs.backend.tasks")
+    assert result == text
+    assert len(warnings) == 1
 
 
 # ---------------------------------------------------------------------------
