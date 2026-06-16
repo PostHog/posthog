@@ -1,8 +1,16 @@
 import pytest
 
+from stripe import PermissionError as StripePermissionError
+
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+
+def _is_non_retryable(source: StripeSource, error_msg: str) -> bool:
+    # Mirror the matcher in import_data_sync / external_data_job: substring match of each
+    # non-retryable key against the raw exception string.
+    return any(key in error_msg for key in source.get_non_retryable_errors())
 
 
 class TestStripeSource:
@@ -40,3 +48,31 @@ class TestStripeSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "scope_message",
+        [
+            # Restricted key missing the Credit Notes Read scope.
+            (
+                "Permission denied. The provided key 'rk_live_xxxx' does not have the required "
+                "permissions for this endpoint on account 'acct_1'. Enabling \"Credit Notes Read\" "
+                "('credit_note_read') permissions on this key would allow this request to continue. "
+                "You can edit permissions at https://dashboard.stripe.com/..."
+            ),
+            # Same shape for any other missing resource scope (Stripe's phrasing is stable).
+            (
+                "Permission denied. The provided key 'rk_live_yyyy' does not have the required "
+                "permissions for this endpoint on account 'acct_2'. Having the 'rak_payment_method_read' "
+                "permission would allow this request to continue."
+            ),
+        ],
+    )
+    def test_missing_scope_permission_error_is_non_retryable(self, scope_message: str) -> None:
+        # Build the real exception string the SDK raises (includes request id prefix) so the test
+        # would have caught the bug where the message never contained the literal "PermissionError".
+        error = StripePermissionError(scope_message)
+        error.request_id = "req_zpuHpEJEXoOIl2"
+        error_msg = str(error)
+
+        assert "PermissionError" not in error_msg
+        assert _is_non_retryable(self.source, error_msg)
