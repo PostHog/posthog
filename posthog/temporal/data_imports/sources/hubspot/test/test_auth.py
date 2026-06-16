@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -24,10 +24,12 @@ def _session_returning(responses: list[MagicMock]) -> Any:
 @pytest.fixture(autouse=True)
 def _no_backoff_sleep() -> Any:
     # tenacity sleeps between retries; neutralise it so the test is fast.
-    original_sleep = hubspot_refresh_access_token.retry.sleep
-    hubspot_refresh_access_token.retry.sleep = lambda *_a, **_k: None
+    # `.retry` is attached by tenacity's @retry decorator at runtime; mypy can't see it.
+    retrying = cast(Any, hubspot_refresh_access_token).retry
+    original_sleep = retrying.sleep
+    retrying.sleep = lambda *_a, **_k: None
     yield
-    hubspot_refresh_access_token.retry.sleep = original_sleep
+    retrying.sleep = original_sleep
 
 
 class TestHubspotRefreshAccessToken:
