@@ -56,7 +56,7 @@ export function RefreshIndicator<T>({
                 onClick={() => resource.reload()}
                 disabled={resource.loading}
                 aria-label="Refresh"
-                title={compact ? `Refresh · updated ${timestamp}` : 'Refresh'}
+                title={compact && resource.lastFetchedAt !== null ? `Refresh · updated ${timestamp}` : 'Refresh'}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
             >
                 <RefreshCwIcon className={`h-3.5 w-3.5 ${resource.loading ? 'animate-spin' : ''}`} />

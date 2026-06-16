@@ -85,7 +85,9 @@ export function AgentProvider({
             error: agent.error,
             loading: agent.loading || revisions.loading,
             reload: bumpReload,
-            lastFetchedAt: agent.lastFetchedAt,
+            // Both fetches feed the bundle, so the indicator's "updated Xs ago"
+            // should reflect whichever settled last — not just the agent's.
+            lastFetchedAt: Math.max(agent.lastFetchedAt ?? 0, revisions.lastFetchedAt ?? 0) || null,
         },
     }
     return <AgentCtx.Provider value={value}>{children}</AgentCtx.Provider>
