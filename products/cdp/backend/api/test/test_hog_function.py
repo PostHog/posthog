@@ -252,6 +252,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "template_id" in response.json()
         assert not HogFunction.objects.filter(template_id="template-hidden-dest").exists()
 
+    @parameterized.expand(
+        [
+            # An existing hidden-template function (created before the create-path block) can be disabled
+            # or deleted to clean it up, but must not be (re)enabled via the API/MCP.
+            ("enable_blocked", False, {"enabled": True}, status.HTTP_400_BAD_REQUEST),
+            ("disable_allowed", True, {"enabled": False}, status.HTTP_200_OK),
+            ("delete_allowed", True, {"deleted": True}, status.HTTP_200_OK),
+        ]
+    )
+    def test_enabling_function_from_hidden_template_is_blocked(self, _name, initial_enabled, patch, expected):
+        self._create_hidden_template()
+        fn = HogFunction.objects.create(
+            team=self.team,
+            name="Existing email destination",
+            type="destination",
+            template_id="template-hidden-dest",
+            enabled=initial_enabled,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{fn.id}/",
+            data=patch,
+        )
+        assert response.status_code == expected, response.json()
+
     def test_create_hog_function(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",

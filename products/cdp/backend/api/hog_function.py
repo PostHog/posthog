@@ -214,6 +214,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 }
             )
 
+    def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
+        # Creating from a hidden template is already blocked outright. For existing functions built from
+        # one (the unsupported standalone destinations this PR is about), allow disabling and deleting so
+        # they can be cleaned up, but never let them be (re)enabled via the API/MCP.
+        if is_create or attrs.get("enabled") is not True or not isinstance(self.instance, HogFunction):
+            return
+        template = HogFunctionTemplate.get_template(self.instance.template_id) if self.instance.template_id else None
+        if template is not None and template.status == "hidden":
+            raise serializers.ValidationError(
+                {"enabled": "This function was created from an internal template and cannot be enabled."}
+            )
+
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
         self.initial_data = data
@@ -292,6 +304,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
+
+        self._validate_hidden_template_not_enabled(attrs, is_create)
 
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
