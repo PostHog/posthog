@@ -23,8 +23,9 @@ type PersonlessSource = 'batch' | 'flag_called'
 
 /**
  * Batch step that inserts personless distinct IDs into posthog_personlessdistinctid. This
- * runs after prefetchPersonsStep so the person check cache is already populated, and before
- * the per-event processPersonlessStep, which reads the is_merged results stored here.
+ * runs after prefetchPersonsStep (which fires off person-existence fetches in the background)
+ * and before the per-event processPersonlessStep, which awaits those fetches via fetchForChecking
+ * and reads the is_merged results stored here.
  *
  * Two kinds of events are inserted, both via the same UNNEST batch insert:
  *  - "batch": events explicitly marked personless ($process_person_profile === false).
