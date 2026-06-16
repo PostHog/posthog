@@ -686,6 +686,10 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
             "project": {"id": str(team.id)},
         },
         only_evaluate_locally=False,
+        # This gate fires once per failed-sync digest run; a $feature_flag_called
+        # event each time would be pure volume with no operational value (we monitor
+        # via the EXTERNAL_DATA_FAILURE_DIGEST_* metrics instead). Matches the v3 gate.
+        send_feature_flag_events=False,
     ):
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="flag_disabled").inc()
         return False
