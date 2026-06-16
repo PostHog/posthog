@@ -266,7 +266,7 @@ class TestBingAdsSource:
             ),
             # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
             # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
-            ("Integration not found", "Integration not found: 160672"),
+            ("Integration not found", "Integration not found: 160672", None),
             # Generic Microsoft Advertising client-side SOAP fault. suds drops the inner auth codes
             # from str(WebFault), leaving only this faultstring, so we match it directly. The
             # raised_message mimics the raw WebFault str() seen for GetCampaignsByAccountId — note the
