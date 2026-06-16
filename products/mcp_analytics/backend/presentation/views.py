@@ -15,7 +15,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.permissions import SingleTenancyOrAdmin
+from posthog.permissions import PostHogFeatureFlagPermission, SingleTenancyOrAdmin
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
@@ -139,8 +139,14 @@ class MCPFeedbackViewSet(BaseMCPAnalyticsSubmissionViewSet):
 
 class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPSessionSerializer
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    scope_object = "mcp_analytics"
+    # tool_calls is a detail GET (read); generate_intent is a POST that computes + persists the
+    # intent summary, so it maps to the write scope. The default read/write action lists don't
+    # cover custom @action names, so APIScopePermission would otherwise reject token access.
+    scope_object_read_actions = ["list", "retrieve", "tool_calls"]
+    scope_object_write_actions = ["generate_intent"]
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = MCPSessionPagination
 
     def dangerously_get_queryset(self) -> QuerySet:
@@ -227,8 +233,13 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = MCPIntentClusterSnapshotSerializer
-    permission_classes = [IsAuthenticated, SingleTenancyOrAdmin]
-    scope_object = "INTERNAL"
+    scope_object = "mcp_analytics"
+    # recompute is a POST that kicks off the async clustering task (a state change), so it maps to
+    # the write scope; the snapshot read stays on the read scope.
+    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_write_actions = ["recompute"]
+    posthog_feature_flag = "mcp-analytics"
+    permission_classes = [PostHogFeatureFlagPermission]
     pagination_class = None
 
     def dangerously_get_queryset(self) -> QuerySet:
