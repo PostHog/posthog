@@ -28,6 +28,7 @@ export const heatmapsListQueryLimitMax = 1000000
 
 export const heatmapsListQueryOffsetDefault = 0
 export const heatmapsListQueryOffsetMin = 0
+export const heatmapsListQueryOffsetMax = 1000000
 
 export const heatmapsListQueryTypeDefault = `click`
 
@@ -75,6 +76,7 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod
         .number()
         .min(heatmapsListQueryOffsetMin)
+        .max(heatmapsListQueryOffsetMax)
         .default(heatmapsListQueryOffsetDefault)
         .describe(
             "Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type."

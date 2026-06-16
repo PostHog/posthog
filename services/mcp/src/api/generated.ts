@@ -47432,6 +47432,7 @@ export namespace Schemas {
     /**
      * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
      * @minimum 0
+     * @maximum 1000000
      */
     offset?: number;
     /**
@@ -53532,6 +53533,7 @@ export namespace Schemas {
     /**
      * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
      * @minimum 0
+     * @maximum 1000000
      */
     offset?: number;
     /**
