@@ -1,4 +1,4 @@
-use posthog_cli::utils::git::{get_git_info_from_env, get_remote_url, get_repo_name};
+use posthog_cli::utils::git::{get_git_info, get_git_info_from_env, get_remote_url, get_repo_name};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -19,6 +19,72 @@ fn make_git_dir_with_config(config_content: &str) -> PathBuf {
     let config_path = git_dir.join("config");
     fs::write(&config_path, config_content).expect("failed to write config");
     git_dir
+}
+
+fn make_git_dir(config_content: &str, head_content: &str) -> PathBuf {
+    let temp_root = std::env::temp_dir().join(format!("posthog_cli_git_test_{}", Uuid::now_v7()));
+    let git_dir = temp_root.join(".git");
+    fs::create_dir_all(&git_dir).expect("failed to create .git directory");
+    fs::write(git_dir.join("config"), config_content).expect("failed to write config");
+    fs::write(git_dir.join("HEAD"), head_content).expect("failed to write HEAD");
+    git_dir
+}
+
+#[test]
+fn test_get_commit_sha_from_loose_ref() {
+    let cfg = "[core]\n    repositoryformatversion = 0\n";
+    let git_dir = make_git_dir(cfg, "ref: refs/heads/main\n");
+    let refs_heads = git_dir.join("refs/heads");
+    fs::create_dir_all(&refs_heads).expect("failed to create refs/heads");
+    fs::write(refs_heads.join("main"), "abc123def456abc123def456abc123def456abc1\n")
+        .expect("failed to write loose ref");
+
+    let info = get_git_info(Some(git_dir.parent().unwrap().to_path_buf()))
+        .expect("get_git_info failed")
+        .expect("expected Some(GitInfo)");
+
+    assert_eq!(info.branch, "main");
+    assert_eq!(info.commit_id, "abc123def456abc123def456abc123def456abc1");
+    let _ = fs::remove_dir_all(git_dir.parent().unwrap());
+}
+
+#[test]
+fn test_get_commit_sha_from_packed_refs() {
+    let cfg = "[core]\n    repositoryformatversion = 0\n";
+    let git_dir = make_git_dir(cfg, "ref: refs/heads/main\n");
+    // No loose ref file — only packed-refs (common after gc or fresh clone on Windows)
+    let packed_refs = "# pack-refs with: peeled fully-peeled sorted\n\
+        deadbeefdeadbeefdeadbeefdeadbeefdeadbeef refs/heads/other\n\
+        cafebabecafebabecafebabecafebabecafebabe refs/heads/main\n";
+    fs::write(git_dir.join("packed-refs"), packed_refs).expect("failed to write packed-refs");
+
+    let info = get_git_info(Some(git_dir.parent().unwrap().to_path_buf()))
+        .expect("get_git_info failed")
+        .expect("expected Some(GitInfo)");
+
+    assert_eq!(info.branch, "main");
+    assert_eq!(info.commit_id, "cafebabecafebabecafebabecafebabecafebabe");
+    let _ = fs::remove_dir_all(git_dir.parent().unwrap());
+}
+
+#[test]
+fn test_get_commit_sha_loose_ref_takes_precedence_over_packed_refs() {
+    let cfg = "[core]\n    repositoryformatversion = 0\n";
+    let git_dir = make_git_dir(cfg, "ref: refs/heads/main\n");
+    let refs_heads = git_dir.join("refs/heads");
+    fs::create_dir_all(&refs_heads).expect("failed to create refs/heads");
+    fs::write(refs_heads.join("main"), "1111111111111111111111111111111111111111\n")
+        .expect("failed to write loose ref");
+    // packed-refs has a different (stale) SHA for the same branch
+    let packed_refs = "cafebabecafebabecafebabecafebabecafebabe refs/heads/main\n";
+    fs::write(git_dir.join("packed-refs"), packed_refs).expect("failed to write packed-refs");
+
+    let info = get_git_info(Some(git_dir.parent().unwrap().to_path_buf()))
+        .expect("get_git_info failed")
+        .expect("expected Some(GitInfo)");
+
+    assert_eq!(info.commit_id, "1111111111111111111111111111111111111111");
+    let _ = fs::remove_dir_all(git_dir.parent().unwrap());
 }
 
 #[test]

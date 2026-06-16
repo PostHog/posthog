@@ -205,7 +205,7 @@ fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
         return Ok(head_content.trim().to_string());
     }
 
-    // Try to read the commit from the branch reference
+    // Try to read the commit from the branch reference (loose ref)
     let ref_path = git_dir.join("refs/heads").join(branch);
     if ref_path.exists() {
         let mut commit_id = String::new();
@@ -215,6 +215,28 @@ fn get_commit_sha(git_dir: &Path, branch: &str) -> Result<String> {
             .context("Failed to read branch reference file")?;
 
         return Ok(commit_id.trim().to_string());
+    }
+
+    // Fall back to packed-refs — Git packs loose refs into this file during
+    // garbage collection or clone, which is common on Windows and in CI.
+    // Format: "<sha> refs/heads/<branch>" (lines starting with '#' are comments)
+    let packed_refs_path = git_dir.join("packed-refs");
+    if packed_refs_path.exists() {
+        let contents = fs::read_to_string(&packed_refs_path)
+            .context("Failed to read packed-refs file")?;
+        let target = format!("refs/heads/{branch}");
+        for line in contents.lines() {
+            let line = line.trim();
+            if line.starts_with('#') {
+                continue;
+            }
+            let mut parts = line.splitn(2, ' ');
+            if let (Some(sha), Some(refname)) = (parts.next(), parts.next()) {
+                if refname == target {
+                    return Ok(sha.to_string());
+                }
+            }
+        }
     }
 
     anyhow::bail!("Could not determine commit ID")
