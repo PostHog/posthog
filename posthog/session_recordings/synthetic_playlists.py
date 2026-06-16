@@ -382,7 +382,7 @@ def _get_static_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
     if HAS_EE:
         playlists.append(SummarisedPlaylistSource().to_synthetic_playlist())
 
-    # Filter out None values (sources that only generate dynamic playlists)
+    # Filter out None values (sources that conditionally return a playlist)
     return [p for p in playlists if p is not None]
 
 
@@ -390,9 +390,12 @@ def _get_static_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
 SYNTHETIC_PLAYLISTS: list[SyntheticPlaylistDefinition] = _get_static_synthetic_playlists()
 
 
-def get_synthetic_playlist(short_id: str, team: Team | None = None) -> SyntheticPlaylistDefinition | None:
+def get_synthetic_playlist(short_id: str) -> SyntheticPlaylistDefinition | None:
     """
     Get a synthetic playlist by short_id.
+
+    Returns the static playlist definition only; tenant scoping happens at the
+    data layer (get_session_ids / count_session_ids), which still receives team.
     """
     for playlist in SYNTHETIC_PLAYLISTS:
         if playlist.short_id == short_id:
@@ -401,8 +404,11 @@ def get_synthetic_playlist(short_id: str, team: Team | None = None) -> Synthetic
     return None
 
 
-def get_all_synthetic_playlists(team: Team) -> list[SyntheticPlaylistDefinition]:
+def get_all_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
     """
-    Get all synthetic playlists for a team.
+    Get all synthetic playlist definitions.
+
+    Returns static playlist definitions only; tenant scoping happens at the data
+    layer (get_session_ids / count_session_ids), which still receives team.
     """
     return list(SYNTHETIC_PLAYLISTS)
