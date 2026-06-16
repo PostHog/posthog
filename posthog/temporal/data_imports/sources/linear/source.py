@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldOauthConfig,
@@ -34,6 +35,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINEAR,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Linear",
             releaseStatus="beta",
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",
@@ -55,6 +57,10 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
         return {
             "401 Client Error": "Invalid Linear credentials. Please reconnect your account.",
             "403 Client Error": "Access forbidden. Your token may lack required permissions.",
+            # The linked OAuth integration was deleted while the source still references it.
+            # Retrying can never resolve this — the integration won't reappear — so stop and
+            # ask the user to reconnect. Matched as a substring; the trailing integration id varies.
+            "Integration not found": "The linked Linear integration no longer exists. Please reconnect your Linear account.",
         }
 
     def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:

@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -40,6 +41,11 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             "received fatal alert: BadCertificate": "Temporal rejected this source's client certificate as invalid. Update the source with a valid client certificate and key.",
             "received fatal alert: CertificateUnknown": "Temporal rejected this source's client certificate. Update the source with a valid client certificate and key.",
             "invalid peer certificate": "The Temporal server's certificate could not be verified. Check the host and port point at your Temporal namespace's gRPC endpoint.",
+            # tonic/rustls raises CertificateParseError when one of the PEM credential blobs cannot be
+            # decoded at all (vs the alerts above, which reject an otherwise-parseable cert). The blobs
+            # come straight from the source config, so this is a malformed-credential problem — retrying
+            # can never recover.
+            "CertificateParseError": "Temporal could not parse this source's TLS credentials. Check that the client certificate, client private key, and server root CA are valid PEM and re-enter them on the source.",
         }
 
     def get_schemas(
@@ -88,6 +94,8 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            keywords=["temporal"],
             label="Temporal.io",
             iconPath="/static/services/temporal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/temporal",
