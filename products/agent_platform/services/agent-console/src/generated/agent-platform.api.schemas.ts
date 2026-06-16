@@ -223,6 +223,17 @@ export const AgentRevisionApiSpecReasoning = {
     Xhigh: 'xhigh',
 } as const
 
+export type AgentRevisionApiSpecFrameworkPromptOmitItem =
+    (typeof AgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof AgentRevisionApiSpecFrameworkPromptOmitItem]
+
+export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
+    MetaToolGuidance: 'meta_tool_guidance',
+    StateContract: 'state_contract',
+    ToolFailureGuidance: 'tool_failure_guidance',
+    ApprovalGuidance: 'approval_guidance',
+    ReasoningHint: 'reasoning_hint',
+} as const
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -232,6 +243,7 @@ export type AgentRevisionApiSpecTriggersItem =
               auto_resume_threads: boolean
               allow_workspace_participants: boolean
               ack_reaction?: string
+              allow_direct_messages: boolean
               trusted_workspaces: string[] | '*'
           }
       }
@@ -480,6 +492,34 @@ export type AgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_output_tokens?: number
+    /**
+     * @maximum 16384
+     * @exclusiveMinimum 0
+     */
+    max_memory_mb: number
+    /**
+     * @maximum 8
+     * @exclusiveMinimum 0
+     */
+    max_cpu_cores: number
+}
+
+export type AgentRevisionApiSpecFrameworkPrompt = {
+    omit: AgentRevisionApiSpecFrameworkPromptOmitItem[]
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    version_pin?: number
+}
+
+export type AgentRevisionApiSpecResume = {
+    enabled: boolean
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    max_completed_age_ms: number
 }
 
 export type AgentRevisionApiSpec = {
@@ -494,6 +534,8 @@ export type AgentRevisionApiSpec = {
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
+    framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
+    resume?: AgentRevisionApiSpecResume
 }
 
 /**
@@ -545,6 +587,7 @@ export type PatchedAgentRevisionApiSpecTriggersItem =
               auto_resume_threads: boolean
               allow_workspace_participants: boolean
               ack_reaction?: string
+              allow_direct_messages: boolean
               trusted_workspaces: string[] | '*'
           }
       }
@@ -793,6 +836,16 @@ export type PatchedAgentRevisionApiSpecLimits = {
      * @exclusiveMinimum 0
      */
     max_output_tokens?: number
+    /**
+     * @maximum 16384
+     * @exclusiveMinimum 0
+     */
+    max_memory_mb: number
+    /**
+     * @maximum 8
+     * @exclusiveMinimum 0
+     */
+    max_cpu_cores: number
 }
 
 export type PatchedAgentRevisionApiSpecReasoning =
@@ -806,6 +859,35 @@ export const PatchedAgentRevisionApiSpecReasoning = {
     Xhigh: 'xhigh',
 } as const
 
+export type PatchedAgentRevisionApiSpecFrameworkPromptOmitItem =
+    (typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem)[keyof typeof PatchedAgentRevisionApiSpecFrameworkPromptOmitItem]
+
+export const PatchedAgentRevisionApiSpecFrameworkPromptOmitItem = {
+    MetaToolGuidance: 'meta_tool_guidance',
+    StateContract: 'state_contract',
+    ToolFailureGuidance: 'tool_failure_guidance',
+    ApprovalGuidance: 'approval_guidance',
+    ReasoningHint: 'reasoning_hint',
+} as const
+
+export type PatchedAgentRevisionApiSpecFrameworkPrompt = {
+    omit: PatchedAgentRevisionApiSpecFrameworkPromptOmitItem[]
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    version_pin?: number
+}
+
+export type PatchedAgentRevisionApiSpecResume = {
+    enabled: boolean
+    /**
+     * @maximum 2147483647
+     * @exclusiveMinimum 0
+     */
+    max_completed_age_ms: number
+}
+
 export type PatchedAgentRevisionApiSpec = {
     /** @minLength 1 */
     model: string
@@ -818,6 +900,8 @@ export type PatchedAgentRevisionApiSpec = {
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning
+    framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
+    resume?: PatchedAgentRevisionApiSpecResume
 }
 
 /**

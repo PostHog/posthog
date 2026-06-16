@@ -72,12 +72,13 @@
                         "max_cpu_cores": {
                             "default": 0.25,
                             "exclusiveMinimum": 0,
+                            "maximum": 8,
                             "type": "number"
                         },
                         "max_memory_mb": {
                             "default": 512,
                             "exclusiveMinimum": 0,
-                            "maximum": 2147483647,
+                            "maximum": 16384,
                             "type": "number"
                         },
                         "max_output_tokens": {
