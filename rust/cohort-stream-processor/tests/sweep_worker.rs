@@ -484,6 +484,83 @@ async fn sweep_on_an_empty_queue_is_a_noop() {
 }
 
 #[tokio::test]
+async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
+    // A large wave of single-leaf members all come due at one cutoff. `handle_sweep` caps the pop loop
+    // at `MAX_SWEEP_KEYS_PER_PASS` (10_000, private to the worker), so the first pass evicts exactly the
+    // cap and the leftover keys stay scheduled, draining on a second sweep. This bounds the per-pass
+    // RocksDB read + produce + write batch so events do not starve behind one giant sweep.
+    const CAP: usize = 10_000; // mirrors worker::MAX_SWEEP_KEYS_PER_PASS
+    let total = CAP + 1;
+
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![behavioral_leaf(7)]);
+    let lsk = behavioral_lsk(&filters);
+    let sink = CaptureSink::new();
+    let tracker = Arc::new(OffsetTracker::new());
+    let (tx, worker) = spawn_worker(
+        &store,
+        catalog_of(filters),
+        Arc::new(sink.clone()),
+        tracker.clone(),
+    );
+
+    let ts = "2026-05-20 10:00:00.000000";
+    let event_ms = clickhouse_timestamp_to_millis(ts).unwrap();
+    let deadline = event_ms + 7 * DAY_MS;
+
+    // One batch of `total` matching events (one distinct person each) schedules `total` evictions, all
+    // due at the same deadline. Batching avoids `total` per-event async round-trips through the channel.
+    tracker.mark_dispatched(PARTITION_ID as i32, total as i64);
+    let events: Vec<ShuffleMessage> = (0..total)
+        .map(|i| ShuffleMessage::Event {
+            event: event_at(person(i as u128 + 1), ts, i as i64),
+            cse_offset: i as i64,
+        })
+        .collect();
+    tx.send(events).await.unwrap();
+    drain_until_changes(&sink, total).await; // all `total` Entered have landed.
+
+    // First sweep past the deadline: every key is due, but only `CAP` are popped this pass.
+    send_sweep(&tx, deadline + DAY_MS).await;
+    drain_until_changes(&sink, total + CAP).await;
+    let lefts_after_first = sink
+        .changes()
+        .iter()
+        .filter(|c| c.status == MembershipStatus::Left)
+        .count();
+    assert_eq!(
+        lefts_after_first, CAP,
+        "the first pass evicts exactly the per-pass cap, not the whole wave",
+    );
+    // The one capped-out key is still scheduled, so its state still exists.
+    let leftover_person = person(total as u128); // offset total-1 ⇒ person `total`
+    assert!(
+        state_at(&store, lsk, leftover_person).is_some(),
+        "the over-cap key was not popped, so its state is untouched after the first pass",
+    );
+
+    // Second sweep at the same cutoff drains the leftover.
+    send_sweep(&tx, deadline + DAY_MS).await;
+    drain_until_changes(&sink, total + total).await;
+    drop(tx);
+    worker.join().await.unwrap();
+
+    let total_lefts = sink
+        .changes()
+        .iter()
+        .filter(|c| c.status == MembershipStatus::Left)
+        .count();
+    assert_eq!(
+        total_lefts, total,
+        "the remaining over-cap key evicts on the next tick: all members eventually leave",
+    );
+    assert!(
+        state_at(&store, lsk, leftover_person).is_none(),
+        "the leftover key is evicted (deleted) by the second sweep",
+    );
+}
+
+#[tokio::test]
 async fn single_does_not_evict_before_its_calendar_midnight_and_does_after() {
     let lsk = behavioral_lsk(&build_team_filters_tz(vec![behavioral_leaf(7)], Kolkata));
     let alice = person(1);

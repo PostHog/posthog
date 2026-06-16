@@ -433,13 +433,13 @@ fn delete_partition_reclaims_the_merge_cfs() {
         .get_tombstone(&tombstone_key(0, 100, 7))
         .unwrap()
         .is_none());
-    assert!(store.scan_pending_transfers(0).unwrap().is_empty());
+    assert!(store.scan_pending_transfers(0, usize::MAX).unwrap().is_empty());
 
     assert!(store
         .get_tombstone(&tombstone_key(1, 100, 7))
         .unwrap()
         .is_some());
-    assert_eq!(store.scan_pending_transfers(1).unwrap().len(), 1);
+    assert_eq!(store.scan_pending_transfers(1, usize::MAX).unwrap().len(), 1);
 }
 
 #[test]
@@ -457,7 +457,7 @@ fn scan_pending_transfers_returns_only_its_partition_in_key_order() {
         })
         .unwrap();
 
-    let scanned = store.scan_pending_transfers(5).unwrap();
+    let scanned = store.scan_pending_transfers(5, usize::MAX).unwrap();
     assert_eq!(scanned.len(), 2, "only partition 5's entries");
     // Person UUIDs from `Uuid::from_u128` sort by their big-endian bytes, so 10 precedes 30.
     assert_eq!(scanned[0].0, pending_transfer_key(5, 100, 10));
@@ -465,11 +465,41 @@ fn scan_pending_transfers_returns_only_its_partition_in_key_order() {
     assert_eq!(scanned[1].0, pending_transfer_key(5, 100, 30));
     assert_eq!(scanned[1].1, b"p30");
 
-    assert_eq!(store.scan_pending_transfers(4).unwrap().len(), 1);
-    assert_eq!(store.scan_pending_transfers(6).unwrap().len(), 1);
+    assert_eq!(store.scan_pending_transfers(4, usize::MAX).unwrap().len(), 1);
+    assert_eq!(store.scan_pending_transfers(6, usize::MAX).unwrap().len(), 1);
     assert!(
-        store.scan_pending_transfers(7).unwrap().is_empty(),
+        store.scan_pending_transfers(7, usize::MAX).unwrap().is_empty(),
         "an empty partition scans to nothing",
+    );
+}
+
+#[test]
+fn scan_pending_transfers_caps_at_the_limit() {
+    let dir = TempDir::new().unwrap();
+    let store = open_store(&dir);
+
+    // Stage more entries than the limit; the bounded scan must early-break and return exactly `limit`.
+    let limit = 5usize;
+    store
+        .write_batch(|b| {
+            for old in 0..(limit as u128 + 3) {
+                b.put_pending_transfer(&pending_transfer_key(2, 100, old), b"v");
+            }
+        })
+        .unwrap();
+
+    let scanned = store.scan_pending_transfers(2, limit).unwrap();
+    assert_eq!(
+        scanned.len(),
+        limit,
+        "the scan stops at the limit even though more entries exist",
+    );
+    // The early-break keeps the lowest keys in order (UUIDs from `Uuid::from_u128` sort big-endian).
+    let firsts: Vec<_> = scanned.iter().map(|(k, _)| k.old_person).collect();
+    assert_eq!(
+        firsts,
+        (0..limit as u128).map(person).collect::<Vec<_>>(),
+        "returns the `limit` smallest keys, in key order",
     );
 }
 
@@ -513,6 +543,6 @@ fn merge_cf_values_survive_reopen_without_wipe() {
         reopened.get_tombstone(&tombstone).unwrap().as_deref(),
         Some(&b"s"[..]),
     );
-    let scanned = reopened.scan_pending_transfers(2).unwrap();
+    let scanned = reopened.scan_pending_transfers(2, usize::MAX).unwrap();
     assert_eq!(scanned, vec![(pending, b"t".to_vec())]);
 }

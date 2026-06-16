@@ -43,6 +43,13 @@ use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, Mer
 use crate::workers::stage2_path::compose_stage2;
 use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
 
+/// Max eviction keys a single sweep pass drains. Daily-bucket deadlines cluster on tz-midnight, so a
+/// large team's whole wave can come due on one tick; capping the pop loop bounds the per-pass RocksDB
+/// read + produce + write batch + Stage 2 pass so events do not queue behind one giant sweep. Leftover
+/// due keys stay scheduled in the queue and drain on the next 30s tick. Sized to match the sibling
+/// `DEFAULT_MERGE_GC_SCAN_LIMIT` / redrive caps in `workers/merge_path.rs`.
+const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
+
 /// A long-lived worker owning one partition's Stage 1 state.
 pub struct Stage1Worker {
     partition_id: u16,
@@ -480,8 +487,13 @@ async fn handle_sweep(
     last_updated: &str,
     due_before_ms: i64,
 ) {
+    // Cap the drain so one giant wave cannot starve the worker; the remainder stays scheduled in the
+    // queue (`pop_due` removes only what it returns) and drains on the next sweep tick.
     let mut popped: Vec<(Stage1Key, i64)> = Vec::new();
-    while let Some(entry) = queue.pop_due(due_before_ms) {
+    while popped.len() < MAX_SWEEP_KEYS_PER_PASS {
+        let Some(entry) = queue.pop_due(due_before_ms) else {
+            break;
+        };
         popped.push(entry);
     }
     if popped.is_empty() {

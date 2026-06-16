@@ -221,10 +221,13 @@ impl CohortStore {
         self.write_batch(|batch| batch.delete_pending_transfer(key))
     }
 
-    /// Scan one partition's `cf_pending_transfers` slice, returning `(key, value)` in key order.
+    /// Scan up to `limit` of one partition's `cf_pending_transfers` slice, returning `(key, value)` in
+    /// key order. The redrive consumes only a small per-tick cap, so the caller passes a bounded
+    /// `limit` to avoid copying the whole outbox each tick (mirrors [`Self::scan_merge_cf`]).
     pub fn scan_pending_transfers(
         &self,
         partition_id: u16,
+        limit: usize,
     ) -> Result<Vec<(PendingTransferKey, Vec<u8>)>, StoreError> {
         let (start, end) = keys::partition_range(partition_id);
         let handle = self.cf(Cf::PendingTransfers)?;
@@ -237,8 +240,11 @@ impl CohortStore {
             IteratorMode::From(&start, Direction::Forward),
         );
 
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(limit.min(1024));
         for item in iter {
+            if out.len() == limit {
+                break;
+            }
             let (key_bytes, value) = item.map_err(|source| {
                 counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
                 StoreError::Backend {

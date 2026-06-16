@@ -242,18 +242,28 @@ pub(crate) fn apply_leaves(
     let team_u64 = team_id as u64;
     let mut out = LeafApply::default();
 
-    for (lsk, old_record) in leaves {
-        let Some(meta) = filters.by_lsk.get(lsk) else {
-            counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "leaf_drift").increment(1);
-            continue;
-        };
-        let p_new_key = Stage1Key {
+    // One batched read of every leaf's `p_new` state instead of N sequential point reads (mirrors the
+    // drain side's `multi_get_stage1`). Keys are built in `leaves` order so the zip below stays aligned;
+    // a leaf later skipped by the drift check simply ignores its (already-fetched) result.
+    let p_new_keys: Vec<Stage1Key> = leaves
+        .iter()
+        .map(|(lsk, _)| Stage1Key {
             partition_id: partition_new,
             team_id: team_u64,
             leaf_state_key: *lsk,
             person_id: new_person,
+        })
+        .collect();
+    let p_new_raw = store.multi_get_stage1(&p_new_keys)?;
+
+    for ((lsk, old_record), (p_new_key, p_new_bytes)) in
+        leaves.iter().zip(p_new_keys.into_iter().zip(p_new_raw))
+    {
+        let Some(meta) = filters.by_lsk.get(lsk) else {
+            counter!(MERGE_LEAVES_DROPPED_TOTAL, "reason" => "leaf_drift").increment(1);
+            continue;
         };
-        let p_new_record = match store.get_stage1(&p_new_key)? {
+        let p_new_record = match p_new_bytes {
             None => None,
             Some(bytes) => StatefulRecord::decode(&bytes).ok(),
         };

@@ -330,12 +330,16 @@ async fn forward_transfer(
 /// Max entries to re-produce per redrive tick.
 const REDRIVE_MAX_ATTEMPTS_PER_TICK: usize = 8;
 
+/// Cap on the pending-transfer scan: a small multiple of the per-tick attempt cap, so the redrive has
+/// the next few ticks' worth of work staged without copying the whole outbox each tick.
+const SCAN_PENDING_TRANSFERS_LIMIT: usize = REDRIVE_MAX_ATTEMPTS_PER_TICK * 8;
+
 pub(crate) async fn handle_redrive(
     partition_id: u16,
     store: &CohortStore,
     merge: &MergeWorkerDeps,
 ) {
-    let entries = match store.scan_pending_transfers(partition_id) {
+    let entries = match store.scan_pending_transfers(partition_id, SCAN_PENDING_TRANSFERS_LIMIT) {
         Ok(entries) => entries,
         Err(error) => {
             warn!(
@@ -346,6 +350,8 @@ pub(crate) async fn handle_redrive(
             return;
         }
     };
+    // Saturates at the scan limit, so this reflects `min(backlog, SCAN_PENDING_TRANSFERS_LIMIT)` — it
+    // still distinguishes an empty outbox from a backed-up one, just not the exact backlog depth.
     gauge!(MERGE_PENDING_TRANSFERS_GAUGE, "partition" => partition_id.to_string())
         .set(entries.len() as f64);
 
