@@ -3268,3 +3268,79 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+
+class TestOffsetChunkingServerCursorFallback:
+    """Regression: the connection-dropped fallback must not crash on a ServerCursor factory.
+
+    On a non-read-replica source, `postgres_source.get_connection` sets the connection's
+    `cursor_factory` to `psycopg.ServerCursor`. When the server-cursor streaming path hits a
+    transient connection drop (e.g. `OperationalError: consuming input failed: SSL SYSCALL
+    error: EOF detected`), it falls back to `offset_chunking`, which opened an *unnamed*
+    `connection.cursor()` — raising `ServerCursor.__init__() missing 1 required positional
+    argument: 'name'` and crashing the very recovery it was supposed to perform.
+    """
+
+    @pytest.mark.django_db(transaction=True)
+    def test_recovers_via_offset_chunking_on_server_cursor_connection(self, monkeypatch):
+        sd = django_connection.settings_dict
+        conn_kwargs: dict[str, Any] = {
+            "host": sd["HOST"] or None,
+            "port": sd["PORT"] or None,
+            "dbname": sd["NAME"],
+            "user": sd["USER"] or None,
+            "password": sd["PASSWORD"] or None,
+        }
+        table = "test_offset_chunking_dropfix"
+
+        # Create + populate the table over a committed connection so the fresh connections
+        # `postgres_source` opens (discovery + streaming) can see the rows.
+        setup_conn = psycopg.connect(autocommit=True, **conn_kwargs)
+        try:
+            with setup_conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+                cur.execute(f"CREATE TABLE {table} (id BIGINT PRIMARY KEY, val TEXT)")
+                cur.execute(f"INSERT INTO {table} (id, val) SELECT g, 'row-' || g FROM generate_series(1, 5) g")
+
+            # Force the primary server-cursor path to fail with a connection-dropped error so
+            # the offset_chunking fallback runs. We patch the *method* on the real ServerCursor
+            # class (not the `psycopg.ServerCursor` attribute) on purpose: the named-cursor path
+            # resolves through `Connection.server_cursor_factory`, which is bound to the real
+            # class, so reassigning the attribute would leave the named cursor untouched and the
+            # drop would never fire. offset_chunking pages with a plain client cursor
+            # (`psycopg.Cursor`), so it stays unaffected by this patch.
+            def _raise_dropped(self, *args, **kwargs):
+                raise psycopg.OperationalError("consuming input failed: SSL SYSCALL error: EOF detected")
+
+            monkeypatch.setattr(psycopg.ServerCursor, "execute", _raise_dropped)
+            # The cursor was never DECLAREd, so skip the server-side CLOSE round trip that would
+            # otherwise error and mask the injected failure on __exit__.
+            monkeypatch.setattr(psycopg.ServerCursor, "close", lambda self: None)
+
+            @contextmanager
+            def _tunnel_cm():
+                yield (conn_kwargs["host"], conn_kwargs["port"])
+
+            response = postgres_source(
+                tunnel=lambda: _tunnel_cm(),
+                user=conn_kwargs["user"],
+                password=conn_kwargs["password"],
+                database=conn_kwargs["dbname"],
+                sslmode="prefer",
+                schema="public",
+                table_names=[table],
+                should_use_incremental_field=True,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=0,
+                incremental_field="id",
+                incremental_field_type=IncrementalFieldType.Integer,
+            )
+
+            # Without the fix this raises `ServerCursor.__init__() missing 1 required
+            # positional argument: 'name'`; with it, offset_chunking yields every row.
+            tables = list(response.items())
+            assert sum(t.num_rows for t in tables) == 5
+        finally:
+            with setup_conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+            setup_conn.close()
