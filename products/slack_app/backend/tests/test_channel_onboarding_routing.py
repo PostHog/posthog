@@ -4,7 +4,7 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
-from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team

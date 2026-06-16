@@ -213,7 +213,8 @@ def _prepare_slack_message(
             {"type": "actions", "elements": action_elements},
         ]
     )
-    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags):
+    ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
+    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
     # Prepare additional messages for thread

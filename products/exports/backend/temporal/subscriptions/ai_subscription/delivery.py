@@ -309,7 +309,8 @@ def _build_ai_slack_message(
             },
         ]
     )
-    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags):
+    # AI consent is enforced upstream before this report is built, so the hint always shows here.
+    if explore_hint := build_explore_hint(integration, utm_tags=utm_tags, ai_enabled=True):
         blocks.append(explore_hint)
 
     thread_messages = [

@@ -25,7 +25,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
-from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,

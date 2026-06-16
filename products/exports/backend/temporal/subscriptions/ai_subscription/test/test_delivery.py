@@ -3,7 +3,7 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,

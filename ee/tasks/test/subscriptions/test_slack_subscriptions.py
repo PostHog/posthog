@@ -9,7 +9,7 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -723,3 +723,9 @@ class TestSlackExploreHint(APIBaseTest):
         texts = self._hint_texts(self._make_integration(frozenset({"chat:write"})))
         assert any("docs/slack-app" in t for t in texts)
         assert not any("Reply in this thread" in t for t in texts)
+
+    def test_no_hint_when_ai_not_approved(self) -> None:
+        org = self.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+        assert self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES)) == []

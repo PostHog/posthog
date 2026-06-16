@@ -20,7 +20,7 @@ class TestRouteThreadMessage(TestCase):
     workflow so the webhook handler stays fast."""
 
     def setUp(self):
-        from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()

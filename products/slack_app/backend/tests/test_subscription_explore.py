@@ -2,7 +2,8 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
-from posthog.helpers.slack_subscription_explore import REQUIRED_SLACK_SCOPES, bot_is_ready, build_explore_hint
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES, bot_is_ready
+from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -47,16 +48,20 @@ class TestBuildExploreHint(TestCase):
         )
 
     def test_no_integration_returns_none(self) -> None:
-        assert build_explore_hint(None, utm_tags="utm") is None
+        assert build_explore_hint(None, utm_tags="utm", ai_enabled=True) is None
+
+    def test_ai_disabled_returns_none(self) -> None:
+        # Org hasn't approved AI data processing — don't nudge toward the AI bot, even with a ready install.
+        assert build_explore_hint(self._integration(REQUIRED_SLACK_SCOPES), utm_tags="utm", ai_enabled=False) is None
 
     def test_bot_ready_nudges_mention(self) -> None:
-        hint = build_explore_hint(self._integration(REQUIRED_SLACK_SCOPES), utm_tags="utm")
+        hint = build_explore_hint(self._integration(REQUIRED_SLACK_SCOPES), utm_tags="utm", ai_enabled=True)
         assert hint is not None
         assert hint["type"] == "context"
         assert "@PostHog" in hint["elements"][0]["text"]
 
     def test_bot_not_ready_links_docs(self) -> None:
-        hint = build_explore_hint(self._integration(frozenset({"chat:write"})), utm_tags="utm")
+        hint = build_explore_hint(self._integration(frozenset({"chat:write"})), utm_tags="utm", ai_enabled=True)
         assert hint is not None
         text = hint["elements"][0]["text"]
         assert "docs/slack-app?utm" in text
