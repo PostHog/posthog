@@ -306,6 +306,36 @@ export const funnelResultTimeToConvertWithoutConversions: FunnelAPIResponse = {
 }
 
 // 1. Add step "Pageview"
+// 2. Select graph type "Time to convert"
+// 3. Toggle "Compare to previous"
+// Both periods carry the same bin boundaries (shared bins); only the counts differ.
+export const funnelResultTimeToConvertCompare: FunnelAPIResponse = {
+    result: [
+        {
+            compare_label: 'current',
+            bins: [
+                [4.0, 74],
+                [73591.0, 24],
+                [147178.0, 10],
+            ],
+            average_conversion_time: 86456.76,
+        },
+        {
+            compare_label: 'previous',
+            bins: [
+                [4.0, 52],
+                [73591.0, 31],
+                [147178.0, 17],
+            ],
+            average_conversion_time: 91230.5,
+        },
+    ] as any,
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T17:32:24.245364Z',
+    is_cached: false,
+}
+
+// 1. Add step "Pageview"
 // 2. Select graph type "Trends"
 export const funnelResultTrends = {
     result: [
