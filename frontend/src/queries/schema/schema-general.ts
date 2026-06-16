@@ -6254,6 +6254,7 @@ export const externalDataSources = [
     'AmazonKinesis',
     'AmazonCloudWatch',
     'OpenAIAds',
+    'Grafana',
     'Custom',
 ] as const
 
