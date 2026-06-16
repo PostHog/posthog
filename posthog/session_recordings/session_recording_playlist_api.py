@@ -591,11 +591,11 @@ class SessionRecordingPlaylistViewSet(
         # Get regular DB playlists
         queryset = self.safely_get_queryset(self.get_queryset())
 
-        # Get the total count of DB playlists before pagination
-        db_count = queryset.count()
-
-        # Apply pagination to DB playlists
+        # Apply pagination to DB playlists. The paginator computes the DB count
+        # internally, so reuse it rather than issuing a second COUNT(*).
         page = self.paginate_queryset(queryset)
+        paginator = cast(LimitOffsetPagination, self.paginator)
+        db_count = paginator.count if page is not None and paginator.count is not None else queryset.count()
 
         # Check if we're on the first page by looking at offset parameter
         # Synthetic playlists should only appear on the first page to avoid duplicates
