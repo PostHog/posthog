@@ -7,7 +7,7 @@ import { inviteSignupLogic } from '../../inviteSignupLogic'
 
 // TODO: build the paper-desk invited signup screens; renders under the `auth-flow-variant` flag.
 // Screens to design: new user (no account), existing account (logged in), invalid link (error).
-export function PaperDeskInviteSignup(): JSX.Element {
+function InviteSignup(): JSX.Element {
     const { invite, error } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
 
@@ -27,3 +27,5 @@ export function PaperDeskInviteSignup(): JSX.Element {
         </KeyboardGardenBackground>
     )
 }
+
+export { InviteSignup as PaperDeskInviteSignup }

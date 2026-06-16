@@ -4,7 +4,7 @@ import { KeyboardGardenBackground } from 'scenes/authentication/shared/KeyboardG
 import { userLogic } from 'scenes/userLogic'
 
 // TODO: build the paper-desk signup screens (email step, then password step); renders under the `auth-flow-variant` flag.
-export function PaperDeskSignup(): JSX.Element | null {
+function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
 
     return !user ? (
@@ -16,3 +16,5 @@ export function PaperDeskSignup(): JSX.Element | null {
         </KeyboardGardenBackground>
     ) : null
 }
+
+export { Signup as PaperDeskSignup }
