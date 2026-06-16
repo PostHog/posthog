@@ -4,6 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import Organization, Team
+
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -340,3 +342,89 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         # Nothing persisted when generation fails.
         assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
+
+
+class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    """Team A must never reach Team B's submissions. Now that the submission endpoints are
+    reachable by anyone inside the mcp-analytics flag (no longer staff-only), pin the tenant
+    boundary: another team's rows never appear in this team's list, and a user who is not a
+    member of another team's org is denied when hitting that team's URL.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        # A team in a different organization that self.user is NOT a member of.
+        self.other_org = Organization.objects.create(name="other-org")
+        self.other_team = Team.objects.create(organization=self.other_org, name="other-team")
+
+        self.other_feedback = MCPAnalyticsSubmission.objects.create(
+            team=self.other_team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.FEEDBACK,
+            goal="team B goal",
+            summary="Team B feedback — must not leak",
+        )
+        self.other_missing_capability = MCPAnalyticsSubmission.objects.create(
+            team=self.other_team,
+            created_by=self.user,
+            kind=MCPAnalyticsSubmission.Kind.MISSING_CAPABILITY,
+            goal="team B goal",
+            summary="Team B missing capability — must not leak",
+            blocked=False,
+        )
+
+    @parameterized.expand(
+        [
+            ("feedback", "feedback/", "Team B feedback — must not leak"),
+            ("missing_capabilities", "missing_capabilities/", "Team B missing capability — must not leak"),
+        ]
+    )
+    def test_other_teams_submissions_never_appear_in_own_list(self, _name: str, path: str, leaked: str) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/{path}")
+
+        assert response.status_code == status.HTTP_200_OK
+        summaries = [entry["summary"] for entry in response.json()["results"]]
+        assert leaked not in summaries
+        assert summaries == []
+
+    @parameterized.expand(
+        [
+            ("feedback_list", "get", "feedback/", None),
+            ("missing_capability_list", "get", "missing_capabilities/", None),
+            (
+                "feedback_create",
+                "post",
+                "feedback/",
+                {"goal": "understand usage", "feedback": "Need clearer results"},
+            ),
+            (
+                "missing_capability_create",
+                "post",
+                "missing_capabilities/",
+                {"goal": "debug surveys", "missing_capability": "Need an eligibility explainer"},
+            ),
+        ]
+    )
+    def test_cannot_reach_another_orgs_team_endpoint(
+        self, _name: str, method: str, path: str, payload: dict[str, str] | None
+    ) -> None:
+        request = getattr(self.client, method)
+        response = request(f"/api/environments/{self.other_team.id}/mcp_analytics/{path}", payload, format="json")
+
+        # Not a member of the other org's team: the request is rejected before any data is read.
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    def test_creating_in_own_team_does_not_touch_other_team(self) -> None:
+        self.client.post(
+            f"/api/environments/{self.team.id}/mcp_analytics/feedback/",
+            {"goal": "understand usage", "feedback": "My team's feedback"},
+            format="json",
+        )
+
+        # The other team's submission count is untouched by writes to this team.
+        assert MCPAnalyticsSubmission.objects.filter(team=self.other_team).count() == 2
+        assert MCPAnalyticsSubmission.objects.filter(team=self.team).count() == 1
