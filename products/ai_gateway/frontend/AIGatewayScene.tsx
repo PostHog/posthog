@@ -2,10 +2,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ComponentType } from 'react'
 
-import { LemonBanner, LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { RobotHog } from 'lib/components/hedgehogs'
 import { Link } from 'lib/lemon-ui/Link'
 import { AnthropicLogo } from 'scenes/onboarding/sdks/logos/AnthropicLogo'
 import { OpenAILogo } from 'scenes/onboarding/sdks/logos/OpenAILogo'
@@ -14,16 +13,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { aiGatewayLogic, EndpointProvider, EndpointTab } from './aiGatewayLogic'
-import { UsageTiles } from './gatewayUsage'
-
-const AI_GATEWAY_DESCRIPTION =
-    'One endpoint for every major LLM, billed at cost — no markup on tokens. Point your app at the gateway and ' +
-    'PostHog tracks its usage, cost, and spend for you. Any project secret key with the llm_gateway:read scope ' +
-    'can call it, and you can add or rotate keys anytime with no downtime.'
+import { GatewayBalanceCard, GatewayTopUpModal } from './GatewayTopUp'
+import { ModelBreakdownTable, SpendChart, UsageMetrics } from './gatewayUsage'
 
 export const scene: SceneExport = {
     component: AIGatewayScene,
@@ -32,7 +28,8 @@ export const scene: SceneExport = {
 }
 
 export function AIGatewayScene(): JSX.Element {
-    const { usage, usageLoading } = useValues(aiGatewayLogic)
+    const { usage, usageLoading, spendChart, spendSeriesLoading, modelUsage, modelUsageLoading } =
+        useValues(aiGatewayLogic)
 
     return (
         <SceneContent>
@@ -41,21 +38,30 @@ export function AIGatewayScene(): JSX.Element {
                 description="Every major LLM through one endpoint, billed at cost."
                 resourceType={{ type: 'ai_gateway' }}
             />
-            <div className="border-2 border-dashed border-primary w-full p-6 rounded mt-2 mb-4 flex items-center gap-6">
-                <RobotHog className="w-24 hidden md:block shrink-0" />
-                <div className="flex-shrink">
-                    <h3 className="m-0">Every major LLM through one endpoint, billed at cost</h3>
-                    <p className="ml-0 mt-1 mb-0 text-secondary">{AI_GATEWAY_DESCRIPTION}</p>
+            <SceneSection title="Usage" description="Last 30 days" titleSize="sm">
+                <div className="flex gap-2 flex-wrap">
+                    <UsageMetrics usage={usage} loading={usageLoading} />
+                    <GatewayBalanceCard />
                 </div>
-            </div>
-            <section className="flex flex-col gap-2">
-                <h3 className="m-0">Usage · last 30 days</h3>
-                <UsageTiles usage={usage} loading={usageLoading} />
-            </section>
-            <section className="flex flex-col gap-2">
-                <h3 className="m-0">Connect</h3>
+                <SpendChart data={spendChart.data} labels={spendChart.labels} loading={spendSeriesLoading} />
+            </SceneSection>
+            <SceneSection title="By model" description="Spend and tokens per model, last 30 days" titleSize="sm">
+                <ModelBreakdownTable rows={modelUsage} loading={modelUsageLoading} />
+            </SceneSection>
+            <SceneSection
+                title="Connect your app"
+                titleSize="sm"
+                description={
+                    <>
+                        Every request is tracked in <Link to={urls.aiObservabilityDashboard()}>AI observability</Link>{' '}
+                        with no SDK instrumentation needed. Already sending generations through a PostHog LLM SDK?
+                        Switch back to the official provider packages so each one is counted once.
+                    </>
+                }
+            >
                 <GatewayEndpoint />
-            </section>
+            </SceneSection>
+            <GatewayTopUpModal />
         </SceneContent>
     )
 }
@@ -176,12 +182,6 @@ client.messages.create(
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonBanner type="info">
-                Every request through the gateway is automatically tracked in{' '}
-                <Link to={urls.aiObservabilityDashboard()}>AI observability</Link> — traces, tokens, cost, and latency —
-                with no SDK instrumentation needed. If you were already capturing these with a PostHog LLM SDK, you can
-                switch back to the official provider packages so each generation is only counted once.
-            </LemonBanner>
             <LemonSegmentedButton
                 size="small"
                 value={endpointProvider}
