@@ -396,6 +396,11 @@ class OAuthRefreshToken(AbstractRefreshToken):
         db_index=True,
     )
 
+    # Liveness signal for idle expiry. Non-rotating refresh (DCR/CIMD) never repoints
+    # access_token, so the linked access token's expiry can't tell an active session from a
+    # dead one — last_used_at is bumped on each successful refresh and is the cleanup signal.
+    last_used_at: models.DateTimeField = models.DateTimeField(default=timezone.now, null=True)
+
 
 class OAuthGrant(AbstractGrant):
     class Meta(AbstractGrant.Meta):

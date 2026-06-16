@@ -1240,6 +1240,17 @@ class TestOAuthAPI(APIBaseTest):
 
             refresh_token = refresh_response.json()["refresh_token"]
 
+    def test_refresh_bumps_last_used_at(self):
+        refresh_token = self._create_refreshable_token_pair("insight:read")
+        stale = timezone.now() - timedelta(days=10)
+        OAuthRefreshToken.objects.filter(pk=refresh_token.pk).update(last_used_at=stale)
+
+        self._refresh(refresh_token.token)
+
+        refresh_token.refresh_from_db()
+        assert refresh_token.last_used_at is not None
+        self.assertGreater(refresh_token.last_used_at, stale)
+
     def _create_refreshable_token_pair(self, scope: str) -> OAuthRefreshToken:
         suffix = scope.replace(" ", "_").replace("*", "star").replace(":", "_")
         access_token = OAuthAccessToken.objects.create(

@@ -307,6 +307,27 @@ class TestBatchDeleteFunctionality(TestCase):
         tokens_to_keep.append(("OAuthAccessToken", stale_linked_access.id))
         tokens_to_keep.append(("OAuthRefreshToken", live_refresh_stale_access.id))
 
+        # Unrevoked refresh token last used beyond the idle cutoff (REFRESH_TOKEN_EXPIRE_SECONDS
+        # + retention): a dead session that never came back to refresh, so it is reaped.
+        idle_refresh = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="idle_refresh",
+            last_used_at=ninety_five_days_ago,
+        )
+        tokens_to_delete.append(("OAuthRefreshToken", idle_refresh.id))
+
+        # Unrevoked refresh token used recently (kept): proves the idle cutoff keys on
+        # last_used_at, not on the linked access token's expiry, so a still-active
+        # non-rotating session survives.
+        recently_used_refresh = OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=self.oauth_application,
+            token="recently_used_refresh",
+            last_used_at=one_day_ago,
+        )
+        tokens_to_keep.append(("OAuthRefreshToken", recently_used_refresh.id))
+
         # Run cleanup
         context = dagster.build_op_context()
         clear_expired_oauth_tokens(context)

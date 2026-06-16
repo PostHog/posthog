@@ -81,6 +81,11 @@ CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
 # distinguishable from "not resolved yet".
 _IMPERSONATOR_CACHE_UNSET: object = object()
 
+# last_used_at is bumped on refresh to drive idle cleanup. Coarsen the write to at most
+# once an hour per token so chatty refreshers don't issue an UPDATE on every request —
+# the lag is irrelevant against the multi-day idle-expiry cutoff.
+REFRESH_TOKEN_LAST_USED_WRITE_INTERVAL = timedelta(hours=1)
+
 
 def get_region_info() -> dict | None:
     """Return region metadata if running on PostHog Cloud US/EU, else None."""
@@ -452,6 +457,22 @@ class OAuthValidator(OAuth2Validator):
                 request=request,
             )
         return narrowed
+
+    def validate_refresh_token(self, refresh_token, client, request, *args, **kwargs) -> bool:
+        """
+        Stamp last_used_at on a successful refresh so the nightly cleanup can reap
+        idle (but unrevoked) refresh tokens. Non-rotating clients reuse the same token
+        indefinitely, so this is the only liveness signal those sessions emit.
+        """
+        valid = super().validate_refresh_token(refresh_token, client, request, *args, **kwargs)
+        if valid:
+            rt = getattr(request, "refresh_token_instance", None)
+            if isinstance(rt, OAuthRefreshToken):
+                now = timezone.now()
+                if rt.last_used_at is None or rt.last_used_at < now - REFRESH_TOKEN_LAST_USED_WRITE_INTERVAL:
+                    # .update() avoids the auto_now `updated` churn and model save hooks.
+                    OAuthRefreshToken.objects.filter(pk=rt.pk).update(last_used_at=now)
+        return valid
 
     def rotate_refresh_token(self, request) -> bool:
         """
