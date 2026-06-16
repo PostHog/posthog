@@ -54,6 +54,7 @@ MAX_BODY_CHARS = 2000
 _MARKER_RE = re.compile(
     r"<!--\s*pr-freshness:v1\s+tier=(?P<tier>\S+)\s+budget_hours=(?P<hours>\d+)\s+deadline=(?P<deadline>\S+)\s*-->"
 )
+_TIER_RE = re.compile(r"\b(hot|normal|isolated)\b")
 
 
 def tier_to_hours(tier: str) -> int:
@@ -61,12 +62,14 @@ def tier_to_hours(tier: str) -> int:
 
 
 def parse_tier(text: str) -> str:
-    """Map a model reply to a known tier, defaulting if it doesn't name one."""
-    lowered = text.lower()
-    for tier in ("hot", "isolated", "normal"):
-        if tier in lowered:
-            return tier
-    return "default"
+    """Map a model reply to a known tier, defaulting if it doesn't name exactly one.
+
+    Whole-word matching avoids incidental substrings, and a reply that names
+    several tiers (e.g. "not hot, normal") is treated as ambiguous → default
+    rather than silently picking one.
+    """
+    found = set(_TIER_RE.findall(text.lower()))
+    return found.pop() if len(found) == 1 else "default"
 
 
 def format_marker(tier: str, budget_hours: int, deadline_iso: str) -> str:
@@ -74,14 +77,23 @@ def format_marker(tier: str, budget_hours: int, deadline_iso: str) -> str:
 
 
 def parse_marker(summary: str | None) -> dict | None:
-    """Read a previously-stamped budget back out of a check summary, if present."""
+    """Read a previously-stamped budget back out of a check summary.
+
+    Returns None for an absent *or* malformed marker (older format, unparseable
+    deadline) so the caller recomputes the budget rather than skipping the PR on
+    a bad marker.
+    """
     match = _MARKER_RE.search(summary or "")
     if match is None:
+        return None
+    try:
+        deadline = datetime.fromisoformat(match.group("deadline"))
+    except ValueError:
         return None
     return {
         "tier": match.group("tier"),
         "budget_hours": int(match.group("hours")),
-        "deadline": match.group("deadline"),
+        "deadline": deadline,
     }
 
 
@@ -185,7 +197,7 @@ def _evaluate_pr(repo, pr, now: datetime, *, model: str, api_key: str | None) ->
         # Budget already computed for this head SHA — reuse it, no LLM call.
         tier = marker["tier"]
         budget_hours = marker["budget_hours"]
-        deadline = datetime.fromisoformat(marker["deadline"])
+        deadline = marker["deadline"]
     else:
         files = [f.filename for f in pr.get_files()]
         tier = classify_tier(pr.title or "", pr.body or "", files, model=model, api_key=api_key)
@@ -210,14 +222,13 @@ def main() -> None:
     github = Github(auth=Auth.Token(token))
     repo = github.get_repo(repo_name)
 
-    if pr_number:
-        prs = [repo.get_pull(int(pr_number))]
-    else:
-        prs = list(repo.get_pulls(state="open"))
+    # Iterate the paginated list lazily — don't materialize every open PR up front.
+    prs = [repo.get_pull(int(pr_number))] if pr_number else repo.get_pulls(state="open")
 
     now = datetime.now(UTC)
-    stale = 0
+    seen = evaluated = stale = 0
     for pr in prs:
+        seen += 1
         if pr.draft:
             print(f"#{pr.number}: draft — skipping")
             continue
@@ -227,11 +238,12 @@ def main() -> None:
             # One bad PR must not abort the sweep of the rest.
             print(f"#{pr.number}: error — {exc}", file=sys.stderr)
             continue
+        evaluated += 1
         if conclusion == "failure":
             stale += 1
         print(f"#{pr.number}: {conclusion}")
 
-    print(f"Done — {stale} stale PR(s) of {len(prs)} evaluated")
+    print(f"Done — {stale} stale of {evaluated} evaluated ({seen} open PR(s) seen)")
 
 
 if __name__ == "__main__":

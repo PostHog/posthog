@@ -1,13 +1,15 @@
 name: Script tests
 
-# Unit tests for the helper scripts in .github/scripts that gate CI decisions
-# (e.g. schema-impact narrowing). Without this, a regression in the narrowing
-# logic could silently skip affected product tests.
+# Unit tests for small CI helper scripts/tools (.github/scripts and select
+# tools/) that gate or drive CI decisions — e.g. schema-impact narrowing and the
+# PR freshness budget logic. Without this, a regression in those pure functions
+# would be invisible (the tools' own workflows don't run their unit tests).
 on:
     pull_request:
         paths:
             - .github/scripts/**
             - .github/workflows/ci-scripts.yml
+            - tools/pr-freshness/**
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -35,7 +37,7 @@ jobs:
                   python-version-file: pyproject.toml
 
             - name: Install pytest
-              run: python -m pip install --quiet pytest
+              run: python -m pip install --quiet pytest parameterized
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here).
@@ -51,3 +53,6 @@ jobs:
 
             - name: Rate-limit monitor tests (Node)
               run: node --test .github/scripts/monitor-github-rate-limit.test.js
+
+            - name: PR freshness tests (Python)
+              run: python -m pytest tools/pr-freshness/test_freshness.py -v -c /dev/null -p no:cacheprovider

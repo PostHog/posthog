@@ -46,9 +46,14 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
 
             - name: Checkout freshness tool
+              # Always run the tool from master — hardcoded so a pull_request from
+              # a branch can't supply a tampered freshness.py that exfiltrates the
+              # app token / Anthropic key. The tool acts on PRs via the API, so it
+              # never needs the PR branch's working tree.
               if: steps.app-token.outputs.token != ''
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: master
                   sparse-checkout: tools/pr-freshness
                   sparse-checkout-cone-mode: false
 
@@ -69,4 +74,11 @@ jobs:
                   # freshness falls back to a flat default budget — no hard dep.
                   ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
                   PR_FRESHNESS_MODEL: claude-haiku-4-5
-              run: uv run tools/pr-freshness/freshness.py
+              run: |
+                  # Bootstrap guard: the tool is checked out from master, so until
+                  # this lands on master the file is absent — no-op rather than fail.
+                  if [ ! -f tools/pr-freshness/freshness.py ]; then
+                    echo "freshness tool not on master yet — skipping"
+                    exit 0
+                  fi
+                  uv run tools/pr-freshness/freshness.py

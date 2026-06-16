@@ -24,6 +24,7 @@ def test_tier_to_hours(tier, expected):
         ("bare word", "normal", "normal"),
         ("uppercase", "HOT", "hot"),
         ("with reasoning", "I'd say isolated since it's docs", "isolated"),
+        ("ambiguous multiple tiers", "not hot, normal", "default"),
         ("unknown", "maybe medium?", "default"),
         ("empty", "", "default"),
     ]
@@ -32,16 +33,28 @@ def test_parse_tier(_name, text, expected):
     assert parse_tier(text) == expected
 
 
-def test_marker_roundtrip():
-    deadline = "2026-06-18T08:00:00+00:00"
-    marker = format_marker("normal", 48, deadline)
-    parsed = parse_marker(f"some summary text\n{marker}\nmore text")
-    assert parsed == {"tier": "normal", "budget_hours": 48, "deadline": deadline}
+@parameterized.expand(
+    [
+        ("hot", 2, "2026-06-18T08:00:00+00:00"),
+        ("normal", 12, "2026-06-17T00:00:00+00:00"),
+        ("isolated", 48, "2026-06-20T12:00:00+00:00"),
+    ]
+)
+def test_marker_roundtrip(tier, hours, deadline_iso):
+    parsed = parse_marker(f"some summary text\n{format_marker(tier, hours, deadline_iso)}\nmore text")
+    assert parsed == {"tier": tier, "budget_hours": hours, "deadline": datetime.fromisoformat(deadline_iso)}
 
 
-def test_parse_marker_absent():
-    assert parse_marker("no marker here") is None
-    assert parse_marker(None) is None
+@parameterized.expand(
+    [
+        ("no marker", "no marker here"),
+        ("none", None),
+        ("empty", ""),
+        ("malformed deadline", "<!-- pr-freshness:v1 tier=normal budget_hours=12 deadline=not-a-date -->"),
+    ]
+)
+def test_parse_marker_absent_or_invalid(_name, summary):
+    assert parse_marker(summary) is None
 
 
 @parameterized.expand(
