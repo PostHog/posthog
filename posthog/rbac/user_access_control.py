@@ -405,6 +405,9 @@ class UserAccessControl:
     def _get_access_controls(self, filters: dict) -> list[_AccessControl]:
         if not EE_AVAILABLE:
             return []
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
+            return []
         key = json.dumps(filters, sort_keys=True)
         if key not in self._cache:
             with tracer.start_as_current_span("rbac.access_controls.db") as span:
@@ -959,6 +962,10 @@ class UserAccessControl:
             return queryset
 
         if not EE_AVAILABLE:
+            return queryset
+
+        if not self.access_controls_supported:
+            # Without the entitlement, stale rules in the DB must be ignored, not enforced
             return queryset
 
         # Subquery to check if user has "admin" on the FileSystem's team/project

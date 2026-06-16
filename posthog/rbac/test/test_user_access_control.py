@@ -527,6 +527,31 @@ class TestUserAccessControlFileSystem(BaseUserAccessControlTest):
         # Now user is no longer project admin, so file_b is excluded again (they're not the creator).
         self.assertCountEqual([self.file_a], filtered_for_user_after_removal)
 
+    def test_filtering_ignores_rules_without_entitlement(self):
+        # Global "none" rule on file_b (user is not its creator)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="my_resource",
+            resource_id="def",
+            access_level="none",
+        )
+
+        # Sanity: with the entitlement the rule is enforced (file_b hidden)
+        self.assertCountEqual(
+            [self.file_a],
+            self.user_access_control.filter_and_annotate_file_system_queryset(FileSystem.objects.all()),
+        )
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        self.assertCountEqual(
+            [self.file_a, self.file_b],
+            fresh_uac.filter_and_annotate_file_system_queryset(FileSystem.objects.all()),
+        )
+
 
 @pytest.mark.ee
 class TestUserAccessControlSerializer(BaseUserAccessControlTest):
@@ -1205,6 +1230,38 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_1.id in notebook_ids
         assert self.notebook_3.id in notebook_ids
         assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
+
+    def test_filter_queryset_ignores_rules_without_entitlement(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Member-level "none" rule blocking notebook_2 for the user
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        # Sanity: with the entitlement the rule is enforced
+        self._clear_uac_caches()
+        enforced_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(Notebook.objects.all()).values_list(
+                "id", flat=True
+            )
+        )
+        assert self.notebook_2.id not in enforced_ids
+
+        # Downgrade: drop the access_control entitlement -> stale rule must be ignored
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        fresh_uac = UserAccessControl(self.user, self.team)
+        filtered_ids = list(
+            fresh_uac.filter_queryset_by_access_level(Notebook.objects.all()).values_list("id", flat=True)
+        )
+        assert self.notebook_1.id in filtered_ids
+        assert self.notebook_2.id in filtered_ids
+        assert self.notebook_3.id in filtered_ids
 
     @parameterized.expand(
         [
