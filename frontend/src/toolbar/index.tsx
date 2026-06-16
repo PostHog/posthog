@@ -112,8 +112,18 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                 }
             })
             .catch((error) => {
-                toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
-                captureToolbarException(error, 'preloaded_flags_fetch')
+                // The flags preload is best-effort — the toolbar initializes fine without it.
+                // `fetch` throws a TypeError ("Failed to fetch") on any transient network-level
+                // failure (aborted request, ad blocker/extension, connectivity loss, CORS), which
+                // is expected noise rather than a bug, so log it instead of capturing an exception.
+                if (error instanceof TypeError) {
+                    toolbarLogger.warn('flags', 'Network error fetching toolbar feature flags', {
+                        error: error.message,
+                    })
+                } else {
+                    toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
+                    captureToolbarException(error, 'preloaded_flags_fetch')
+                }
             })
     }
 
