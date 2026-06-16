@@ -22,8 +22,8 @@ def user_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
     )
 
 
-# These one-node calls are expanded to the classification SQL by the printer's visit_call (see
-# functions.traffic_type.TRAFFIC_TYPE_PRINTER_BUILDERS), so it only materializes for queries that use it.
+# These one-node calls are expanded to the classification SQL in the resolver (see Resolver.visit_call),
+# so the big expression only materializes for queries that select the field.
 def create_is_bot_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name, expr=ast.Call(name="__preview_isBot", args=[user_agent_expr(properties_path)]), isolate_scope=True

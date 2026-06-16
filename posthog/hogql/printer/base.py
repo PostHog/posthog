@@ -28,7 +28,6 @@ from posthog.hogql.functions.mapping import (
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
 )
-from posthog.hogql.functions.printer_expansions import maybe_expand_printer_only_function
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
@@ -931,19 +930,6 @@ class BasePrinter(Visitor[str]):
         )
 
     def visit_call(self, node: ast.Call):
-        expanded = maybe_expand_printer_only_function(node)
-        if expanded is not None:
-            # The expansion duplicates each argument several times, so nesting one of these markers inside
-            # another (only reachable from user-written HogQL, never the catalog) would blow up
-            # exponentially; reject that rather than expand it.
-            if getattr(self, "_inside_printer_only_expansion", False):
-                raise QueryError(f"Function '{node.name}' cannot be nested inside another expanded function")
-            self._inside_printer_only_expansion = True
-            try:
-                return self.visit(expanded)
-            finally:
-                self._inside_printer_only_expansion = False
-
         func_meta = (
             find_hogql_aggregation(node.name)
             or find_hogql_function(node.name)

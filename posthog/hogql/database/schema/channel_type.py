@@ -47,7 +47,7 @@ def create_initial_domain_type(
 ) -> ExpressionField:
     if not properties_path:
         properties_path = ["properties"]
-    # One call expanded in the printer (see expand_initial_domain_type_call), like the channel type.
+    # One call expanded in the resolver (see expand_initial_domain_type_call), like the channel type.
     return ExpressionField(
         name=name,
         expr=ast.Call(
@@ -71,12 +71,12 @@ if(
     )
 
 
-# Default referring-domain classification; expanded to SQL in the printer's visit_call (never a real CH function).
+# Default referring-domain classification; expanded to SQL in the resolver (never a real CH function).
 INITIAL_DOMAIN_TYPE_FUNCTION = "_initialDomainType"
 
 
 def expand_initial_domain_type_call(args: list[ast.Expr]) -> ast.Expr:
-    # Printer-side expansion of _initialDomainType(referring_domain).
+    # Resolver-side expansion of _initialDomainType(referring_domain).
     return replace_placeholders(_initial_domain_type_expr(), {"referring_domain": args[0]})
 
 
@@ -230,7 +230,7 @@ def custom_rule_to_expr(custom_rule: "CustomChannelRule", source_exprs: ChannelT
         return ast.Call(name=custom_rule.combiner.lower(), args=conditions)
 
 
-# Default channel-type classification; the printer's visit_call expands it to SQL (never a real ClickHouse function).
+# Default channel-type classification; the resolver expands it to SQL (never a real ClickHouse function).
 DEFAULT_CHANNEL_TYPE_FUNCTION = "_defaultChannelType"
 
 
