@@ -1270,7 +1270,12 @@ class TestHogFlowAPI(APIBaseTest):
                     }
                 ],
             }
-        filters = {} if static else {"properties": properties}
+        # A static cohort keeps its original filter definition (behavioral/property/nested) even though
+        # membership is frozen — only a plain static cohort with no source criteria has empty filters.
+        if static and not (behavioral or nested_cohort_id is not None):
+            filters = {}
+        else:
+            filters = {"properties": properties}
         return Cohort.objects.create(team=self.team, name="c", filters=filters, is_static=static)
 
     def _post_batch_with_cohort(self, cohort_id: int, *, status: str = "active", trigger_type: str = "batch", **extra):
@@ -1304,6 +1309,20 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_batch_trigger_allows_non_behavioral_cohort(self, _name, cohort_kwargs):
         cohort = self._make_cohort(**cohort_kwargs)
         response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    @parameterized.expand(["batch", "schedule"])
+    def test_hog_flow_audience_allows_behavioral_static_cohort(self, trigger_type: str):
+        # A static cohort built from behavioral criteria keeps its behavioral filter definition, but its
+        # membership is frozen and precalculated, so it's a valid audience — the error even recommends it.
+        cohort = self._make_cohort(behavioral=True, static=True)
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_batch_trigger_allows_wrapper_of_static_behavioral_cohort(self):
+        behavioral_static = self._make_cohort(behavioral=True, static=True)
+        wrapper = self._make_cohort(nested_cohort_id=behavioral_static.pk)
+        response = self._post_batch_with_cohort(wrapper.pk)
         assert response.status_code == 201, response.json()
 
     def test_hog_flow_batch_trigger_behavioral_cohort_rejected_for_mcp_draft(self):
