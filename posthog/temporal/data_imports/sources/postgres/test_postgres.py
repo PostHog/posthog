@@ -54,6 +54,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _build_query,
     _connect_to_postgres,
     _connect_with_dropped_retry,
+    _connect_with_options_fallback,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
     _get_partition_settings_for_partitioned_table,
@@ -64,6 +65,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
     _is_recovery_conflict_error,
@@ -581,6 +583,71 @@ class TestConnectForcesUtf8ClientEncoding:
             )
 
         assert connect_mock.call_args.kwargs["options"] == f"{FORCE_UTF8_CLIENT_ENCODING} -c statement_timeout=5000"
+
+
+# Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)
+# reject the libpq `options` startup parameter we send to pin client_encoding=UTF8. When they do, we
+# drop `options` and retry rather than failing the connection.
+class TestConnectOptionsStartupParamFallback:
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            (
+                'connection to server at "1.2.3.4", port 6543 failed: FATAL:  unsupported startup parameter: options',
+                True,
+            ),
+            (
+                "connection failed: FATAL:  Feature not supported: RDS Proxy currently "
+                "doesn’t support command-line options.",
+                True,
+            ),
+            ("password authentication failed for user", False),
+            ("server closed the connection unexpectedly", False),
+        ],
+    )
+    def test_detects_options_unsupported_message(self, message, expected):
+        assert _is_options_startup_param_unsupported(psycopg.OperationalError(message)) is expected
+
+    def test_non_operational_error_is_not_matched(self):
+        assert _is_options_startup_param_unsupported(ValueError("unsupported startup parameter: options")) is False
+
+    def test_retries_without_options_when_pooler_rejects_it(self):
+        good_conn = mock.MagicMock()
+        connect_mock = mock.MagicMock(
+            side_effect=[
+                psycopg.OperationalError("FATAL:  unsupported startup parameter: options"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            result = _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+
+        assert result is good_conn
+        assert connect_mock.call_count == 2
+        # First attempt carries options, retry drops it entirely.
+        assert connect_mock.call_args_list[0].kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
+        assert "options" not in connect_mock.call_args_list[1].kwargs
+
+    def test_does_not_retry_when_no_options_were_sent(self):
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError("FATAL:  unsupported startup parameter: options")
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_options_fallback(host="db")
+
+        assert connect_mock.call_count == 1
+
+    def test_unrelated_operational_error_is_not_retried(self):
+        connect_mock = mock.MagicMock(side_effect=psycopg.OperationalError("password authentication failed for user"))
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect", connect_mock):
+            with pytest.raises(psycopg.OperationalError):
+                _connect_with_options_fallback(host="db", options=FORCE_UTF8_CLIENT_ENCODING)
+
+        assert connect_mock.call_count == 1
 
 
 class TestStatementTimeoutAsNonRetryable:
