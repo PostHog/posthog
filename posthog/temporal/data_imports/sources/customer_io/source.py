@@ -6,6 +6,7 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -96,6 +97,7 @@ class CustomerIOSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOMER_IO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             caption=(
                 "Connect your Customer.io workspace using an "
                 f"[App API Key]({CIO_APP_API_KEY_URL}). PostHog uses the key to pull "

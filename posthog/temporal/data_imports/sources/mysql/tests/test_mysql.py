@@ -15,7 +15,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     MySQLColumn,
     MySQLImplementation,
     _build_query,
-    _is_bad_plan_timeout,
+    _is_bad_plan_error,
     _release_streaming_cursor,
     _safe_convert_date,
     _safe_convert_datetime,
@@ -290,6 +290,26 @@ class TestGetRowsToSync:
         cursor.execute.side_effect = RuntimeError("boom")
         # Swallows the error rather than propagating — matches pre-refactor behavior.
         assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pymysql.err.OperationalError(1054, "Unknown column 'favoritor_id' in 'where clause'"),
+            pymysql.err.OperationalError(
+                3024, "Query execution was interrupted, maximum statement execution time exceeded"
+            ),
+            RuntimeError("boom"),
+        ],
+    )
+    def test_does_not_capture_handled_probe_failures(self, impl, cursor, logger, error, mocker):
+        # The COUNT(*) probe is best-effort: it falls back to 0 and must not flood error
+        # tracking with handled failures (e.g. a bad incremental field or the MAX_EXECUTION_TIME
+        # timeout). Genuine problems resurface in the real streaming query and are classified there.
+        cursor.execute.side_effect = error
+        capture = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.capture_exception")
+
+        assert impl.get_rows_to_sync(cursor, "SELECT * FROM t", {}, logger) == 0
+        capture.assert_not_called()
 
     def test_wraps_inner_query_as_subselect(self, impl, cursor, logger):
         cursor.fetchone.return_value = (5,)
@@ -651,9 +671,16 @@ class TestStreamingCursorTeardown:
         assert ss_cursor.connection is None
 
 
-class TestIsBadPlanTimeout:
+class TestIsBadPlanError:
     def test_matches_error_2013(self):
-        assert _is_bad_plan_timeout(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+        assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
+
+    def test_matches_error_1038_out_of_sort_memory(self):
+        # Out of sort memory is the same bad plan (filesort over the incremental
+        # field) seen from the other side — the FORCE INDEX fallback resolves it.
+        assert _is_bad_plan_error(
+            pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")
+        )
 
     @pytest.mark.parametrize(
         "code,message",
@@ -663,10 +690,10 @@ class TestIsBadPlanTimeout:
         ],
     )
     def test_does_not_match_other_error_codes(self, code, message):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError(code, message))
+        assert not _is_bad_plan_error(pymysql.err.OperationalError(code, message))
 
     def test_does_not_match_error_without_args(self):
-        assert not _is_bad_plan_timeout(pymysql.err.OperationalError())
+        assert not _is_bad_plan_error(pymysql.err.OperationalError())
 
 
 class TestBuildQueryForceIndex:
@@ -813,6 +840,23 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "is blocked because of many connection errors",
+            # MariaDB phrasing (suggests mariadb-admin) — what we actually observed in the wild.
+            "OperationalError: (1129, \"Host '172.31.4.130' is blocked because of many connection "
+            "errors; unblock with 'mariadb-admin flush-hosts'\")",
+            # MySQL phrasing (suggests mysqladmin) — same root cause, different unblock hint.
+            "OperationalError: (1129, \"Host '10.0.1.5' is blocked because of many connection "
+            "errors; unblock with 'mysqladmin flush-hosts'\")",
+        ],
+    )
+    def test_host_blocked_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Host-blocked error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
@@ -822,3 +866,21 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient lost-connection error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # MySQL error 1135: the server reached the connection but couldn't spawn an OS thread
+            # to service it (errno 11 EAGAIN). This is a transient, server-side resource exhaustion
+            # — it clears as concurrent connections close — so it must keep retrying, just like
+            # Postgres's "too many connections" / "max clients reached" capacity errors.
+            "OperationalError: (1135, 'Can't create a new thread (errno 11 \"Resource temporarily "
+            'unavailable"); if you are not out of available memory, you can consult the manual for '
+            "a possible OS-dependent bug')",
+            'Can\'t create a new thread (errno 11 "Resource temporarily unavailable")',
+        ],
+    )
+    def test_cant_create_new_thread_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
