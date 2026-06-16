@@ -41,6 +41,16 @@ describe('@posthog/web-fetch', () => {
         const out = await webFetchV1.run({ url: 'https://example.com', max_bytes: 100 }, makeCtx({ http }))
         expect(out.body.length).toBe(100)
     })
+
+    it('rejects non-http(s) schemes before fetching', async () => {
+        const fetch = vi.fn()
+        const http = { fetch } as unknown as HttpFetcher
+        await expect(webFetchV1.run({ url: 'file:///etc/passwd' }, makeCtx({ http }))).rejects.toThrow(
+            /unsupported_url_scheme/
+        )
+        await expect(webFetchV1.run({ url: 'gopher://x' }, makeCtx({ http }))).rejects.toThrow(/unsupported_url_scheme/)
+        expect(fetch).not.toHaveBeenCalled()
+    })
 })
 
 describe('@posthog/web-search', () => {

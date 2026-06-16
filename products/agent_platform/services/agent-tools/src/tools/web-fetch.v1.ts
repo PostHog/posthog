@@ -1,5 +1,7 @@
 import { defineNativeTool, Type } from '@posthog/agent-shared'
 
+import { parseFetchableUrl } from './http-url'
+
 export const webFetchV1 = defineNativeTool({
     id: '@posthog/web-fetch',
     description:
@@ -18,6 +20,9 @@ export const webFetchV1 = defineNativeTool({
     cost_hint: 'medium',
     async run(args, ctx) {
         const maxBytes = args.max_bytes ?? 1_000_000
+        // Pin the scheme to http/https before fetching (SSRF host filtering is
+        // smokescreen's job at the egress hop).
+        parseFetchableUrl(args.url)
         const res = await ctx.http.fetch(args.url, { method: 'GET' })
         const text = await res.text()
         return {
