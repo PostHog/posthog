@@ -7,7 +7,7 @@ import collections
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
@@ -101,6 +102,13 @@ class SSLRequiredError(Exception):
     pass
 
 
+# libpq connection option that pins the client encoding to UTF8. Some Postgres-wire-compatible
+# engines (notably Amazon Redshift) report their `client_encoding` as the legacy alias `UNICODE`,
+# which psycopg3's encoding map doesn't recognise — decoding the first query result then raises
+# `NotSupportedError: codec not available in Python: 'UNICODE'`. Forcing the encoding sidesteps it.
+FORCE_UTF8_CLIENT_ENCODING = "-c client_encoding=UTF8"
+
+
 # Substrings PgBouncer / libpq use when the upstream backend connection died
 # mid-stream. We hit these when a long-running sync holds a server-side cursor
 # (and thus an open transaction) idle across the slow delta-merge phase and the
@@ -118,6 +126,19 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "consuming input failed",
     "no connection to the server",
     "terminating connection due to",
+)
+
+# Exception types that can carry a connection-dropped error. ProtocolViolation is
+# PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
+# socket. IdleInTransactionSessionTimeout (SQLSTATE 25P03) is what Postgres raises
+# when the source's idle_in_transaction_session_timeout culls our backend while a
+# server-side cursor holds a transaction open across the slow delta-merge between
+# yields — psycopg maps it to InternalError, not OperationalError, so it must be
+# named explicitly or the type-based catch below would miss it.
+_CONNECTION_DROPPED_ERROR_TYPES = (
+    psycopg.errors.ProtocolViolation,
+    psycopg.OperationalError,
+    psycopg.errors.IdleInTransactionSessionTimeout,
 )
 
 
@@ -143,7 +164,13 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     psycopg surfaces these as ProtocolViolation (PgBouncer's synthetic error
     packet) or OperationalError (libpq detecting the dead socket), so we match on
     type and message rather than a single SQLSTATE.
+
+    IdleInTransactionSessionTimeout is the exception: it carries SQLSTATE 25P03 and
+    unambiguously means the source terminated our backend for holding a transaction
+    open too long, so the type alone is enough — no message match required.
     """
+    if isinstance(error, psycopg.errors.IdleInTransactionSessionTimeout):
+        return True
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
@@ -185,7 +212,7 @@ def _connect_with_dropped_retry(
     while True:
         try:
             return connect()
-        except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+        except _CONNECTION_DROPPED_ERROR_TYPES as e:
             if not _is_connection_dropped_error(e):
                 raise
             attempt += 1
@@ -261,6 +288,13 @@ def _connect_to_postgres(
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
+    # Redshift (and other Postgres-wire-compatible engines) report `client_encoding` as the legacy
+    # alias `UNICODE`, which psycopg3's encoding map doesn't recognise — it raises
+    # `NotSupportedError: codec not available in Python: 'UNICODE'` the first time it decodes a query
+    # result. Pinning the client encoding makes the server report `UTF8` instead, which psycopg maps
+    # cleanly. We always force UTF8 and append any caller-supplied `options` after it.
+    caller_options = kwargs.pop("options", None)
+    options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
     try:
         return psycopg.connect(
             host=host,
@@ -277,6 +311,7 @@ def _connect_to_postgres(
             keepalives_idle=30,
             keepalives_interval=10,
             keepalives_count=5,
+            options=options,
             **kwargs,
         )
     except psycopg.OperationalError as e:
@@ -1016,6 +1051,57 @@ class SafeDateLoader(Loader):
         return date.max
 
 
+def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
+    """Map a Postgres timestamp value outside Python's datetime range onto datetime.min/max.
+
+    PostgreSQL timestamps span years 4713 BC to 294276 AD and include 'infinity'/'-infinity',
+    far wider than Python's datetime (year 1 to 9999). We pick the boundary by sign so values
+    'before year 1' (BC dates, '-infinity', negative years) clamp low and everything else
+    clamps high. `tzinfo` keeps the result aware/naive to match the column's Arrow type.
+    """
+    s = bytes(data).decode("utf-8", "replace").strip().lower()
+    if s == "-infinity" or s.startswith("-") or "bc" in s:
+        return datetime.min.replace(tzinfo=tzinfo)
+    return datetime.max.replace(tzinfo=tzinfo)
+
+
+class SafeTimestampLoader(TimestampLoader):
+    """Load PostgreSQL timestamps, handling values beyond Python's datetime range.
+
+    psycopg's default loader raises `DataError` on timestamps outside Python's datetime
+    range (years > 9999, 'infinity'/'-infinity'), which aborts the whole table sync. We
+    defer to the default loader for in-range values and clamp the rest, mirroring
+    `SafeDateLoader`. `timestamp` columns map to a naive Arrow type, so the clamp stays naive.
+    """
+
+    # psycopg short-circuits SQL NULL before the loader, so `data` is never None in practice;
+    # the guard mirrors SafeDateLoader's defensive parity, hence the widened return + override ignore.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=None)
+
+
+class SafeTimestamptzLoader(TimestamptzLoader):
+    """`timestamptz` counterpart of `SafeTimestampLoader` (see its docstring).
+
+    `timestamptz` columns map to a UTC-aware Arrow type, so the clamp is made tz-aware to
+    avoid mixing naive and aware datetimes in the same Arrow column.
+    """
+
+    # See SafeTimestampLoader.load for why the override is widened/ignored.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -1443,12 +1529,29 @@ def _get_partition_settings(
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
+    except psycopg.errors.UndefinedTable as e:
+        # The selected table was dropped or renamed in the source between schema discovery and
+        # this best-effort partition-sizing probe. That's a user/upstream condition we already
+        # tolerate here (return None -> no partitioning), and the real extraction query — which
+        # shares this FROM clause — hits the same missing relation and surfaces it through the
+        # normal non-retryable path ("does not exist"). Capturing it here too would only flood
+        # error tracking with handled duplicates, so mirror `_get_rows_to_sync` and log at debug.
+        logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
+        return None
     except Exception as e:
-        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
-        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
-        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
-        # unexpected failures are still captured.
-        if not _is_recovery_conflict_error(e):
+        # Partition sizing is best-effort: on failure we return None and the sync proceeds
+        # unpartitioned. Two handled conditions must not flood error tracking:
+        #   - A read replica can cancel this sizing query with a recovery conflict
+        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
+        #     replicas, and the row-streaming reader retries it in-process.
+        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
+        #     partition detection) can hit that transient condition and leave the transaction in
+        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
+        #     downstream symptom.
+        # Both resurface (and are classified through the normal retryable/non-retryable path) via
+        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
+        # captured.
+        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
@@ -1846,6 +1949,7 @@ def postgres_source(
                     keepalives_idle=30,
                     keepalives_interval=10,
                     keepalives_count=5,
+                    options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
                 if require_ssl and "SSL" in str(e):
@@ -1870,7 +1974,12 @@ def postgres_source(
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
         while True:
-            connection = _open_setup_connection()
+            # Opening the setup connection can itself hit a transient drop ("server closed the
+            # connection unexpectedly", idle cull, failover) — the same class of error the read
+            # path already recovers from. Retry the connect in-process with bounded backoff,
+            # mirroring `offset_chunking`, so a momentary blip during setup doesn't fail the whole
+            # activity. Permanent errors (auth failures, SSL-required) re-raise immediately.
+            connection = _connect_with_dropped_retry(_open_setup_connection, logger)
             try:
                 with connection:
                     with connection.cursor() as cursor:
@@ -2099,6 +2208,7 @@ def postgres_source(
                         keepalives_idle=30,
                         keepalives_interval=10,
                         keepalives_count=5,
+                        options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):
@@ -2116,6 +2226,8 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                connection.adapters.register_loader("timestamp", SafeTimestampLoader)
+                connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
@@ -2241,7 +2353,7 @@ def postgres_source(
                         if timeout_error is not None:
                             raise timeout_error from e
                         raise
-                    except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+                    except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if not _is_connection_dropped_error(e):
                             _safe_close_connection(connection)
                             raise
@@ -2331,7 +2443,14 @@ def postgres_source(
 
             offset = 0
             try:
-                with get_connection() as connection:
+                # Retry transient connection-dropped errors (e.g. "server closed the
+                # connection unexpectedly") on the initial connect, matching the
+                # offset-chunking bootstrap above. Retrying here is always safe: offset
+                # is still 0 and no rows have been yielded, so the unsafe-resume concern
+                # in the except clause below doesn't apply. Permanent errors (auth,
+                # SSL-required) still surface immediately — _is_connection_dropped_error
+                # only matches transient drops.
+                with _connect_with_dropped_retry(get_connection, logger) as connection:
                     with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                         query = _build_query(
                             schema,
@@ -2367,7 +2486,7 @@ def postgres_source(
                     return
 
                 raise
-            except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+            except _CONNECTION_DROPPED_ERROR_TYPES as e:
                 # The server cursor holds a transaction open across the slow
                 # delta-merge between yields; the source can cull the backend
                 # (idle_in_transaction_session_timeout / PgBouncer) and the next
