@@ -378,6 +378,12 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # Real pymongo InvalidURI string when the userinfo (e.g. an unescaped '@' in the password)
+            # isn't percent-encoded. The connection string is static, so retrying can never succeed.
+            (
+                "unescaped_userinfo",
+                "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -411,6 +417,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_bad_auth", "bad auth", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
+            ("unescaped_userinfo", "must be escaped according to RFC 3986", "percent-encoded"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):

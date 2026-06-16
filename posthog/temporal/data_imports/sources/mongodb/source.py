@@ -50,6 +50,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         auth_failed_msg = "MongoDB authentication failed. Please check the username and password for this source."
+        unescaped_userinfo_msg = (
+            "Your MongoDB connection string has special characters (such as '@', ':', '/', or '%') in the "
+            "username or password that must be percent-encoded. URL-encode them — for example replace '@' "
+            "with '%40' — and update the connection string for this source."
+        )
         return {
             "The DNS query name does not exist": None,
             # pymongo raises OperationFailure with codeName 'AuthenticationFailed' (code 18) and
@@ -73,6 +78,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # is the stable signal here, and it must be matched before the generic "Topology Description:"
             # entry below so Atlas SQL users get the wrong-endpoint message rather than the allowlist one.
             "query.mongodb.net": _MONGO_ATLAS_SQL_MESSAGE,
+            # pymongo raises InvalidURI ("Username and password must be escaped according to RFC 3986,
+            # use urllib.parse.quote_plus") when the connection string's userinfo contains characters
+            # that aren't percent-encoded (e.g. an unescaped '@' in the password). The connection string
+            # is static, so every retry hits the same parse failure before any network call — it can
+            # never succeed until the user fixes their credentials.
+            "must be escaped according to RFC 3986": unescaped_userinfo_msg,
             # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node
             # for the whole selection timeout. The reason varies — "No servers found yet" / "No
             # replica set members found yet" when nothing was ever discovered, or a per-server
