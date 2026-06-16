@@ -534,8 +534,12 @@ def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | Non
     elif rule == "full_template_string":
         # The strategy emits "F'<contents>" (the wrapped F-string grammar form), but
         # `parse_string_template` takes the inside and re-adds the F-quote itself, so
-        # strip the leading "F'" here.
-        query = query.removeprefix("F'")
+        # strip the leading "F'" here. Asserted (rather than `removeprefix`) so a future
+        # strategy or jiggle regression that drops the leading "F'" fails loudly instead
+        # of silently producing "F'F'…" inputs that both backends accept (the second F'
+        # becomes FULL_STRING_TEXT content) and that the parity assertion treats as fine.
+        assert query.startswith("F'"), f"fullTemplateString strategy emitted unexpected prefix: {query!r}"
+        query = query[2:]
         parser_fn = parse_string_template
     else:
         raise ValueError(f"unknown rule: {rule!r}")
@@ -644,8 +648,10 @@ class TestFullTemplateStringGrammarPBT:
     ``fullTemplateString`` grammar surface — auto-generated from .g4.
 
     Covers the standalone ``parseFullTemplateString`` parser entry point
-    (the ``F'...'`` form used by the public ``parse_string_template`` API),
+    (the ``F'…`` form used by the public ``parse_string_template`` API),
     which isn't reachable from the ``expr``/``select`` grammar rules.
+    The grammar rule is ``QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF``
+    — no closing quote; the body lexes through to end-of-input.
     """
 
     @given(query=full_template_string_strategy())
