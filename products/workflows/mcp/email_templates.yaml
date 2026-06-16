@@ -105,11 +105,39 @@ tools:
         enrich_url: '{id}'
         title: Update email template
         description: >
-            Update an email template by ID. content is replaced as a whole, never merged — call
+            Replace an email template's content as a whole. For small edits to an existing design (change a heading,
+            a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields
+            instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
             back the complete content.email with your edited design. The server re-renders the sent email from the
             design on save. After updating, call workflows-show-email-template so the user sees the result, and share
             the returned _posthogUrl edit link.
+        response:
+            exclude:
+                - content
+                - created_by
+    workflows-patch-email-template:
+        operation: messaging_templates_design_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Patch email template design
+        description: >
+            Surgically edit an email template's design by sending a small, ordered list of operations instead of
+            resending the whole design JSON. Prefer this over workflows-update-email-template for any change to an
+            existing design. Reference blocks by their id (call workflows-get-email-template first to read the current
+            design and its ids). For the common case — tweak one block — use update_content with a deep-merge patch
+            (e.g. {op: update_content, id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}}); a null leaf
+            deletes that key. Use add_content / remove_content / move_content / add_row / remove_row for structural
+            changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the
+            design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if
+            valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the
+            result.
         response:
             exclude:
                 - content

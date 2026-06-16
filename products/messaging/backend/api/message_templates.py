@@ -1,17 +1,28 @@
+from copy import deepcopy
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_field
+from django.db import transaction
+
+import structlog
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 
+from products.messaging.backend.api.design_operations import apply_design_operations
+from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
+
+logger = structlog.get_logger(__name__)
 
 
 # Shallow skeleton of the Unlayer design document — enough structure for API callers
@@ -161,6 +172,106 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         return instance
 
 
+DESIGN_OPERATION_TYPES = [
+    "update_content",
+    "update_column",
+    "update_row",
+    "update_body",
+    "add_content",
+    "remove_content",
+    "move_content",
+    "add_row",
+    "remove_row",
+]
+
+# Per-op required fields, validated in DesignOperationSerializer.validate so a malformed op is rejected
+# before any are applied (the whole batch is atomic).
+_DESIGN_OPERATION_REQUIRED_FIELDS: dict[str, list[str]] = {
+    "update_content": ["id", "patch"],
+    "update_column": ["id", "patch"],
+    "update_row": ["id", "patch"],
+    "update_body": ["patch"],
+    "add_content": ["column_id", "content"],
+    "remove_content": ["id"],
+    "move_content": ["id", "column_id"],
+    "add_row": ["row"],
+    "remove_row": ["id"],
+}
+
+
+class DesignOperationSerializer(serializers.Serializer):
+    op = serializers.ChoiceField(
+        choices=DESIGN_OPERATION_TYPES,
+        help_text=(
+            "Design edit. update_content {id, patch}: deep-merge patch into the content block's fields (a null "
+            "leaf deletes that key) — the surgical path, e.g. change just values.text. update_row / update_column "
+            "{id, patch} and update_body {patch}: same deep-merge for row/column/body-level settings. add_content "
+            "{column_id, content, index?}: insert a content block into a column (id and Unlayer numbering are "
+            "filled in for you). remove_content {id} / move_content {id, column_id, index?}: delete or relocate a "
+            "block. add_row {row, index?} / remove_row {id}: add or delete a row."
+        ),
+    )
+    id = serializers.CharField(
+        required=False,
+        help_text="Target node id. Required for update_content/column/row, remove_content, remove_row, move_content.",
+    )
+    column_id = serializers.CharField(
+        required=False, help_text="Target column id. Required for add_content and move_content."
+    )
+    patch = serializers.JSONField(
+        required=False,
+        help_text=(
+            "update_* only. Partial fields deep-merged into the existing node; a null leaf deletes that key. "
+            "e.g. {values: {text: '<p>Hi</p>'}} changes only the block's text."
+        ),
+    )
+    content = serializers.JSONField(
+        required=False,
+        help_text=(
+            "add_content only. A content block {type, values: {...}}; omit id and values._meta — they're assigned "
+            "server-side. type is one of text, heading, button, image, divider, html, etc."
+        ),
+    )
+    row = serializers.JSONField(
+        required=False,
+        help_text=(
+            "add_row only. A full row {cells, columns: [{contents: [...], values}], values}; ids and Unlayer "
+            "numbering are assigned server-side for the row and everything nested in it."
+        ),
+    )
+    index = serializers.IntegerField(
+        required=False,
+        help_text="add_*/move_content only. 0-based insert position; omit to append to the end.",
+    )
+
+    def validate(self, data: Any) -> Any:
+        op = data["op"]
+        missing = [field for field in _DESIGN_OPERATION_REQUIRED_FIELDS[op] if data.get(field) is None]
+        if missing:
+            raise serializers.ValidationError(f"op '{op}' requires: {', '.join(missing)}")
+        if op in ("update_content", "update_column", "update_row", "update_body") and not isinstance(
+            data.get("patch"), dict
+        ):
+            raise serializers.ValidationError(f"{op} 'patch' must be an object")
+        if op == "add_content" and not isinstance(data.get("content"), dict):
+            raise serializers.ValidationError("add_content 'content' must be an object")
+        if op == "add_row" and not isinstance(data.get("row"), dict):
+            raise serializers.ValidationError("add_row 'row' must be an object")
+        return data
+
+
+class DesignPatchSerializer(serializers.Serializer):
+    operations = serializers.ListField(
+        child=DesignOperationSerializer(),
+        allow_empty=False,
+        help_text=(
+            "Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops "
+            "are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — "
+            "otherwise the template is unchanged. Reference blocks by id so you never resend the whole design."
+        ),
+    )
+
+
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -181,3 +292,47 @@ class MessageTemplatesViewSet(
             .select_related("created_by")
             .order_by("-created_at")
         )
+
+    @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
+    @action(detail=True, methods=["PATCH"])
+    def design(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Surgical design editing: apply a small, id-addressed op list to the stored Unlayer design instead
+        # of re-transmitting the whole design JSON. Reads, applies, validates, re-renders, and saves
+        # atomically so a rejected batch leaves the template untouched (and concurrent visual-editor saves
+        # can't interleave).
+        op_serializer = DesignPatchSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data["operations"]
+
+        # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
+        instance = self.get_object()
+
+        with transaction.atomic():
+            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            locked = MessageTemplate.objects.select_for_update().get(pk=instance.pk)
+
+            content = deepcopy(locked.content or {})
+            email = content.get("email") or {}
+            design = email.get("design")
+            if not isinstance(design, dict):
+                raise serializers.ValidationError(
+                    {
+                        "design": "This template has no editable design JSON to patch. Set content.email.design "
+                        "with a full update first, then use surgical operations."
+                    }
+                )
+
+            new_design = apply_design_operations(design, operations)
+            for warning in validate_design(new_design):
+                logger.info("email_template_design_warning", warning=warning, template_id=str(locked.id))
+
+            email["design"] = new_design
+            # Drop html so the serializer re-renders it from the patched design (its design->html path).
+            email.pop("html", None)
+            content["email"] = email
+
+            serializer = self.get_serializer(locked, data={"content": content}, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+        return Response(self.get_serializer(locked).data)

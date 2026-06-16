@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     MessagingTemplatesCreateBody,
+    MessagingTemplatesDesignPartialUpdateBody,
+    MessagingTemplatesDesignPartialUpdateParams,
     MessagingTemplatesListQueryParams,
     MessagingTemplatesPartialUpdateBody,
     MessagingTemplatesPartialUpdateParams,
@@ -169,10 +171,37 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
     },
 })
 
+const WorkflowsPatchEmailTemplateSchema = MessagingTemplatesDesignPartialUpdateParams.omit({ project_id: true }).extend(
+    MessagingTemplatesDesignPartialUpdateBody.shape
+)
+
+const workflowsPatchEmailTemplate = (): ToolBase<
+    typeof WorkflowsPatchEmailTemplateSchema,
+    WithPostHogUrl<Schemas.MessageTemplate>
+> => ({
+    name: 'workflows-patch-email-template',
+    schema: WorkflowsPatchEmailTemplateSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsPatchEmailTemplateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.operations !== undefined) {
+            body['operations'] = params.operations
+        }
+        const result = await context.api.request<Schemas.MessageTemplate>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/design/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result
+        return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create-email-template': workflowsCreateEmailTemplate,
     'workflows-get-email-template': workflowsGetEmailTemplate,
     'workflows-list-email-templates': workflowsListEmailTemplates,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
+    'workflows-patch-email-template': workflowsPatchEmailTemplate,
 }
