@@ -65,7 +65,11 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
     errors. Google Sheets has a 300 request quota per minute, and also returns
     transient 5xx server errors (see `_RETRYABLE_API_ERROR_CODES`). We retry both
     and add a +- 10s jitter to the sleep per attempt so that multiple jobs blocked
-    by quota limits dont all retry at the same time."""
+    by quota limits dont all retry at the same time.
+
+    This wraps every gspread call that hits the API — worksheet acquisition *and* the
+    cell-reading calls (`get_all_values`/`get_all_records`). The reads issue their own
+    requests, so a transient 5xx there must be retried too rather than failing the sync."""
 
     attempts = 1
 
@@ -85,7 +89,7 @@ def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
 
 @cached(cache)
 def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
-    def execute():
+    def execute() -> gspread.Worksheet:
         client = google_sheets_client()
         try:
             spreadsheet = client.open_by_url(spreadsheet_url)
@@ -125,7 +129,19 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-    rows = worksheet.get_all_values("1:2")  # Get the first two rows
+    try:
+        rows = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:2"))  # Get the first two rows
+    except gspread.exceptions.APIError as e:
+        # Google rejects the unbounded "1:2" row range with a 400 "Unable to parse range" for
+        # some worksheets (e.g. empty sheets, or sheets resized to have no columns). This is
+        # deterministic, so retrying never helps. We're only probing the first rows to detect an
+        # incremental "id" column here, so a worksheet we can't read simply has no detectable
+        # incremental field — return [] rather than letting one odd sheet break schema discovery
+        # for the entire spreadsheet. Other API errors (e.g. transient 5xx) still propagate so
+        # they can be retried.
+        if e.code == 400 and "Unable to parse range" in str(e):
+            return []
+        raise
 
     if len(rows) > 1 and "id" in rows[0]:
         index_of_id = rows[0].index("id")
@@ -158,7 +174,7 @@ def google_sheets_source(
 
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
-    headers = worksheet.get_all_values("1:1")  # Get the first row
+    headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]
@@ -178,7 +194,7 @@ def google_sheets_source(
 
         # default_blank defaults to "", which turns empty cells into strings and breaks numeric
         # columns that legitimately have gaps. None lets blank cells import as null instead.
-        values = worksheet.get_all_records(default_blank=None)
+        values = _retry_on_transient_api_error(lambda: worksheet.get_all_records(default_blank=None))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]
