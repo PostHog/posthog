@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PANDA_DOC,
+            category=DataWarehouseSourceCategory.SALES,
             label="PandaDoc",
             caption="""Enter your PandaDoc API key to pull your PandaDoc data into the PostHog Data warehouse.
 

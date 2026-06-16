@@ -517,6 +517,75 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert schema.should_sync is False
 
 
+# The full message carries volatile parts (host, URL, `_ssl.c:NNNN`) around the stable alert name.
+# Both `_ssl.c` line variants have been seen in the wild and must stay non-retryable.
+@pytest.mark.parametrize(
+    "tls_handshake_error",
+    [
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1032)')))\"))"
+        ),
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1010)')))\"))"
+        ),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_update_external_job_activity_with_tls_handshake_failure_is_non_retryable(
+    activity_environment, team, tls_handshake_error, **kwargs
+):
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Zendesk",
+    )
+
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        name="test_123",
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=True,
+    )
+
+    new_job = await _create_external_data_job(
+        team_id=team.id,
+        external_data_source_id=new_source.pk,
+        workflow_id=activity_environment.info.workflow_id,
+        workflow_run_id=activity_environment.info.workflow_run_id,
+        external_data_schema_id=schema.id,
+    )
+
+    inputs = UpdateExternalDataJobStatusInputs(
+        job_id=str(new_job.id),
+        status=ExternalDataJob.Status.COMPLETED,
+        latest_error=None,
+        internal_error=tls_handshake_error,
+        schema_id=str(schema.pk),
+        source_id=str(new_source.pk),
+        team_id=team.id,
+    )
+    with mock.patch(
+        "products.data_warehouse.backend.data_load.service.external_data_workflow_exists",
+        return_value=False,
+    ):
+        await activity_environment.run(update_external_data_job_model, inputs)
+
+    await sync_to_async(new_job.refresh_from_db)()
+    await sync_to_async(schema.refresh_from_db)()
+
+    assert schema.should_sync is False
+
+
 @pytest.fixture
 def mock_stripe_client():
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:

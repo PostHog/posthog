@@ -162,6 +162,7 @@ class Integration(models.Model):
         GITHUB = "github"
         GITLAB = "gitlab"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_ANALYTICS = "google-analytics"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -297,6 +298,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-analytics",
         "google-search-console",
         "google-sheets",
         "snapchat",
@@ -403,6 +405,23 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-analytics":
+            if not settings.GOOGLE_ANALYTICS_APP_CLIENT_ID or not settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Analytics app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )

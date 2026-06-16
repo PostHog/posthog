@@ -48,5 +48,7 @@ pub fn log_and_convert_error(err: storage::StorageError, operation: &str) -> Sta
             );
             Status::internal(format!("Database error: {msg}"))
         }
+        storage::StorageError::NotFound(msg) => Status::not_found(msg.clone()),
+        storage::StorageError::FailedPrecondition(msg) => Status::failed_precondition(msg.clone()),
     }
 }
