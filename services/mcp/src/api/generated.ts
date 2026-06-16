@@ -8151,6 +8151,8 @@ export namespace Schemas {
      * * `avg` - avg
      * * `count` - count
      * * `p95` - p95
+     * * `rate` - rate
+     * * `increase` - increase
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -8160,6 +8162,8 @@ export namespace Schemas {
       Avg: 'avg',
       Count: 'count',
       P95: 'p95',
+      Rate: 'rate',
+      Increase: 'increase',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -9815,10 +9819,10 @@ export namespace Schemas {
      * * `every 5 minutes` - every 5 minutes
      * * `every 15 minutes` - every 15 minutes
      */
-    export type IntervalEnum = typeof IntervalEnum[keyof typeof IntervalEnum];
+    export type BatchExportIntervalEnum = typeof BatchExportIntervalEnum[keyof typeof BatchExportIntervalEnum];
 
 
-    export const IntervalEnum = {
+    export const BatchExportIntervalEnum = {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
@@ -9967,7 +9971,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether this BatchExport is paused or not. */
       paused?: boolean;
       /** The timestamp at which this BatchExport was created. */
@@ -10763,7 +10767,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval: IntervalEnum;
+      interval: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -25034,6 +25038,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto
+     */
+    export type MetricAttributeScopeEnum = typeof MetricAttributeScopeEnum[keyof typeof MetricAttributeScopeEnum];
+
+
+    export const MetricAttributeScopeEnum = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    /**
      * * `precise` - PRECISE
      * * `coarse` - COARSE
      * * `partial` - PARTIAL
@@ -25045,6 +25063,30 @@ export namespace Schemas {
       Precise: 'precise',
       Coarse: 'coarse',
       Partial: 'partial',
+    } as const;
+
+    /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `minute_5` - minute_5
+     * * `minute_15` - minute_15
+     * * `hour` - hour
+     * * `hour_6` - hour_6
+     * * `day` - day
+     * * `week` - week
+     */
+    export type MetricQueryIntervalEnum = typeof MetricQueryIntervalEnum[keyof typeof MetricQueryIntervalEnum];
+
+
+    export const MetricQueryIntervalEnum = {
+      Second: 'second',
+      Minute: 'minute',
+      Minute5: 'minute_5',
+      Minute15: 'minute_15',
+      Hour: 'hour',
+      Hour6: 'hour_6',
+      Day: 'day',
+      Week: 'week',
     } as const;
 
     export interface MinimalPerson {
@@ -25606,6 +25648,22 @@ export namespace Schemas {
       Delegated: 'delegated',
       Later: 'later',
       Other: 'other',
+    } as const;
+
+    /**
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     */
+    export type OpEnum = typeof OpEnum[keyof typeof OpEnum];
+
+
+    export const OpEnum = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
     } as const;
 
     /**
@@ -30916,7 +30974,7 @@ export namespace Schemas {
        * * `week` - week
        * * `every 5 minutes` - every 5 minutes
        * * `every 15 minutes` - every 15 minutes */
-      interval?: IntervalEnum;
+      interval?: BatchExportIntervalEnum;
       /** Whether the batch export is paused. */
       paused?: boolean;
       /** Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases. */
@@ -45504,6 +45562,43 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    export interface _MetricFilter {
+      /**
+         * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op?: OpEnum;
+      /** Value to compare against. For regex operators this is the pattern. */
+      value: string;
+      /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
+    export interface _MetricGroupBy {
+      /**
+         * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: MetricAttributeScopeEnum;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -45522,13 +45617,30 @@ export namespace Schemas {
          * @maxLength 255
          */
       metricName: string;
-      /** Aggregation applied per time bucket.
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
-       * * `p95` - p95 */
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase */
       aggregation?: AggregationEnum;
+      /** Label predicates ANDed together. Rows must satisfy every filter. */
+      filters?: _MetricFilter[];
+      /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
+      groupBy?: _MetricGroupBy[];
+      /** Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).
+       *
+       * * `second` - second
+       * * `minute` - minute
+       * * `minute_5` - minute_5
+       * * `minute_15` - minute_15
+       * * `hour` - hour
+       * * `hour_6` - hour_6
+       * * `day` - day
+       * * `week` - week */
+      interval?: MetricQueryIntervalEnum | null;
       /** Lower bound (inclusive) for the query range. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
