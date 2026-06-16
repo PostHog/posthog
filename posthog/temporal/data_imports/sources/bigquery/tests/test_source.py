@@ -71,6 +71,21 @@ def _make_config(
     )
 
 
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        # The exact RefreshError surfaced by error tracking from `get_columns`.
+        "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+        "RefreshError: ('invalid_grant: Invalid JWT Signature.', ...)",
+    ],
+)
+def test_bigquery_invalid_jwt_signature_is_non_retryable(error_message):
+    """A service account key rotated/revoked in Google Cloud yields an unrecoverable
+    `invalid_grant: Invalid JWT Signature.` RefreshError — retrying can't help."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in error_message for key in non_retryable_errors)
+
+
 def test_bigquery_get_columns_filters_existing_destination_tables():
     """`get_columns` strips `__posthog_import_*` tables before returning."""
     fake_client = mock.MagicMock()
