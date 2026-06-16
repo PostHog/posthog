@@ -98,7 +98,7 @@ BACKPRESSURE_POLL_INTERVAL_SECONDS = 1
 
 
 def _emit_signal_buffered_event(team: Team, signal: EmitSignalInputs) -> None:
-    """Fire the `signal_buffered` lifecycle event for a signal that has landed in the buffer."""
+    """Fire the `signal_buffered` lifecycle event as a signal is handed off to the buffer."""
     posthoganalytics.capture(
         event="signal_buffered",
         distinct_id=str(team.uuid),
@@ -151,10 +151,15 @@ async def submit_signal_to_buffer_activity(input: SubmitSignalToBufferInput) -> 
         jitter = random.uniform(0, BACKPRESSURE_POLL_INTERVAL_SECONDS)
         await asyncio.sleep(BACKPRESSURE_POLL_INTERVAL_SECONDS + jitter)
 
-    await handle.signal(BufferSignalsWorkflow.submit_signal, input.signal)
-
-    # The signal has now landed in the buffer workflow — emit the buffered checkpoint.
+    # Emit the checkpoint BEFORE the buffer hand-off so the non-idempotent `submit_signal`
+    # stays the activity's last operation. `submit_signal` durably appends with no dedupe key,
+    # so any post-send work that lets the worker die mid-activity (SIGKILL / eviction / heartbeat
+    # timeout — uncatchable) would retry the whole activity and re-send a duplicate signal. By
+    # the time we reach here the emitter has cleared backpressure, so the emitted -> buffered gap
+    # still isolates emit-handoff loss; a rare send-retry only re-fires this best-effort event.
     await _capture_signal_buffered(input.signal)
+
+    await handle.signal(BufferSignalsWorkflow.submit_signal, input.signal)
 
 
 @temporalio.workflow.defn(name="buffer-signals")
