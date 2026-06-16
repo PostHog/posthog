@@ -8,7 +8,7 @@ import type {
     NotebookPropValue,
     NotebookTextBlockNode,
 } from './types'
-import { getInlineText, getNodeFingerprint, hashString } from './utils'
+import { getInlineText, getNodeFingerprint, getNodeSignature, getNodeText, hashString } from './utils'
 
 export const NOTEBOOK_AGENT_COMPONENT_TAG = 'Agent'
 export const NOTEBOOK_AGENT_CLIENT_ID_PREFIX = 'notebook-agent:'
@@ -144,7 +144,7 @@ export function normalizeNotebookAIAgentArtifactMarkdown(artifactMarkdown: strin
     const artifactDocument = parseMarkdownNotebook(artifactMarkdown)
     const artifactNodes = artifactDocument.nodes.filter((node) => !isNotebookAgentNode(node))
     const prefixNodes = currentDocument.nodes.slice(0, cursorIndex).filter((node) => !isNotebookAgentNode(node))
-    if (!prefixNodes.length || !nodesStartWith(artifactNodes, prefixNodes)) {
+    if (!prefixNodes.length || !nodesStartWithNotebookContext(artifactNodes, prefixNodes)) {
         return artifactMarkdown
     }
 
@@ -476,12 +476,13 @@ function stripEchoedNotebookContextBeforeAICursor(
     }
 
     const prefixWithCursorNodes = currentNodes.slice(0, cursorIndex + 1).filter((node) => !isNotebookAgentNode(node))
-    if (prefixWithCursorNodes.length && nodesStartWith(replacementNodes, prefixWithCursorNodes)) {
+    if (prefixWithCursorNodes.length && nodesStartWithNotebookContext(replacementNodes, prefixWithCursorNodes)) {
         return replacementNodes.slice(prefixWithCursorNodes.length)
     }
 
     const prefixNodes = currentNodes.slice(0, cursorIndex).filter((node) => !isNotebookAgentNode(node))
-    if (!cursorNode || !prefixNodes.length || !nodesStartWith(replacementNodes, prefixNodes)) {
+    const prefixMatch = getNotebookContextPrefixMatch(replacementNodes, prefixNodes)
+    if (!cursorNode || !prefixNodes.length || !prefixMatch) {
         return replacementNodes
     }
 
@@ -491,7 +492,9 @@ function stripEchoedNotebookContextBeforeAICursor(
         cursorNode
     )
     const tailNodes = replacementNodes.slice(prefixNodes.length)
-    return nodesHaveSameFingerprints(strippedTailNodes, tailNodes) ? replacementNodes : strippedTailNodes
+    return prefixMatch === 'stale' || !nodesHaveSameFingerprints(strippedTailNodes, tailNodes)
+        ? strippedTailNodes
+        : replacementNodes
 }
 
 function stripNotebookAIAgentEchoFromTail(
@@ -500,7 +503,7 @@ function stripNotebookAIAgentEchoFromTail(
     cursorNode: NotebookBlockNode
 ): NotebookBlockNode[] {
     let nextNodes = tailNodes
-    if (prefixNodes.length && nodesStartWith(nextNodes, prefixNodes)) {
+    if (prefixNodes.length && nodesStartWithNotebookContext(nextNodes, prefixNodes)) {
         nextNodes = nextNodes.slice(prefixNodes.length)
     }
 
@@ -521,6 +524,54 @@ function nodesStartWith(nodes: NotebookBlockNode[], prefixNodes: NotebookBlockNo
     }
 
     return prefixNodes.every((node, index) => getNodeFingerprint(node) === getNodeFingerprint(nodes[index]))
+}
+
+function nodesStartWithNotebookContext(nodes: NotebookBlockNode[], contextNodes: NotebookBlockNode[]): boolean {
+    return getNotebookContextPrefixMatch(nodes, contextNodes) !== null
+}
+
+function getNotebookContextPrefixMatch(
+    nodes: NotebookBlockNode[],
+    contextNodes: NotebookBlockNode[]
+): 'exact' | 'stale' | null {
+    if (nodesStartWith(nodes, contextNodes)) {
+        return 'exact'
+    }
+    if (nodes.length < contextNodes.length) {
+        return null
+    }
+
+    let hasExactContextBeforeStaleNode = false
+    let hasStaleContextNode = false
+    const matches = contextNodes.every((contextNode, index) => {
+        const candidateNode = nodes[index]
+        if (getNodeFingerprint(candidateNode) === getNodeFingerprint(contextNode)) {
+            hasExactContextBeforeStaleNode = true
+            return true
+        }
+        if (!hasExactContextBeforeStaleNode) {
+            return false
+        }
+        const isStaleContextNode = isStaleNotebookContextNode(candidateNode, contextNode)
+        hasStaleContextNode ||= isStaleContextNode
+        return isStaleContextNode
+    })
+
+    return matches && hasStaleContextNode ? 'stale' : null
+}
+
+function isStaleNotebookContextNode(candidateNode: NotebookBlockNode, currentNode: NotebookBlockNode): boolean {
+    if (getNodeSignature(candidateNode) !== getNodeSignature(currentNode) || candidateNode.type === 'component') {
+        return false
+    }
+
+    const candidateText = normalizeNotebookContextText(getNodeText(candidateNode))
+    const currentText = normalizeNotebookContextText(getNodeText(currentNode))
+    return !!candidateText.trim() && candidateText.trim().length >= 4 && currentText.startsWith(candidateText)
+}
+
+function normalizeNotebookContextText(text: string): string {
+    return text.replace(/\u00a0/g, ' ')
 }
 
 function nodesEndWith(nodes: NotebookBlockNode[], suffixNodes: NotebookBlockNode[]): boolean {

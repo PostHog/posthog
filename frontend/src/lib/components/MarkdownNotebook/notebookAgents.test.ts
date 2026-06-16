@@ -104,6 +104,20 @@ describe('notebookAgents', () => {
         )
     })
 
+    it('strips stale echoed context when the user edits before the AI cursor while streaming', () => {
+        const markdown =
+            '# Hello world\n\nlet\'s talk..... if i type here while it\'s thinking, things get duplicated...\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+
+        expect(
+            replaceNotebookAIAgentCursorMarkdown(
+                markdown,
+                "# Hello world\n\nlet's talk.....\n\nJames Hawkins co-founded PostHog."
+            )
+        ).toEqual(
+            '# Hello world\n\nlet\'s talk..... if i type here while it\'s thinking, things get duplicated...\n\nJames Hawkins co-founded PostHog.\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":33}} />'
+        )
+    })
+
     it('keeps assistant markdown that does not echo the AI cursor placeholder', () => {
         const markdown = '# Notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
 
@@ -126,6 +140,16 @@ describe('notebookAgents', () => {
 
         expect(normalizeNotebookAIAgentArtifactMarkdown(artifactMarkdown, currentMarkdown)).toEqual(
             '# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.'
+        )
+    })
+
+    it('normalizes full notebook artifacts with stale context while the user edits before the AI cursor', () => {
+        const currentMarkdown =
+            '# Hello world\n\nlet\'s talk..... if i type here while it\'s thinking, things get duplicated...\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+        const artifactMarkdown = "# Hello world\n\nlet's talk.....\n\nJames Hawkins co-founded PostHog.\n\nThinking..."
+
+        expect(normalizeNotebookAIAgentArtifactMarkdown(artifactMarkdown, currentMarkdown)).toEqual(
+            "# Hello world\n\nlet's talk..... if i type here while it's thinking, things get duplicated...\n\nJames Hawkins co-founded PostHog."
         )
     })
 
