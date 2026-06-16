@@ -8090,7 +8090,7 @@ export namespace Schemas {
       revision_id: string;
       /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
       framework_prompt_version: number;
-      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect — see docs/agent-platform/plans/framework-system-prompt.md §4. */
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
       system_prompt: string;
     }
 
@@ -15210,8 +15210,6 @@ export namespace Schemas {
 
     /**
      * Body shape for POST /agent_applications/<id>/approvals/<approval_id>/decide/.
-     *
-     * See docs/agent-platform/plans/approval-gated-tools.md.
      */
     export interface DecideApprovalRequest {
       /** The approver's decision. `approve` runs the tool platform-side with the (possibly edited) args; `reject` records a terminal rejection and wakes the session with a synthetic rejected tool_result.
@@ -45100,7 +45098,7 @@ export namespace Schemas {
 
     /**
      * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-     * payload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.
+     * payload.
      */
     export interface WriteTypedBundleRequest {
       agent_md: string;

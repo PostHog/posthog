@@ -6,10 +6,9 @@ rules:
           in `products/agent_platform/services/agent-ingress/src/config.ts` and read it from the typed
           `Config` passed into `main()`.
 
-          Why: the agent services share a typed-config-loader pattern (see
-          `docs/agent-platform/plans/typed-config-loader.md`). Defaults live
-          in one place, validation runs at boot, and the generated runbook
-          stays in sync.
+          Why: the agent services share a typed-config-loader pattern.
+          Defaults live in one place, validation runs at boot, and the
+          generated runbook stays in sync.
 
           Legitimate exceptions:
           - `NODE_ENV` — universal node convention, fine to read directly.

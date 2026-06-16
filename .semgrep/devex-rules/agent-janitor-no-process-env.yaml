@@ -6,11 +6,11 @@ rules:
           in `products/agent_platform/services/agent-janitor/src/config.ts` and read it from the typed
           `Config` passed into `main()`.
 
-          Why: agent-janitor is the **pilot** for the typed-config-loader pattern
-          (see `docs/agent-platform/plans/typed-config-loader.md`). Defaults live
-          in one place, validation runs at boot, and the generated runbook stays
-          in sync. Other agent services still use ad-hoc `process.env.*` reads —
-          but new code in agent-janitor goes through the loader.
+          Why: agent-janitor is the **pilot** for the typed-config-loader
+          pattern. Defaults live in one place, validation runs at boot, and
+          the generated runbook stays in sync. Other agent services still use
+          ad-hoc `process.env.*` reads — but new code in agent-janitor goes
+          through the loader.
 
           Legitimate exceptions:
           - `NODE_ENV` — universal node convention, fine to read directly.

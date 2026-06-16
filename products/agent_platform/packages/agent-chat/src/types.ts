@@ -87,8 +87,6 @@ export interface SessionUsage {
  * tool calls do NOT park — they return a synthetic queued result and the
  * session keeps running. The old `awaiting_approval` name predated that
  * design and was renamed to remove the confusion.
- *
- * v0.1+ may add `suspended` per [`long-running-sessions.md`](docs/agent-platform/plans/long-running-sessions.md).
  */
 export type SessionState =
     | 'idle'

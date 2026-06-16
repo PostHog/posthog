@@ -6,8 +6,6 @@ name: Build and deploy agent platform container images
 #     three bundled entrypoints; the deploy manifest picks the CMD)
 #   - posthog-agent-console (Next.js standalone)
 #   - posthog-agent-sandbox-host (Alpine sidecar — no build step)
-#
-# See docs/agent-platform/plans/container-builds.md for the full plan.
 
 on:
     workflow_dispatch:

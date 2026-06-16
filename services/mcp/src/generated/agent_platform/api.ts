@@ -1329,9 +1329,7 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe(
-        'Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload. See docs/agent-platform/plans/typed-bundle-authoring-api.md §3.'
-    )
+    .describe('Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed\npayload.')
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -1362,8 +1360,7 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
  * thing?' is unanswerable until the cron actually fires.
  *
  * Idempotent via `request_id`: repeat clicks with the same id resolve
- * to the same session id rather than firing N times. See
- * `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ * to the same session id rather than firing N times.
  */
 export const AgentApplicationsRevisionsCronFireCreateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -1896,8 +1893,7 @@ export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
  * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller. See
- * docs/agent-platform/plans/draft-preview-auth.md.
+ * this proxy attaches it after authenticating the Django caller.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
  * Auth: standard PAT / session — `agents:read` scope.

@@ -4,9 +4,7 @@
  *
  * **This is throwaway scaffolding.** It exists so the dock has something
  * to push against before the real runner + client-fulfilled tools
- * protocol lands (v0.2 / v0.3 in
- * [`agent-console-website.md`](docs/agent-platform/plans/agent-console-website.md)).
- * When the real protocol arrives, this controller gets replaced by an
+ * protocol lands. When the real protocol arrives, this controller gets replaced by an
  * SSE-driven `RunnerClient` that consumes `text/thinking/toolcall`
  * delta events from `/listen` — the rendered session shape is the same,
  * so the dock won't move.
