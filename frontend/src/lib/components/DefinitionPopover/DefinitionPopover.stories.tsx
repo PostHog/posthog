@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { screen, within } from '@testing-library/dom'
+import { screen } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { useRef } from 'react'
@@ -315,12 +315,13 @@ export const DataWarehouseColumnMapping: Story = {
         testOptions: { waitForSelector: '.definition-popover-data-warehouse-schema-form' },
     },
     // Open the first column picker so the snapshot captures the filterable
-    // search-input dropdown, not just the closed control.
-    play: async ({ canvasElement }) => {
-        const [firstColumnSelect] = await within(canvasElement).findAllByRole('textbox')
+    // search-input dropdown, not just the closed control. The popover renders
+    // into a portal (document.body), outside canvasElement, so query via
+    // `screen` rather than `within(canvasElement)`.
+    play: async () => {
+        const [firstColumnSelect] = await screen.findAllByRole('textbox')
         await userEvent.click(firstColumnSelect)
-        // Options render into a portal outside canvasElement — wait for one to
-        // confirm the dropdown opened before the snapshot is taken.
-        await screen.findByRole('button', { name: /amount \(integer\)/ })
+        // Wait for an option row so the snapshot is taken with the dropdown open.
+        await screen.findByRole('button', { name: /distinct_id \(string\)/ })
     },
 }
