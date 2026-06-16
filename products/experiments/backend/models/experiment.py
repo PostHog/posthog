@@ -152,9 +152,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.feature_flag.key_without_tombstone()
 
     def get_analytics_metadata(self) -> dict[str, Any]:
-        variants = (self.parameters or {}).get("feature_flag_variants")
-        if not variants:
-            variants = self.feature_flag.filters.get("multivariate", {}).get("variants", [])
+        variants = self.feature_flag.variants
 
         return {
             "experiment_id": self.id,

@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Import functions from the modular package
 from toolbox.kubernetes import select_context, validate_context
 from toolbox.pod import ClaimRaceError, claim_pod, connect_to_pod, delete_pod, get_toolbox_pod
+from toolbox.telemetry import capture_invocation, prompt_for_reason
 from toolbox.user import get_current_user
 
 # `default_namespace` is where the pool lives when KUBE_NAMESPACE isn't set.
@@ -94,6 +95,10 @@ def main():
         )
         args = parser.parse_args()
 
+        # Ask up front (before the kubectl waits) what this session is for; skipped
+        # automatically on non-interactive stdin so automation never blocks.
+        usage_reason = prompt_for_reason()
+
         pool = POOLS[args.pool]
         app_label = pool["app_label"]
         claimed_label_key = pool["claimed_label_key"]
@@ -137,6 +142,23 @@ def main():
             extra_selector=extra_selector,
         )
         print(f"🎯 Found pod: {pod_name}")  # noqa: T201
+
+        # Best-effort usage event; counts invocations and records the environment +
+        # the user's stated reason. Never raises, so it can't break connecting.
+        capture_invocation(
+            distinct_id=user_labels[claimed_label_key],
+            properties={
+                "pool": args.pool,
+                "namespace": namespace,
+                "kube_context": selected_context,
+                "pod_name": pod_name,
+                "was_already_claimed": is_already_claimed,
+                "claim_duration_hours": args.claim_duration,
+                "update_claim": args.update_claim,
+                "auto_delete": args.auto_delete,
+                "usage_reason": usage_reason,
+            },
+        )
 
         # Calculate duration
         future_time = datetime.now() + timedelta(hours=args.claim_duration)
