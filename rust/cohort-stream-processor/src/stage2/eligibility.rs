@@ -149,10 +149,13 @@ pub(crate) fn refine_ref_bearing(
         let refined = if analysis.in_cycle.contains(&cohort_id) {
             CohortEligibility::Excluded(ExcludedReason::CycleDetected)
         } else if analysis
-            .ref_targets
+            .positive_ref_targets
             .get(&cohort_id)
             .is_some_and(|targets| targets.iter().any(|&t| !is_resolvable(eligibility, t)))
         {
+            // Resolvability is decided over positive targets only: an absent target reached solely
+            // through negated leaves reads `true` (absent ⊕ negation), so it never blocks
+            // composition. `is_resolvable` stays negation-blind — it is now only called on positives.
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef)
         } else if cascade_enabled {
             CohortEligibility::Stage2ComposableRef
@@ -637,10 +640,23 @@ mod tests {
 
     use std::collections::HashSet;
 
+    /// `positive_ref_targets` defaults to the same targets as `ref_targets` (all-positive), so every
+    /// existing test — all of which use non-negated refs — keeps its prior behavior.
     fn analysis(
         in_cycle: &[i32],
         refinement_order: &[i32],
         ref_targets: &[(i32, &[i32])],
+    ) -> RefGraphAnalysis {
+        analysis_with_positives(in_cycle, refinement_order, ref_targets, ref_targets)
+    }
+
+    /// Like [`analysis`] but with an explicit `positive_ref_targets` set, for negation tests where a
+    /// target sits in `ref_targets` (reached negated) but not in the positive set.
+    fn analysis_with_positives(
+        in_cycle: &[i32],
+        refinement_order: &[i32],
+        ref_targets: &[(i32, &[i32])],
+        positive_ref_targets: &[(i32, &[i32])],
     ) -> RefGraphAnalysis {
         RefGraphAnalysis {
             in_cycle: in_cycle
@@ -649,6 +665,10 @@ mod tests {
                 .collect::<HashSet<_>>(),
             refinement_order: refinement_order.iter().map(|&c| CohortId(c)).collect(),
             ref_targets: ref_targets
+                .iter()
+                .map(|&(c, t)| (CohortId(c), t.iter().map(|&x| CohortId(x)).collect()))
+                .collect(),
+            positive_ref_targets: positive_ref_targets
                 .iter()
                 .map(|&(c, t)| (CohortId(c), t.iter().map(|&x| CohortId(x)).collect()))
                 .collect(),
@@ -810,6 +830,55 @@ mod tests {
             elig[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
             "a missing target is never promoted, gate or no gate",
+        );
+    }
+
+    #[test]
+    fn refine_negated_only_missing_target_promotes_to_composable_ref_when_cascade_on() {
+        // 99 is in `ref_targets` (reached through a negated leaf) but absent from
+        // `positive_ref_targets`. An absent negated ref reads `true`, so it never blocks
+        // composition: with the gate on the cohort promotes to Stage2ComposableRef.
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(
+            &mut elig,
+            &analysis_with_positives(&[], &[1], &[(1, &[99])], &[]),
+            true,
+        );
+        assert_eq!(elig[&CohortId(1)], CohortEligibility::Stage2ComposableRef);
+    }
+
+    #[test]
+    fn refine_negated_only_missing_target_stays_has_cohort_ref_when_cascade_off() {
+        // Same shape with the gate off: the cohort falls through to HasCohortRef, *not*
+        // UnresolvedRef — the missing negated target must no longer be counted as unresolved.
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(
+            &mut elig,
+            &analysis_with_positives(&[], &[1], &[(1, &[99])], &[]),
+            false,
+        );
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+        );
+    }
+
+    #[test]
+    fn refine_mixed_polarity_missing_target_is_unresolved_ref() {
+        // 99 is referenced both positively and negatively → it stays in `positive_ref_targets`, so a
+        // missing 99 still excludes as UnresolvedRef (the positive arm cannot resolve it).
+        let mut elig =
+            eligibility_map(&[(1, CohortEligibility::Excluded(ExcludedReason::HasCohortRef))]);
+        refine_ref_bearing(
+            &mut elig,
+            &analysis_with_positives(&[], &[1], &[(1, &[99])], &[(1, &[99])]),
+            true,
+        );
+        assert_eq!(
+            elig[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
         );
     }
 

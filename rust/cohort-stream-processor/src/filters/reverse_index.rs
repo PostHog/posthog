@@ -663,6 +663,11 @@ mod tests {
         json!({ "type": "cohort", "value": target, "negation": false })
     }
 
+    /// A negated cohort-reference leaf (`NOT in target`).
+    fn cohort_ref_to_negated(target: i32) -> Value {
+        json!({ "type": "cohort", "value": target, "negation": true })
+    }
+
     #[test]
     fn single_leaf_cohort_is_indexed_by_its_lsk() {
         let mut builder = TeamFiltersBuilder::default();
@@ -1301,6 +1306,50 @@ mod tests {
         assert_eq!(
             frozen.eligibility[&CohortId(1)],
             CohortEligibility::Excluded(ExcludedReason::UnresolvedRef),
+        );
+    }
+
+    #[test]
+    fn cascade_on_negated_missing_ref_with_own_leaf_is_composable_ref_and_reads_true() {
+        use crate::stage2::evaluator::evaluate_tree;
+
+        let mut builder = TeamFiltersBuilder::default();
+        // 1 = AND(own person leaf, NOT in 99). 99 is never added: an absent negated ref reads
+        // `true`, so the missing target must not exclude 1 (oracle: `false ^ true = true`).
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![person_leaf(), cohort_ref_to_negated(99)]),
+            )
+            .unwrap();
+        let frozen = builder.freeze_with(UTC, true);
+
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Stage2ComposableRef,
+            "a negated ref to a missing target never blocks composition",
+        );
+        let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+        assert_eq!(
+            frozen.by_lsk_to_composable_cohorts[&per_lsk],
+            vec![CohortId(1)],
+            "the cohort's own person leaf indexes it for re-evaluation on the event path",
+        );
+
+        // The composer fills a missing referent as `false` (stage2_path.rs:181-184); the negated
+        // leaf flips it to `true`, so the cohort's membership tracks its own leaf alone.
+        let root = &frozen.cohorts[&CohortId(1)].root;
+        let ref_membership = HashMap::from([(CohortId(99), false)]);
+        let off = evaluate_tree(root, &HashMap::from([(per_lsk, false)]), &ref_membership);
+        let on = evaluate_tree(root, &HashMap::from([(per_lsk, true)]), &ref_membership);
+        assert!(
+            !off,
+            "own leaf off ⇒ non-member even though the negated ref reads true"
+        );
+        assert!(
+            on,
+            "own leaf flipping on ⇒ member, the Entered the cascade slice must emit"
         );
     }
 
