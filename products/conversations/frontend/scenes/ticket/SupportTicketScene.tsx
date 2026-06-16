@@ -28,7 +28,13 @@ import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
-import { type TicketPriority, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
+import {
+    type Ticket,
+    type TicketPriority,
+    type TicketStatus,
+    priorityOptions,
+    statusOptionsWithoutAll,
+} from '../../types'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
@@ -42,6 +48,22 @@ export const scene: SceneExport<{ ticketId: string }> = {
     logic: supportTicketSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
+}
+
+// Builds a deep link to the originating Slack/Teams thread so the Channel tag can be clickable.
+function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
+    if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
+        return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
+    }
+    if (ticket?.channel_source === 'teams' && ticket.teams_channel_id && ticket.teams_tenant_id) {
+        // teams_conversation_id is stored as "<channel>;messageid=<root_msg_id>" — the deep link needs that message id
+        const messageId = ticket.teams_conversation_id?.split(';messageid=')[1]
+        if (!messageId) {
+            return undefined
+        }
+        return `https://teams.microsoft.com/l/message/${encodeURIComponent(ticket.teams_channel_id)}/${messageId}?tenantId=${encodeURIComponent(ticket.teams_tenant_id)}`
+    }
+    return undefined
 }
 
 export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
@@ -261,24 +283,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
+                                        <ChannelsTag
+                                            channel={ticket.channel_source}
+                                            detail={ticket.channel_detail}
+                                            to={getChannelThreadUrl(ticket)}
+                                        />
                                     </span>
                                 </div>
                             )}
-                            {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_channel_id &&
-                                ticket?.slack_thread_ts && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-muted-alt">Slack thread</span>
-                                        <Link
-                                            to={`https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`}
-                                            target="_blank"
-                                            className="text-xs"
-                                        >
-                                            <LemonTag type="highlight">Open in Slack</LemonTag>
-                                        </Link>
-                                    </div>
-                                )}
                             {ticket?.channel_source === 'email' && ticket?.email_subject && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Subject</span>
