@@ -188,6 +188,37 @@ describe('hog-charts interaction', () => {
             expect(result?.seriesData.map((d) => d.series.key)).toEqual(['present'])
         })
 
+        it('excludes only the points where visibility.tooltip[dataIndex] is false, per series', () => {
+            const shown = makeSeries({ key: 'shown', data: [10, 10] })
+            // hidden at index 0, shown at index 1
+            const perPoint = makeSeries({ key: 'pp', data: [50, 50], visibility: { tooltip: [false, true] } })
+            const yScale = (v: number): number => ({ 10: 80, 50: 5 })[v] ?? 0
+
+            const atZero = buildTooltipContext(
+                0,
+                [shown, perPoint],
+                ['a', 'b'],
+                xConst,
+                yScale,
+                fakeCanvasBounds,
+                defaultResolveValue
+            )
+            // 'pp' is hidden from the tooltip at index 0 but still anchors position (min pixel = 5)
+            expect(atZero?.seriesData.map((d) => d.series.key)).toEqual(['shown'])
+            expect(atZero?.position.y).toBe(5)
+
+            const atOne = buildTooltipContext(
+                1,
+                [shown, perPoint],
+                ['a', 'b'],
+                xConst,
+                yScale,
+                fakeCanvasBounds,
+                defaultResolveValue
+            )
+            expect(atOne?.seriesData.map((d) => d.series.key)).toEqual(['shown', 'pp'])
+        })
+
         it('includes correct pixel position from xScale and minimum yScale output', () => {
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [50] })

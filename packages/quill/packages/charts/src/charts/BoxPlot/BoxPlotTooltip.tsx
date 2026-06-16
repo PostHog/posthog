@@ -1,5 +1,6 @@
 import React from 'react'
 
+import { isTooltipHiddenAt } from '../../core/interaction'
 import type { TooltipContext } from '../../core/types'
 import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { BoxPlotAdaptedMeta } from './BoxPlot'
@@ -41,7 +42,7 @@ export function BoxPlotTooltip<Meta = unknown>({
 
     const entries: { key: string; color: string; label: string; datum: BoxPlotDatum }[] = []
     for (const seriesEntry of ctx.seriesData) {
-        if (seriesEntry.series.visibility?.tooltip === false) {
+        if (isTooltipHiddenAt(seriesEntry.series, ctx.dataIndex)) {
             continue
         }
         const datum = seriesEntry.series.meta?.datums?.[ctx.dataIndex]

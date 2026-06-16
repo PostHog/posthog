@@ -41,6 +41,7 @@ const series: Series[] = [
 - `key` (React key + stacking identity), `label` (legend/tooltip), `data` are required.
 - Line-only options: `points`, `stroke.pattern` (dashes/projections), `fill.opacity` / `fill.gradient` (area), `fill.lowerData` (ribbon).
 - `yAxisId` scales a series against a second axis; `meta` carries arbitrary data into tooltips.
+- `visibility.tooltip` hides a series from the tooltip: `false` hides the whole series; a `(boolean | null)[]` hides individual points by data index (e.g. `[true, false, true]`). Hidden points still render on the line and contribute to tooltip anchoring. `visibility.excluded` removes a series entirely; `visibility.valueLabel` hides it from the `ValueLabels` overlay.
 
 ## Sizing
 

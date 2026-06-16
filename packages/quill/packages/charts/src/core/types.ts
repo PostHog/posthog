@@ -84,8 +84,11 @@ export interface Series<Meta = unknown> {
     visibility?: {
         /** Fully exclude the series — no rendering, no scale contribution, no tooltip, no hit-testing. */
         excluded?: boolean
-        /** Whether the series appears in the tooltip's seriesData. Defaults to true. */
-        tooltip?: boolean
+        /** Whether the series appears in the tooltip's seriesData. Defaults to true. A boolean toggles
+         *  the whole series; an array toggles individual points, indexed by data index (sparse — a
+         *  missing/`null`/`true` entry shows that point, `false` hides it). A hidden point still renders
+         *  on the line and contributes to scales and tooltip anchoring. */
+        tooltip?: boolean | (boolean | null)[]
         /** Whether the ValueLabels overlay draws a label for this series. Defaults to true. */
         valueLabel?: boolean
     }

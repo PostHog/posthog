@@ -7,10 +7,21 @@ import type {
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
+    Series,
     TooltipContext,
     YAxisScale,
 } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
+
+/** Whether a series' value at `dataIndex` is hidden from the tooltip. Honors both forms of
+ *  `visibility.tooltip`: a boolean toggles the whole series, an array toggles individual points. */
+export function isTooltipHiddenAt(series: Pick<Series, 'visibility'>, dataIndex: number): boolean {
+    const tooltip = series.visibility?.tooltip
+    if (tooltip === false) {
+        return true
+    }
+    return Array.isArray(tooltip) && tooltip[dataIndex] === false
+}
 
 export interface LabelPosition {
     x: number
@@ -105,7 +116,7 @@ export function buildTooltipContext<Meta = unknown>(
         // A gap (`data[i]` non-finite) draws no point/bar, so don't fabricate a `0` row for it —
         // skip it the same way the renderer does.
         const rawValue = s.data[dataIndex]
-        if (s.visibility?.tooltip !== false && rawValue != null && isFinite(rawValue)) {
+        if (!isTooltipHiddenAt(s, dataIndex) && rawValue != null && isFinite(rawValue)) {
             // A per-bar series carries each bar's identity in `bars[i]` — surface it so the tooltip
             // reads the right color/meta/label rather than the shared series-level ones.
             const bar = s.bars?.[dataIndex]
