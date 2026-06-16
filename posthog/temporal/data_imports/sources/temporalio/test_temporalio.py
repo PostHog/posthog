@@ -51,6 +51,7 @@ class TestTemporalIONonRetryableErrors:
             "received fatal alert: BadCertificate",
             "received fatal alert: CertificateUnknown",
             "invalid peer certificate: UnknownIssuer",
+            "Failed client connect: Server connection error: tonic::transport::Error(Transport, CertificateParseError)",
         ],
     )
     def test_tls_certificate_failures_are_non_retryable(self, error_message):

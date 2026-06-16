@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -42,12 +43,18 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         return {
             "REVOKED_ACCESS_TOKEN": None,
             "The token used in the request has expired": "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
+            # LinkedIn rejects a non-numeric Account ID with a 400 whose message names the offending
+            # key value (volatile) followed by this stable type-coercion phrase. The account id is a
+            # fixed config value, so retrying can't help — fail fast and tell the user to fix it.
+            "must be of type 'java.lang.Long'": "LinkedIn rejected the configured Account ID. It must be the numeric LinkedIn ad account ID (digits only). Please correct the Account ID in your source settings and re-sync.",
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINKEDIN_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["linkedin advertising"],
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
             releaseStatus="beta",
