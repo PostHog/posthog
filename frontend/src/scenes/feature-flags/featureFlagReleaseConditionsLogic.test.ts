@@ -1352,7 +1352,7 @@ describe('the feature flag release conditions logic', () => {
             }
         )
 
-        it('falls back to raw ids when the persons request fails', async () => {
+        it('falls back to raw ids without caching when the persons request fails', async () => {
             logic?.unmount()
 
             useMocks({
@@ -1370,10 +1370,10 @@ describe('the feature flag release conditions logic', () => {
             await expectLogic(logic, () => {
                 logic.mount()
             })
-                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
-                .toMatchValues({
-                    distinctIdNameCache: { 'distinct-1': 'distinct-1', 'distinct-2': 'distinct-2' },
-                })
+                .toDispatchActions(['loadDistinctIdNames'])
+                .toFinishAllListeners()
+                // Failed ids stay uncached so a later setFilters/updateConditionSet retries them.
+                .toMatchValues({ distinctIdNameCache: {} })
 
             expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1')
         })
@@ -1404,9 +1404,11 @@ describe('the feature flag release conditions logic', () => {
 
             await expectLogic(logic, () => {
                 logic.mount()
-            }).toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames', 'setDistinctIdNames'])
+            })
+                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                .toFinishAllListeners()
 
-            // First-chunk names survive even though the second chunk fell back to raw ids.
+            // First-chunk names survive; the failed second chunk stays uncached and renders raw.
             expect(logic.values.getDistinctIdName('d-0')).toBe('d-0 (name-d-0)')
             expect(logic.values.getDistinctIdName('d-200')).toBe('d-200')
         })

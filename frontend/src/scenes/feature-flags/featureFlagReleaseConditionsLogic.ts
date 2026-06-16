@@ -660,8 +660,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return
             }
 
-            // Only fetch ids we haven't resolved yet (cache stores a value for every
-            // requested id — the resolved name or the raw id as fallback).
+            // Only fetch ids we haven't resolved yet. Failed lookups stay uncached so they
+            // retry on a later setFilters/updateConditionSet rather than pinning to the raw id.
             const uncachedIds = [...new Set(distinctIds)].filter((id) => !(id in values.distinctIdNameCache))
             if (uncachedIds.length === 0) {
                 return
@@ -688,8 +688,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     const personsByDistinctId = await api.persons.getByDistinctIds(chunk)
                     actions.setDistinctIdNames(toMapping(chunk, personsByDistinctId))
                 } catch (error) {
+                    // Leave failed ids uncached so a later setFilters/updateConditionSet retries
+                    // them; getDistinctIdName already renders the raw id while unresolved.
                     console.error('Error loading distinct ID names:', error)
-                    actions.setDistinctIdNames(Object.fromEntries(chunk.map((id) => [id, id])))
                 }
             }
         },
