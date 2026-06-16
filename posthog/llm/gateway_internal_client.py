@@ -75,7 +75,7 @@ def get_wallet(team_id: int) -> Wallet:
         )
         response.raise_for_status()
         data = response.json()
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, ValueError) as exc:
         raise AIGatewayInternalError(f"wallet read failed: {exc}") from exc
 
     wallet = data.get("wallet") or {}
@@ -115,7 +115,10 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
     if response.status_code >= 400:
         raise AIGatewayInternalError(_error_detail(response))
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"credit response was not valid JSON: {exc}") from exc
     return CreditResult(
         team_id=int(data.get("team_id", team_id)),
         entry_id=data.get("entry_id", ""),

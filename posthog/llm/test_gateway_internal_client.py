@@ -81,6 +81,14 @@ class TestGetWallet:
             with pytest.raises(AIGatewayInternalError, match="wallet read failed"):
                 get_wallet(42)
 
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_on_non_json_success_body(self, mock_settings):
+        _configured(mock_settings)
+        non_json = httpx.Response(200, text="<html>not json</html>", request=httpx.Request("GET", "http://gw"))
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=non_json):
+            with pytest.raises(AIGatewayInternalError, match="wallet read failed"):
+                get_wallet(42)
+
 
 class TestAddCredit:
     @patch("posthog.llm.gateway_internal_client.settings")
@@ -120,6 +128,14 @@ class TestAddCredit:
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(400, body)):
             with pytest.raises(AIGatewayInternalError, match="amount_usd: must be positive"):
                 add_credit(42, "-1", "bad", "key-123")
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_on_non_json_success_body(self, mock_settings):
+        _configured(mock_settings)
+        non_json = httpx.Response(200, text="<html>not json</html>", request=httpx.Request("POST", "http://gw"))
+        with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=non_json):
+            with pytest.raises(AIGatewayInternalError, match="not valid JSON"):
+                add_credit(42, "10", "x", "key-123")
 
 
 class TestNotConfigured:
