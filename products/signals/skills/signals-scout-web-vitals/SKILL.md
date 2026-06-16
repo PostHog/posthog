@@ -79,10 +79,16 @@ few samples for a stable p75 on any page) isn't "not in use" — there's just no
 signal today. Either way, close out:
 
 - key: `not-in-use:web_vitals:team{team_id}` (count ~0) or
-  `pattern:web_vitals:baseline-team{team_id}` (captured, all pages within band at baseline)
-- content: `"$web_vitals {absent | ~{count}/day, no page in poor band} at {timestamp}"`
+  `pattern:web_vitals:baseline-team{team_id}` (captured, **every** high-traffic page already in `good`)
+- content: `"$web_vitals {absent | ~{count}/day, all top pages in good band} at {timestamp}"`
 
 Close out empty. Re-running the same key idempotently refreshes the timestamp.
+
+**Do not** take the baseline close-out when capture is healthy but the top pages sit in
+`needs-improvement` rather than `good` — that isn't "nothing here today", it's an
+unaddressed opportunity the team simply can't see. Drop to the **Improvement opportunity**
+path below and emit one. The baseline close-out is only for a project that is genuinely
+already in the green.
 
 ## How a run works
 
@@ -102,14 +108,15 @@ Three cheap reads cold-start a run:
 
 ### Profile shape — band × volume × trend
 
-| Pattern                                                    | What it usually means                                          |
-| ---------------------------------------------------------- | -------------------------------------------------------------- |
-| One page's p75 in `poor`, high volume, flat history        | **Standing-poor** — chronically slow route; emit on absolute   |
-| One page crosses good/needs→poor in 24h vs its 13d history | **Band-crossing regression** — deploy/content change; date it  |
-| One page worsens sharply within a band, high volume        | **In-band regression** — early warning before it crosses       |
-| Every page's p75 steps together                            | Population / CDN / third-party shift — one bundled finding max |
-| p75 swings run-to-run on a low-sample page                 | Percentile noise — gate it out, don't emit                     |
-| All pages comfortably in `good`                            | Nothing here today — close out                                 |
+| Pattern                                                    | What it usually means                                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| One page's p75 in `poor`, high volume, flat history        | **Standing-poor** — chronically slow route; emit on absolute                           |
+| One page crosses good/needs→poor in 24h vs its 13d history | **Band-crossing regression** — deploy/content change; date it                          |
+| One page worsens sharply within a band, high volume        | **In-band regression** — early warning before it crosses                               |
+| Every page's p75 steps together                            | Population / CDN / third-party shift — one bundled finding max                         |
+| p75 swings run-to-run on a low-sample page                 | Percentile noise — gate it out, don't emit                                             |
+| Top page in `needs-improvement` (not `good`), first run    | **Improvement opportunity** — no regression, but not green; emit one to start research |
+| All pages comfortably in `good`                            | Nothing here today — close out                                                         |
 
 ### Explore
 
@@ -148,6 +155,54 @@ is P3 at most. Before emitting, confirm it isn't a known-and-accepted slow page 
 `pattern:`/`addressed:` memory. Key findings by **host + path**, not path alone — carry the
 host into the `dedupe:`/`pattern:` key so a multi-hostname project doesn't merge the
 marketing and app surfaces (or emit a fix aimed at the wrong one).
+
+#### Improvement opportunity (needs-improvement at scale, especially first run)
+
+Not every finding is a regression or a `poor`-band emergency. If a high-traffic surface
+sits in **`needs-improvement`** — past `good`, not yet `poor` — that's a standing
+opportunity, and on a project's **first** web-vitals run (no `pattern:`/`addressed:` memory
+for the area yet) it's worth emitting exactly one. The team can't act on what they can't
+see; a single well-scoped "your busiest page is at LCP p75 3.7s, here's where the time
+goes" beats a silent baseline close-out and gives them a place to start.
+
+Same shape as standing-poor, but classify against the **needs-improvement floor** and rank
+by reach:
+
+```sql
+SELECT
+    properties.$host AS host,
+    replaceRegexpAll(properties.$pathname, '[0-9]+', ':id') AS path,
+    count() AS samples_7d,
+    round(quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)), 0) AS lcp_p75
+FROM events
+WHERE event = '$web_vitals'
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+  AND properties.$web_vitals_LCP_value IS NOT NULL
+GROUP BY host, path
+HAVING samples_7d >= 1000
+   AND lcp_p75 BETWEEN 2500 AND 4000   -- LCP needs-improvement; INP 200–500, CLS 0.1–0.25, FCP 1800–3000
+ORDER BY samples_7d DESC
+LIMIT 25
+```
+
+Rules so this stays a signal, not noise:
+
+- **First run / no prior baseline only** (or a clear worsening since the last baseline).
+  Once you've surfaced the opportunity for an area, write
+  `pattern:web_vitals:needs-improvement-{host}{path}` and do **not** re-emit it each run —
+  refresh the memory, stay quiet, and let the regression paths catch any future change. A
+  standing `needs-improvement` page is a one-time nudge, not a recurring alert.
+- **Reach gates it.** Only the top surface(s) by volume earn an emission — a busy landing
+  page at LCP 3.7s. A deep, low-traffic route in `needs-improvement` is memory, not a
+  signal.
+- **Frame it as research, not a defect.** Pair the band with the most likely lever from
+  [`references/remediation.md`](references/remediation.md) (LCP → image/font/render-blocking;
+  CLS → reserved space / late fonts/ads; INP → main-thread work) and say "worth
+  investigating", with the page + p75 as the starting point. Emitting it — which the team
+  can dismiss — beats never surfacing it.
+- **Cap it.** One improvement-opportunity emission per run: the single highest-reach worst
+  offender. Don't fan out a list — that's a dashboard, not a signal.
 
 #### Band-crossing regression (historical, dated)
 
