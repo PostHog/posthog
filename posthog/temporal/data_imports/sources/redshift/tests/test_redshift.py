@@ -1,7 +1,9 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import psycopg
 from psycopg import sql
+from psycopg.pq import TransactionStatus
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import TemporaryFileSizeExceedsLimitException
@@ -11,6 +13,7 @@ from posthog.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,
     _build_query,
+    _explain_query,
     filter_redshift_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.redshift.source import _REDSHIFT_IMPLEMENTATION, RedshiftSource
@@ -259,6 +262,81 @@ class TestFetchTableStats:
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
         assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+
+    def test_failed_explain_does_not_poison_real_query(self, impl, logger):
+        # Reproduces the reported incident: EXPLAIN on `svv_table_info` fails (Redshift can't
+        # EXPLAIN leader-node-only system views), aborting the transaction. Without recovery the
+        # real stats query would then die with `InFailedSqlTransaction` and stats would be lost.
+        cursor = _fake_poisoning_cursor(real_query_result=(2, 100))
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            stats = impl.fetch_table_stats(cursor, "public", "t", logger)
+
+        assert stats == TableStats(table_size_bytes=2 * 1024 * 1024, row_count=100)
+        cursor.connection.rollback.assert_called_once()
+        mock_capture.assert_not_called()
+
+
+def _fake_poisoning_cursor(real_query_result):
+    """A cursor mock whose EXPLAIN fails and aborts the transaction, mirroring Redshift.
+
+    The real (non-EXPLAIN) query only succeeds once the aborted transaction has been rolled
+    back — exactly the behaviour `_explain_query` must restore.
+    """
+    cursor = MagicMock()
+    state = {"poisoned": False}
+
+    def execute(stmt, *args, **kwargs):
+        text = stmt.as_string() if hasattr(stmt, "as_string") else str(stmt)
+        if text.strip().upper().startswith("EXPLAIN"):
+            state["poisoned"] = True
+            cursor.connection.info.transaction_status = TransactionStatus.INERROR
+            raise psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        if state["poisoned"]:
+            raise psycopg.errors.InFailedSqlTransaction("current transaction is aborted")
+        return cursor
+
+    def rollback():
+        state["poisoned"] = False
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+    cursor.execute.side_effect = execute
+    cursor.connection.rollback.side_effect = rollback
+    cursor.connection.info.transaction_status = TransactionStatus.IDLE
+    cursor.fetchone.return_value = real_query_result
+    return cursor
+
+
+class TestExplainQuery:
+    def test_swallows_explain_failure_without_reporting(self, logger):
+        # EXPLAIN failures are expected for system views and non-actionable, so they must not be
+        # reported to error tracking (this is the source of the reported noise).
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
+
+        mock_capture.assert_not_called()
+
+    def test_rolls_back_aborted_transaction(self, logger):
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        cursor.connection.info.transaction_status = TransactionStatus.INERROR
+
+        _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
+
+        cursor.connection.rollback.assert_called_once()
+
+    def test_does_not_roll_back_when_transaction_healthy(self, logger):
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "t" does not exist in t')
+        cursor.connection.info.transaction_status = TransactionStatus.IDLE
+
+        _explain_query(cursor, sql.SQL("SELECT 1 FROM svv_table_info").format(), logger)
+
+        cursor.connection.rollback.assert_not_called()
 
 
 class TestFetchAverageRowSize:

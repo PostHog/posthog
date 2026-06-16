@@ -264,15 +264,53 @@ def _iter_simple_pagination(
 
     On resume, the saved ``next_url`` is re-issued with a fresh ``access_token``
     injected at request time, so the initial request is skipped.
+
+    Like the stats path, this adapts to Meta's "reduce the amount of data" 500s
+    by shrinking the per-page ``limit`` (``PAGE_LIMIT_FALLBACK_SIZES``) and
+    retrying the same request. Entity endpoints (campaigns/adsets/ads) carry
+    heavy fields like ``targeting`` and ``creative``, so a default-sized page
+    can be too large for Meta to serve; without this fallback the whole sync
+    fails on those accounts. Retrying the same URL at a smaller limit never
+    re-emits already-yielded rows — the initial request has yielded nothing
+    yet, and a cursor points at the start of the next (not-yet-yielded) page.
     """
     access_token = params["access_token"]
+    current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
+
+    # None while on the initial request; set to the active ``paging.next``
+    # cursor once we start following pages. Used to retry-at-smaller-limit.
+    cursor_url: str | None = None
     if resume_config is not None and resume_config.next_url and resume_config.end_date is None:
-        response = _fetch_paging_url(resume_config.next_url, access_token)
-    else:
-        response = make_tracked_session().get(initial_url, params=params)
+        cursor_url = resume_config.next_url
+
+    def _issue() -> Response:
+        # Only rewrite the request once the limit has actually been shrunk, so
+        # healthy syncs keep their original request shape (saved cursor URLs and
+        # the caller's params already encode the default limit).
+        if cursor_url is not None:
+            url = (
+                _override_limit(cursor_url, current_limit)
+                if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]
+                else cursor_url
+            )
+            return _fetch_paging_url(url, access_token)
+        if current_limit != PAGE_LIMIT_FALLBACK_SIZES[0]:
+            return make_tracked_session().get(initial_url, params={**params, "limit": current_limit})
+        return make_tracked_session().get(initial_url, params=params)
+
+    response = _issue()
 
     while True:
         if response.status_code != 200:
+            # Too-much-data: shrink the page limit and retry the same request.
+            # Re-issuing the same URL/cursor at a smaller limit is safe — no
+            # already-yielded rows are re-emitted.
+            if _is_timeout_error(response):
+                smaller = _next_smaller_limit(current_limit)
+                if smaller is not None:
+                    current_limit = smaller
+                    response = _issue()
+                    continue
             _raise_meta_api_error(response)
 
         response_payload = response.json()
@@ -286,9 +324,9 @@ def _iter_simple_pagination(
         # the already-yielded page is not re-emitted (primary keys would dedupe it anyway).
         # Strip access_token from the URL before using it so we don't end up with a
         # duplicated `access_token` query param (requests merges `params=...` into the URL).
-        stripped_next_url = _strip_access_token(next_url)
-        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=stripped_next_url))
-        response = _fetch_paging_url(stripped_next_url, access_token)
+        cursor_url = _strip_access_token(next_url)
+        resumable_source_manager.save_state(MetaAdsResumeConfig(next_url=cursor_url))
+        response = _issue()
 
 
 def _iter_time_range_pagination(
