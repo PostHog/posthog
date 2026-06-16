@@ -228,7 +228,30 @@
                 "secrets": {
                     "default": [],
                     "items": {
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            {
+                                "properties": {
+                                    "allowed_hosts": {
+                                        "items": {
+                                            "minLength": 1,
+                                            "type": "string"
+                                        },
+                                        "minItems": 1,
+                                        "type": "array"
+                                    },
+                                    "name": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name", "allowed_hosts"],
+                                "type": "object"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
