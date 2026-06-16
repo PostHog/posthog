@@ -16,7 +16,8 @@ const meta: Meta<StoryArgs> = {
     render: ({ connected = false }) => {
         useStorybookMocks({
             get: {
-                '/api/projects/:id/integrations': { results: connected ? [mockIntegration] : [] },
+                // integrationsLogic loads from the environments endpoint, not projects
+                '/api/environments/:id/integrations': { results: connected ? [mockIntegration] : [] },
                 // slack_service.available drives whether the "Add to Slack" connect button shows
                 '/_preflight': {
                     ...preflightJson,
