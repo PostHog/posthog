@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -69,6 +70,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DO_IT,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="DoIt",
             iconPath="/static/services/doit.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/doit",

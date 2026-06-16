@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class BambooHRSource(ResumableSource[BambooHRSourceConfig, BambooHRResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BAMBOO_HR,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="BambooHR",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your BambooHR company subdomain and API key to pull your HR data into the PostHog Data warehouse.

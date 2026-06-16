@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class HeapSource(SimpleSource[HeapSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HEAP,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Heap",
             iconPath="/static/services/heap.png",
             fields=cast(list[FieldType], []),
