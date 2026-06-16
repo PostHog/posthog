@@ -13,9 +13,10 @@ import {
     ProjectSecretAPIKeyAllowedScope,
 } from 'lib/scopes'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
-import { APIScopeAction, ProjectSecretAPIKeyRequest } from '~/types'
+import { APIScopeAction, ProjectSecretAPIKeyRequest, UserType } from '~/types'
 
 import type { projectSecretAPIKeysLogicType } from './projectSecretAPIKeysLogicType'
 
@@ -28,7 +29,7 @@ export const MAX_PROJECT_API_KEYS_PER_PROJECT = 10
 export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
     path(['scenes', 'settings', 'project', 'projectSecretAPIKeysLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     })),
 
     actions({
@@ -164,11 +165,16 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             },
         ],
         filteredScopes: [
-            (s) => [s.searchTerm],
-            (searchTerm: string): { key: string; disabledActions: APIScopeAction[] }[] => {
+            (s) => [s.searchTerm, s.user],
+            (searchTerm: string, user: UserType | null): { key: string; disabledActions: APIScopeAction[] }[] => {
                 const allActions: APIScopeAction[] = ['read', 'write']
+                const allowedScopeActions: string[] = [...PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION]
+                // Staff-only; the backend enforces the same is_staff gate (UI-only).
+                if (user?.is_staff) {
+                    allowedScopeActions.push('llm_gateway:read')
+                }
                 const allowedByKey = new Map<string, Set<APIScopeAction>>()
-                for (const scopeAction of PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION) {
+                for (const scopeAction of allowedScopeActions) {
                     const [key, action] = scopeAction.split(':') as [string, APIScopeAction]
                     if (!allowedByKey.has(key)) {
                         allowedByKey.set(key, new Set())

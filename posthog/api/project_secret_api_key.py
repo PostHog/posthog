@@ -65,6 +65,13 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         return getattr(obj, "_value", None)  # type: ignore
 
     def validate_scopes(self, scopes):
+        allowed = set(PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
+        # Staff may self-serve the privileged llm_gateway scope. It stays in
+        # PRIVILEGED_SCOPES, so OAuth and self-serve registration still refuse
+        # it; only this staff-gated path opens.
+        if getattr(self.context["request"].user, "is_staff", False):
+            allowed.add(("llm_gateway", "read"))
+
         for scope in scopes:
             if scope == "*":
                 raise serializers.ValidationError(
@@ -79,13 +86,8 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
             ):
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
-            if (scope_parts[0], scope_parts[1]) not in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION:
-                allowed_scopes = ", ".join(
-                    [
-                        f"{scope_object_action[0]}:{scope_object_action[1]}"
-                        for scope_object_action in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION
-                    ]
-                )
+            if (scope_parts[0], scope_parts[1]) not in allowed:
+                allowed_scopes = ", ".join(f"{obj}:{action}" for obj, action in sorted(allowed))
                 raise serializers.ValidationError(
                     f"Scope '{scope}' can not be assigned to a project secret API key. Allowed scopes: {allowed_scopes}"
                 )

@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from posthog.test.base import APIBaseTest
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
@@ -123,6 +125,52 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400
         assert "Invalid scope" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("non_staff", False, 400),
+            ("staff", True, 201),
+        ]
+    )
+    def test_llm_gateway_scope_gated_on_staff(self, _name, is_staff, expected_status):
+        self.user.is_staff = is_staff
+        self.user.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "gw key", "scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 201:
+            assert response.json()["scopes"] == ["llm_gateway:read"]
+        else:
+            assert "can not be assigned" in response.json()["detail"]
+
+    def test_llm_gateway_scope_rejected_for_non_staff_on_update(self):
+        assert self.user.is_staff is False
+        key_id = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "gw key", "scopes": ["endpoint:read"]},
+        ).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}",
+            {"scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 400
+        assert "can not be assigned" in response.json()["detail"]
+
+    def test_llm_gateway_scope_allowed_for_staff_on_update(self):
+        self.user.is_staff = True
+        self.user.save()
+        key_id = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "gw key", "scopes": ["endpoint:read"]},
+        ).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key_id}",
+            {"scopes": ["llm_gateway:read"]},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["scopes"] == ["llm_gateway:read"]
 
     def test_update_label(self):
         create_response = self.client.post(
