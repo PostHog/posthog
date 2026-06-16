@@ -71,6 +71,16 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
+@dataclass(frozen=True)
+class SandboxResources:
+    """Optional compute overrides for a task's sandbox. Unset fields keep the
+    `SandboxConfig` defaults — callers pass only what they want to change."""
+
+    cpu_cores: float | None = None
+    memory_gb: float | None = None
+    disk_size_gb: float | None = None
+
+
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE

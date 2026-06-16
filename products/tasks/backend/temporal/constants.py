@@ -11,15 +11,12 @@ from datetime import timedelta
 
 from django.conf import settings
 
-from posthog.cloud_utils import is_cloud
-
-# Cloud runs default to 2 hours; local dev / self-hosted default to 30 minutes
-# so idle sandboxes don't linger longer than needed. Override via
-# TASKS_INACTIVITY_TIMEOUT_SECONDS for local testing (e.g.
-# `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast shutdown for resume-flow
-# testing). The CI follow-up timing lives in `task_management`, which now owns
-# the loop.
-_DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 * 60 if is_cloud() else 30 * 60
+# Default 30 minutes in production, 2 minutes under test so orphaned runs don't
+# pin a worker for long. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS for local
+# testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast shutdown
+# for resume-flow testing). The CI follow-up timing lives in `task_management`,
+# which now owns the loop.
+_DEFAULT_INACTIVITY_TIMEOUT_SECONDS = 2 * 60 if settings.TEST else 30 * 60
 INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or _DEFAULT_INACTIVITY_TIMEOUT_SECONDS)
 
 # CI follow-up cadence after the agent has been idle.

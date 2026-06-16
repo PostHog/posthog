@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async
 from products.tasks.backend.models import Task
 from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.services.sandbox import SandboxResources
 
 if TYPE_CHECKING:
     from products.tasks.backend.services.custom_prompt_internals import OutputFn
@@ -364,6 +365,9 @@ async def select_repository(
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
+        # Repo selection only clones a dummy repo and runs read-only SQL, so it
+        # needs far less compute than a coding task — half the default sandbox.
+        sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
     )
 
     session, result = await MultiTurnSession.start(

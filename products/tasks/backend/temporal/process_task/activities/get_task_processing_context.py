@@ -112,6 +112,28 @@ class TaskProcessingContext:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
 
+    def sandbox_resource_overrides(self) -> dict[str, float | int]:
+        """SandboxConfig field overrides requested at task creation (compute + TTL).
+
+        Empty when the task requested none — callers spread it into SandboxConfig so
+        unset fields keep their defaults. `bool` is excluded explicitly since it's an
+        `int` subclass and would otherwise slip through as 0/1.
+        """
+        overrides: dict[str, float | int] = {}
+        state = self.state or {}
+        for state_key, config_key in (
+            ("sandbox_cpu_cores", "cpu_cores"),
+            ("sandbox_memory_gb", "memory_gb"),
+            ("sandbox_disk_size_gb", "disk_size_gb"),
+        ):
+            value = state.get(state_key)
+            if isinstance(value, int | float) and not isinstance(value, bool):
+                overrides[config_key] = float(value)
+        ttl = state.get("sandbox_ttl_seconds")
+        if isinstance(ttl, int | float) and not isinstance(ttl, bool):
+            overrides["ttl_seconds"] = int(ttl)
+        return overrides
+
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
         sandbox_environment_id = self.sandbox_environment_id
