@@ -12,6 +12,7 @@ import structlog
 import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
+from prometheus_client import Counter, Histogram
 
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
@@ -613,6 +614,30 @@ def send_batch_export_run_failure(
 # The catch-up cron in scheduled.py is anchored to this constant.
 EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC = 10
 
+# Send-funnel counter: every call lands on exactly one outcome label, so the
+# delivered-vs-suppressed breakdown (and the "delivered" rate that feeds the
+# noise dashboard + alert) is recoverable from a single metric. Intentionally
+# unlabelled by team — per-team volume is read from MessagingRecord instead, to
+# keep Prometheus cardinality bounded.
+EXTERNAL_DATA_FAILURE_DIGEST_COUNTER = Counter(
+    "external_data_failure_digest_total",
+    "External data failure digest email send attempts, by funnel outcome.",
+    labelnames=["outcome"],
+)
+
+# Heaviness of delivered emails — the true failing-schema count (capped rows +
+# omitted), so a digest listing 200 failures is distinguishable from one listing 2.
+EXTERNAL_DATA_FAILURE_DIGEST_SCHEMAS_HISTOGRAM = Histogram(
+    "external_data_failure_digest_schemas",
+    "Failing schemas represented in a delivered failure digest email.",
+    buckets=(1, 2, 3, 5, 10, 20, 30, 50, 100, 250, float("inf")),
+)
+
+EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER = Counter(
+    "external_data_failure_digest_omitted_schemas_total",
+    "Failing schemas dropped from delivered digest emails beyond the per-email cap.",
+)
+
 
 def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]], omitted_count: int = 0) -> bool:
     """Email a per-team digest of failing external data source syncs.
@@ -626,6 +651,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     included schemas as notified.
     """
     if not is_email_available(with_absolute_urls=True):
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="email_unavailable").inc()
         return False
 
     # Shift the clock back so the date in the key changes at the boundary hour
@@ -636,11 +662,13 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     # Every job in a burst schedules its own delayed digest task; the first to send
     # wins and the rest bail here, before the expensive recipient queries and render.
     if MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists():
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="deduped").inc()
         return False
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="team_missing").inc()
         logger.warning("Team %d not found for external data failure digest", team_id)
         return False
 
@@ -651,10 +679,12 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
         distinct_id=str(team.uuid),
         groups={"organization": str(team.organization_id), "project": str(team.id)},
     ):
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="flag_disabled").inc()
         return False
 
     memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0)
     if not memberships_to_email:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="no_recipients").inc()
         return False
 
     paused_count = sum(1 for schema in schemas if schema["paused"])
@@ -682,7 +712,15 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     # MessagingRecord.sent_at proves delivery — stamping on enqueue would
     # permanently silence paused schemas whenever a send failed.
     message.send(send_async=False)
-    return MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
+    delivered = MessagingRecord.objects.filter(campaign_key=campaign_key, sent_at__isnull=False).exists()
+    if delivered:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="delivered").inc()
+        EXTERNAL_DATA_FAILURE_DIGEST_SCHEMAS_HISTOGRAM.observe(len(schemas) + omitted_count)
+        if omitted_count:
+            EXTERNAL_DATA_FAILURE_DIGEST_OMITTED_COUNTER.inc(omitted_count)
+    else:
+        EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="send_failed").inc()
+    return delivered
 
 
 @shared_task(ignore_result=True)

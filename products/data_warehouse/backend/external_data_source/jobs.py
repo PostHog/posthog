@@ -6,6 +6,7 @@ from posthog.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES, emit_da
 
 from products.data_warehouse.backend.tasks import (
     EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS,
+    EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER,
     send_external_data_failure_digest_task,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -58,6 +59,7 @@ def update_external_job_status(
                 send_external_data_failure_digest_task.apply_async(
                     args=[team_id], countdown=EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS
                 )
+                EXTERNAL_DATA_FAILURE_DIGEST_SCHEDULED_COUNTER.labels(trigger="inline").inc()
             except Exception:
                 logger.exception("Failed to schedule external data failure digest")
 
