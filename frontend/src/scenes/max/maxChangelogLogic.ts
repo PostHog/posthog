@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 
@@ -19,10 +20,6 @@ export interface AlertEntry {
 
 interface ChangelogPayload {
     entries: ChangelogEntry[]
-}
-
-interface AlertsPayload {
-    alerts: AlertEntry[]
 }
 
 const CHANGELOG_STORAGE_KEY = 'posthog_ai_changelog_last_seen'
@@ -53,24 +50,6 @@ function parseChangelogPayload(payload: unknown): ChangelogEntry[] {
             entry !== null &&
             typeof entry.title === 'string' &&
             typeof entry.description === 'string'
-    )
-}
-
-function parseAlertsPayload(payload: unknown): AlertEntry[] {
-    if (!payload || typeof payload !== 'object') {
-        return []
-    }
-    const typedPayload = payload as AlertsPayload
-    if (!Array.isArray(typedPayload.alerts)) {
-        return []
-    }
-    return typedPayload.alerts.filter(
-        (alert): alert is AlertEntry =>
-            typeof alert === 'object' &&
-            alert !== null &&
-            typeof alert.title === 'string' &&
-            typeof alert.description === 'string' &&
-            (alert.severity === 'warning' || alert.severity === 'error')
     )
 }
 
@@ -119,7 +98,7 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
     path(['scenes', 'max', 'maxChangelogLogic']),
 
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], incidentStatusLogic, ['aiIncidentAlerts']],
     })),
 
     actions({
@@ -131,21 +110,14 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
         setIsDismissed: (isDismissed: boolean) => ({ isDismissed }),
         // For testing/storybook only
         setEntries: (entries: ChangelogEntry[]) => ({ entries }),
-        setAlerts: (alerts: AlertEntry[]) => ({ alerts }),
     }),
 
     reducers({
-        // Override entries/alerts for testing - null means use feature flag payload
+        // Override entries for testing - null means use feature flag payload
         entriesOverride: [
             null as ChangelogEntry[] | null,
             {
                 setEntries: (_, { entries }) => entries,
-            },
-        ],
-        alertsOverride: [
-            null as AlertEntry[] | null,
-            {
-                setAlerts: (_, { alerts }) => alerts,
             },
         ],
         isOpen: [
@@ -188,21 +160,8 @@ export const maxChangelogLogic = kea<maxChangelogLogicType>([
                 return parseChangelogPayload(payload)
             },
         ],
-        // Derive alerts from feature flag payload, with override for testing
-        alerts: [
-            (s) => [s.alertsOverride, s.featureFlags],
-            (alertsOverride, featureFlags): AlertEntry[] => {
-                if (alertsOverride !== null) {
-                    return alertsOverride
-                }
-                // featureFlags dependency ensures this re-runs when flags load
-                if (!featureFlags) {
-                    return []
-                }
-                const payload = getFeatureFlagPayload(FEATURE_FLAGS.POSTHOG_AI_ALERTS)
-                return parseAlertsPayload(payload)
-            },
-        ],
+        // Derive alerts from ongoing incident.io incidents tagged to PostHog AI
+        alerts: [(s) => [s.aiIncidentAlerts], (aiIncidentAlerts): AlertEntry[] => aiIncidentAlerts],
         entriesHash: [
             (s) => [s.entries],
             (entries): string | null => (entries.length > 0 ? generateEntriesHash(entries) : null),

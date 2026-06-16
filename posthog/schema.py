@@ -56,6 +56,7 @@ from posthog.schema_enums import (
     ChartDisplayType as ChartDisplayType,
     ColorMode as ColorMode,
     Compare as Compare,
+    ConversionRateInputType as ConversionRateInputType,
     CoreEventCategory as CoreEventCategory,
     CorrelationType as CorrelationType,
     CountPerActorMathType as CountPerActorMathType,
@@ -68,6 +69,7 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DataWarehouseSourceCategory as DataWarehouseSourceCategory,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
     DetailedResultsAggregationType as DetailedResultsAggregationType,
@@ -114,6 +116,7 @@ from posthog.schema_enums import (
     GoogleAdsTableExclusions as GoogleAdsTableExclusions,
     GoogleAdsTableKeywords as GoogleAdsTableKeywords,
     GradientScaleMode as GradientScaleMode,
+    HealthCheckSeverity as HealthCheckSeverity,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -143,6 +146,7 @@ from posthog.schema_enums import (
     LogSeverityLevel as LogSeverityLevel,
     LogsOrderBy as LogsOrderBy,
     LogsSparklineBreakdownBy as LogsSparklineBreakdownBy,
+    ManualMetricType as ManualMetricType,
     MarketingAnalyticsBaseColumns as MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames as MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConstants as MarketingAnalyticsConstants,
@@ -1171,6 +1175,34 @@ class EventsQueryPersonColumn(BaseModel):
     uuid: str
 
 
+class ExperimentExposureEstimateConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    conversionRateInputType: ConversionRateInputType = Field(
+        ...,
+        description=(
+            "'manual' when the baseline value and exposure rate were entered by hand,"
+            " 'automatic' when derived from live experiment data."
+        ),
+    )
+    manualBaselineValue: float | None = Field(
+        default=None,
+        description=(
+            "Manually entered baseline metric value (a conversion percentage for funnel"
+            " metrics). Only used in manual mode."
+        ),
+    )
+    manualExposureRate: float | None = Field(
+        default=None,
+        description=("Manually entered estimate of users exposed to the experiment per day. Only used in manual mode."),
+    )
+    manualMetricType: ManualMetricType | None = Field(
+        default=None,
+        description=("Metric type the manual baseline value refers to. Only used in manual mode."),
+    )
+
+
 class ExperimentExposureTimeSeries(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1216,6 +1248,33 @@ class ExperimentMetricOutlierHandling(BaseModel):
         description=(
             "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile)."
         ),
+    )
+
+
+class ExperimentRunningTimeCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_estimate_config: ExperimentExposureEstimateConfig | None = Field(
+        default=None,
+        description=(
+            "How the exposure estimate is configured: manual user-entered values or"
+            " automatic from live experiment data."
+        ),
+    )
+    minimum_detectable_effect: float | None = Field(
+        default=None,
+        description=(
+            "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes."
+        ),
+    )
+    recommended_running_time: float | None = Field(
+        default=None,
+        description=("Estimated number of days needed to reach the recommended sample size."),
+    )
+    recommended_sample_size: float | None = Field(
+        default=None,
+        description=("Recommended number of exposed users needed for statistical significance."),
     )
 
 
@@ -1390,6 +1449,20 @@ class GoalLine(BaseModel):
     label: str
     position: Position | None = None
     value: float
+
+
+class HealthCheckSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_id: str
+    kind: str
+    link: str = Field(..., description="Relative in-app path to the resource, e.g. '/web'.")
+    payload: dict[str, Any]
+    severity: HealthCheckSeverity
+    summary: str
+    title: str
+    url: str = Field(..., description="Absolute URL ({project.url} + link).")
 
 
 class HeatmapGradientStop(BaseModel):
@@ -5074,6 +5147,19 @@ class GroupPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class HealthCheckSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: HealthCheckSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["health_checks"] = "health_checks"
+    source_type: Literal["health_issue"] = "health_issue"
+    weight: float
+
+
 class HeatmapSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6569,6 +6655,7 @@ class SignalInput(
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | HealthCheckSignalInput
     ]
 ):
     root: (
@@ -6584,6 +6671,7 @@ class SignalInput(
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | HealthCheckSignalInput
     )
 
 
@@ -20494,14 +20582,6 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: list[int] | None = Field(
-        default=None,
-        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
-    )
-    accountOwner: list[int] | None = Field(
-        default=None,
-        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
-    )
     allRolesUnassigned: bool | None = None
     assignedToUserIds: list[int] | None = Field(
         default=None,
@@ -20511,10 +20591,6 @@ class AccountsQuery(BaseModel):
             ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
             " explicit so a shared URL resolves identically for every viewer."
         ),
-    )
-    csm: list[int] | None = Field(
-        default=None,
-        description="Match accounts whose CSM is any of these user ids (OR semantics).",
     )
     filterExpression: str | None = Field(
         default=None,
@@ -22134,6 +22210,17 @@ class TraceSpansQuery(BaseModel):
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),
     )
     filterGroup: PropertyGroupFilter | None = None
+    flatSpans: bool | None = Field(
+        default=None,
+        description=(
+            "Return the matching spans themselves, one row per span (root and child),"
+            " instead of the whole-trace grouping. Streams the matches under `ORDER BY"
+            " … LIMIT` rather than grouping every matching span by trace, so a filter"
+            " on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct"
+            " from `rootSpans`, which scopes whole-trace selection. The single-trace"
+            " waterfall never sets this."
+        ),
+    )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -26052,6 +26139,15 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     caption: str | Any | None = None
+    category: DataWarehouseSourceCategory | None = Field(
+        default=None,
+        description=(
+            "Catalog bucket this source is grouped under in the new-source wizard."
+            " Optional at the type level so partial/in-progress sources don't break,"
+            " but every registered source must set one (enforced by a test). See"
+            " `dataWarehouseSourceCategories`."
+        ),
+    )
     disabledReason: str | None = None
     docsUrl: str | None = None
     existingSource: bool | None = None
@@ -26070,6 +26166,14 @@ class SourceConfig(BaseModel):
     ]
     iconClassName: str | None = None
     iconPath: str
+    keywords: list[str] | None = Field(
+        default=None,
+        description=(
+            "Extra search terms (alternate spellings, acronyms) for the catalog search,"
+            ' e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside'
+            " name/label/category."
+        ),
+    )
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
