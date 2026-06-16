@@ -450,8 +450,8 @@ export type HeatmapsListParams = {
      */
     hide_zero_coordinates?: boolean
     /**
-     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Raise it (up to 1,000,000) to fetch the full set needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
-     * @minimum 1
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
      * @maximum 1000000
      */
     limit?: number

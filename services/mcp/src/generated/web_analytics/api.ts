@@ -24,6 +24,7 @@ export const heatmapsListQueryDateFromDefault = `-7d`
 
 export const heatmapsListQueryHideZeroCoordinatesDefault = true
 export const heatmapsListQueryLimitDefault = 500
+export const heatmapsListQueryLimitMin = 0
 export const heatmapsListQueryLimitMax = 1000000
 
 export const heatmapsListQueryOffsetDefault = 0
@@ -67,11 +68,11 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.'),
     limit: zod
         .number()
-        .min(1)
+        .min(heatmapsListQueryLimitMin)
         .max(heatmapsListQueryLimitMax)
         .default(heatmapsListQueryLimitDefault)
         .describe(
-            "Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Raise it (up to 1,000,000) to fetch the full set needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket."
+            "Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket."
         ),
     offset: zod
         .number()
