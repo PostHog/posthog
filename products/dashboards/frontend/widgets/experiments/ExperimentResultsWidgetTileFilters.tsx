@@ -9,7 +9,7 @@ import { ExperimentPickerSelect } from './ExperimentPickerSelect'
 import {
     parseExperimentResultsWidgetConfig,
     patchExperimentResultsWidgetConfig,
-} from './experimentResultsWidgetConfigValidation'
+} from './experimentsWidgetConfigValidation'
 
 function ExperimentResultsReadOnlyValue({
     tileId,

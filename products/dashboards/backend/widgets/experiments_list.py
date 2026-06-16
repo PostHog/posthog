@@ -1,34 +1,28 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import EXPERIMENTS_LIST_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
+from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 from products.experiments.backend.models.experiment import Experiment
-
-logger = logging.getLogger(__name__)
 
 ValidatedExperimentsListWidgetConfig = dict[str, Any]
 
 
 def derive_experiment_status(experiment: Experiment) -> str:
-    """Derive the API-level status (draft/running/paused/stopped) for one experiment row.
+    """Public status string (draft/running/paused/stopped) for one row.
 
-    Mirrors ExperimentService.filter_experiments_queryset semantics: paused is a running
-    experiment whose linked feature flag is inactive.
+    Reuses the canonical model derivation (`Experiment.is_paused` / `computed_status`),
+    matching `ExperimentSerializer.get_status`.
     """
-    if experiment.status == Experiment.Status.STOPPED or (experiment.status is None and experiment.end_date):
-        return "stopped"
-    is_running = experiment.status == Experiment.Status.RUNNING or (
-        experiment.status is None and experiment.start_date and not experiment.end_date
-    )
-    if is_running:
-        return "running" if experiment.feature_flag.active else "paused"
-    return "draft"
+    if experiment.is_paused:
+        return "paused"
+    return experiment.status or experiment.computed_status.value
 
 
 def _serialize_experiment_row(experiment: Experiment) -> dict[str, Any]:
@@ -79,14 +73,15 @@ def run_experiments_list_widget(
     service = ExperimentService(team=team, user=user)
     queryset = service.filter_experiments_queryset(base_queryset, action="list", query_params=query_params)
 
-    total_count = queryset.count()
-    experiments = list(queryset[:limit])
+    def fetch_page(page_limit: int) -> ListWidgetPage:
+        rows = list(queryset[: page_limit + 1])
+        return ListWidgetPage(results=rows[:page_limit], has_more=len(rows) > page_limit, next_offset=page_limit)
 
-    return {
-        "results": [_serialize_experiment_row(experiment) for experiment in experiments],
-        "hasMore": total_count > limit,
-        "limit": limit,
-        "offset": 0,
-        "totalCount": total_count,
-        "totalCountCapped": False,
-    }
+    return run_list_widget(
+        limit=limit,
+        count_cap=MAX_WIDGET_RESULT_LIMIT,
+        include_total_count=include_total_count,
+        fetch_page=fetch_page,
+        transform_row=_serialize_experiment_row,
+        log_key="experiments_list_widget_total_count_failed",
+    )

@@ -13,7 +13,7 @@ import {
     parseExperimentResultsWidgetConfig,
     validateExperimentResultsWidgetConfigInput,
     type ExperimentResultsWidgetFieldErrors,
-} from './experimentResultsWidgetConfigValidation'
+} from './experimentsWidgetConfigValidation'
 
 export type EditExperimentResultsWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
 

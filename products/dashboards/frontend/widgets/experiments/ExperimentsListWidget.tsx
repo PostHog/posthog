@@ -21,7 +21,7 @@ import {
     WidgetListCount,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { parseExperimentsListWidgetConfig } from './experimentsListWidgetConfigValidation'
+import { parseExperimentsListWidgetConfig } from './experimentsWidgetConfigValidation'
 
 export type ExperimentsListWidgetRow = {
     id: number

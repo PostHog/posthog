@@ -1,10 +1,7 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { fullName } from 'lib/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -14,21 +11,7 @@ import {
     type ExperimentsListWidgetStatus,
     parseExperimentsListWidgetConfig,
     patchExperimentsListWidgetConfig,
-} from './experimentsListWidgetConfigValidation'
-
-function ExperimentsCreatorReadOnlyValue({ createdBy }: { createdBy: number }): JSX.Element {
-    const { meFirstMembers } = useValues(membersLogic)
-    const { ensureAllMembersLoaded } = useActions(membersLogic)
-    useEffect(() => {
-        ensureAllMembersLoaded()
-    }, [ensureAllMembersLoaded])
-    const creator = meFirstMembers.find((member) => member.user.id === createdBy)?.user
-    return (
-        <WidgetTileFilterReadOnlyValue>
-            <span className="text-secondary">Creator:</span> {creator ? fullName(creator) : `User ${createdBy}`}
-        </WidgetTileFilterReadOnlyValue>
-    )
-}
+} from './experimentsWidgetConfigValidation'
 
 export function ExperimentsListWidgetTileFilters({
     config,
@@ -64,7 +47,6 @@ export function ExperimentsListWidgetTileFilters({
                 <WidgetTileFilterReadOnlyValue>
                     <span className="text-secondary">Status:</span> {statusLabel}
                 </WidgetTileFilterReadOnlyValue>
-                {createdBy != null ? <ExperimentsCreatorReadOnlyValue createdBy={createdBy} /> : null}
             </WidgetTileFiltersBar>
         )
     }

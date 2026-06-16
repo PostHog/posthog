@@ -27,11 +27,13 @@ import { ErrorTrackingWidgetTileFilters } from './error_tracking/ErrorTrackingWi
 import { EditExperimentResultsWidgetModal } from './experiments/EditExperimentResultsWidgetModal'
 import { EditExperimentsListWidgetModal } from './experiments/EditExperimentsListWidgetModal'
 import { ExperimentResultsWidget } from './experiments/ExperimentResultsWidget'
-import { parseExperimentResultsWidgetConfigApiError } from './experiments/experimentResultsWidgetConfigValidation'
 import { ExperimentResultsWidgetTileFilters } from './experiments/ExperimentResultsWidgetTileFilters'
 import { ExperimentsListWidget } from './experiments/ExperimentsListWidget'
-import { parseExperimentsListWidgetConfigApiError } from './experiments/experimentsListWidgetConfigValidation'
 import { ExperimentsListWidgetTileFilters } from './experiments/ExperimentsListWidgetTileFilters'
+import {
+    parseExperimentResultsWidgetConfigApiError,
+    parseExperimentsListWidgetConfigApiError,
+} from './experiments/experimentsWidgetConfigValidation'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'

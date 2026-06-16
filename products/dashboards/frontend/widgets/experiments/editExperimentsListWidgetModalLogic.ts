@@ -15,7 +15,7 @@ import {
     type ExperimentsListWidgetFieldErrors,
     type ExperimentsListWidgetOrderBy,
     type ExperimentsListWidgetOrderDirection,
-} from './experimentsListWidgetConfigValidation'
+} from './experimentsWidgetConfigValidation'
 
 export type EditExperimentsListWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
 

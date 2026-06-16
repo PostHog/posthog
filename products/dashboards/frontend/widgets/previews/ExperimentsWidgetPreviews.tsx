@@ -2,10 +2,15 @@ import { clsx } from 'clsx'
 
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
+import { NotebookCompactTable } from 'scenes/experiments/notebook/NotebookCompactTable'
 
+import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import { type ExperimentConclusion, type ExperimentStatus } from '~/types'
 
-import { experimentsSampleListRows } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
+import {
+    experimentResultsSamplePayload,
+    experimentsSampleListRows,
+} from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 
 export function ExperimentsListWidgetPreview(): JSX.Element {
     return (
@@ -35,6 +40,24 @@ export function ExperimentsListWidgetPreview(): JSX.Element {
                     </div>
                 )
             })}
+        </div>
+    )
+}
+
+const RESULTS_PREVIEW_EXPERIMENT = experimentResultsSamplePayload.experiment
+const RESULTS_PREVIEW_METRIC = experimentResultsSamplePayload.metrics[0]
+
+export function ExperimentResultsWidgetPreview(): JSX.Element {
+    return (
+        <div className="pointer-events-none flex flex-col gap-2 p-2 shadow-sm">
+            <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-semibold">{RESULTS_PREVIEW_EXPERIMENT.name}</span>
+                <StatusTag status={RESULTS_PREVIEW_EXPERIMENT.status as ExperimentStatus} />
+            </div>
+            <NotebookCompactTable
+                result={RESULTS_PREVIEW_METRIC.result as unknown as NewExperimentQueryResponse}
+                metric={RESULTS_PREVIEW_METRIC.metric as unknown as ExperimentMetric}
+            />
         </div>
     )
 }

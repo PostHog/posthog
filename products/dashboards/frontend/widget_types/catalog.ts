@@ -13,8 +13,10 @@ import {
 import type { DashboardWidgetProductAccess } from '../types'
 import { ActivityEventsWidgetPreview } from '../widgets/previews/ActivityEventsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
-import { ExperimentResultsWidgetPreview } from '../widgets/previews/ExperimentResultsWidgetPreview'
-import { ExperimentsListWidgetPreview } from '../widgets/previews/ExperimentsListWidgetPreview'
+import {
+    ExperimentResultsWidgetPreview,
+    ExperimentsListWidgetPreview,
+} from '../widgets/previews/ExperimentsWidgetPreviews'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 

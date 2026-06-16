@@ -14,7 +14,7 @@ import { editExperimentsListWidgetModalLogic } from './editExperimentsListWidget
 import {
     EXPERIMENTS_WIDGET_ORDER_BY_OPTIONS,
     EXPERIMENTS_WIDGET_ORDER_DIRECTION_OPTIONS,
-} from './experimentsListWidgetConfigValidation'
+} from './experimentsWidgetConfigValidation'
 
 function EditExperimentsListWidgetModalContents(): JSX.Element {
     const {

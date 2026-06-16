@@ -138,7 +138,8 @@ def run_experiment_results_widget(
         return payload
 
     metric_dicts = _collect_primary_metric_dicts(experiment)
-    payload["totalMetricsCount"] = len(metric_dicts)
+    if include_total_count:
+        payload["totalMetricsCount"] = len(metric_dicts)
 
     with tags_context(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk):
         for index, metric_dict in enumerate(metric_dicts[:MAX_EXPERIMENT_RESULTS_WIDGET_METRICS]):
