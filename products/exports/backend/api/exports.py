@@ -316,7 +316,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         elif user is not None:
             # Dashboard, session recording, heatmap and SQL/HogQL query exports aren't tied to a
             # single insight's history, so they go under a dedicated ExportedAsset scope — making
-            # every data export auditable. Insight exports are logged above (Insight scope) and
+            # every data export auditable. Insight-only exports are logged above (Insight scope) and
             # never reach here, so we never write two activity rows for one export. System/synthetic
             # exports (user is None, e.g. open-graph image renders) are intentionally not logged.
             self._log_exported_asset_activity(instance, user)
@@ -352,10 +352,18 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         export_type = instance.export_type
         if export_type == "dashboard":
             return instance.dashboard.name if instance.dashboard and instance.dashboard.name else "a dashboard"
+        if export_type == "insight":
+            # Reachable only when an insight export is also tied to a dashboard (the insight-only
+            # path is logged under the Insight scope above); name it after the insight either way.
+            if instance.insight:
+                return instance.insight.name or instance.insight.derived_name or "an insight"
+            return "an insight"
         if export_type == "recording":
-            return f"session recording {context.get('session_recording_id')}"
+            session_recording_id = context.get("session_recording_id")
+            return f"session recording {session_recording_id}" if session_recording_id else "a session recording"
         if export_type == "heatmap":
-            return f"heatmap {context.get('heatmap_url')}"
+            heatmap_url = context.get("heatmap_url")
+            return f"heatmap {heatmap_url}" if heatmap_url else "a heatmap"
         if context.get("source"):
             return "SQL query results"
         if context.get("filename"):

@@ -286,6 +286,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(logs.count(), 1)
         log = logs.first()
         assert log is not None
+        assert log.detail is not None
         self.assertEqual(log.activity, "exported")
         self.assertEqual(log.team_id, self.team.id)
         self.assertEqual(log.user_id, self.user.id)
@@ -303,8 +304,10 @@ class TestExports(APIBaseTest):
 
         logs = ActivityLog.objects.filter(scope="ExportedAsset", item_id=str(asset_id))
         self.assertEqual(logs.count(), 1)
-        assert logs.first() is not None
-        self.assertEqual(logs.first().detail["name"], self.dashboard.name)
+        log = logs.first()
+        assert log is not None
+        assert log.detail is not None
+        self.assertEqual(log.detail["name"], self.dashboard.name)
 
     @patch("products.exports.backend.tasks.image_exporter._export_to_png")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
