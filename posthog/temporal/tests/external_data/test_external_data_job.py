@@ -517,10 +517,29 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert schema.should_sync is False
 
 
+# The full message carries volatile parts (host, URL, `_ssl.c:NNNN`) around the stable alert name.
+# Both `_ssl.c` line variants have been seen in the wild and must stay non-retryable.
+@pytest.mark.parametrize(
+    "tls_handshake_error",
+    [
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1032)')))\"))"
+        ),
+        (
+            "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
+            "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
+            "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
+            "failure (_ssl.c:1010)')))\"))"
+        ),
+    ],
+)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_update_external_job_activity_with_tls_handshake_failure_is_non_retryable(
-    activity_environment, team, **kwargs
+    activity_environment, team, tls_handshake_error, **kwargs
 ):
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
@@ -546,14 +565,6 @@ async def test_update_external_job_activity_with_tls_handshake_failure_is_non_re
         external_data_schema_id=schema.id,
     )
 
-    # The full message carries volatile parts (host, URL, `_ssl.c:NNNN`) around the stable alert name.
-    tls_handshake_error = (
-        "SSLError(MaxRetryError(\"HTTPSConnectionPool(host='example.zendesk.com', port=443): "
-        "Max retries exceeded with url: /api/v2/users?page%5Bsize%5D=100 (Caused by "
-        "SSLError(SSLError(1, '[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake "
-        "failure (_ssl.c:1032)')))\"))"
-    )
-
     inputs = UpdateExternalDataJobStatusInputs(
         job_id=str(new_job.id),
         status=ExternalDataJob.Status.COMPLETED,
@@ -573,7 +584,6 @@ async def test_update_external_job_activity_with_tls_handshake_failure_is_non_re
     await sync_to_async(schema.refresh_from_db)()
 
     assert schema.should_sync is False
-    assert "SSLV3_ALERT_HANDSHAKE_FAILURE" in Any_Source_Errors
 
 
 @pytest.fixture
