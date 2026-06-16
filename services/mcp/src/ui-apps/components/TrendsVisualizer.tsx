@@ -49,7 +49,11 @@ function calculateTotal(results: TrendsResultItem[]): number {
 
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
-    const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
+    // Honour the backend slope runner: a SlopeGraph query already comes back as two points per series,
+    // so open straight into slope mode rather than line + a manual toggle.
+    const [chartMode, setChartMode] = useState<ChartMode>(
+        isBarChart(displayType) ? 'bar' : displayType === 'SlopeGraph' ? 'slope' : 'line'
+    )
 
     if (!results || results.length === 0) {
         return (

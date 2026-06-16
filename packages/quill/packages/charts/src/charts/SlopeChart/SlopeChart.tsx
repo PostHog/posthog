@@ -33,8 +33,6 @@ const VALUE_GAP = 8
 const NAME_GAP = 8
 const EDGE_PAD = 8
 const DEFAULT_POINT_RADIUS = 4
-// Synthetic, hidden x-axis label for the collinear midpoint inserted when the end is incomplete.
-const SLOPE_MIDPOINT_LABEL = '__slope_mid__'
 
 export interface SlopeChartLegendConfig {
     /** Show the legend. Default false. */
@@ -152,35 +150,21 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
     }, [series, labels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
-    // When the last point is the current incomplete period, dash only the *second half* of the
-    // connector so it reads as "the end is provisional", not the whole comparison.
+    // When the last point is the current incomplete period, dash the connector so it reads as
+    // provisional. A slope is just its two ends, so there's no interior point to split — the whole
+    // line dashes.
     const dashEnd = useMemo(() => series.some((s) => (s.meta as SlopeSeriesMeta | undefined)?.incompleteEnd), [series])
 
-    // A slope is a two-point line — collapse each series to its two points, with a dot at each. For a
-    // dashed end we insert a collinear midpoint (no dot) so the connector splits into a solid first
-    // half and a dashed second half.
+    // A slope is a two-point line — collapse each series to its two points, with a dot at each.
     const slopeSeries = useMemo<Series<Meta>[]>(
         () =>
-            series.map((s) => {
-                const start = slopeStart(s)
-                const end = slopeEnd(s)
-                if (dashEnd) {
-                    return {
-                        ...s,
-                        data: [start, (start + end) / 2, end],
-                        points: { ...s.points, radius: pointRadius, startAndEndValuesOnly: true },
-                        stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromIndex: 2 } },
-                    }
-                }
-                return { ...s, data: [start, end], points: { ...s.points, radius: pointRadius } }
-            }),
+            series.map((s) => ({
+                ...s,
+                data: [slopeStart(s), slopeEnd(s)],
+                points: { ...s.points, radius: pointRadius },
+                ...(dashEnd ? { stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromIndex: 0 } } } : {}),
+            })),
         [series, pointRadius, dashEnd]
-    )
-
-    // The midpoint needs a label slot to occupy, but it must not render a tick — hide it.
-    const axisLabels = useMemo(
-        () => (dashEnd && labels.length >= 2 ? [labels[0], SLOPE_MIDPOINT_LABEL, labels[labels.length - 1]] : labels),
-        [dashEnd, labels]
     )
 
     const lineConfig = useMemo<LineChartConfig>(
@@ -190,12 +174,8 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
             showGrid: false,
             margins,
             valueDomain,
-            xTickFormatter: dashEnd
-                ? (value: string, index: number): string | null =>
-                      value === SLOPE_MIDPOINT_LABEL ? null : (config?.xTickFormatter?.(value, index) ?? value)
-                : config?.xTickFormatter,
         }),
-        [config, margins, valueDomain, dashEnd]
+        [config, margins, valueDomain]
     )
 
     const legendItems = useMemo(() => slopeLegendItems(series, theme, deltaFormatter), [series, theme, deltaFormatter])
@@ -211,7 +191,7 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         >
             <LineChart<Meta>
                 series={slopeSeries}
-                labels={axisLabels}
+                labels={labels}
                 config={lineConfig}
                 theme={theme}
                 tooltip={tooltip}

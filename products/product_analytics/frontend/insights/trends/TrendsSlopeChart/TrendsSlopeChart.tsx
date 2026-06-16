@@ -1,13 +1,14 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { SlopeChart } from '@posthog/quill-charts'
+import { SlopeChart, createXAxisTickCallback } from '@posthog/quill-charts'
 import type { Series, SlopeChartConfig, SlopeSeriesMeta } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
@@ -36,7 +37,10 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
         getTrendsHidden,
         trendsFilter,
         incompletenessOffsetFromEnd,
+        interval,
+        showLegend,
     } = useValues(trendsDataLogic(insightProps))
+    const { timezone } = useValues(insightVizDataLogic(insightProps))
     const { baseCurrency } = useValues(teamLogic)
 
     // The backend returns each series as its two points (first and last interval bucket) with two
@@ -60,12 +64,17 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
     const config = useMemo<SlopeChartConfig>(
         () => ({
             valueFormatter: (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
-            // The series name + change live in the insight's shared legend (SlopeGraphLegend, gated on
-            // the "Show legend" toggle), so the chart draws neither its own legend nor in-chart names.
+            // The chart's own legend carries the series name + first-to-last change, gated on the
+            // insight's "Show legend" toggle, so there's only ever one legend and no in-chart names.
             showSeriesLabels: false,
-            legend: { show: false },
+            legend: { show: !!showLegend, position: 'bottom' },
+            xTickFormatter: createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+                timezone,
+            }),
         }),
-        [trendsFilter, baseCurrency]
+        [trendsFilter, baseCurrency, showLegend, interval, currentPeriodResult, timezone]
     )
 
     if (series.length === 0) {

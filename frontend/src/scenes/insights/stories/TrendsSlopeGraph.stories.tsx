@@ -49,8 +49,8 @@ export const TrendsSlopeGraphEdit: Story = createInsightStory(
     'edit'
 )
 TrendsSlopeGraphEdit.parameters = { testOptions: { waitForSelector: '[data-attr=trends-slope-graph] canvas' } }
-// With the "Show legend" toggle on, the slope renders into the insight's shared legend slot
-// (SlopeGraphLegend) showing each series' first-to-last change — and no second in-chart legend.
+// With the "Show legend" toggle on, the slope chart shows its own legend with each series'
+// first-to-last change — there's only ever the one legend.
 export const TrendsSlopeGraphWithLegend: Story = createInsightStory(
     require('../../../mocks/fixtures/api/projects/team_id/insights/trendsSlopeGraph.json'),
     'view',

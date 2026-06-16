@@ -21,6 +21,7 @@ export type ChartDisplayType =
     | 'ActionsPie'
     | 'ActionsTable'
     | 'WorldMap'
+    | 'SlopeGraph'
 
 export interface TrendsFilter {
     display?: ChartDisplayType
