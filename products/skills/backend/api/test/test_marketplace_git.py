@@ -1,9 +1,9 @@
-import json
 import os
+import json
 import shutil
-import subprocess
 import tempfile
 import threading
+import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest

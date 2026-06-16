@@ -115,10 +115,11 @@ def build_skill_zip(skill: SkillExport) -> bytes:
 def compute_plugin_version(latest_change_epoch_seconds: int) -> str:
     """Content-derived, monotonic plugin version so auto-update fires on any change.
 
-    Keyed off the most recent skill change time: any publish/file edit bumps a skill's
-    ``updated_at``, which moves this forward and never backward (archives can't lower it).
-    Whether Claude Code re-pulls on any version *difference* vs. strictly-greater is the
-    open question the auto-update spike answers — this scheme is safe for either.
+    Keyed off the most recent change time across all of a team's skill rows (see
+    ``adapters._team_plugin_version``): publishes and file edits add/refresh a row's
+    ``updated_at``, and archive bumps it too, so this advances on every change and never
+    regresses. Whether Claude Code re-pulls on any version *difference* vs. strictly-greater
+    is the open question the auto-update spike answers — this scheme is safe for either.
     """
     return f"1.0.{latest_change_epoch_seconds}"
 

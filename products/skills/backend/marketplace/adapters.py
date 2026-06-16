@@ -4,6 +4,8 @@ Everything that touches the database for export/marketplace lives here, so the
 serialization and git synthesis stay unit-testable without booting the app.
 """
 
+from django.db.models import Max
+
 from posthog.models import Team
 
 from ..api.skill_services import get_latest_skills_queryset
@@ -46,7 +48,7 @@ def build_team_marketplace_tree(team: Team) -> FileTree:
     return build_marketplace_tree(
         plugin_name=PLUGIN_NAME,
         plugin_description=f"Shared agent skills for {team.name}",
-        plugin_version=_team_plugin_version(skills),
+        plugin_version=_team_plugin_version(team),
         owner_name=team.organization.name,
         marketplace_name=MARKETPLACE_NAME,
         skills=exports,
@@ -62,6 +64,10 @@ def _files_by_skill_id(skills: list[LLMSkill]) -> dict[str, list[LLMSkillFile]]:
     return grouped
 
 
-def _team_plugin_version(skills: list[LLMSkill]) -> str:
-    latest = max((skill.updated_at for skill in skills), default=None)
+def _team_plugin_version(team: Team) -> str:
+    # Max over ALL of the team's skill rows, including archived ones. Publishes add a row with a
+    # fresh updated_at and archive_skill bumps updated_at on the rows it soft-deletes, so this is
+    # monotonic and reflects archives. Deriving it from only live skills would regress the version
+    # when the most-recently-updated skill is archived.
+    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
     return compute_plugin_version(int(latest.timestamp())) if latest is not None else "1.0.0"

@@ -1,4 +1,6 @@
+import io
 import json
+import zipfile
 
 import yaml
 
@@ -18,17 +20,17 @@ from products.skills.backend.marketplace.packaging import (
 
 
 def _skill(**overrides) -> SkillExport:
-    base: dict = dict(
-        name="make-fractals",
-        description="Render fractal images. Use when asked to visualize fractals.",
-        body="# make-fractals\n\nDo the thing.\n",
-        version=3,
-        license="MIT",
-        compatibility="",
-        allowed_tools=["Bash", "Write"],
-        metadata={"author": "posthog"},
-        files=[SkillFileExport(path="scripts/mandelbrot.py", content="print('hi')\n", content_type="text/x-python")],
-    )
+    base: dict = {
+        "name": "make-fractals",
+        "description": "Render fractal images. Use when asked to visualize fractals.",
+        "body": "# make-fractals\n\nDo the thing.\n",
+        "version": 3,
+        "license": "MIT",
+        "compatibility": "",
+        "allowed_tools": ["Bash", "Write"],
+        "metadata": {"author": "posthog"},
+        "files": [SkillFileExport(path="scripts/mandelbrot.py", content="print('hi')\n", content_type="text/x-python")],
+    }
     base.update(overrides)
     return SkillExport(**base)
 
@@ -83,9 +85,6 @@ class TestSkillTreeAndZip:
         assert tree["scripts/mandelbrot.py"] == "print('hi')\n"
 
     def test_zip_nests_under_directory_named_after_skill(self):
-        import io
-        import zipfile
-
         with zipfile.ZipFile(io.BytesIO(build_skill_zip(_skill()))) as archive:
             names = set(archive.namelist())
         assert "make-fractals/SKILL.md" in names

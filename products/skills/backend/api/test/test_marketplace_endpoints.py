@@ -1,9 +1,13 @@
 import io
+import json
 import base64
 import zipfile
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -12,6 +16,8 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import hash_key_value
 
+from ...api.skill_services import archive_skill
+from ...marketplace.adapters import build_team_marketplace_tree
 from ...models.skills import LLMSkill, LLMSkillFile
 
 _PSAK_TOKEN = "phs_marketplace_token"
@@ -160,3 +166,42 @@ class TestSkillMarketplaceGit(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "application/x-git-upload-pack-result"
         assert len(response.content) > 0
+
+
+class TestMarketplaceVersion(APIBaseTest):
+    def _plugin_version_epoch(self) -> int:
+        tree = build_team_marketplace_tree(self.team)
+        version = json.loads(tree[".claude-plugin/marketplace.json"])["plugins"][0]["version"]
+        return int(version.rsplit(".", 1)[1])
+
+    def test_archiving_newest_skill_does_not_regress_version(self):
+        now = timezone.now().replace(microsecond=0)
+        older = LLMSkill.objects.create(
+            team=self.team,
+            name="skill-old",
+            description="old",
+            body="x",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        newest = LLMSkill.objects.create(
+            team=self.team,
+            name="skill-new",
+            description="new",
+            body="x",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        # Make the to-be-archived skill clearly the most-recently-updated.
+        LLMSkill.objects.filter(pk=older.pk).update(updated_at=now - timedelta(hours=2))
+        LLMSkill.objects.filter(pk=newest.pk).update(updated_at=now)
+
+        before = self._plugin_version_epoch()
+        archive_skill(self.team, "skill-new")
+        after = self._plugin_version_epoch()
+
+        # Without the archive bumping updated_at, the version would drop back to the older
+        # skill's timestamp; with the fix it advances (archive is itself a change).
+        assert after >= before

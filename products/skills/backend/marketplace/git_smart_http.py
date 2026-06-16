@@ -12,8 +12,8 @@ booting the app, and lets the DRF view (and a throwaway stdlib server) share one
 Ported from the reference implementation in daniloc/mnemion (``src/git.ts``).
 """
 
-import hashlib
 import zlib
+import hashlib
 from dataclasses import dataclass
 
 OBJ_COMMIT = 1
