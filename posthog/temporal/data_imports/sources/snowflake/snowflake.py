@@ -378,25 +378,24 @@ class SnowflakeImplementation(
         if not display_by_pair:
             return result
 
-        schemas = {schema for schema, _table in display_by_pair}
-        table_names = {table for _schema, table in display_by_pair}
+        # Match exact (schema, table) pairs — independent IN clauses over schemas and table
+        # names would cross-product and also fetch every same-named table in other schemas.
+        pairs = sorted(display_by_pair)
 
         try:
             with conn.cursor() as cursor:
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")
 
-                schema_placeholders = ",".join(["%s"] * len(schemas))
-                table_placeholders = ",".join(["%s"] * len(table_names))
+                pair_predicate = " OR ".join(["(TABLE_SCHEMA = %s AND TABLE_NAME = %s)"] * len(pairs))
                 cursor.execute(
                     f"""
                     SELECT TABLE_SCHEMA, TABLE_NAME, CLUSTERING_KEY
                     FROM INFORMATION_SCHEMA.TABLES
                     WHERE TABLE_CATALOG = %s
-                      AND TABLE_SCHEMA IN ({schema_placeholders})
-                      AND TABLE_NAME IN ({table_placeholders})
+                      AND ({pair_predicate})
                     """,
-                    (config.database, *schemas, *table_names),
+                    (config.database, *(value for pair in pairs for value in pair)),
                 )
 
                 for table_schema, table_name, clustering_key in cursor:

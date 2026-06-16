@@ -19,6 +19,14 @@ from posthog.api.file_system.deletion import (
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
+from posthog.api.file_system.folder_context_generation import (
+    ContextGenerationSerializer,
+    ContextGenerationSetSerializer,
+)
+from posthog.api.file_system.folder_context_generation_service import (
+    get_context_generation_task_id,
+    set_context_generation_task_id,
+)
 from posthog.api.file_system.folder_instructions import (
     FolderInstructionsPublishSerializer,
     FolderInstructionsSerializer,
@@ -194,6 +202,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "unfiled",
         "count",
         "count_by_path",
+        "context_generation",
     ]
     scope_object_write_actions = [
         "create",
@@ -207,6 +216,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "link",
         "log_view",
         "undo_delete",
+        "set_context_generation",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -1066,3 +1076,28 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
         if page is not None:
             return self.get_paginated_response(FolderInstructionsVersionSerializer(page, many=True).data)
         return Response(FolderInstructionsVersionSerializer(versions, many=True).data)
+
+    @extend_schema(responses={200: ContextGenerationSerializer})
+    @action(methods=["GET"], detail=True, url_path="context_generation")
+    def context_generation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Return the Task currently generating this folder's CONTEXT.md, or null if none."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        return Response(ContextGenerationSerializer({"task_id": get_context_generation_task_id(folder)}).data)
+
+    @extend_schema(request=ContextGenerationSetSerializer, responses={200: ContextGenerationSerializer})
+    @context_generation.mapping.put
+    def set_context_generation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Set or clear the Task associated with this folder's CONTEXT.md generation."""
+        folder = self._get_folder_or_400()
+        if isinstance(folder, Response):
+            return folder
+
+        payload = ContextGenerationSetSerializer(data=request.data, context={"folder_team": folder.team})
+        payload.is_valid(raise_exception=True)
+        task_id = payload.validated_data["task_id"]
+        set_context_generation_task_id(folder, task_id=task_id)
+
+        return Response(ContextGenerationSerializer({"task_id": task_id}).data)

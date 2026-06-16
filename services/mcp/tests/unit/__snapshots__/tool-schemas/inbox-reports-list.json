@@ -26,7 +26,7 @@
             "type": "string"
         },
         "status": {
-            "description": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.",
+            "description": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.",
             "type": "string"
         },
         "suggested_reviewers": {
