@@ -1939,7 +1939,9 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             eval_errors_count += page_errors_count
 
             if len(uuids_to_add_to_cohort) >= batchsize:
-                cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
+                cohort.insert_users_list_by_uuid(
+                    uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+                )
                 uuids_to_add_to_cohort = []
 
             next_cursor = page["next_cursor"]
@@ -1952,7 +1954,11 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         # Always flush, even when empty: insert_users_list_by_uuid recomputes the cohort
         # count and clears is_calculating via _safe_save_cohort_state. Re-running after a
         # partial failure is safe because inserts dedupe on (cohort_id, person_id).
-        cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
+        # raise_on_error surfaces an insert failure so the except below records it rather
+        # than letting a partial insert be counted as a successful generation.
+        cohort.insert_users_list_by_uuid(
+            uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id, raise_on_error=True
+        )
 
         if eval_errors_count:
             logger.warning(

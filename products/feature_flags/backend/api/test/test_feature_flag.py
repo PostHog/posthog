@@ -7920,6 +7920,44 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 3)
 
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_insert_failure_is_recorded_as_failure_not_success(self, mock_batch_evaluate):
+        # A DB/ClickHouse failure while inserting matched persons must surface as a failed
+        # generation (the insert runs with raise_on_error=True), not be swallowed and
+        # counted as success. DEBUG is forced off so the production swallow path is what
+        # would run without raise_on_error.
+        self._create_flag()
+        person = _create_person(team=self.team, distinct_ids=["person1"], properties={"key": "value"}, immediate=True)
+        flush_persons_and_events()
+        cohort = self._create_static_cohort()
+
+        mock_batch_evaluate.return_value = self._page([str(person.uuid)])
+
+        success_before = self._metric("cohort_flag_generation_completed_total", outcome="success")
+        unknown_before = self._metric("cohort_flag_generation_completed_total", outcome="unknown")
+
+        with (
+            self.settings(DEBUG=False),
+            patch("posthog.personhog_client.gate.use_personhog", return_value=False),
+            patch(
+                "products.cohorts.backend.models.util.insert_static_cohort",
+                side_effect=Exception("clickhouse insert failed"),
+            ),
+            self.assertRaises(Exception),
+        ):
+            get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        # Recorded as a failure, never as success.
+        self.assertEqual(self._metric("cohort_flag_generation_completed_total", outcome="success"), success_before)
+        self.assertEqual(self._metric("cohort_flag_generation_completed_total", outcome="unknown"), unknown_before + 1)
+
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        # A single error save (the orchestrator's), not double-counted by the insert helper.
+        self.assertEqual(cohort.errors_calculating, 1)
+        history = CohortCalculationHistory.objects.get(cohort=cohort)
+        self.assertEqual(history.error_code, CohortErrorCode.UNKNOWN)
+
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
