@@ -154,7 +154,12 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             "approver_scope": {"allow_agent_approver": False},
         }
         raw_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="agent", user=self.user, secure_value=hash_key_value(raw_key))
+        PersonalAPIKey.objects.create(
+            label="agent",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["agents:write"],
+        )
         resp = self.client.post(
             self.url_decide,
             {"decision": "approve"},
@@ -175,7 +180,12 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         }
         mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
         raw_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="agent", user=self.user, secure_value=hash_key_value(raw_key))
+        PersonalAPIKey.objects.create(
+            label="agent",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=["agents:write"],
+        )
         resp = self.client.post(
             self.url_decide,
             {"decision": "approve"},
