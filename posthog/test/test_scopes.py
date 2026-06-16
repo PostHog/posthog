@@ -284,10 +284,19 @@ class TestScopesWithinCeiling(SimpleTestCase):
         assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) is True
         assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=False) is False
 
-    def test_effective_ceiling(self) -> None:
-        assert effective_ceiling([]) == UNPRIVILEGED_SCOPES
-        assert effective_ceiling(["query:read", "insight:read"]) == frozenset({"query:read", "insight:read"})
-        assert effective_ceiling(["@default", "llm_gateway:read"]) == UNPRIVILEGED_SCOPES | {"llm_gateway:read"}
+    @parameterized.expand(
+        [
+            ("empty_falls_back_to_unprivileged", [], UNPRIVILEGED_SCOPES),
+            ("explicit_list_is_exhaustive", ["query:read", "insight:read"], frozenset({"query:read", "insight:read"})),
+            (
+                "default_sentinel_expands_to_unprivileged_plus_extras",
+                ["@default", "llm_gateway:read"],
+                UNPRIVILEGED_SCOPES | {"llm_gateway:read"},
+            ),
+        ]
+    )
+    def test_effective_ceiling(self, _name: str, app_scopes: list[str], expected: frozenset[str]) -> None:
+        assert effective_ceiling(app_scopes) == expected
 
 
 class TestScopesOutsideCeiling(SimpleTestCase):
