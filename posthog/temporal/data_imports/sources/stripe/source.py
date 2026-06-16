@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -111,6 +112,7 @@ class StripeSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             caption=f"Connect your Stripe account to automatically sync your Stripe data into PostHog. You can choose between OAuth (recommended) or legacy RAK Stripe keys. If you choose the latter, you will need your [Stripe account ID]({STRIPE_ACCOUNT_URL}), and create a [restricted API key]({STRIPE_API_KEYS_URL})",
             permissionsCaption="""Currently, **read permissions are required** for the following resources:
             - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customers**, **Disputes**, **Payment methods**, **Payouts**, and **Products**
@@ -235,7 +237,20 @@ If automatic creation failed due to a permissions error and you're using a restr
             # continue"), which is more actionable than a generic "check your permissions" toast.
             # `_clean_stripe_error_message` collapses the redacted-key asterisk run before the
             # message reaches this layer, so it stays toast-sized.
+            #
+            # NOTE: this `"PermissionError"` key only matches the refresh-schemas path, which compares
+            # against `f"{type(error).__name__}: {message}"`. The import/sync path compares against
+            # `str(exc)` only — and `StripeError.__str__` returns `"Request <id>: <message>"` with no
+            # class name — so the type-name key never matches a 403 raised mid-sync. Match Stripe's
+            # stable permission-denied message text directly so a misconfigured key stops retrying.
             "PermissionError": None,
+            # Restricted key is missing a read scope for the endpoint being synced (e.g. "Prices Read"
+            # / 'plan_read'). The customer must add the scope in Stripe — retrying won't help. Surface
+            # Stripe's raw message (None) since it names the exact scope to enable.
+            "does not have the required permissions for this endpoint": None,
+            # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
+            # so Stripe rejects the whole request for the account rather than a specific scope.
+            "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",

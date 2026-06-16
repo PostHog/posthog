@@ -15,11 +15,8 @@ import {
     llmSkillsList,
     llmSkillsNameArchiveCreate,
     llmSkillsNameDuplicateCreate,
-} from 'products/ai_observability/frontend/generated/api'
-import type {
-    LLMSkillListApi,
-    PaginatedLLMSkillListListApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+} from 'products/skills/frontend/generated/api'
+import type { LLMSkillListApi, PaginatedLLMSkillListListApi } from 'products/skills/frontend/generated/api.schemas'
 
 import type { llmSkillsLogicType } from './llmSkillsLogicType'
 

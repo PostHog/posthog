@@ -52,6 +52,8 @@ depends_on = [
     "products.posthog_ai",
     "products.product_analytics",
     "products.replay",
+    "products.replay_vision",
+    "products.skills",
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
@@ -123,6 +125,13 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.agent_platform"
+depends_on = [
+    "posthog",
 ]
 layer = "modules"
 
@@ -519,10 +528,22 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.skills",
     "products.surveys",
     "products.tasks",
     "products.warehouse_sources",
     "products.workflows", "products.business_knowledge",
+]
+layer = "modules"
+
+[[modules]]
+# Skills imports ai_observability's shared markdown_outline + API metrics helpers —
+# temporary coupling from the standalone-product extraction, slated for cleanup.
+path = "products.skills"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.ai_observability",
 ]
 layer = "modules"
 
@@ -627,6 +648,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.analytics_platform",
+    "products.notifications",
 ]
 layer = "modules"
 
@@ -824,7 +846,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

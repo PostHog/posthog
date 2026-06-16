@@ -13,8 +13,10 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
-        # Heavy test matrices (django, turbo-tests) skip drafts; ready_for_review
-        # re-triggers them when a PR leaves draft. To force them on a draft, add the
+        # Draft PRs run the snob-selected Django subset (≤3 shards) for fast feedback;
+        # turbo-tests (product tests) still skip drafts. Ready PRs run the full
+        # matrices — that full run is the merge gate, and ready_for_review re-triggers
+        # it when a PR leaves draft. To force the full matrices on a draft, add the
         # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
         # start without needing a new push. Cheap checks still run on drafts.
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
@@ -440,6 +442,168 @@ jobs:
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
+    # Pick which Django tests to run on draft PRs. Drafts get the snob-selected
+    # subset for fast feedback; the full matrix runs once the PR is marked ready
+    # for review, and that ready run is the merge gate. When selection can't be
+    # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
+    # a selector full-run signal), the draft skips the heavy matrices entirely —
+    # the pre-selection draft behavior — and defers to the ready full run.
+    select-tests:
+        name: Select tests
+        needs: [changes, turbo-discover]
+        # Only draft PRs do selective runs; ready PRs and non-PR events (push,
+        # merge_group) always run full, which build_django_matrix falls back to
+        # when select-tests is skipped (empty MODE). The run-ci-backend label
+        # forces the full matrices on a draft.
+        if: |
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.draft == true &&
+            !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
+            needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            mode: ${{ steps.classify.outputs.mode }}
+            core_files: ${{ steps.classify.outputs.core_files }}
+            poe_files: ${{ steps.classify.outputs.poe_files }}
+            temporal_files: ${{ steps.classify.outputs.temporal_files }}
+            run_poe: ${{ steps.classify.outputs.run_poe }}
+            run_temporal: ${{ steps.classify.outputs.run_temporal }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14'
+
+            - name: Decide whether selection can be trusted
+              id: fallback
+              env:
+                  RUN_LEGACY: ${{ needs.turbo-discover.outputs.run_legacy }}
+                  TURBO_RESULT: ${{ needs.turbo-discover.result }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  skip=false
+                  if [[ "$RUN_LEGACY" == "true" ]]; then
+                      # turbo-discover detected product->legacy graph impact; the
+                      # diff-based selector can't see this, so its subset would be
+                      # incomplete. Skip the draft matrices; the ready run is full.
+                      skip=true
+                  elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
+                      # Conservative — turbo-discover failed.
+                      skip=true
+                  fi
+                  echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+            - name: Run shadow selector
+              id: select
+              # continue-on-error so a selector or git fetch failure doesn't fail this
+              # job — a failed select-tests would leave MODE empty and build_django_matrix
+              # would fall back to an expensive full matrix on a draft. Classify reads
+              # steps.select.outcome (pre-continue-on-error) and emits mode=skip instead.
+              continue-on-error: true
+              if: steps.fallback.outputs.skip == 'false'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  uv run tools/snob_backend_test_selection_shadow.py \
+                      --base-ref "origin/$BASE_REF" \
+                      > /tmp/selection.json
+
+            - name: Classify selection into segments
+              id: classify
+              env:
+                  FALLBACK_SKIP: ${{ steps.fallback.outputs.skip }}
+                  SELECT_OUTCOME: ${{ steps.select.outcome }}
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  # Untrusted selection on a draft skips the heavy matrices (the
+                  # pre-selection draft behavior); the ready-for-review run is full.
+                  fall_back_to_skip() {
+                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                      echo "core_files=" >> "$GITHUB_OUTPUT"
+                      echo "poe_files=" >> "$GITHUB_OUTPUT"
+                      echo "temporal_files=" >> "$GITHUB_OUTPUT"
+                      echo "run_poe=false" >> "$GITHUB_OUTPUT"
+                      echo "run_temporal=false" >> "$GITHUB_OUTPUT"
+                  }
+
+                  if [[ "$FALLBACK_SKIP" == "true" ]]; then
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
+                      echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
+                  if [[ "$full_run_reasons" -gt 0 ]]; then
+                      echo "Selector requested a full run; draft defers it to ready for review:"
+                      jq -r '.ast.full_run_reasons[]' /tmp/selection.json
+                      fall_back_to_skip
+                      exit 0
+                  fi
+
+                  # Partition selected files by the Django segment that owns them.
+                  # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
+                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
+                  #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
+                  #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
+                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal
+                  # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
+                  # matrix — turbo-tests handles them.
+                  core=()
+                  poe=()
+                  temporal=()
+                  while IFS= read -r f; do
+                      [[ -z "$f" ]] && continue
+                      case "$f" in
+                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*)
+                              temporal+=("$f")
+                              ;;
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                              poe+=("$f")
+                              core+=("$f")
+                              ;;
+                          posthog/dags/*|common/hogvm/python/test/*)
+                              # Explicitly --ignore'd by the Core invocation; nothing to do.
+                              ;;
+                          posthog/*|ee/*)
+                              core+=("$f")
+                              ;;
+                      esac
+                  done < <(jq -r '.combined.tests[]?' /tmp/selection.json)
+
+                  echo "mode=selected" >> "$GITHUB_OUTPUT"
+                  echo "core_files=${core[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "poe_files=${poe[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
+
+            - name: Upload selection artifact
+              if: always() && steps.select.outcome == 'success'
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: select-tests-output
+                  path: /tmp/selection.json
+                  if-no-files-found: ignore
+                  retention-days: 14
+
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
@@ -650,9 +814,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         timeout-minutes: 10
+        outputs:
+            deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
-            actions: write # to cancel this run when a deterministic check fails
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -682,9 +847,9 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            # Boundary between network-dependent setup (can flake) and the pure
-            # static checks below — the cancel step at the end uses it to avoid
-            # canceling the whole run on a transient setup failure.
+            # Boundary between network-dependent setup and the deterministic
+            # checks below. The "Flag deterministic failure" step keys off this
+            # step's outcome so a transient setup failure doesn't cancel the run.
             - name: Mark setup complete
               id: setup-complete
               run: echo "Setup complete — any failure below is a deterministic check failure"
@@ -710,21 +875,33 @@ jobs:
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
 
-            # A failure in the static checks above is deterministic — a retry can
-            # never fix it, so the rest of the run (50+ test shards) is wasted spend.
-            # PR-only: master and merge queue runs must complete (deploy gate,
-            # snapshots). Same-repo only: fork PR tokens are read-only.
-            - name: Cancel run on deterministic check failure
-              if: >
-                  failure() &&
-                  steps.setup-complete.outcome == 'success' &&
-                  github.event_name == 'pull_request' &&
-                  github.event.pull_request.head.repo.full_name == github.repository
+            # Deterministic = a static check above failed after setup completed.
+            # A retry can't fix it, so this signals the cancellation gate to stop the run.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.setup-complete.outcome == 'success'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
+    cancel-backend-on-repo-check-failure:
+        needs: [repo-checks]
+        if: >
+            always() &&
+            needs.repo-checks.outputs.deterministic_failure == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: write
+        name: Cancel Backend CI after repo check failure
+        runs-on: ubuntu-latest
+        steps:
+            - name: Cancel run
               env:
                   GH_TOKEN: ${{ github.token }}
                   GH_REPO: ${{ github.repository }}
               run: |
-                  echo "::notice::Repo checks failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  echo "::notice title=Repo checks failed deterministically::Canceling remaining Backend CI jobs. A retry cannot fix this failure; push a fix to start a new run."
                   gh run cancel ${{ github.run_id }}
 
     # Validates product.yaml owners against PostHog/posthog collaborator teams.
@@ -768,7 +945,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
                   version: '0.11.14'
 
@@ -1425,9 +1602,10 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true'
         timeout-minutes: 20
+        outputs:
+            deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
-            actions: write # to cancel this run when the OpenAPI check fails
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
@@ -1478,7 +1656,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
                   version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
@@ -1597,6 +1775,13 @@ jobs:
 
                   echo "needs-commit=true" >> $GITHUB_OUTPUT
 
+            # Deterministic = the OpenAPI check step itself failed (not a transient
+            # setup or commit-step failure), so a retry can't fix it. Mirrors repo-checks.
+            - name: Flag deterministic failure
+              id: deterministic-failure
+              if: failure() && steps.openapi-check.outcome == 'failure'
+              run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
+
             - name: Get app token for OpenAPI type commits
               if: steps.openapi-check.outputs.needs-commit == 'true'
               id: openapi-app-token
@@ -1623,26 +1808,31 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 
-            # Schema generation and type drift failures are deterministic — a retry
-            # can never fix them, so the rest of the run is wasted spend. Keyed on the
-            # check step so transient setup or commit failures don't cancel anything.
-            # PR-only and same-repo only: fork PR tokens are read-only.
-            - name: Cancel run on deterministic check failure
-              if: >
-                  failure() &&
-                  steps.openapi-check.outcome == 'failure' &&
-                  github.event_name == 'pull_request' &&
-                  github.event.pull_request.head.repo.full_name == github.repository
+    cancel-backend-on-openapi-check-failure:
+        needs: [check-openapi-types]
+        if: >
+            always() &&
+            needs.check-openapi-types.outputs.deterministic_failure == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: write
+        name: Cancel Backend CI after OpenAPI check failure
+        runs-on: ubuntu-latest
+        steps:
+            - name: Cancel run
               env:
                   GH_TOKEN: ${{ github.token }}
                   GH_REPO: ${{ github.repository }}
               run: |
-                  echo "::notice::OpenAPI check failed deterministically — canceling the remaining jobs in this run. A retry cannot fix this failure; push a fix to start a new run."
+                  echo "::notice title=OpenAPI check failed deterministically::Canceling remaining Backend CI jobs. A retry cannot fix this failure; push a fix to start a new run."
                   gh run cancel ${{ github.run_id }}
 
     build_django_matrix:
         name: Build Django matrix
-        needs: [changes, get_clickhouse_versions, turbo-discover]
+        needs: [changes, get_clickhouse_versions, turbo-discover, select-tests]
         if: |
             always() &&
             needs.changes.outputs.backend == 'true' &&
@@ -1658,75 +1848,136 @@ jobs:
                   OLDEST_SUPPORTED_IMAGE: ${{ needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   COMPAT_MATRIX_JSON: ${{ needs.get_clickhouse_versions.outputs.compat_matrix }}
                   DJANGO_SHARDS_JSON: ${{ needs.turbo-discover.outputs.django_shards }}
+                  MODE: ${{ needs.select-tests.outputs.mode }}
+                  RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
+                  RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
+                  CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
               run: |
-                  # Auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
-                  # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
-                  CORE_SHARDS=38
-                  CORE_POE_SHARDS=7
-                  TEMPORAL_SHARDS=7
-                  if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
-                    CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
-                    CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
-                    TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
-                    echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
-                  else
-                    echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                  # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
+                  # Consult #team-devex before changing.
+                  if [[ "$MODE" == "skip" ]]; then
+                      # Draft PR where selection couldn't be trusted: skip the heavy
+                      # matrices and defer to the full run on ready for review.
+                      echo "include=[]" >> "$GITHUB_OUTPUT"
+                      echo "Django matrix size: 0 (mode=skip)"
+                      exit 0
                   fi
-
-                  core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
-                    [range(1; $shards + 1) | {
-                      segment: "Core",
-                      "person-on-events": false,
-                      "python-version": "3.13.13",
-                      "clickhouse-server-image": $image,
-                      concurrency: $shards,
-                      group: .,
-                      artifact_key: ("core-" + (.|tostring)),
-                      compat: false
-                    }]
-                  ')
-
-                  core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
-                    [range(1; $shards + 1) | {
-                      segment: "Core",
-                      "person-on-events": true,
-                      "python-version": "3.13.13",
-                      "clickhouse-server-image": $image,
-                      concurrency: $shards,
-                      group: .,
-                      artifact_key: ("core-poe-" + (.|tostring)),
-                      compat: false
-                    }]
-                  ')
-
-                  temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
-                    [range(1; $shards + 1) | {
-                      segment: "Temporal",
-                      "person-on-events": false,
-                      "python-version": "3.13.13",
-                      "clickhouse-server-image": $image,
-                      concurrency: $shards,
-                      group: .,
-                      artifact_key: ("temporal-" + (.|tostring)),
-                      compat: false
-                    }]
-                  ')
-
-                  compat_source="${COMPAT_MATRIX_JSON:-[]}"
-                  compat=$(jq -cn --argjson compat "$compat_source" '
-                    [
-                      $compat
-                      | to_entries[]
-                      | .value + {
+                  if [[ "$MODE" == "selected" ]]; then
+                      # Selected mode: collapse to one shard per active segment, skip
+                      # segments with no selected files, drop compat entirely.
+                      core_count=0
+                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
+                        [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
                           "python-version": "3.13.13",
-                          compat: true,
-                          artifact_key: ("compat-" + ((.key + 1)|tostring))
-                        }
-                    ]
-                  ')
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-1",
+                          compat: false
+                        }]
+                      ')
+                      poe_count=0
+                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-poe-1",
+                          compat: false
+                        }]
+                      ')
+                      temporal_count=0
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "temporal-1",
+                          compat: false
+                        }]
+                      ')
+                      compat="[]"
+                  else
+                      # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
+                      # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
+                      CORE_SHARDS=38
+                      CORE_POE_SHARDS=7
+                      TEMPORAL_SHARDS=7
+                      if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
+                        CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
+                        CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
+                        TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
+                        echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      else
+                        echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      fi
+
+                      core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Core",
+                          "person-on-events": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$TEMPORAL_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Temporal",
+                          "person-on-events": false,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
+                      compat_source="${COMPAT_MATRIX_JSON:-[]}"
+                      compat=$(jq -cn --argjson compat "$compat_source" '
+                        [
+                          $compat
+                          | to_entries[]
+                          | .value + {
+                              segment: "Core",
+                              "person-on-events": false,
+                              "python-version": "3.13.13",
+                              compat: true,
+                              artifact_key: ("compat-" + ((.key + 1)|tostring))
+                            }
+                        ]
+                      ')
+                  fi
 
                   if [ "$DATA_IMPORT_SOURCES_ONLY" = "true" ]; then
                     # Only data warehouse import sources changed — the Temporal
@@ -1743,20 +1994,22 @@ jobs:
                   fi
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
-                  echo "Django matrix size: $(jq -r 'length' <<< "$include")"
+                  echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
 
     django:
-        needs: [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix]
+        needs:
+            [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix, select-tests]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
+        # The non-empty include guard covers drafts in skip mode and selected runs
+        # that chose zero files — an empty matrix would otherwise fail the job.
         if: |
             always() &&
-            (github.event.pull_request.draft != true ||
-             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
+            needs.build_django_matrix.outputs.include != '[]' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
@@ -2024,6 +2277,9 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  MODE: ${{ needs.select-tests.outputs.mode }}
+                  CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
               # Wrap bash with signal-fanout so the runner's cancel signal is
               # propagated to the entire process tree (incl. pytest). Without
               # this, GHA only signals the top-level bash and pytest survives
@@ -2032,28 +2288,45 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
-                      matrix.compat
-                      && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
-                      || (
-                      matrix.person-on-events
-                      && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
-                      || 'posthog'
-                      )
-                  }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
-                      --ignore=posthog/temporal \
-                      --ignore=posthog/dags \
-                      --ignore=common/hogvm/python/test \
-                      ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
-                      ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                      --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=1000 --durations-min=1.0 --store-durations \
-                      --pytest-durations=100 \
-                      --splitting-algorithm=duration_based_chunks \
-                      --reruns 2 --reruns-delay 1 \
-                      -r fEsxX \
-                      --junitxml=junit-core.xml \
-                      $PYTEST_ARGS
+                  if [[ "$MODE" == "selected" ]]; then
+                      # Selected mode: run only the test files chosen by the snob shadow selector.
+                      # No --splits/--group (no sharding), no --store-durations (don't pollute timing
+                      # data with a partial run), no --reruns (selected runs should fail loud so flaky
+                      # tests get fixed instead of masked; the ready-for-review full run has reruns).
+                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                          targets="$POE_FILES"
+                      else
+                          targets="$CORE_FILES"
+                      fi
+                      # shellcheck disable=SC2086
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                          -r fEsxX \
+                          --junitxml=junit-core.xml \
+                          $PYTEST_ARGS
+                  else
+                    pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
+                        matrix.compat
+                        && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
+                        || (
+                        matrix.person-on-events
+                        && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
+                        || 'posthog'
+                        )
+                    }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
+                        --ignore=posthog/temporal \
+                        --ignore=posthog/dags \
+                        --ignore=common/hogvm/python/test \
+                        ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
+                        ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
+                        --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                        --durations=1000 --durations-min=1.0 --store-durations \
+                        --pytest-durations=100 \
+                        --splitting-algorithm=duration_based_chunks \
+                        --reruns 2 --reruns-delay 1 \
+                        -r fEsxX \
+                        --junitxml=junit-core.xml \
+                        $PYTEST_ARGS
+                  fi
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
@@ -2099,23 +2372,36 @@ jobs:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  MODE: ${{ needs.select-tests.outputs.mode }}
+                  TEMPORAL_FILES: ${{ needs.select-tests.outputs.temporal_files }}
               run: |
                   set +e
-                  # No per-test pytest --timeout; rely on the job-level timeout-minutes
-                  # as the single safety net. The per-test guillotine added nothing
-                  # over it (--timeout-method=thread os._exit()s the whole process
-                  # anyway, so the shard dies either way) and was the reason the
-                  # transaction=True overhead in async tests looked like "the
-                  # timeout problem" instead of a per-test cost worth fixing.
-                  pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
-                      --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=100 --durations-min=1.0 --store-durations \
-                      --pytest-durations=100 \
-                      --splitting-algorithm=duration_based_chunks \
-                      --reruns 2 --reruns-delay 1 \
-                      -r fEsxX \
-                      --junitxml=junit-temporal.xml \
-                      $PYTEST_ARGS
+                  if [[ "$MODE" == "selected" ]]; then
+                      # Selected mode: no sharding, no --store-durations (don't pollute
+                      # timing data with a partial run), no --reruns (fail loud; the ready
+                      # full run still reruns). See the core selected branch for the rationale.
+                      # shellcheck disable=SC2086
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          -r fEsxX \
+                          --junitxml=junit-temporal.xml \
+                          $PYTEST_ARGS
+                  else
+                      # No per-test pytest --timeout; rely on the job-level timeout-minutes
+                      # as the single safety net. The per-test guillotine added nothing
+                      # over it (--timeout-method=thread os._exit()s the whole process
+                      # anyway, so the shard dies either way) and was the reason the
+                      # transaction=True overhead in async tests looked like "the
+                      # timeout problem" instead of a per-test cost worth fixing.
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
+                          --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                          --durations=100 --durations-min=1.0 --store-durations \
+                          --pytest-durations=100 \
+                          --splitting-algorithm=duration_based_chunks \
+                          --reruns 2 --reruns-delay 1 \
+                          -r fEsxX \
+                          --junitxml=junit-temporal.xml \
+                          $PYTEST_ARGS
+                  fi
                   exit_code=$?
                   set -e
                   if [ $exit_code -eq 5 ]; then
@@ -2352,53 +2638,83 @@ jobs:
                     echo "### Backend CI dependency results"
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
+                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
-                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| async-migrations | ${{ needs.async-migrations.result }} |"
-                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
+                    if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
+                      echo ""
+                      echo "**Root cause:** Repo checks failed deterministically. Open the repo checks job logs; downstream cancelled jobs are expected."
+                    fi
+                    if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
+                      echo ""
+                      echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
+                    fi
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Check dependency results
               run: |
+                  deterministic_failure=false
+                  failed=false
+
+                  if [[ "${{ needs.repo-checks.outputs.deterministic_failure }}" == "true" ]]; then
+                    echo "::error title=Repo checks failed deterministically::Open the repo checks job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
+                    deterministic_failure=true
+                  fi
+
+                  if [[ "${{ needs.check-openapi-types.outputs.deterministic_failure }}" == "true" ]]; then
+                    echo "::error title=OpenAPI type checks failed deterministically::Open the OpenAPI type check job for the root failure. Backend CI cancelled downstream jobs to save runners; retrying will not fix this."
+                    deterministic_failure=true
+                  fi
+
+                  # cancel_ok tolerates a bare 'cancelled' result (the optional snapshot commit job);
+                  # required jobs treat an unexpected cancel as a failure.
                   check_required_result() {
                     local label="$1"
                     local result="$2"
+                    local cancel_ok="${3:-false}"
 
                     if [[ "$result" == "success" || "$result" == "skipped" ]]; then
                       return
                     fi
 
                     if [[ "$result" == "cancelled" ]]; then
+                      if [[ "$deterministic_failure" == "true" ]]; then
+                        echo "::notice::$label was cancelled after a deterministic failure."
+                        return
+                      fi
+                      if [[ "$cancel_ok" == "true" ]]; then
+                        return
+                      fi
                       echo "::error::$label was cancelled or timed out."
                     else
                       echo "::error::$label failed with result '$result'."
                     fi
 
-                    exit 1
+                    failed=true
                   }
 
+                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
-                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
-                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
+                  check_required_result "Snapshot commit job" "${{ needs.handle-snapshots.result }}" true
 
-                  # Check handle-snapshots result (OK if skipped, but fail if it failed)
-                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
-                    echo "Snapshot commit job failed."
+                  if [[ "$deterministic_failure" == "true" || "$failed" == "true" ]]; then
                     exit 1
                   fi
 
                   echo "All backend and product checks passed."
 
     test-selection-verdict:
-        needs: [django, turbo-tests, changes]
+        needs: [django, turbo-tests, changes, select-tests]
         name: Test selection verdict
         if: always() && github.event_name == 'pull_request'
         runs-on: ubuntu-latest
@@ -2423,6 +2739,18 @@ jobs:
                   path: /tmp/junit-results/
               continue-on-error: true
 
+            # Reuse the selection artifact from the select-tests job rather than
+            # re-running the snob script. Falls through if the artifact wasn't
+            # produced (select-tests forced full mode or failed) — the next step
+            # regenerates it so we still get a shadow verdict for those PRs.
+            - name: Download selection artifact
+              id: download-selection
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: select-tests-output
+                  path: /tmp/verdict/
+
             - name: Run test selection and verdict
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
@@ -2433,16 +2761,18 @@ jobs:
                   set -euo pipefail
                   mkdir -p /tmp/verdict
 
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha:
-                  # base.sha is captured at webhook time and goes stale if the branch
-                  # later merges a newer master, which makes `base.sha...HEAD` balloon
-                  # to include every merged-in master change.
-                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  if [[ ! -s /tmp/verdict/selection.json ]]; then
+                      # Fetch the *current* tip of the base branch, not pull_request.base.sha:
+                      # base.sha is captured at webhook time and goes stale if the branch
+                      # later merges a newer master, which makes `base.sha...HEAD` balloon
+                      # to include every merged-in master change.
+                      git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-                  uv run tools/snob_backend_test_selection_shadow.py \
-                      --base-ref "origin/$BASE_REF" \
-                      --pretty \
-                      > /tmp/verdict/selection.json
+                      uv run tools/snob_backend_test_selection_shadow.py \
+                          --base-ref "origin/$BASE_REF" \
+                          --pretty \
+                          > /tmp/verdict/selection.json
+                  fi
 
                   uv run tools/test_selection_verdict.py \
                       /tmp/verdict/selection.json \
@@ -2622,6 +2952,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
               if: github.run_attempt == '1'
+              continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}

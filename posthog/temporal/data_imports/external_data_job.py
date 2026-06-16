@@ -73,7 +73,13 @@ Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
-    "Integration matching query does not exist": None,
+    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
+    # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
+    # REST-based source). The server refused the handshake, which is deterministic for a given
+    # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
+    # misconfigured or wrong host/URL on the customer's side. Match the stable alert name, not the
+    # volatile `_ssl.c:NNNN` suffix or per-request host.
+    "SSLV3_ALERT_HANDSHAKE_FAILURE": "Could not complete a secure (TLS) connection to the source's server — the handshake was rejected. Please check the configured host/URL is correct and that the server supports a compatible TLS version.",
 }
 
 

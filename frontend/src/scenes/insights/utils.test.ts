@@ -346,6 +346,17 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel(input, breakdownFilter, [], identity)).toEqual(expected)
     })
 
+    it.each([
+        ['201 chars stays intact', 'b'.repeat(201)],
+        ['very long HTML error page stays intact', '<html>' + 'x'.repeat(22000) + '</html>'],
+    ])('keeps full label when truncation is disabled: %s', (_desc, input) => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'error_message',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(input, breakdownFilter, [], identity, undefined, undefined, false)).toEqual(input)
+    })
+
     it('handles multi-breakdowns', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdown: ['demographic', '$browser'],

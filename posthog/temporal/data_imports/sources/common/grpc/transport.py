@@ -19,11 +19,11 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
+import grpc
+
 from posthog.temporal.data_imports.sources.common.grpc.observer import record_stream, record_unary
 from posthog.temporal.data_imports.sources.common.grpc.proto_utils import message_byte_size
 from posthog.temporal.data_imports.sources.common.grpc.sampling import MAX_CAPTURED_RESPONSE_MESSAGES, is_capture_armed
-
-import grpc
 
 
 def _safe_code(obj: Any) -> grpc.StatusCode | None:

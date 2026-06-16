@@ -26,10 +26,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MarkdownOutline } from 'products/ai_observability/frontend/components/MarkdownOutline'
-import type {
-    LLMSkillFileManifestApi,
-    LLMSkillVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'products/skills/frontend/generated/api.schemas'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'

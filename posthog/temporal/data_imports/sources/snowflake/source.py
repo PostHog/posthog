@@ -3,6 +3,7 @@ from typing import Optional, cast
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -45,6 +46,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
+            category=DataWarehouseSourceCategory.DATABASES,
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             iconPath="/static/services/snowflake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
@@ -163,7 +165,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="leave blank to list tables from all schemas",
+                        placeholder="Leave blank to import all schemas",
                         secret=False,
                     ),
                 ],
@@ -173,6 +175,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            # Snowflake error 000606 (57P03): the session has no active warehouse, so the first query
+            # needing compute fails. The connector doesn't fail at connect time even when the configured
+            # warehouse is missing/suspended or the role lacks USAGE on it — it just leaves the session
+            # warehouse unset. Retrying can never succeed until the customer fixes the grant or warehouse.
+            "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
@@ -186,6 +193,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "Duo Security authentication is denied": "Snowflake rejected the login because multi-factor authentication (Duo Security) is enforced for this user. Automated syncs can't answer an MFA prompt — connect with a service user that uses key-pair authentication or is exempt from MFA.",
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
+            # Snowflake error 000904 (42000): the table or view we select from references a column
+            # that no longer exists — typically a stale view definition or a column dropped/renamed
+            # in the source schema. We only run `SELECT ... FROM IDENTIFIER(%s)`, so the bad identifier
+            # lives in the customer's object, not in our SQL. Retrying can't fix it until they repair
+            # the object or reconfigure the synced columns.
+            "invalid identifier": "A Snowflake table or view you're syncing references a column that no longer exists (for example a stale view definition, or a column that was dropped or renamed). Please fix the table or view in Snowflake, or reconfigure the columns selected for this table, then resync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the

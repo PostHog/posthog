@@ -113,6 +113,7 @@ from .google_drive.source import GoogleDriveSource
 from .google_search_console.source import GoogleSearchConsoleSource
 from .google_sheets.source import GoogleSheetsSource
 from .gorgias.source import GorgiasSource
+from .grafana.source import GrafanaSource
 from .granola.source import GranolaSource
 from .greenhouse.source import GreenhouseSource
 from .guru.source import GuruSource
@@ -154,6 +155,7 @@ from .notion.source import NotionSource
 from .okta.source import OktaSource
 from .omnisend.source import OmnisendSource
 from .onedrive.source import OneDriveSource
+from .openai_ads.source import OpenAIAdsSource
 from .opsgenie.source import OpsgenieSource
 from .optimizely.source import OptimizelySource
 from .oracle.source import OracleSource

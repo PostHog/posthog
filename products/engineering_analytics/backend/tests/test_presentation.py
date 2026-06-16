@@ -1,8 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from parameterized import parameterized
 from rest_framework import status
 
 from products.engineering_analytics.backend.facade import contracts
@@ -52,12 +53,14 @@ def _pr_list_item() -> contracts.PullRequestListItem:
 
 def _workflow_health() -> contracts.WorkflowHealthItem:
     return contracts.WorkflowHealthItem(
+        repo=contracts.RepoRef(provider="github", owner="PostHog", name="posthog"),
         workflow_name="CI",
         run_count=10,
         success_rate=0.9,
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
+        daily=[contracts.WorkflowHealthDay(day=date(2026, 1, 20), run_count=10, completed=8, successes=7)],
     )
 
 
@@ -134,8 +137,15 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_requires_authentication(self) -> None:
+    def test_workflow_health_400_when_window_too_large(self) -> None:
+        response = self.client.get(self._url("workflow_health"), {"date_from": "2000-01-01"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "the maximum is 366" in response.json()["detail"]
+
+    @parameterized.expand(["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"])
+    def test_requires_authentication(self, action: str) -> None:
         self.client.logout()
-        response = self.client.get(self._url("pr_lifecycle"))
+        response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
