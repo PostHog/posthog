@@ -3,11 +3,13 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import Forbidden, NotFound
+from google.api_core.exceptions import Forbidden, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
+    BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_query,
     _resolve_dataset_id,
@@ -82,6 +84,33 @@ def test_bigquery_get_columns_filters_existing_destination_tables():
 
     columns = BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
     assert list(columns.keys()) == ["table"]
+
+
+@pytest.mark.parametrize(
+    "error_message,expected_type,is_token_refresh",
+    [
+        # A bad OAuth token endpoint makes google-auth raise this opaque `TypeError` during the
+        # lazy token refresh — `get_columns` must surface a clear, non-retryable error instead.
+        ("string indices must be integers, not 'str'", BigQueryTokenRefreshError, True),
+        # Any other `TypeError` indicates a genuine bug and must propagate unchanged.
+        ("unrelated bug", TypeError, False),
+    ],
+)
+def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, is_token_refresh):
+    """Token-refresh `TypeError`s are wrapped as `BigQueryTokenRefreshError`; others propagate."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = TypeError(error_message)
+
+    with pytest.raises(expected_type) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert isinstance(exc_info.value, BigQueryTokenRefreshError) == is_token_refresh
+    if is_token_refresh:
+        # The raised message must carry the stable marker registered as non-retryable.
+        assert BIGQUERY_TOKEN_RESPONSE_ERROR in str(exc_info.value)
+        assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
+    else:
+        assert error_message in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
@@ -456,3 +485,36 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
     assert mock_delete_all.call_args.kwargs["project_id"] == "524098457564"
     assert mock_delete_all.call_args.kwargs["dataset_id"] == "bigquery_aloalo"
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Storage Read API permission failure — `str(PermissionDenied)` is "403 Access Denied: ..."
+        str(
+            PermissionDenied(
+                "Access Denied: Table prj:ds.fct__conversions: Permission bigquery.tables.getData "
+                "denied on table prj:ds.fct__conversions (or it may not exist)."
+            )
+        ),
+        # Permission to list tables in a dataset is also denied with the same prefix
+        str(Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset prj:ds.")),
+    ],
+)
+def test_non_retryable_errors_match_permission_denied(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "other_error",
+    [
+        # Transient server / connection errors must stay retryable
+        "503 Service unavailable, please retry",
+        "500 Internal error encountered",
+        "Connection reset by peer",
+    ],
+)
+def test_non_retryable_errors_does_not_match_transient(other_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert not any(key in other_error for key in non_retryable_errors)

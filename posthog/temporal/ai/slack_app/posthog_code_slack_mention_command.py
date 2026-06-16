@@ -104,7 +104,6 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
             user_id=inputs.user_id,
         )
 
-        workflow.deprecate_patch("posthog-code-command-block-no-personal-github-2026-06")
         blocked = await workflow.execute_activity(
             block_posthog_code_task_if_no_personal_github_activity,
             args=[picker_inputs, channel, thread_ts, user_id],
@@ -114,7 +113,6 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         if blocked:
             return
 
-        workflow.deprecate_patch("posthog-code-command-user-id-2026-06")
         await workflow.execute_activity(
             post_posthog_code_repo_picker_activity,
             args=[
