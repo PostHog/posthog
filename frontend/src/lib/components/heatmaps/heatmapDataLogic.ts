@@ -30,6 +30,9 @@ import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
 
+// The endpoint defaults to a bounded page for API callers; the overlay renders every point.
+const UNBOUNDED_HEATMAP_LIMIT = 0
+
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
     { value: 'red', label: 'Red (monocolor)' },
@@ -223,6 +226,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             aggregation,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            limit: UNBOUNDED_HEATMAP_LIMIT,
                         },
                         '?'
                     )}`
