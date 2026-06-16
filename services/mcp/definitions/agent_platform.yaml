@@ -102,8 +102,8 @@ tools:
         description: >
             Body `{ value: "…" }`. Merges into the encrypted env without touching siblings. **Disabled for the standard
             MCP surface** — agents should never see raw secret values in their tool-call history. The standard path is
-            to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for
-            the URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
+            to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for the
+            URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
             out-of-band.
     agent-applications-list:
         operation: agent_applications_list
