@@ -172,11 +172,6 @@ export function Nav(): JSX.Element {
                     <div
                         className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
-                            // On mobile the fixed open/close toggle (PanelLayout.tsx, `fixed top-1 left-1`,
-                            // a default-size iconOnly button) overlaps the account menu trigger. Indent the
-                            // row past it so the toggle gets its own gutter — keep pl-10 ≥ the toggle's left
-                            // offset + width if either changes.
-                            'pl-10': isMobileLayout,
                         })}
                     >
                         <NewAccountMenu isLayoutNavCollapsed={isLayoutNavCollapsed} />

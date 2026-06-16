@@ -450,11 +450,16 @@ class ParquetStreamTransformer:
     @property
     def parquet_writer(self) -> pq.ParquetWriter:
         if self._parquet_writer is None:
+            json_columns = {"properties", "person_properties", "set", "set_once"}
+            # self.schema is set before getting a ParquetWriter.
+            dicitionary_encoded_columns = [col for col in self.schema.names if col not in json_columns]
+
             self._parquet_writer = pq.ParquetWriter(
                 self._parquet_buffer,
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
+                use_dictionary=dicitionary_encoded_columns,  # type: ignore
             )
         assert self._parquet_writer is not None
         return self._parquet_writer

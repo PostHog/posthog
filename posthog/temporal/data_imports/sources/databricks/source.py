@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class DatabricksSource(SimpleSource[DatabricksSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DATABRICKS,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="Databricks",
             iconPath="/static/services/databricks.png",
             fields=cast(list[FieldType], []),

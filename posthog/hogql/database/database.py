@@ -1,5 +1,9 @@
+import io
 import copy
+import pickle
+import threading
 import dataclasses
+import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -296,7 +300,49 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
+# The static catalog is identical for every team/request, so build + pickle it once and reload per
+# request. Each load returns an independent tree (so per-request mutation can't leak between teams);
+# the in-process blob can't go stale across deploys. Every catalog node must stay picklable.
+_DATABASE_ROOT_NODE_BLOBS: dict[bool, bytes] = {}
+_DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
+
+# We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
+# it can reconstruct only the classes the catalog is built from, so even a future change that fed it
+# untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
+# under posthog.hogql.* except the Workload enum, so new table/field/AST types keep working and
+# anything else fails loudly.
+_CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
+_CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
+
+
+class _CatalogUnpickler(pickle.Unpickler):
+    def find_class(self, module: str, name: str) -> Any:
+        if module.startswith(_CATALOG_PICKLE_MODULE_PREFIXES) or module in _CATALOG_PICKLE_MODULES:
+            return super().find_class(module, name)
+        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (allowlist guard rejecting a class, not deserialising untrusted data)
+        raise pickle.UnpicklingError(f"refusing to unpickle disallowed catalog global {module}.{name}")
+
+
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
+    # Double-checked locking so concurrent first-callers don't each rebuild + pickle the catalog.
+    blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
+    if blob is None:
+        with _DATABASE_ROOT_NODE_BLOBS_LOCK:
+            blob = _DATABASE_ROOT_NODE_BLOBS.get(include_posthog_tables)
+            if blob is None:
+                # Built lazily, not eager-warmed at import: that would move this cost onto startup for every importer of this module, query-related or not.
+                # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (serialising our own code-built catalog; loads are restricted by _CatalogUnpickler)
+                blob = pickle.dumps(
+                    _construct_database_root_node(include_posthog_tables=include_posthog_tables),
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
+                blob = pickletools.optimize(blob)  # drop unused memo opcodes: ~10% smaller, faster load
+                _DATABASE_ROOT_NODE_BLOBS[include_posthog_tables] = blob
+    # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (_CatalogUnpickler restricts find_class to catalog classes, so untrusted bytes still can't execute code)
+    return _CatalogUnpickler(io.BytesIO(blob)).load()
+
+
+def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
     def clone_root_tables() -> dict[str, TableNode]:
         return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
 
@@ -975,7 +1021,10 @@ class Database(BaseModel):
                 raise ValueError("team_id and team must be the same")
 
             if team is None:
-                team = Team.objects.get(pk=team_id)
+                try:
+                    team = Team.objects.get(pk=team_id)
+                except Team.DoesNotExist:
+                    raise QueryError(f"Team with id {team_id} does not exist") from None
 
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)

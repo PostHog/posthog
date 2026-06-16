@@ -126,9 +126,9 @@
 .MarkdownNotebook__debug-toolbar {
     position: absolute;
 
-    // Sit in the first surface's top-right corner, matching where component blocks show their delete button.
+    // Sit in the first text surface's top-right corner, matching where component blocks show their delete button.
     top: 0.375rem;
-    right: calc(max(calc((100% - var(--markdown-notebook-canvas-max-width)) / 2), 0px) + 0.5rem);
+    right: 0.5rem;
     z-index: var(--z-raised);
     display: flex;
     justify-content: flex-end;
@@ -195,6 +195,10 @@
     width: 100%;
     max-width: var(--markdown-notebook-canvas-max-width);
     margin: 0 auto;
+}
+
+.MarkdownNotebook--edit .MarkdownNotebook__canvas {
+    padding-bottom: 18rem;
 }
 
 .MarkdownNotebook__canvas:focus {
@@ -438,6 +442,7 @@
 }
 
 .MarkdownNotebook__text-group {
+    position: relative;
     box-sizing: border-box;
     width: calc(100% - var(--markdown-notebook-content-offset));
     padding: 1.75rem 1rem;
@@ -449,6 +454,10 @@
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
     box-shadow: var(--markdown-notebook-text-group-shadow);
+}
+
+.MarkdownNotebook__text-group--with-debug-toolbar > .MarkdownNotebook__row:first-of-type .MarkdownNotebook__text-block {
+    padding-right: 2.25rem;
 }
 
 // The notebook must start flush with the page top like every other scene: collapse the
@@ -1726,8 +1735,12 @@ button.MarkdownNotebook__component-title:focus-visible {
 }
 
 .MarkdownNotebook__real-node-content {
+    position: relative;
     display: flex;
-    flex: 1;
+
+    // flex-basis must stay `auto` (not the `0%` from the `flex: 1` shorthand), otherwise it
+    // overrides the inline `height` and the resize drag has no visible effect.
+    flex: 1 1 auto;
     flex-direction: column;
     min-height: 8rem;
     overflow: hidden;
@@ -1735,6 +1748,21 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 .MarkdownNotebook__real-node-content--resizeable {
     resize: vertical;
+}
+
+.MarkdownNotebook__real-node-resize-handle {
+    position: absolute;
+    right: 0.125rem;
+    bottom: 0.125rem;
+    z-index: 1;
+    width: 1.25rem;
+    height: 1.25rem;
+    cursor: ns-resize;
+    background:
+        linear-gradient(135deg, transparent 0 45%, var(--color-border-bold) 45% 50%, transparent 50% 100%),
+        linear-gradient(135deg, transparent 0 62%, var(--color-border-bold) 62% 67%, transparent 67% 100%);
+    border-radius: 0.125rem;
+    opacity: 0.6;
 }
 
 /* Inline ref highlights: text a chat thread is anchored to. */
@@ -1776,18 +1804,6 @@ button.MarkdownNotebook__component-title:focus-visible {
     background: none;
     border: none;
     box-shadow: none;
-}
-
-/* The gutter widens the effective canvas, so the source button must shift along with it
-   instead of floating over the comment column. */
-.MarkdownNotebook--comments-margin .MarkdownNotebook__debug-toolbar {
-    right: calc(
-        max(
-                calc((100% - var(--markdown-notebook-canvas-max-width) - var(--markdown-notebook-comment-gutter)) / 2),
-                0px
-            ) +
-            0.5rem
-    );
 }
 
 /* With comment threads present and enough room, the canvas reserves a right gutter wide

@@ -3785,6 +3785,30 @@ export interface ExperimentParameters {
     excluded_variants?: string[]
 }
 
+/** Exposure estimate settings for the experiment running-time calculator. */
+export interface ExperimentExposureEstimateConfig {
+    /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+    conversionRateInputType: 'manual' | 'automatic'
+    /** Metric type the manual baseline value refers to. Only used in manual mode. */
+    manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+    /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+    manualBaselineValue?: number
+    /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+    manualExposureRate?: number
+}
+
+/** Running-time calculator state for an experiment. Canonical home for keys that historically lived in `parameters`. */
+export interface ExperimentRunningTimeCalculation {
+    /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+    minimum_detectable_effect?: number
+    /** Estimated number of days needed to reach the recommended sample size. */
+    recommended_running_time?: number
+    /** Recommended number of exposed users needed for statistical significance. */
+    recommended_sample_size?: number
+    /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+    exposure_estimate_config?: ExperimentExposureEstimateConfig | null
+}
+
 /** Slim exposure config for experiment API payloads. Discriminated by `kind`:
  *  'ExperimentEventExposureConfig' tracks exposure via a custom event,
  *  'ActionsNode' tracks exposure via an action. */
@@ -5945,6 +5969,25 @@ export interface SuggestedTable {
     tooltip?: string | null
 }
 
+export const dataWarehouseSourceCategories = [
+    'Databases',
+    'File storage',
+    'Advertising',
+    'Marketing & email',
+    'CRM',
+    'Sales',
+    'Customer support',
+    'Payments & billing',
+    'Finance & accounting',
+    'Analytics',
+    'Engineering & monitoring',
+    'Productivity',
+    'HR & recruiting',
+    'Communication',
+    'E-commerce',
+] as const
+export type DataWarehouseSourceCategory = (typeof dataWarehouseSourceCategories)[number]
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -5987,6 +6030,19 @@ export interface SourceConfig {
      * @default false
      */
     supportsColumnSelection?: boolean
+
+    /**
+     * Catalog bucket this source is grouped under in the new-source wizard. Optional at the
+     * type level so partial/in-progress sources don't break, but every registered source must
+     * set one (enforced by a test). See `dataWarehouseSourceCategories`.
+     */
+    category?: DataWarehouseSourceCategory
+
+    /**
+     * Extra search terms (alternate spellings, acronyms) for the catalog search, e.g.
+     * GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category.
+     */
+    keywords?: string[]
 }
 
 export const externalDataSources = [
@@ -6222,6 +6278,7 @@ export const externalDataSources = [
     'AmazonKinesis',
     'AmazonCloudWatch',
     'OpenAIAds',
+    'Grafana',
     'Custom',
 ] as const
 

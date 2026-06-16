@@ -428,6 +428,33 @@ export interface NotificationSettings {
     pipeline_notifications_disabled?: Record<string, boolean>
 }
 
+export interface WebAnalyticsDigestMetricChange {
+    percent: number
+    direction: 'Up' | 'Down'
+    is_good: boolean
+}
+
+export interface WebAnalyticsDigestMetric {
+    key: string
+    label: string
+    value: string
+    change: WebAnalyticsDigestMetricChange | null
+}
+
+export interface WebAnalyticsDigestListItem {
+    label: string
+    value: string
+}
+
+export interface WebAnalyticsDigestMetadata {
+    period_label: string
+    project_name: string
+    dashboard_url: string
+    metrics: WebAnalyticsDigestMetric[]
+    top_pages: WebAnalyticsDigestListItem[]
+    top_sources: WebAnalyticsDigestListItem[]
+}
+
 export interface InAppNotification {
     id: string
     team_id: number | null
@@ -444,6 +471,7 @@ export interface InAppNotification {
     source_url: string
     source_type: string | null
     source_id: string | null
+    metadata: WebAnalyticsDigestMetadata | null
     created_at: string
 }
 
@@ -5212,6 +5240,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-analytics',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -5276,6 +5305,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
+    CHANNELS_MANAGE = 'channels:manage',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5460,6 +5490,7 @@ export type APIScopeObject =
     | 'access_control'
     | 'account'
     | 'activity_log'
+    | 'agents'
     | 'alert'
     | 'annotation'
     | 'approvals'
@@ -5504,6 +5535,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'

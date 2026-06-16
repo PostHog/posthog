@@ -3,11 +3,14 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from requests import HTTPError
+
 from posthog.temporal.data_imports.sources.vitally.settings import CUSTOM_OBJECT_SCHEMA_PREFIX
 from posthog.temporal.data_imports.sources.vitally.source import VitallySource
 from posthog.temporal.data_imports.sources.vitally.vitally import (
     VitallyPaginator,
     get_custom_object_records_resource,
+    get_messages,
     list_custom_object_definitions,
     vitally_source,
 )
@@ -117,6 +120,27 @@ class TestListCustomObjectDefinitions:
 
         with pytest.raises(RuntimeError, match="401 Unauthorized"):
             list_custom_object_definitions("secret", "EU", None)
+
+
+class TestGetMessages:
+    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self, mock_session_factory):
+        # A non-2xx conversations list response carries an error body with no "results" key.
+        # Previously get_messages indexed json["results"] directly, surfacing a misleading
+        # KeyError('results'); now raise_for_status lets the real HTTP error through.
+        bad = _make_response({"message": "Unauthorized"}, status_code=401)
+        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized", response=bad)
+        mock_session_factory.return_value = _make_session([bad])
+
+        with pytest.raises(HTTPError, match="401"):
+            list(get_messages("secret", "EU", None, None, False, MagicMock()))
+
+    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    def test_handles_missing_results_key_without_keyerror(self, mock_session_factory):
+        # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
+        mock_session_factory.return_value = _make_session([_make_response({"next": None})])
+
+        assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
 
 
 class TestGetCustomObjectRecordsResource:
@@ -268,3 +292,30 @@ class TestVitallySourceGetSchemas:
         names = {s.name for s in schemas}
         assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+
+
+class TestVitallyNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # US uses a per-customer subdomain, EU a fixed host — both must be recognised.
+            "401 Client Error: Unauthorized for url: https://acme.rest.vitally.io/resources/conversations?limit=100",
+            "403 Client Error: Forbidden for url: https://acme.rest.vitally.io/resources/organizations?limit=100",
+            "401 Client Error: Unauthorized for url: https://rest.vitally-eu.io/resources/users?limit=1",
+        ],
+    )
+    def test_auth_failures_are_non_retryable(self, observed_error):
+        non_retryable_errors = VitallySource().get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://acme.rest.vitally.io/resources/conversations",
+            "429 Client Error: Too Many Requests for url: https://acme.rest.vitally.io/resources/accounts",
+            "Connection aborted: read timeout",
+        ],
+    )
+    def test_transient_errors_remain_retryable(self, other_error):
+        non_retryable_errors = VitallySource().get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)

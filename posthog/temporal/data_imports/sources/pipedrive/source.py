@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class PipedriveSource(ResumableSource[PipedriveSourceConfig, PipedriveResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PIPEDRIVE,
+            category=DataWarehouseSourceCategory.CRM,
             label="Pipedrive",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Pipedrive API token to sync your Pipedrive CRM data into the PostHog Data warehouse.

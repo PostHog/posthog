@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SapHanaSource(SimpleSource[SapHanaSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SAP_HANA,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="SAP HANA",
             iconPath="/static/services/sap_hana.png",
             fields=cast(list[FieldType], []),

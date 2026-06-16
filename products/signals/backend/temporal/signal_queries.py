@@ -589,3 +589,70 @@ def fetch_source_products_for_reports(team: Team, report_ids: list[str]) -> dict
     )
 
     return {row[0]: row[1] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
+# fetch_report_ids_for_source_ids — synchronous, for the scout reverse lookup
+# ---------------------------------------------------------------------------
+
+
+def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[str, str]:
+    """Map each scout `source_id` to the report its emitted signal grouped into.
+
+    Best-effort reverse of the report -> signals link. A scout finding is emitted as a
+    signal whose ClickHouse metadata carries both its deterministic `source_id`
+    (`run:<run_id>:finding:<finding_id>`) and, once grouping matches it, the `report_id`
+    of the report it landed in. This walks that link backwards so the scout UI can show
+    which inbox report (if any) a finding contributed to.
+
+    Only `signals_scout` signals that resolved to a non-empty, non-deleted `report_id`
+    are returned. A non-idempotent re-emit can produce several signals for one
+    `source_id`; the most recent (by signal timestamp) wins. Uses argMax dedup so the
+    result is stable regardless of ReplacingMergeTree merge state.
+    """
+    if not source_ids:
+        return {}
+
+    # Push the source_id filter into the document_embeddings scan so we only dedup the
+    # handful of signals for these findings, not the team's entire signal history.
+    # Resolve the newest signal per source_id FIRST (carrying its deleted/report state),
+    # then decide whether to return a link. Filtering deleted/empty rows before the argMax
+    # would let an older non-deleted report win when the latest signal was deleted or
+    # report-less, surfacing a stale link instead of the documented "most recent wins" null.
+    source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
+    ch_query = f"""
+        SELECT source_id, report_id
+        FROM (
+            SELECT
+                source_id,
+                argMax(report_id, timestamp) as report_id,
+                argMax(is_deleted, timestamp) as is_deleted
+            FROM (
+                SELECT
+                    JSONExtractString(metadata, 'source_id') as source_id,
+                    JSONExtractString(metadata, 'report_id') as report_id,
+                    JSONExtractBool(metadata, 'deleted') as is_deleted,
+                    JSONExtractString(metadata, 'source_product') as source_product,
+                    timestamp
+                FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
+            )
+            WHERE source_product = 'signals_scout'
+              AND source_id != ''
+            GROUP BY source_id
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+    """
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFetchReportIdsForSourceIds",
+        query=ch_query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "source_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in source_ids]),
+        },
+    )
+
+    return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}
