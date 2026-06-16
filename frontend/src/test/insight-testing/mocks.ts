@@ -154,6 +154,10 @@ function resolveActors(query: QueryBody): Array<{ email: string }> {
 /** Funnels in trends-viz mode return a flat `FunnelStep[]` — one entry per series, or per breakdown value. */
 function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
+    const isCompare = !!(query as { compareFilter?: { compare?: boolean } }).compareFilter?.compare
+    if (isCompare && breakdownProp && funnelTrendsSteps.compareByBreakdown[breakdownProp]) {
+        return { results: funnelTrendsSteps.compareByBreakdown[breakdownProp] }
+    }
     if (breakdownProp && funnelTrendsSteps.byBreakdown[breakdownProp]) {
         return { results: funnelTrendsSteps.byBreakdown[breakdownProp] }
     }

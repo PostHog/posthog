@@ -44,6 +44,7 @@ const meta: Meta<StoryProps> = {
                 '/api/environments/:id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
+                    hidden_contexts: [],
                     enabled: false,
                 },
             },

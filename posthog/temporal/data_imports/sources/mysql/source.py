@@ -3,6 +3,7 @@ from typing import Optional, cast
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -40,6 +41,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
+            category=DataWarehouseSourceCategory.DATABASES,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
@@ -119,6 +121,13 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
             "Bad handshake": None,
+            # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
+            # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
+            # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
+            # `mysqladmin flush-hosts`, a restart, or raising `max_connect_errors`) — retrying just
+            # adds more failed connections and keeps the host blocked. Match only the stable phrase,
+            # not the volatile host IP or the `mysqladmin`/`mariadb-admin` wording that varies by server.
+            "is blocked because of many connection errors": "Your MySQL/MariaDB server has blocked PostHog's host after too many interrupted connections (error 1129). Ask your database admin to run 'FLUSH HOSTS' (or 'mysqladmin flush-hosts') and consider raising 'max_connect_errors', then retry the sync.",
             # OpenSSL's signature for "tried to speak TLS to an endpoint that replied with
             # non-TLS bytes" — the source has SSL enabled but the server (or a proxy in front
             # of it, e.g. a plain TCP proxy) doesn't speak TLS, or the host/port is wrong. This
@@ -137,6 +146,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # MySQL/MariaDB error 1054 (ER_BAD_FIELD_ERROR): a column the sync query references no
+            # longer exists in the source table — almost always the configured incremental field
+            # after the column was renamed or dropped (schema drift). The streaming query reissues
+            # the same WHERE/ORDER BY on every attempt, so it fails identically forever; the COUNT(*)
+            # probe already swallows this same error expecting it to be classified here. Match on the
+            # locale-independent error code (the column name and clause are volatile, and the message
+            # text is translated on non-English servers) so it catches both the raw pymysql string and
+            # the Temporal-wrapped `OperationalError: (1054, ...)` form.
+            '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
         }
 
     def validate_credentials(

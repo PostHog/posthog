@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -42,7 +42,7 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, failed, suppressed. Defaults to all statuses except suppressed.'
+            'Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.'
         ),
     suggested_reviewers: zod
         .string()
@@ -312,6 +312,19 @@ export const SignalsScoutRunsRetrieveParams = /* @__PURE__ */ zod.object({
  * @summary List a run's emitted findings
  */
 export const SignalsScoutRunsEmissionsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+/**
+ * Best-effort reverse of the report -> signals link. For each finding the run emitted, resolve the inbox `SignalReport` (if any) its underlying signal grouped into by walking the deterministic `source_id` back through the signal store. `report` is null when the finding hasn't grouped into a report yet, was de-duplicated away, or its signal was deleted. Lets the scout UI surface which inbox report a finding contributed to — the reverse of the report's evidence list. Strictly team-scoped — a run UUID belonging to another team returns 404.
+ * @summary List the inbox reports a run's findings linked to
+ */
+export const SignalsScoutRunsEmissionReportsParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(

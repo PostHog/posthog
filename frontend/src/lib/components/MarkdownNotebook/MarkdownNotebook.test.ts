@@ -13,6 +13,7 @@ import {
 import { MarkdownNotebook } from './MarkdownNotebook'
 import { reconcileNotebookDocuments } from './reconcile'
 import { createMarkdownNotebookRegistry } from './registry'
+import type { NotebookComponentRenderProps } from './types'
 
 // Monaco cannot run in jsdom; stand in with a plain textarea that honors value/onChange.
 jest.mock('lib/monaco/CodeEditor', () => {
@@ -139,6 +140,40 @@ function createHistoryTestRegistry(): ReturnType<typeof createMarkdownNotebookRe
             ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Embedded output'),
         },
     ])
+}
+
+function createDiscussionCommentTestRegistry(): ReturnType<typeof createMarkdownNotebookRegistry> {
+    return createMarkdownNotebookRegistry([
+        {
+            tagName: 'Comment',
+            label: 'Comment',
+            category: 'Text',
+            ViewComponent: TestDiscussionComment,
+            EditComponent: TestDiscussionComment,
+            hideModeActions: true,
+            exclusiveEditPanel: true,
+        },
+    ])
+}
+
+function TestDiscussionComment({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    const [draft, setDraft] = useState('')
+    const replies = Array.isArray(node.props.replies) ? node.props.replies : []
+    const submitReply = (): void => {
+        updateProps({ replies: [...replies, { id: `r${replies.length + 1}`, text: draft }] })
+        setDraft('')
+    }
+
+    return createElement(
+        'div',
+        { 'data-attr': 'notebook-discussion-comment' },
+        createElement('textarea', {
+            'data-attr': 'notebook-discussion-comment-input',
+            value: draft,
+            onChange: (event: ChangeEvent<HTMLTextAreaElement>) => setDraft(event.target.value),
+        }),
+        createElement('button', { type: 'button', 'aria-label': 'Send reply', onClick: submitReply }, 'Send')
+    )
 }
 
 function getEditableTextBlocks(container: HTMLElement): HTMLElement[] {
@@ -2316,6 +2351,23 @@ Tail paragraph`
         expect(flashedShell?.closest('.MarkdownNotebook__row--margin-comment')).toBeInstanceOf(HTMLElement)
     })
 
+    it('renders the source button inside the first text group when comments are present', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(
+                    '<Comment replies={[{"id":"r1","text":"First comment"}]} />\n\n<Query query={{"kind":"DataTableNode"}} />'
+                ),
+                showDebug: true,
+            })
+        )
+        const firstTextGroup = container.querySelector('.MarkdownNotebook__text-group')
+        const debugToolbar = container.querySelector('.MarkdownNotebook__debug-toolbar')
+
+        expect(firstTextGroup).toBeInstanceOf(HTMLElement)
+        expect(debugToolbar).toBeInstanceOf(HTMLElement)
+        expect(firstTextGroup?.contains(debugToolbar)).toBe(true)
+    })
+
     it('opens a synced markdown source drawer from the source button', async () => {
         const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph', showDebug: true }))
         const debugButton = container.querySelector('button[aria-label="Edit markdown source"]')
@@ -3811,6 +3863,41 @@ Body text`)
 <Comment replies={[]} />
 
 <Query query={{"kind":"DataTableNode"}} />`)
+    })
+
+    it('reuses an existing block comment thread above a component from the gutter button', async () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle(
+                    '<Comment replies={[{"id":"r1","text":"First comment"}]} />\n\n<Query query={{"kind":"DataTableNode"}} />'
+                ),
+                registry: createDiscussionCommentTestRegistry(),
+                onChange,
+            })
+        )
+        const commentButtons = Array.from(
+            container.querySelectorAll('[data-attr="markdown-notebook-block-comment-button"]')
+        )
+
+        expect(commentButtons).toHaveLength(1)
+
+        fireEvent.click(commentButtons[0] as HTMLElement)
+
+        const commentInput = container.querySelector(
+            '[data-attr="notebook-discussion-comment-input"] textarea, textarea[data-attr="notebook-discussion-comment-input"]'
+        ) as HTMLTextAreaElement
+        expect(commentInput).toBeInstanceOf(HTMLTextAreaElement)
+        await waitFor(() => expect(document.activeElement).toEqual(commentInput))
+
+        fireEvent.change(commentInput, { target: { value: 'Second comment' } })
+        fireEvent.click(container.querySelector('button[aria-label="Send reply"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        expect(markdown.match(/<Comment/g)).toHaveLength(1)
+        expect(markdown).toContain('"text":"First comment"')
+        expect(markdown).toContain('"text":"Second comment"')
+        expect(markdown).toContain('<Query query={{"kind":"DataTableNode"}} />')
     })
 
     it('does not offer the block comment button in view mode', () => {
@@ -7990,6 +8077,25 @@ After component`,
         expect(container.querySelector('[data-testid="static-answer"]')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
         expect(container.querySelector('button[aria-label="Delete component"]')).toBeInstanceOf(HTMLButtonElement)
+    })
+
+    it('passes the outer notebook mode into component previews', () => {
+        const modes: Array<Pick<NotebookComponentRenderProps, 'mode' | 'notebookMode'>> = []
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: ({ mode, notebookMode }) => {
+                    modes.push({ mode, notebookMode })
+                    return createElement('div', { 'data-testid': 'component-output' }, 'Embedded output')
+                },
+            },
+        ])
+
+        render(createElement(MarkdownNotebook, { value: '<Embed />', registry, mode: 'edit' }))
+
+        expect(modes).toContainEqual({ mode: 'view', notebookMode: 'edit' })
     })
 
     it('opens both panels for component blocks inserted through a value update', () => {
