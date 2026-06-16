@@ -27,21 +27,28 @@ pub fn predicate(state: &Stage1State) -> bool {
     }
 }
 
-/// Whether the window's matching-event count (the bucket sum) satisfies `op`. The `count >= 1` guard
-/// mirrors the existing pipeline's SQL, which only evaluates the comparator over persons with at
-/// least one matching row (`hogql_cohort_query.py:1015`) — so `count == 0` is never a member.
-pub fn daily_predicate(buckets: &[u32], op: PredicateOp) -> bool {
-    let count: u32 = buckets.iter().copied().fold(0, u32::saturating_add);
+/// Parity-critical membership floor: zero matching rows is never a member, even for `lte`/`lt`/`eq 0`.
+/// Mirrors the existing pipeline's SQL, which only evaluates the comparator over persons with at least
+/// one matching row (`hogql_cohort_query.py:1015`) — `count() >= 1 AND <op>`. Shared by
+/// [`daily_predicate`] and [`compressed_predicate`] so the floor cannot drift between the two state
+/// representations of one `performed_event_multiple` leaf.
+fn count_is_member(count: u32, op: PredicateOp) -> bool {
     count >= 1 && op.evaluate(count)
 }
 
+/// Whether the window's matching-event count (the bucket sum) satisfies `op`.
+pub fn daily_predicate(buckets: &[u32], op: PredicateOp) -> bool {
+    let count: u32 = buckets.iter().copied().fold(0, u32::saturating_add);
+    count_is_member(count, op)
+}
+
 /// Whether the compressed window's matching-event count (the sparse entries' count sum) satisfies
-/// `op`. Identical to [`daily_predicate`] — including the `count >= 1` parity floor — only over the
-/// sparse [`compressed_sum`] instead of a dense bucket array, so the two state representations of one
-/// `performed_event_multiple` leaf evaluate membership the same way.
+/// `op`. Identical to [`daily_predicate`] — including the shared [`count_is_member`] floor — only over
+/// the sparse [`compressed_sum`] instead of a dense bucket array, so the two state representations of
+/// one `performed_event_multiple` leaf evaluate membership the same way.
 pub fn compressed_predicate(entries: &[(i32, u32)], op: PredicateOp) -> bool {
     let count = compressed_sum(entries);
-    count >= 1 && op.evaluate(count)
+    count_is_member(count, op)
 }
 
 #[cfg(test)]
