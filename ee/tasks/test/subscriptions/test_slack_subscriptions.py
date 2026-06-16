@@ -722,3 +722,4 @@ class TestSlackExploreHint(APIBaseTest):
     def test_bot_not_ready_hint_links_docs(self) -> None:
         texts = self._hint_texts(self._make_integration(frozenset({"chat:write"})))
         assert any("docs/slack-app" in t for t in texts)
+        assert not any("Reply in this thread" in t for t in texts)

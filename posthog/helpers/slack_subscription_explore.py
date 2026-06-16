@@ -10,6 +10,8 @@ from posthog.models.integration import Integration, SlackIntegration
 logger = structlog.get_logger(__name__)
 
 # Installs connected before the full set was requested (#57177) must reconnect before mentions work.
+# channels:read/groups:read (member_joined_channel onboarding) are deliberately excluded so older
+# installs degrade gracefully — they skip the welcome message rather than tripping a missing-scopes warning.
 REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
     {
         "app_mentions:read",

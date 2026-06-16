@@ -235,8 +235,9 @@ class TestAIExploreHint:
         assert any("@PostHog" in t and "docs/slack-app" not in t for t in _hint_texts(message))
 
     def test_bot_not_ready_hint_links_docs(self) -> None:
-        message = _ai_message(integration=_mock_integration(frozenset({"chat:write"})))
-        assert any("docs/slack-app" in t for t in _hint_texts(message))
+        texts = _hint_texts(_ai_message(integration=_mock_integration(frozenset({"chat:write"}))))
+        assert any("docs/slack-app" in t for t in texts)
+        assert not any("Reply in this thread" in t for t in texts)
 
 
 def _feedback_url(feedback: str, source: str) -> str:

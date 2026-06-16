@@ -56,4 +56,6 @@ class TestBuildExploreHint(TestCase):
 
     def test_bot_not_ready_links_docs(self) -> None:
         hint = build_explore_hint(self._integration(frozenset({"chat:write"})), utm_tags="utm")
-        assert "docs/slack-app?utm" in hint["elements"][0]["text"]
+        text = hint["elements"][0]["text"]
+        assert "docs/slack-app?utm" in text
+        assert "Reply in this thread" not in text
