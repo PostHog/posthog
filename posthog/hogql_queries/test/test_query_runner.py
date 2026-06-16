@@ -1259,9 +1259,13 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
 
     RUNNER_BASES = [("analytics", AnalyticsQueryRunner), ("ctx", QueryRunnerWithHogQLContext)]
 
-    def _runner(self, user, base=QueryRunnerWithHogQLContext):
+    def _runner(self, user, base=QueryRunnerWithHogQLContext, queried_resources=None):
+        # `queried_resources` is the result we want the fingerprint to compute; pick a query that
+        # produces it: an unparseable query reads as None (fail closed), "select 1" reads no AC table.
+        query = HogQLQuery(query="select from from" if queried_resources is None else "select 1")
+
         class _Runner(base):  # type: ignore[valid-type, misc]  # base is a runtime-parameterized class
-            query: TheTestQuery
+            query: HogQLQuery
             cached_response: TheTestCachedBasicQueryResponse
 
             def _calculate(self):
@@ -1276,7 +1280,7 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             def _is_stale(self, last_refresh, lazy: bool = False, *args, **kwargs) -> bool:
                 return False
 
-        return _Runner(query={"some_attr": "bla"}, team=self.team, user=user)
+        return _Runner(query=query, team=self.team, user=user)
 
     def _ac(self, resource, resource_id=None, access_level="none", organization_member=None):
         ac, _ = AccessControl.objects.get_or_create(
@@ -1362,6 +1366,76 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != key_granted
+
+    @parameterized.expand(RUNNER_BASES)
+    def test_query_reading_no_access_controlled_tables_shares_cache(self, _name, base):
+        # A query that reads no access-controlled table is principal-independent: a denied user, a
+        # granted user, and userless cache warming must all land in the same (unpartitioned) entry.
+        self._ac(resource="notebook", access_level="none")
+        payload = self._runner(self.user, base, queried_resources=set()).get_cache_payload()
+        assert "restricted_resources" not in payload
+        assert "restricted_objects" not in payload
+
+        shared_key = self._runner(self.user, base, queried_resources=set()).get_cache_key()
+        assert self._runner(None, base, queried_resources=set()).get_cache_key() == shared_key
+
+    def test_no_access_controlled_tables_skips_the_preload(self):
+        # The point of the branch: a query that reads no access-controlled table must not even
+        # load access control
+        self._ac(resource="notebook", access_level="none")
+        runner = self._runner(self.user, AnalyticsQueryRunner, queried_resources=set())
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert ac_queries == [], ac_queries
+
+    def test_hogql_fingerprint_partitions_only_on_queried_tables(self):
+        # Two denied resources, but the query only reads notebooks - so only that scope partitions.
+        self._ac(resource="notebook", access_level="none")
+        self._ac(resource="survey", access_level="none")
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+
+        restricted = set(runner.get_cache_payload().get("restricted_resources") or [])
+        assert "notebook" in restricted  # queried and denied
+        assert "survey" not in restricted  # denied but not read by the query
+
+    def test_object_level_deny_on_queried_resource_partitions_cache(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Resource-level access granted so we isolate the object-level effect.
+        self._ac(resource="notebook", access_level="editor")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="N")
+        query = {"kind": "HogQLQuery", "query": "select * from system.notebooks"}
+        key_unblocked = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        # Deny this specific notebook object - the query reads notebooks, so it must partition.
+        self._ac(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        runner = HogQLQueryRunner(query=query, team=self.team, user=self.user)
+        assert runner.get_cache_payload().get("restricted_objects", {}).get("notebook") == [str(notebook.id)]
+        assert runner.get_cache_key() != key_unblocked
+
+    def test_object_level_deny_on_unqueried_resource_is_ignored(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Deny a specific notebook object, but the query reads surveys - the deny is irrelevant.
+        self._ac(resource="notebook", access_level="editor")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="N")
+        self._ac(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+
+        query = {"kind": "HogQLQuery", "query": "select * from system.surveys"}
+        payload = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_payload()
+        assert "restricted_objects" not in payload  # notebook object deny doesn't touch a surveys query
 
     def test_run_recomputes_fingerprint_when_user_changes(self):
         # run(user=...) swaps the user after construction; the snapshot must rebuild for the new user.

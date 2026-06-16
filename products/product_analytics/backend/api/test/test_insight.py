@@ -977,7 +977,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [13, 13, 13, 13, 13],
+            [12, 12, 12, 12, 12],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )

@@ -97,6 +97,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
 from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
 from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
@@ -2225,45 +2226,57 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
 
-        # Object and resource-level access control change which tables/rows are visible in the
-        # filtered HogQL schema, so they must partition the cache too. Keys are only added when
-        # restrictions exist, so unrestricted users' cache keys are unchanged.
-        restricted_objects = self._get_object_access_restrictions()
-        if restricted_objects:
-            payload["restricted_objects"] = restricted_objects
+        # Partition only by the access-controlled tables this query reads that the user is restricted
+        # from - so queries on events, persons and other non-access-controlled tables share one cache
+        # entry (incl. userless cache warming).
+        queried_resources = queried_access_controlled_resources(self.query)
 
-        restricted_resources = self._get_resource_access_restrictions()
-        if restricted_resources:
+        # Reads no access-controlled table -> skip the access-control preload
+        if queried_resources == set():
+            return payload
+
+        if restricted_objects := self._get_object_access_restrictions(queried_resources):
+            payload["restricted_objects"] = restricted_objects
+        if restricted_resources := self._get_resource_access_restrictions(queried_resources):
             payload["restricted_resources"] = restricted_resources
 
         return payload
 
-    def _get_object_access_restrictions(self) -> dict[str, list[str]] | None:
-        """Per-resource object IDs the user is denied, as a deterministic JSON-serializable map.
+    def _get_object_access_restrictions(self, queried_resources: Optional[set[str]]) -> dict[str, list[str]] | None:
+        """Per-resource object IDs the user is denied, scoped to the resources this query reads.
         None for admins / no restrictions."""
         user_access_control = self.user_access_control
         if user_access_control is None:
             return None
         blocked = user_access_control.blocked_resource_ids_by_scope
+        if queried_resources is not None:
+            blocked = {resource: ids for resource, ids in blocked.items() if resource in queried_resources}
         if not blocked:
             return None
         return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
 
-    def _get_resource_access_restrictions(self) -> list[str] | None:
-        """Resources the user has no resource-level access to, from the same blocked_resources
-        predicate that drives schema filtering (so the cache key can't drift from the schema)."""
+    def _get_resource_access_restrictions(self, queried_resources: Optional[set[str]]) -> list[str] | None:
+        """Resources the user has no resource-level access to, scoped to the resources this query reads."""
         user = cast("Optional[User | SyntheticUser]", self.user)
+
         # Userless runs fail-closed - every access-controlled table is denied.
         if user is None:
-            return ["*"]
+            return ["*"] if queried_resources is None else sorted(queried_resources) or None
+
         # Synthetic principals (e.g. a project secret API key) are scope-gated; partition on the readable
         # scopes so a narrower token can't be served a broader principal's cached result.
         if isinstance(user, SyntheticUser):
-            return ["synthetic", *sorted(f"scope:{scope}" for scope in user.readable_system_table_access_scopes())]
+            if queried_resources is None:
+                return ["*"]
+            return sorted(queried_resources - user.readable_system_table_access_scopes()) or None
+
         user_access_control = self.user_access_control
         if user_access_control is None:
             return None
-        return user_access_control.blocked_resources or None
+        blocked = user_access_control.blocked_resources
+        if queried_resources is None:
+            return blocked or None
+        return sorted(set(blocked) & queried_resources) or None
 
 
 class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
