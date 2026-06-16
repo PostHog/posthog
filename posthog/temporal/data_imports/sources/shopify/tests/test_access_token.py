@@ -3,7 +3,6 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
-    SHOPIFY_PAYMENT_REQUIRED_ERROR,
     _get_shopify_access_token,
 )
 from posthog.temporal.data_imports.sources.shopify.source import ShopifySource
@@ -79,7 +78,6 @@ def test_graphql_access_denied_is_non_retryable(error_message):
     ],
 )
 def test_payment_required_is_non_retryable(error_message):
-    assert SHOPIFY_PAYMENT_REQUIRED_ERROR in error_message
     patterns = ShopifySource().get_non_retryable_errors()
     assert any(pattern in error_message for pattern in patterns), (
         f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
