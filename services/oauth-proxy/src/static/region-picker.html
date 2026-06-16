@@ -250,6 +250,19 @@
         .footer a:hover {
             color: var(--text-primary);
         }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            .cta,
+            .progress-bar-fill {
+                transition: none;
+            }
+
+            .cta:hover,
+            .cta:active {
+                transform: none;
+            }
+        }
     </style>
 </head>
 
@@ -371,6 +384,7 @@
         // Auto-redirect if user has previously logged in to a region
         (function () {
             var REDIRECT_SECONDS = 7;
+            var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             var cookie = document.cookie.split('; ').find(function (c) { return c.startsWith('ph_current_instance='); });
             if (!cookie) return;
 
@@ -402,8 +416,10 @@
                 var elapsed = Date.now() - startTime;
                 var progress = Math.min(elapsed / (REDIRECT_SECONDS * 1000), 1);
                 var percent = Math.round(progress * 100);
-                fill.style.width = percent + '%';
-                progressBar.setAttribute('aria-valuenow', String(percent));
+                if (!prefersReducedMotion) {
+                    fill.style.width = percent + '%';
+                    progressBar.setAttribute('aria-valuenow', String(percent));
+                }
                 countdown.textContent = Math.max(0, Math.ceil(REDIRECT_SECONDS - elapsed / 1000));
                 if (progress >= 1) {
                     window.location.href = redirectUrl;
