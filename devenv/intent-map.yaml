@@ -38,6 +38,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: [replay]
 
+    browser_rendering:
+        description: 'Browserless container for heatmap screenshots and image exports'
+        requires: [core_infra]
+        docker_profiles: [browserless]
+
     error_symbolication:
         description: 'Error stack trace symbolication service'
         requires: [event_ingestion]
@@ -288,7 +293,8 @@ intents:
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
-        capabilities: [event_ingestion, replay_storage, property_definitions, property_values, livestream]
+        capabilities:
+            [event_ingestion, replay_storage, property_definitions, property_values, livestream, browser_rendering]
 
     surveys:
         description: 'User surveys and feedback collection'

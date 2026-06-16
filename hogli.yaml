@@ -830,6 +830,12 @@ tools:
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files
+    product:isolate:scan:
+        click: hogli_commands.product.cli:cmd_isolate_scan
+        description: Read-only isolation recon for the facade migration skill
+    product:isolate:move:
+        click: hogli_commands.product.cli:cmd_isolate_move
+        description: Mechanical isolation moves with repo-wide path rewrites
     product:lint:owners:
         click: hogli_commands.product.cli:cmd_lint_owners
         description: Validate product.yaml owners against PostHog/posthog GitHub teams

@@ -46,6 +46,11 @@ class GoogleSearchConsoleSource(
             "401 Client Error": "Your Google Search Console connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Search Console property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Search Console account with the required scopes.",
+            # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
+            # access token — the stored refresh token has been revoked, expired, or invalidated
+            # (app access revoked, password change, long inactivity). It never recovers on retry,
+            # so stop the sync and ask the user to reconnect rather than burning activity retries.
+            "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
     def get_schemas(
