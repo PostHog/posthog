@@ -53,6 +53,26 @@ def test_non_transient_status_raises_plain_exception(status: int, message: str) 
         assert message in str(exc_info.value)
 
 
+def test_transient_status_with_non_json_body_still_retryable() -> None:
+    response = MagicMock()
+    response.status_code = 429
+    response.json.side_effect = ValueError("not json")
+    response.text = "<html>rate limited</html>"
+    with _patch_post(response):
+        with pytest.raises(HubspotRetryableError, match="rate limited"):
+            hubspot_refresh_access_token("refresh-token")
+
+
+def test_transient_status_with_message_less_body_still_retryable() -> None:
+    response = MagicMock()
+    response.status_code = 503
+    response.json.return_value = {"error": "unavailable"}
+    response.text = "service unavailable"
+    with _patch_post(response):
+        with pytest.raises(HubspotRetryableError, match="service unavailable"):
+            hubspot_refresh_access_token("refresh-token")
+
+
 def test_success_returns_access_token() -> None:
     with _patch_post(_make_response(200, {"access_token": "new-token"})):
         assert hubspot_refresh_access_token("refresh-token") == "new-token"
