@@ -113,7 +113,9 @@ describe('alertUtils', () => {
             const result = buildHogFunctionPayload('alert-789', 'My alert', notification)
 
             expect(result.inputs?.webhookUrl).toEqual({ value: 'https://example.webhook.office.com/webhookb2/abc' })
-            expect(result.inputs?.text).toBeDefined()
+            expect(result.inputs?.text).toEqual({
+                value: expect.stringContaining('{event.properties.alert_name}'),
+            })
         })
 
         it('sets correct webhook input values', () => {
