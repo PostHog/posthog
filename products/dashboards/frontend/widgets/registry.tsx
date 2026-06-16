@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 import type { ComponentType } from 'react'
 
+import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
@@ -11,6 +12,10 @@ export type DashboardWidgetTileFiltersProps = {
     disabledReason?: string | null
     canMutateErrorTrackingIssues?: boolean
 }
+import { ActivityEventsWidget } from './activity/ActivityEventsWidget'
+import { parseActivityEventsWidgetConfigApiError } from './activity/activityEventsWidgetConfigValidation'
+import { ActivityEventsWidgetTileFilters } from './activity/ActivityEventsWidgetTileFilters'
+import { EditActivityEventsWidgetModal } from './activity/EditActivityEventsWidgetModal'
 import type {
     WidgetIssueMetadataContext,
     WidgetIssueMetadataDelta,
@@ -20,7 +25,7 @@ import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
 import { parseErrorTrackingWidgetConfigApiError } from './error_tracking/errorTrackingWidgetConfigValidation'
 import { ErrorTrackingWidgetTileFilters } from './error_tracking/ErrorTrackingWidgetTileFilters'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
-import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
+import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
 import { SessionReplayWidgetTileFilters } from './session_replay/SessionReplayWidgetTileFilters'
 
@@ -75,6 +80,7 @@ export type DashboardWidgetDefinition = {
     Component: ComponentType<DashboardWidgetComponentProps>
     TileFilters?: ComponentType<DashboardWidgetTileFiltersProps>
     EditModal?: ComponentType<DashboardWidgetEditModalProps>
+    TopHeading?: ComponentType<DashboardWidgetTopHeadingProps>
     productAccess?: DashboardWidgetProductAccess
     /** Maps dashboard PATCH API errors to edit-modal field errors for this widget type. */
     parseConfigApiError: DashboardWidgetConfigApiErrorParser
@@ -123,6 +129,12 @@ export type DashboardWidgetEditModalProps = {
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
 export const DASHBOARD_WIDGET_REGISTRY = {
+    activity_events_list: {
+        Component: ActivityEventsWidget,
+        TileFilters: ActivityEventsWidgetTileFilters,
+        EditModal: EditActivityEventsWidgetModal,
+        parseConfigApiError: parseActivityEventsWidgetConfigApiError,
+    },
     error_tracking_list: {
         Component: ErrorTrackingWidget,
         TileFilters: ErrorTrackingWidgetTileFilters,
@@ -134,6 +146,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         Component: SessionReplayWidget,
         TileFilters: SessionReplayWidgetTileFilters,
         EditModal: EditSessionReplayWidgetModal,
+        TopHeading: SessionReplayWidgetTopHeading,
         productAccess: 'session_recording',
         parseConfigApiError: parseSessionReplayWidgetConfigApiError,
     },

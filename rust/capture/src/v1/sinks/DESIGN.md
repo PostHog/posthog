@@ -522,6 +522,23 @@ for latency measurement.
 Polling them inline in a single task is strictly cheaper than spawning
 real tokio tasks.
 
+#### Single batch deadline vs per-event deadline (head-of-line coupling)
+
+The deadline is **per batch**, not per event: `deadline = now +
+produce_timeout` is computed once, after the whole batch is enqueued, and
+every event in the batch shares it. Because enqueue is fast and serial, the
+last event's clock starts only marginally after the first's, so per-event
+`sent_at` (recorded for the ack-latency histogram) and the shared deadline
+stay close in practice.
+
+A per-event deadline (`sent_at + produce_timeout`, now feasible since WS3a
+threads `sent_at` through) would decouple a slow head-of-line event from the
+rest of the batch. It is **deliberately deferred**: the current model is
+simpler, matches v0, and `capture_v1_kafka_ack_duration_seconds` (per-event,
+including `outcome="timeout"`) now makes any head-of-line coupling directly
+observable. Revisit only if load-test tails (WS7) show the shared deadline
+materially penalizing fast events behind a slow one.
+
 ### Phase 3 — Sweep
 
 Any keys in `enqueued_keys` not present in `resolved_keys` after the
@@ -870,7 +887,9 @@ request.
 | `capture_v1_kafka_producer_queue_utilization` | gauge | `cluster`, `mode` | `stats()` (`msg_cnt / msg_max`) |
 | `capture_v1_kafka_batch_size_bytes_avg` | gauge | `cluster`, `mode`, `topic` | `stats()` |
 | `capture_v1_kafka_broker_connected` | gauge | `cluster`, `mode`, `broker` | `stats()` |
-| `capture_v1_kafka_broker_rtt_us` | gauge | `cluster`, `mode`, `quantile`, `broker` | `stats()` (p50 and p99) |
+| `capture_v1_kafka_broker_rtt_us` | gauge | `cluster`, `mode`, `quantile`, `broker` | `stats()` (full window: `min`/`avg`/`max`/`stddev`/`p50`/`p90`/`p95`/`p99`) |
+| `capture_v1_kafka_broker_int_latency_us` | gauge | `cluster`, `mode`, `quantile`, `broker` | `stats()` — time in producer internal queue (full window) |
+| `capture_v1_kafka_broker_outbuf_latency_us` | gauge | `cluster`, `mode`, `quantile`, `broker` | `stats()` — time in broker output buffer (full window) |
 | `capture_v1_kafka_broker_tx_errors_total` | counter | `cluster`, `mode`, `broker` | `stats()` via `.absolute()` |
 | `capture_v1_kafka_broker_rx_errors_total` | counter | `cluster`, `mode`, `broker` | `stats()` via `.absolute()` |
 
@@ -885,7 +904,8 @@ request-level context (`path`, `attempt`).
 | Metric | Type | Labels | When |
 |---|---|---|---|
 | `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
-| `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Successful ack only |
+| `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Per-event broker-ack latency (successful send → ack resolution), including `outcome="timeout"` for acks that miss `produce_timeout` |
+| `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch enqueue wall-time (the `enqueue_events` call), isolated from broker-ack latency |
 | `capture_v1_kafka_queue_full_retries_total` | counter | `mode`, `cluster`, `result` | QueueFull retry (`result` = `recovered` or `exhausted`) |
 
 Cardinality note: the `destination` label is bounded at 9 values

@@ -159,6 +159,22 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "No route to host": None,
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
+            # clickhouse-connect's HTTP driver got a 404 back while opening the
+            # connection ("HTTPDriver for <url> returned response code 404").
+            # The host responded but isn't serving the ClickHouse HTTP interface
+            # on that path — typically a tunnel/proxy pointing at the wrong
+            # service or an offline endpoint. A real ClickHouse server never
+            # answers queries with 404, so retrying can't recover. We match only
+            # 404, not transient gateway codes (502/503/504), which stay retryable.
+            "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
+            # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
+            # ran out of memory running our extraction query. We already stream
+            # in bounded Arrow blocks, so there's nothing to change our side:
+            # the customer's database can't satisfy the query as configured.
+            # Retrying just re-loads an already memory-pressured server, so stop
+            # and tell them to act.
+            "Code: 241": "Your ClickHouse server ran out of memory while we were reading a table. This usually means the database is too small for the table being synced. Try scaling up your ClickHouse service (or raising its memory limit), or sync a smaller table or use an incremental sync, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen

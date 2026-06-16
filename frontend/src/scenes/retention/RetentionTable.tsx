@@ -198,6 +198,20 @@ export function RetentionTable({
                                             return (
                                                 <td
                                                     key={columnIndex}
+                                                    onClick={(e) => {
+                                                        // Open the modal for this cohort and tell it which
+                                                        // interval column was clicked so it can highlight it.
+                                                        e.stopPropagation()
+                                                        if (!inSharedMode) {
+                                                            openModal(
+                                                                rowIndex,
+                                                                breakdownValue === NO_BREAKDOWN_VALUE
+                                                                    ? null
+                                                                    : breakdownValue,
+                                                                columnIndex
+                                                            )
+                                                        }
+                                                    }}
                                                     className={clsx({
                                                         'RetentionTable__SelectedColumn--cell':
                                                             columnIndex === selectedInterval,
