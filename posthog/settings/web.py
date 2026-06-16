@@ -77,7 +77,6 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
-    "products.agent_platform.backend.apps.AgentPlatformConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -247,7 +246,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/id-jag/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -523,12 +522,8 @@ SPECTACULAR_SETTINGS = {
             "workflow_variable",
         ],
         "AssigneeTypeEnum": ["user", "role"],
-        "AgentSessionStateEnum": ["queued", "running", "completed", "closed", "cancelled", "failed"],
         "ScoutOriginEnum": ["canonical", "custom"],
         "FileFormatEnum": ["Parquet", "JSONLines"],
-        "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
-        "MetricQueryIntervalEnum": ["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
-        "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
         # Dashboard widget polymorphic OpenAPI: each per-type serializer uses a singleton
