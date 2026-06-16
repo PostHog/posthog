@@ -1,9 +1,11 @@
 import os
+import asyncio
 from collections.abc import Callable
 from typing import Optional, TypeVar
 
 from django.conf import settings
 
+import anthropic
 import structlog
 from anthropic.types import MessageParam
 
@@ -28,6 +30,50 @@ MAX_RETRIES = 3
 MAX_RESPONSE_TOKENS = 4096
 MAX_QUERY_TOKENS = 2048
 TIMEOUT = 100.0
+
+# Transient provider-side failures (returned through the internal LLM gateway) worth retrying
+# with backoff. These are deliberately kept distinct from EmptyLLMResponseError and validation
+# failures, which are handled separately and must not be masked by an API-level retry.
+MAX_API_RETRIES = 3
+API_RETRY_BASE_DELAY = 1.0
+API_RETRY_MAX_DELAY = 16.0
+
+
+def _is_retryable_api_error(exc: Exception) -> bool:
+    """Whether an Anthropic SDK error is a transient provider blip worth retrying."""
+    # Network blips and timeouts (APITimeoutError subclasses APIConnectionError) and 429s.
+    if isinstance(exc, anthropic.APIConnectionError | anthropic.RateLimitError):
+        return True
+    # Any 5xx, including 529 overloaded.
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code >= 500
+    return False
+
+
+async def _create_message_with_retries(client, create_kwargs: dict, retries: int = MAX_API_RETRIES):
+    """Call the Anthropic Messages endpoint, retrying transient provider errors with backoff.
+
+    Non-retryable errors (4xx other than 429, auth, bad request) propagate immediately, preserving
+    the existing fail-closed behavior for genuinely bad requests.
+    """
+    last_exception: Exception | None = None
+    for attempt in range(retries):
+        try:
+            return await client.messages.create(**create_kwargs)
+        except Exception as e:
+            if not _is_retryable_api_error(e) or attempt == retries - 1:
+                raise
+            delay = min(API_RETRY_BASE_DELAY * (2**attempt), API_RETRY_MAX_DELAY)
+            logger.warning(
+                f"Transient LLM API error (attempt {attempt + 1}/{retries}), retrying in {delay}s: {e}",
+                attempt=attempt + 1,
+                retries=retries,
+                delay=delay,
+            )
+            last_exception = e
+            await asyncio.sleep(delay)
+    # Loop either returns or raises on the final attempt; this is unreachable.
+    raise last_exception or RuntimeError("LLM API call failed")
 
 
 def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
@@ -120,9 +166,10 @@ async def call_llm(
     last_exception: Exception | None = None
     for attempt in range(retries):
         response = None
-        # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
-        # only if we fail to validate the response.
-        response = await client.messages.create(**create_kwargs)
+        # NOTE - this outer loop only retries validation failures (see the except below), not
+        # extracting text content. Transient API call failures are retried separately, with
+        # backoff, inside _create_message_with_retries so a provider blip doesn't fail the call.
+        response = await _create_message_with_retries(client, create_kwargs)
         text_content = _extract_text_content(response)
         text_content = _strip_markdown_json_fences(text_content)
         if not thinking:
