@@ -23083,6 +23083,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -23124,6 +23125,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -48396,6 +48398,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -48448,6 +48451,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
@@ -54508,6 +54512,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
      * * `google-cloud-service-account` - Google Cloud Service Account
      * * `google-cloud-storage` - Google Cloud Storage
      * * `google-pubsub` - Google Pubsub
@@ -54560,6 +54565,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAnalytics: 'google-analytics',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
