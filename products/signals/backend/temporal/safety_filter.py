@@ -104,7 +104,7 @@ Respond with valid JSON only:
 {"safe": false, "threat_type": "<category from taxonomy>", "explanation": "<what the signal is trying to do>"}"""
 
 
-_SCOUT_SOURCE_PRODUCT = "signals_scout"
+SCOUT_SOURCE_PRODUCT = "signals_scout"
 
 
 # Trust-aware variant for first-party scout findings to avoid false flags
@@ -158,7 +158,7 @@ Respond with valid JSON only:
 
 def _select_safety_prompt(source_product: str | None) -> str:
     """Pick the trust-aware prompt for first-party scout findings, else the strict external-ticket prompt."""
-    if source_product == _SCOUT_SOURCE_PRODUCT:
+    if source_product == SCOUT_SOURCE_PRODUCT:
         return SCOUT_SAFETY_FILTER_PROMPT
     return SAFETY_FILTER_PROMPT
 

@@ -16,12 +16,10 @@ import sys
 
 from tqdm import tqdm
 
-from products.signals.backend.temporal.safety_filter import safety_filter
+from products.signals.backend.temporal.safety_filter import SCOUT_SOURCE_PRODUCT, safety_filter
 from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
 from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.scout_safety_data import SCOUT_SAFETY_CASES
-
-SCOUT_SOURCE_PRODUCT = "signals_scout"
 
 
 class EvalScoutSafety:
