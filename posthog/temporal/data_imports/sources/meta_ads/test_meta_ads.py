@@ -5,6 +5,8 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
+from posthog.temporal.data_imports.sources.meta_ads import meta_ads as meta_ads_module
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
@@ -15,6 +17,7 @@ from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     _next_smaller_limit,
     _override_limit,
     _strip_access_token,
+    get_integration,
 )
 from posthog.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
 
@@ -814,3 +817,34 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+class TestGetIntegration:
+    def test_refreshes_stale_db_connection_before_query(self, monkeypatch) -> None:
+        # `get_integration` runs lazily inside `get_rows` on a worker thread whose
+        # pooled Django connection may have been closed server-side, surfacing as
+        # `OperationalError: the connection is closed`. We must drop the stale
+        # connection before querying, so the read happens on a fresh connection.
+        calls: list[str] = []
+
+        monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: calls.append("close_old_connections"))
+
+        integration = mock.MagicMock()
+
+        def fake_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
+            calls.append("Integration.objects.get")
+            return integration
+
+        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", fake_get)
+
+        meta_ads_integration = mock.MagicMock()
+        meta_ads_integration.integration = integration
+        integration.errors = None
+        monkeypatch.setattr(meta_ads_module, "MetaAdsIntegration", lambda _integration: meta_ads_integration)
+
+        config = MetaAdsSourceConfig(account_id="act_123", meta_ads_integration_id=42)
+        result = get_integration(config, team_id=1)
+
+        assert calls == ["close_old_connections", "Integration.objects.get"]
+        meta_ads_integration.refresh_access_token.assert_called_once()
+        assert result is integration

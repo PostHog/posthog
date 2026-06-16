@@ -51,7 +51,9 @@ from posthog.temporal.data_imports.sources.generated_configs import BigQuerySour
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
+    "BIGQUERY_TOKEN_RESPONSE_ERROR",
     "BigQueryImplementation",
+    "BigQueryTokenRefreshError",
     "bigquery_client",
     "bigquery_storage_read_client",
     "build_destination_table_prefix",
@@ -64,6 +66,24 @@ __all__ = [
 # Host used both to build the Storage Read API gRPC channel and to label the
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
+
+# Stable, source-specific marker for a failed service-account OAuth token refresh.
+# Used both when raising below and when matching in `BigQuerySource.get_non_retryable_errors`,
+# so it must stay free of volatile data (urls, ids, timestamps).
+BIGQUERY_TOKEN_RESPONSE_ERROR = "BigQuery OAuth token endpoint returned an unexpected response"
+
+
+class BigQueryTokenRefreshError(Exception):
+    """Raised when the service-account OAuth token endpoint returns a non-JSON-object 200.
+
+    google-auth's `jwt_grant` reads `response_data["access_token"]` while guarding only
+    against `KeyError`. When the token endpoint replies 200 with a body that isn't a JSON
+    object — an intercepting proxy, or a misconfigured `token_uri` in the service-account
+    key file — `response_data` is a `str` and the lookup raises an opaque
+    `TypeError: string indices must be integers` instead of a `RefreshError`. We re-raise it
+    as this clear, non-retryable error so the sync stops hammering an endpoint that can't
+    authenticate us, and the user gets an actionable message.
+    """
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -470,7 +490,16 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
-        if isinstance(last_value, datetime) or isinstance(last_value, date):
+        if isinstance(last_value, datetime):
+            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
+            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
+            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
+            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
+            # keep it.
+            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
+                last_value = last_value.replace(tzinfo=None)
+            last_value = f"'{last_value.isoformat()}'"
+        elif isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
         operator = incremental_type_to_operator(incremental_field_type)
@@ -522,11 +551,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     ) -> dict[str, list[tuple[str, str, bool]]]:
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
-        query = conn.query(
-            f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-            project=_resolve_query_project(config),
-        )
         try:
+            # Submitting the job triggers the lazy service-account token refresh, so an
+            # auth failure surfaces here rather than at `result()`.
+            query = conn.query(
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                project=_resolve_query_project(config),
+            )
             rows = query.result()
         except Forbidden:
             structlog.get_logger().warning(
@@ -534,6 +565,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 config.dataset_id,
             )
             return {}
+        except TypeError as e:
+            # See `BigQueryTokenRefreshError`: google-auth raises an opaque
+            # `TypeError: string indices must be integers` when the OAuth token endpoint
+            # returns a non-JSON-object 200. Anything else is a genuine bug — let it propagate.
+            if "string indices must be integers" not in str(e):
+                raise
+            raise BigQueryTokenRefreshError(
+                f"{BIGQUERY_TOKEN_RESPONSE_ERROR}. Please re-upload your service account key file and verify its token_uri."
+            ) from e
 
         for row in rows:
             schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))

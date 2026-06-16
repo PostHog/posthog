@@ -106,6 +106,7 @@ const experimentCopyToProject = (): ToolBase<typeof ExperimentCopyToProjectSchem
 const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
     end_date: true,
+    running_time_calculation: true,
     secondary_metrics: true,
     saved_metrics_ids: true,
     filters: true,
@@ -234,6 +235,9 @@ const experimentDuplicate = (): ToolBase<typeof ExperimentDuplicateSchema, unkno
         }
         if (params.parameters !== undefined) {
             body['parameters'] = params.parameters
+        }
+        if (params.running_time_calculation !== undefined) {
+            body['running_time_calculation'] = params.running_time_calculation
         }
         if (params.secondary_metrics !== undefined) {
             body['secondary_metrics'] = params.secondary_metrics
@@ -723,6 +727,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
+            running_time_calculation: true,
             secondary_metrics: true,
             saved_metrics_ids: true,
             filters: true,

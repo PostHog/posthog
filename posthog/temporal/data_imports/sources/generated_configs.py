@@ -679,7 +679,8 @@ class GoogleAdsSourceConfig(config.Config):
 
 @config.config
 class GoogleAnalyticsSourceConfig(config.Config):
-    pass
+    property_id: str
+    google_analytics_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -708,6 +709,11 @@ class GorgiasSourceConfig(config.Config):
     gorgias_domain: str
     email: str
     api_key: str
+
+
+@config.config
+class GrafanaSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1576,6 +1582,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
+        ExternalDataSourceType.GRAFANA: GrafanaSourceConfig,
         ExternalDataSourceType.GRANOLA: GranolaSourceConfig,
         ExternalDataSourceType.GREENHOUSE: GreenhouseSourceConfig,
         ExternalDataSourceType.GURU: GuruSourceConfig,
