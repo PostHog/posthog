@@ -21,9 +21,9 @@ import { AgentApplication, SessionPrincipal, SLACK_BOT_TOKEN_KEY } from '@postho
 import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
+import { getOwnedSession } from './session-access'
 import { verifySlackSignature } from './slack-signature'
 import { SlackEventBodySchema } from './slack.schemas'
-import { getOwnedSession } from './session-access'
 import type { RouteCtx, TriggerDeps, TriggerModule } from './types'
 
 // Re-exported for backwards compatibility — the guard (mount.ts) is the

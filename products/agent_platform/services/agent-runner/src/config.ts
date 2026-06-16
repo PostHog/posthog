@@ -217,7 +217,14 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     sandboxOutboundCidrAllowlist: z
         .string()
         .optional()
-        .transform((v): string[] => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []))
+        .transform((v): string[] =>
+            v
+                ? v
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                : []
+        )
         .describe(
             'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
         ),

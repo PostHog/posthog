@@ -618,9 +618,9 @@ describe('AgentSpecSchema', () => {
 
     describe('principalsMatch — shared_secret per-caller binding', () => {
         it('two secret holders with no caller_id match (single-principal default)', () => {
-            expect(
-                principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 7 })
-            ).toBe(true)
+            expect(principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 7 })).toBe(
+                true
+            )
         })
 
         it('a session bound to a caller_id rejects a different caller', () => {
@@ -651,9 +651,9 @@ describe('AgentSpecSchema', () => {
         })
 
         it('still isolates across teams', () => {
-            expect(
-                principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 8 })
-            ).toBe(false)
+            expect(principalsMatch({ kind: 'shared_secret', team_id: 7 }, { kind: 'shared_secret', team_id: 8 })).toBe(
+                false
+            )
         })
     })
 })
