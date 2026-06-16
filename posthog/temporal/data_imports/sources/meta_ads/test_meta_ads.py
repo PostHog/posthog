@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.meta_ads import meta_ads
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
@@ -190,6 +191,88 @@ class TestSimplePagination:
         # Initial request should be the original URL with params, not the stale next_url.
         assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
         assert mock_get.return_value.get.call_args_list[0].kwargs["params"] == {"access_token": "tok"}
+
+
+class TestSimplePaginationLimitFallback:
+    INITIAL_URL = "https://graph.facebook.com/v20/act_123/campaigns"
+    # Mirrors production params from `meta_ads_source`: a default page limit is always set.
+    PARAMS: dict[str, Any] = {"fields": "id,name", "limit": 500, "access_token": "tok"}
+    REDUCE_BODY: dict[str, Any] = {
+        "error": {"code": 1, "message": "Please reduce the amount of data you're asking for, then retry your request"}
+    }
+
+    def test_initial_too_much_data_retries_with_smaller_limit(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Initial request at the default limit is rejected as too large.
+            _mock_response(500, self.REDUCE_BODY),
+            # Retry at the next-smaller limit succeeds.
+            _mock_response(200, {"data": [{"id": "1"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}]]
+        # First attempt used the default 500 limit.
+        assert mock_get.return_value.get.call_args_list[0].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[0].kwargs["params"]["limit"] == 500
+        # Retry re-issues the same initial URL with the limit reduced to the next rung (100).
+        assert mock_get.return_value.get.call_args_list[1].args[0] == self.INITIAL_URL
+        assert mock_get.return_value.get.call_args_list[1].kwargs["params"]["limit"] == 100
+
+    def test_cursor_too_much_data_retries_with_smaller_limit(self) -> None:
+        manager = _build_manager()
+        responses = [
+            # Page 1 succeeds and hands back a cursor.
+            _mock_response(
+                200,
+                {"data": [{"id": "1"}], "paging": {"next": "https://graph.facebook.com/v20/next?after=p1"}},
+            ),
+            # The cursor request is rejected as too large at the default limit.
+            _mock_response(500, self.REDUCE_BODY),
+            # Retry of the SAME cursor at a smaller limit succeeds; no more pages.
+            _mock_response(200, {"data": [{"id": "2"}], "paging": {}}),
+        ]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            batches = list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert batches == [[{"id": "1"}], [{"id": "2"}]]
+        # Cursor first tried without a limit override (still at the default).
+        assert mock_get.return_value.get.call_args_list[1].args[0] == "https://graph.facebook.com/v20/next?after=p1"
+        # Retry uses the SAME cursor with the limit reduced to 100.
+        assert (
+            mock_get.return_value.get.call_args_list[2].args[0]
+            == "https://graph.facebook.com/v20/next?after=p1&limit=100"
+        )
+
+    def test_exhausting_limit_ladder_raises(self) -> None:
+        manager = _build_manager()
+        # Every rung in PAGE_LIMIT_FALLBACK_SIZES returns the too-much-data error.
+        responses = [_mock_response(500, self.REDUCE_BODY) for _ in PAGE_LIMIT_FALLBACK_SIZES]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        # One attempt per rung, then it gives up.
+        assert mock_get.return_value.get.call_count == len(PAGE_LIMIT_FALLBACK_SIZES)
+
+    def test_non_timeout_error_does_not_retry(self) -> None:
+        manager = _build_manager()
+        # Transient service error (code 2) — not a too-much-data error, so no limit fallback.
+        responses = [_mock_response(500, {"error": {"message": "Service temporarily unavailable", "code": 2}})]
+
+        with mock.patch("posthog.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session") as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="Meta API request failed: 500"):
+                list(_iter_simple_pagination(self.INITIAL_URL, self.PARAMS, None, manager))
+
+        assert mock_get.return_value.get.call_count == 1
 
 
 class TestTimeRangePagination:
@@ -732,3 +815,32 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+class TestGetIntegration:
+    def test_refreshes_stale_db_connection_before_query(self, monkeypatch) -> None:
+        # The ORM read runs lazily inside `get_rows` on a worker thread whose pooled
+        # Django connection may have been closed server-side, surfacing as
+        # `OperationalError: the connection is closed`. We must drop the stale
+        # connection before querying, so the read happens on a fresh connection.
+        calls: list[str] = []
+
+        monkeypatch.setattr(meta_ads, "close_old_connections", lambda: calls.append("close_old_connections"))
+
+        integration = mock.MagicMock()
+        integration.errors = None
+
+        def fake_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
+            calls.append("Integration.objects.get")
+            return integration
+
+        monkeypatch.setattr(meta_ads.Integration.objects, "get", fake_get)
+        monkeypatch.setattr(meta_ads, "MetaAdsIntegration", lambda i: mock.MagicMock(integration=i))
+
+        config = mock.MagicMock()
+        config.meta_ads_integration_id = 1
+
+        result = meta_ads.get_integration(config, team_id=1)
+
+        assert calls == ["close_old_connections", "Integration.objects.get"]
+        assert result is integration
