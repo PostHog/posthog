@@ -24,28 +24,24 @@ def _session_returning(responses: list[MagicMock]) -> Any:
 @pytest.fixture(autouse=True)
 def _no_backoff_sleep() -> Any:
     # tenacity sleeps between retries; neutralise it so the test is fast.
+    original_sleep = hubspot_refresh_access_token.retry.sleep
     hubspot_refresh_access_token.retry.sleep = lambda *_a, **_k: None
     yield
+    hubspot_refresh_access_token.retry.sleep = original_sleep
 
 
 class TestHubspotRefreshAccessToken:
-    def test_429_rate_limit_is_retried_then_succeeds(self) -> None:
+    @pytest.mark.parametrize(
+        "status_code,message",
+        [
+            (429, "You have reached your rate limit."),
+            (503, "service unavailable"),
+        ],
+    )
+    def test_retryable_error_is_retried_then_succeeds(self, status_code: int, message: str) -> None:
         make_session, post = _session_returning(
             [
-                _make_response(429, {"message": "You have reached your rate limit."}),
-                _make_response(200, {"access_token": "fresh-token"}),
-            ]
-        )
-        with patch("posthog.temporal.data_imports.sources.hubspot.auth.make_tracked_session", new=make_session):
-            token = hubspot_refresh_access_token("refresh-token")
-
-        assert token == "fresh-token"
-        assert post.call_count == 2
-
-    def test_5xx_is_retried_then_succeeds(self) -> None:
-        make_session, post = _session_returning(
-            [
-                _make_response(503, {"message": "service unavailable"}),
+                _make_response(status_code, {"message": message}),
                 _make_response(200, {"access_token": "fresh-token"}),
             ]
         )
