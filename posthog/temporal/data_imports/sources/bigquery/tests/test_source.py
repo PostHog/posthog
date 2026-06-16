@@ -3,7 +3,7 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import Forbidden, NotFound, PermissionDenied
+from google.api_core.exceptions import BadRequest, Forbidden, NotFound, PermissionDenied
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_query,
+    _has_duplicate_primary_keys,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
@@ -520,3 +521,55 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
 def test_non_retryable_errors_does_not_match_transient(other_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def _run_has_duplicate_primary_keys(side_effect):
+    table = mock.MagicMock()
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = side_effect
+    client.query.return_value = job
+
+    with mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.capture_exception") as mock_capture:
+        result = _has_duplicate_primary_keys(table, client, ["id"])
+    return result, mock_capture
+
+
+@pytest.mark.parametrize(
+    "exception",
+    [
+        BadRequest(
+            "Resources exceeded during query execution: The query could not be executed in the allotted memory."
+        ),
+        BadRequest("query failed", errors=[{"reason": "resourcesExceeded", "message": "out of memory"}]),
+    ],
+)
+def test_has_duplicate_primary_keys_skips_resource_exceeded_quietly(exception):
+    """A `resourcesExceeded` BigQuery error during the best-effort duplicate-key probe must NOT
+    be captured to error tracking — it's a non-actionable data-volume limit that otherwise fires
+    on every sync of a large table."""
+    result, mock_capture = _run_has_duplicate_primary_keys(exception)
+
+    assert result is False
+    mock_capture.assert_not_called()
+
+
+def test_has_duplicate_primary_keys_captures_unexpected_bad_request():
+    """A non-resource BadRequest (e.g. a genuinely malformed probe query) is still captured so we
+    don't lose visibility into real bugs."""
+    result, mock_capture = _run_has_duplicate_primary_keys(BadRequest("Syntax error in query"))
+
+    assert result is False
+    mock_capture.assert_called_once()
+
+
+def test_has_duplicate_primary_keys_captures_unexpected_errors():
+    """Genuinely unexpected errors are still captured so we don't lose visibility."""
+    result, mock_capture = _run_has_duplicate_primary_keys(RuntimeError("boom"))
+
+    assert result is False
+    mock_capture.assert_called_once()
