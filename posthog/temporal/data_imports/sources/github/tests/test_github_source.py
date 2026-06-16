@@ -22,6 +22,8 @@ class TestGithubSource:
             "404 Client Error",
             "Bad credentials",
             "Missing GitHub integration ID",
+            "GITHUB_APP_CLIENT_ID is not configured",
+            "GITHUB_APP_PRIVATE_KEY is not configured",
         ],
     )
     def test_non_retryable_errors(self, expected_key):
