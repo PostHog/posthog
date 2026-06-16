@@ -131,22 +131,14 @@ LAYOUT(REGEXP_TREE())
 """
 
 
-# Bot-detection UDFs. Names are prefixed with `webAnalytics` because ClickHouse functions share one
-# global catalog, so generic names risk clashing with built-ins or other products. The HogQL layer
-# exposes them without the prefix (`getBotName`/`isLikelyBot`), so query authors still get clean
-# names while the installed ClickHouse functions stay namespaced. Bodies use multiMatchAnyIndex
-# (Hyperscan), NOT the REGEXP_TREE dict's dictGet: benchmarks on real traffic showed dictGet costs
-# 7-46x more CPU and grows with row count, while multiMatch stays flat (~200 ms at any window). SQL
-# UDFs are macro-expanded at query-analysis time, so call sites stay tiny yet execute at full
-# multiMatch speed. BOT_DEFINITIONS remains the single source of truth — the same patterns/labels
-# the dict is seeded from and the inline HogQL path emits.
+# Namespaced (`webAnalytics*`) to avoid clashes in ClickHouse's global function catalog; the HogQL
+# layer exposes them unprefixed. multiMatch-based, not the dict's dictGet.
 _BOT_UDF_PATTERNS = _format_array([*BOT_DEFINITIONS.keys(), "^$"])
 
 
 def _bot_udf_label_lookup(attr: str, default: str, empty_ua_value: str) -> str:
-    # Label array aligns with the patterns array: [default, <per-bot attr>…, empty_ua_value].
-    # multiMatchAnyIndex returns 0 (no match) or 1..N+1 ("^$" is N+1); arrayElement(arr, idx + 1)
-    # then maps 0 -> default, k -> attr of bot k, N+1 -> empty_ua_value.
+    # multiMatchAnyIndex returns 0 (no match) or 1..N+1; arrayElement(arr, idx + 1) maps it onto
+    # [default, <per-bot attr>…, empty_ua_value].
     labels = [default, *(getattr(bot, attr) for bot in BOT_DEFINITIONS.values()), empty_ua_value]
     return f"arrayElement({_format_array(labels)}, multiMatchAnyIndex(ifNull(ua, ''), {_BOT_UDF_PATTERNS}) + 1)"
 
@@ -159,8 +151,7 @@ BOT_DEFINITION_UDF_NAMES = [
     "webAnalyticsGetBotOperator",
 ]
 
-# CREATE OR REPLACE so a later BOT_DEFINITIONS change re-creates the functions idempotently via a
-# follow-up migration. Defaults mirror the inline HogQL builder (traffic_type.py).
+# CREATE OR REPLACE so a follow-up migration can re-create them when BOT_DEFINITIONS changes.
 BOT_DEFINITION_UDFS_SQL = [
     f"CREATE OR REPLACE FUNCTION webAnalyticsIsLikelyBot AS (ua) -> multiMatchAny(ifNull(ua, ''), {_BOT_UDF_PATTERNS})",
     f"CREATE OR REPLACE FUNCTION webAnalyticsGetBotName AS (ua) -> {_bot_udf_label_lookup('name', '', '')}",

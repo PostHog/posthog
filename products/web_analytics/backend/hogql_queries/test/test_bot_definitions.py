@@ -152,7 +152,7 @@ class TestBotDefinitionUDFs:
             assert f"CREATE OR REPLACE FUNCTION {name} AS (ua)" in joined
 
     def test_no_udf_uses_dictget(self):
-        # The whole point: multiMatch (Hyperscan) is 7-46x cheaper than the REGEXP_TREE dictGet.
+        # multiMatch, not the dict's dictGet (much cheaper per row).
         for sql in BOT_DEFINITION_UDFS_SQL:
             assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
 
@@ -169,9 +169,7 @@ class TestBotDefinitionUDFs:
         assert "arrayElement(" in sql
 
     def test_label_array_aligns_with_patterns(self):
-        # arrayElement(arr, multiMatchAnyIndex(...) + 1): arr must be [default, <N bots>, empty_ua].
-        # Reconstruct the expected array literal with the same escaping rather than counting quotes
-        # (apostrophe-safe: a label like "it's bot" escapes to '' and would break a naive count).
+        # Reconstruct the expected [default, <N bots>, empty_ua] array (apostrophe-safe vs counting quotes).
         expected = _format_array(["", *(bot.name for bot in BOT_DEFINITIONS.values()), ""])
         bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsGetBotName" in s)
         assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
