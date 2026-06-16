@@ -1924,6 +1924,9 @@ def rerank_chunks(
     if len(results) == 1:
         return original_order[:top_k]
 
+    if not team.organization.is_ai_data_processing_approved:
+        return original_order[:top_k]
+
     valid_ids = {result.chunk_id for result in results}
     id_to_result = {result.chunk_id: result for result in results}
 
