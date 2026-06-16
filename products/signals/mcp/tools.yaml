@@ -279,8 +279,8 @@ tools:
             with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked
             `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
-            surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it
-            exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
+            surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
+            it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
