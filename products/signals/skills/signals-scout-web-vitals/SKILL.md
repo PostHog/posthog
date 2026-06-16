@@ -60,11 +60,25 @@ fixes you must attach to every emission.
 ## Quick close-out: is web vitals capture even on?
 
 `$web_vitals` is opt-in (`capture_performance` in the SDK). Absence is **configuration,
-not health** — it is the health-checks scout's territory, not yours. If `$web_vitals` is
-absent from `top_events`, or present but at a trickle (too few samples for a stable p75
-on any page), there's no signal here today:
+not health** — it is the health-checks scout's territory, not yours.
 
-- key: `not-in-use:web_vitals:team{team_id}` (absent) or
+`top_events` only holds the project's top ~50 events over 7d, so `$web_vitals` missing from
+it is **not** a definitive "not captured" — a quiet-but-present stream can fall outside the
+cut. Before writing `not-in-use`, confirm with a cheap count (or `read-data-schema`):
+
+```sql
+SELECT count() AS samples_7d
+FROM events
+WHERE event = '$web_vitals'
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+```
+
+Only close out as `not-in-use` when that count is genuinely ~0. A trickle (present but too
+few samples for a stable p75 on any page) isn't "not in use" — there's just no actionable
+signal today. Either way, close out:
+
+- key: `not-in-use:web_vitals:team{team_id}` (count ~0) or
   `pattern:web_vitals:baseline-team{team_id}` (captured, all pages within band at baseline)
 - content: `"$web_vitals {absent | ~{count}/day, no page in poor band} at {timestamp}"`
 
@@ -111,6 +125,7 @@ dead flat — is a finding:
 
 ```sql
 SELECT
+    properties.$host AS host,
     replaceRegexpAll(properties.$pathname, '[0-9]+', ':id') AS path,
     count() AS samples_7d,
     round(quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)), 0) AS lcp_p75
@@ -119,7 +134,7 @@ WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 7 DAY
   AND timestamp <= now() + INTERVAL 1 DAY   -- future-clock guard; client clocks lie
   AND properties.$web_vitals_LCP_value IS NOT NULL
-GROUP BY path
+GROUP BY host, path                -- host-qualified: marketing / and app / are different pages
 HAVING samples_7d >= 1000          -- enough for a stable weekly p75
    AND lcp_p75 > 4000              -- LCP poor band; swap per metric/band above
 ORDER BY samples_7d DESC
@@ -130,7 +145,9 @@ Swap the property and the `HAVING` threshold per metric/band (INP > 500, CLS > 0
 FCP > 3000; use the needs-improvement floor when a top landing page sits stuck there).
 Weight by reach: a `poor` p75 on a top-3 landing surface is P2; a deep, low-traffic route
 is P3 at most. Before emitting, confirm it isn't a known-and-accepted slow page in
-`pattern:`/`addressed:` memory.
+`pattern:`/`addressed:` memory. Key findings by **host + path**, not path alone — carry the
+host into the `dedupe:`/`pattern:` key so a multi-hostname project doesn't merge the
+marketing and app surfaces (or emit a fix aimed at the wrong one).
 
 #### Band-crossing regression (historical, dated)
 
@@ -140,8 +157,10 @@ can line it up against a deploy:
 
 ```sql
 SELECT
+    properties.$host AS host,
     replaceRegexpAll(properties.$pathname, '[0-9]+', ':id') AS path,
     countIf(timestamp >= now() - INTERVAL 1 DAY) AS samples_24h,
+    countIf(timestamp <  now() - INTERVAL 1 DAY) AS samples_prior13d,
     round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value),
           timestamp >= now() - INTERVAL 1 DAY), 0) AS lcp_p75_24h,
     round(quantileIf(0.75)(toFloat(properties.$web_vitals_LCP_value),
@@ -151,16 +170,23 @@ WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 14 DAY
   AND timestamp <= now() + INTERVAL 1 DAY
   AND properties.$web_vitals_LCP_value IS NOT NULL
-GROUP BY path
+GROUP BY host, path
 HAVING samples_24h >= 200
+   AND samples_prior13d >= 1000     -- stable prior baseline. Below this the page is new or
+                                    -- previously low-traffic — there's nothing trustworthy to
+                                    -- regress *from*, so it's not a dated regression.
 ORDER BY samples_24h DESC
 LIMIT 25
 ```
 
 A candidate is one page whose p75 crossed a band boundary (good/needs → poor, or
-needs → poor) while sibling pages held. Then pull a 30-day daily p75 series for that one
-path (`toStartOfDay(timestamp)`, same filters, `GROUP BY day`) to find the step day, and
-correlate with `activity-log-list` over the same window. You usually can't see the team's
+needs → poor) while sibling pages held. A page that fails `samples_prior13d` is **not** a
+candidate — with an empty or tiny prior window there's no baseline to regress from, so a
+new or freshly-popular page would look like a band cross. Judge those on their absolute
+band through the standing-poor path instead; don't date them as a deploy regression. Then
+pull a 30-day daily p75 series for that one path (`toStartOfDay(timestamp)`, same filters,
+`GROUP BY day`) to find the step day, and correlate with `activity-log-list` over the same
+window. You usually can't see the team's
 deploys — frame it as "consistent with a change around {day}, confirm against your
 release log".
 
