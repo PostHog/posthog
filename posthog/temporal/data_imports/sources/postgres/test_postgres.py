@@ -39,6 +39,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     should_preserve_asc_sort,
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import (
+    _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     FORCE_UTF8_CLIENT_ENCODING,
     SSL_REQUIRED_AFTER_DATE,
@@ -527,6 +528,41 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
 
         assert connect_mock.call_count == 1
 
+    def test_sustained_connection_drop_during_setup_probes_is_retried_then_reraised(self):
+        # A transient drop hit *during* the metadata probes — here Supavisor's pooler "DbHandler
+        # exited" (XX000 InternalError_) raised by `_get_table` — must reconnect and retry the
+        # probes in-process, not escape on the first failure. Once the drop is sustained the
+        # original error re-raises (Temporal then retries the whole activity).
+        err = psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information")
+        connection = self._make_failing_connection(err)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.errors.InternalError_):
+                    self._call_postgres_source()
+
+        # Each retry reconnects, so connect is called once per attempt before giving up.
+        assert connect_mock.call_count == _MAX_SETUP_CONNECTION_DROPPED_RETRIES
+
+    def test_non_dropped_internal_error_during_setup_probes_is_not_retried(self):
+        # A genuine XX000 internal error that isn't the pooler drop is not a connection drop, so it
+        # must propagate on the first probe instead of being retried by the dropped-connection handler.
+        err = psycopg.errors.InternalError_("XX000: internal error: something went wrong")
+        connection = self._make_failing_connection(err)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect_mock:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.errors.InternalError_):
+                    self._call_postgres_source()
+
+        assert connect_mock.call_count == 1
+
 
 class TestIsConnectionDroppedError:
     @pytest.mark.parametrize(
@@ -544,6 +580,11 @@ class TestIsConnectionDroppedError:
             # so it's detected by type alone — even with no message to match on.
             psycopg.errors.IdleInTransactionSessionTimeout("terminating connection due to idle-in-transaction timeout"),
             psycopg.errors.IdleInTransactionSessionTimeout(),
+            # Supavisor (Supabase's connection pooler) tears down a session whose backend connection
+            # died and surfaces it as a generic XX000 InternalError_ — a transient drop, not a libpq
+            # signature, so it's matched on the pooler's own "DbHandler exited" text.
+            psycopg.errors.InternalError_("(EDBHANDLEREXITED) DbHandler exited. Check logs for more information"),
+            psycopg.errors.InternalError_("(EDBHANDLEREXITED) DBHANDLER EXITED. Check logs for more information"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -563,6 +604,9 @@ class TestIsConnectionDroppedError:
             psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),
+            # A genuine XX000 internal error that isn't the Supavisor pooler drop must stay
+            # non-recoverable — the InternalError_ match is scoped to the "DbHandler exited" text.
+            psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
         ],
     )
     def test_unrelated_errors_are_not_detected(self, error):
