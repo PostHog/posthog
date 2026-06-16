@@ -65,7 +65,9 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS = Counter(
 # to UTC before filtering on `time_window_start`. Half-hour-offset timezones
 # (IST, Newfoundland, Nepal, etc.) are explicitly gated out below.
 LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
+    # today: 2h — kept in sync with web_lazy_precompute_common.LAZY_TTL_SECONDS;
+    # see there for the rationale (the ~6h result cache fronts these reads).
+    "0d": 2 * 60 * 60,
     "1d": 60 * 60,
     "7d": 24 * 60 * 60,
     "default": 7 * 24 * 60 * 60,
