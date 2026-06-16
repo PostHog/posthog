@@ -21,7 +21,7 @@ jest.mock('lib/utils', () => ({
     percentage: jest.fn((value: number) => `${(value * 100).toFixed(1)}%`),
 }))
 
-jest.mock('lib/utils/geography/currency', () => ({
+jest.mock('lib/utils/currency', () => ({
     formatCurrency: jest.fn((value: number) => `$${value.toFixed(2)}`),
 }))
 

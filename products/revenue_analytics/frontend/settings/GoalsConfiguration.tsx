@@ -11,9 +11,9 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 

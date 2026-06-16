@@ -5,7 +5,7 @@ import { IconInfo, IconLineGraph } from '@posthog/icons'
 import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 

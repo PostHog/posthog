@@ -17,13 +17,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     LANGUAGE_CODE_TO_NAME,
     countryCodeToFlag,
     languageCodeToFlag,
-} from 'lib/utils/geography/country'
+} from 'lib/utils/country'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { UnexpectedNeverError } from 'lib/utils/guards'
 import { percentage } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
