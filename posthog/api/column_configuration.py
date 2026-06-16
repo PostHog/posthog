@@ -58,6 +58,13 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
             return []
         return filters
 
+    def validate_properties(self, properties):
+        # create() validates this inline for a uniform error envelope, but that gate
+        # doesn't run on partial updates — guard PATCH here so a non-dict can't be stored.
+        if properties is not None and not isinstance(properties, dict):
+            raise serializers.ValidationError("properties must be an object")
+        return properties
+
     def to_representation(self, instance: ColumnConfiguration):
         values = super().to_representation(instance)
         values["filters"] = self.validate_filters(values["filters"])

@@ -372,6 +372,23 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["error"] == "properties must be an object"
 
+    def test_update_properties_must_be_an_object(self):
+        config = ColumnConfiguration.objects.create(
+            team=self.team,
+            created_by=self.user,
+            context_key="customer_analytics_accounts_columns",
+            columns=["name"],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{config.id}/",
+            {"properties": ["not", "a", "dict"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["properties"] == ["properties must be an object"]
+
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
 
