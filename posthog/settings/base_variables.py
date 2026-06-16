@@ -68,6 +68,7 @@ LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 DUCKGRES_API_URL: str | None = get_from_env("DUCKGRES_API_URL", optional=True)
 DUCKGRES_INTERNAL_SECRET: str | None = get_from_env("DUCKGRES_INTERNAL_SECRET", optional=True)
 DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
+DUCKGRES_PG_URL: str | None = get_from_env("DUCKGRES_PG_URL", optional=True)
 
 # Bulk deletion operations can be disabled during database migrations
 DISABLE_BULK_DELETES: bool = get_from_env("DISABLE_BULK_DELETES", False, type_cast=str_to_bool)

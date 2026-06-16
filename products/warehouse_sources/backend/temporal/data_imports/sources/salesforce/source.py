@@ -90,15 +90,13 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
         if names is None or any(name.endswith("__c") for name in names):
             try:
                 integration = self.get_oauth_integration(config.salesforce_integration_id, team_id)
-                auth = SalesforceAuth(
-                    refresh_token=integration.refresh_token,
-                    access_token=integration.access_token,
-                    instance_url=integration.config.get("instance_url"),
-                )
+
+                salesforce_instance_url = integration.config.get("instance_url")
+                salesforce_access_token = self.get_salesforce_access_token(config.salesforce_integration_id, team_id)
 
                 definitions = list_custom_object_definitions(
-                    instance_url=integration.config.get("instance_url"),
-                    access_token=auth.token,
+                    instance_url=salesforce_instance_url,
+                    access_token=salesforce_access_token[0],
                     endpoint="/services/data/v61.0/sobjects",
                 )
             except Exception as e:
@@ -156,16 +154,10 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     ) -> SourceResponse:
         integration = self.get_oauth_integration(config.salesforce_integration_id, inputs.team_id)
 
-        salesforce_refresh_token = integration.refresh_token
-
-        if not salesforce_refresh_token:
-            raise ValueError(f"Salesforce refresh token not found for job {inputs.job_id}")
-
-        salesforce_access_token = integration.access_token
         salesforce_instance_url = integration.config.get("instance_url")
-
-        if not salesforce_access_token:
-            salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token, salesforce_instance_url)
+        salesforce_access_token, salesforce_refresh_token = self.get_salesforce_access_token(
+            config.salesforce_integration_id, inputs.team_id
+        )
 
         resource = salesforce_source(
             instance_url=salesforce_instance_url,
@@ -186,3 +178,19 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             primary_keys=["id"] if inputs.should_use_incremental_field else None,
             column_hints=resource.column_hints,
         )
+
+    def get_salesforce_access_token(self, integration_id: int, team_id: int) -> tuple[str, str]:
+        integration = self.get_oauth_integration(integration_id, team_id)
+
+        salesforce_refresh_token = integration.refresh_token
+
+        if not salesforce_refresh_token:
+            raise ValueError(f"Salesforce refresh token not found for integration {integration_id}")
+
+        salesforce_access_token = integration.access_token
+        salesforce_instance_url = integration.config.get("instance_url")
+
+        if not salesforce_access_token:
+            salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token, salesforce_instance_url)
+
+        return salesforce_access_token, salesforce_refresh_token
