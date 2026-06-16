@@ -1,4 +1,5 @@
 import { clsx } from 'clsx'
+import posthog from 'posthog-js'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -21,7 +22,6 @@ import {
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseExperimentsListWidgetConfig } from './experimentsListWidgetConfigValidation'
-import { captureCreateExperimentClicked } from './experimentWidgetAnalytics'
 
 export type ExperimentsListWidgetRow = {
     id: number
@@ -145,7 +145,12 @@ export function ExperimentsListWidget({ tileId, config, result, loading }: Dashb
                                     size="small"
                                     to={urls.experiment('new')}
                                     targetBlank
-                                    onClick={() => captureCreateExperimentClicked('experiments_list', tileId)}
+                                    onClick={() =>
+                                        posthog.capture('dashboard widget create experiment clicked', {
+                                            widget_type: 'experiments_list',
+                                            tile_id: tileId,
+                                        })
+                                    }
                                 >
                                     New experiment
                                 </LemonButton>

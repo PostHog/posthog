@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -13,7 +15,6 @@ import type { ExperimentStatus } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { captureCreateExperimentClicked } from './experimentWidgetAnalytics'
 
 export type ExperimentResultsWidgetMetricEntry = {
     uuid: string | null
@@ -130,7 +131,12 @@ export function ExperimentResultsWidget({
                             size="small"
                             to={urls.experiment('new')}
                             targetBlank
-                            onClick={() => captureCreateExperimentClicked('experiment_results', tileId)}
+                            onClick={() =>
+                                posthog.capture('dashboard widget create experiment clicked', {
+                                    widget_type: 'experiment_results',
+                                    tile_id: tileId,
+                                })
+                            }
                         >
                             New experiment
                         </LemonButton>
