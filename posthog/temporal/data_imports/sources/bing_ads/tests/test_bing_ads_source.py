@@ -253,6 +253,13 @@ class TestBingAdsSource:
                 "InvalidCredentials",
                 "Failed to fetch customer ID: WebFault: ... InvalidCredentials ...",
             ),
+            # Generic SOAP fault returned by GetUser when the connected account's credentials/identity
+            # can't be used. GetUser takes no request params, so this is never our bug — stop retrying.
+            (
+                "Invalid client data",
+                "Failed to fetch customer ID: WebFault: Server raised fault: 'Invalid client data. "
+                "Check the SOAP fault details for more information. TrackingId: abc-123.'",
+            ),
             # Specific Azure AD code — tenant missing service principal for the Microsoft Advertising API.
             (
                 "AADSTS650052",
