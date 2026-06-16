@@ -34,6 +34,13 @@ _MONGO_UNREACHABLE_MESSAGE = (
     "IP addresses are allowlisted in your database's network access settings."
 )
 
+_MONGO_ATLAS_SQL_MESSAGE = (
+    "This connection string points at a MongoDB Atlas SQL / Data Federation endpoint "
+    "(its host ends in .query.mongodb.net), which PostHog can't import from — those endpoints "
+    "are served by a query proxy for the Atlas SQL ODBC/JDBC drivers, not the standard MongoDB "
+    "driver. Use your regular cluster connection string (e.g. mongodb+srv://...mongodb.net) instead."
+)
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -51,7 +58,21 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # matched the real message — key off the stable codeName and the capitalised message.
             "AuthenticationFailed": auth_failed_msg,
             "Authentication failed": auth_failed_msg,
+            # MongoDB Atlas reports bad credentials differently from self-hosted MongoDB: instead of
+            # codeName 'AuthenticationFailed' (code 18) it raises OperationFailure with errmsg
+            # 'bad auth : authentication failed' and codeName 'AtlasError' (code 8000). The lowercase
+            # 'authentication failed' here doesn't match the capitalised entries above (matching is
+            # case-sensitive), so key off the stable Atlas-specific 'bad auth' prefix.
+            "bad auth": auth_failed_msg,
             "SSL handshake failed": None,
+            # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
+            # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
+            # topology never leaves Unknown, and server selection times out (ServerSelectionTimeoutError,
+            # frequently "connection closed"). This is a wrong-endpoint misconfiguration — the importer
+            # needs a regular cluster connection string — so retrying never recovers. The host suffix
+            # is the stable signal here, and it must be matched before the generic "Topology Description:"
+            # entry below so Atlas SQL users get the wrong-endpoint message rather than the allowlist one.
+            "query.mongodb.net": _MONGO_ATLAS_SQL_MESSAGE,
             # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node
             # for the whole selection timeout. The reason varies — "No servers found yet" / "No
             # replica set members found yet" when nothing was ever discovered, or a per-server
