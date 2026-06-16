@@ -40,7 +40,7 @@ If neither `product.yaml` nor CODEOWNERS resolves it, consult the [feature-owner
 
 ## Even-last-er resort: ask Slack
 
-If even the handbook fails and the Slack MCP is available, search Slack or ask in a channel. It's the least authoritative source (opinions, stale threads), so verify against the repo files and flag the answer as Slack-sourced.
+If even the handbook fails and the Slack MCP is available, search Slack. It's the least authoritative source (opinions, stale threads), so verify against the repo files and flag the answer as Slack-sourced.
 
 ## Slug vs handle
 
