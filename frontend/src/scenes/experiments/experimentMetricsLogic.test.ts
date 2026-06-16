@@ -124,6 +124,27 @@ describe('experimentMetricsLogic', () => {
     })
 
     describe('loadLatestRecalculation', () => {
+        it.each([
+            // Draft: never launched (no start_date, no status).
+            ['draft', { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment],
+            // Stopped/completed: launched then ended (has an end_date).
+            ['stopped', { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment],
+        ])('does not fetch latest on mount for a %s experiment', async (_label, experiment) => {
+            const latestMock = jest.fn(() => [200, completedRecalculation])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': latestMock,
+                },
+            })
+            logic = experimentMetricsLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadLatestRecalculation'])
+            // Gated before the request: a non-running experiment has nothing to recalculate.
+            expect(latestMock).not.toHaveBeenCalled()
+            expect(logic.values.currentRecalculation).toBeNull()
+        })
+
         it('loads the latest completed recalculation and maps results by metric position', async () => {
             useMocks({
                 get: {
@@ -282,6 +303,28 @@ describe('experimentMetricsLogic', () => {
 
             // A terminal create response must still load its results (not just store the recalc).
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+        })
+    })
+
+    describe('triggerRecalculation', () => {
+        it.each([
+            // Draft: never launched (no start_date, no status).
+            ['draft', { ...EXPERIMENT, status: undefined, start_date: null, end_date: null } as Experiment],
+            // Stopped/completed: launched then ended (has an end_date).
+            ['stopped', { ...EXPERIMENT, status: undefined, end_date: '2025-01-01T00:00:00Z' } as Experiment],
+        ])('does not create a recalculation for a %s experiment', async (_label, experiment) => {
+            const createMock = jest.fn(() => [201, pendingRecalculation])
+            useMocks({
+                get: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}] },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            logic = experimentMetricsLogic({ experiment })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation()
+            }).toNotHaveDispatchedActions(['pollRecalculation', 'setCurrentRecalculation'])
+            expect(createMock).not.toHaveBeenCalled()
         })
     })
 

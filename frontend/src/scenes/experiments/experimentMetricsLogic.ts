@@ -19,6 +19,7 @@ import {
 import type { ExperimentMetricsRecalculationApi } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { experimentMetricsLogicType } from './experimentMetricsLogicType'
+import { hasEnded, isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
     metadata: {
@@ -198,6 +199,12 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         const flagEnabled = (): boolean => !!values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
         /**
+         * Recalculations only make sense for a running experiment: a draft has no results to fetch, and a
+         * stopped one is frozen. Gates both the latest-fetch and triggering a new run.
+         */
+        const experimentIsRunning = (): boolean => isLaunched(props.experiment) && !hasEnded(props.experiment)
+
+        /**
          * some local helpers for the listeners closure
          */
 
@@ -259,6 +266,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                     return
                 }
+                // Don't fetch for draft or stopped experiments — there's nothing to recalculate.
+                if (!experimentIsRunning()) {
+                    actions.setRecalculationLoading(false)
+                    return
+                }
                 /**
                  * guard against invalid project or experiment. bail and clear recalculation
                  * loading state
@@ -309,6 +321,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  * bail if feature not enabled
                  */
                 if (!flagEnabled()) {
+                    return
+                }
+                /**
+                 * Don't recalculate draft or stopped experiments; a config-change edit on either shouldn't
+                 * kick off a run.
+                 */
+                if (!experimentIsRunning()) {
                     return
                 }
                 /**
