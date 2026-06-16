@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Start provisioning a managed warehouse for this team.
+ * Start provisioning a managed warehouse for this organization (shared by all its teams).
  */
 export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
     database_name: zod.string().describe('Name for the new database'),
