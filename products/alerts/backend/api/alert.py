@@ -37,15 +37,12 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import (
-    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
-    next_check_at_after_schedule_restriction_change,
-    validate_alert_config,
-)
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 

@@ -4,7 +4,7 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.tasks.alerts.utils import validate_alert_config
+from products.alerts.backend.evaluation.validation import validate_alert_config
 
 
 def _base_condition(type: str = "absolute_value") -> dict[str, Any]:
