@@ -203,7 +203,7 @@ def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
     """
     nullable_schema = pa.schema(
         [pa.field(field.name, field.type, nullable=True, metadata=field.metadata) for field in batch.schema],
-        metadata=batch.schema.metadata,
+        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
     )
     return batch.cast(nullable_schema)
 
