@@ -4,9 +4,8 @@ Dagster job to backfill ClickHouse events to customer-specific ducklings.
 This job exports events from ClickHouse's `posthog.events` table to customer S3 buckets
 as Parquet files, then registers those files with their DuckLake catalog.
 
-Unlike the main DuckLake backfill (events_backfill_to_ducklake.py) which targets PostHog's
-shared DuckLake, this job targets individual customer "ducklings" - isolated DuckLake
-instances with their own RDS catalog and S3 bucket.
+This job targets individual customer "ducklings" - isolated DuckLake instances with their
+own RDS catalog and S3 bucket.
 
 Architecture:
     DuckLakeCatalog (Django model)
@@ -66,11 +65,6 @@ from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
-from posthog.dags.events_backfill_to_ducklake import (
-    DEFAULT_CLICKHOUSE_SETTINGS,
-    EXPECTED_DUCKLAKE_COLUMNS,
-    MAX_RETRY_ATTEMPTS,
-)
 from posthog.ducklake.client import make_duckgres_conninfo
 from posthog.ducklake.common import get_duckgres_server_for_organization, get_ducklake_catalog_by_team_org
 from posthog.ducklake.models import DuckLakeBackfill, DuckLakeCatalog
@@ -81,6 +75,17 @@ logger = structlog.get_logger(__name__)
 # DuckLake catalog under this name on session start (see duckgres server.go),
 # so the DAG can hardcode it everywhere instead of threading a config value.
 DUCKLAKE_ALIAS = "ducklake"
+
+MAX_RETRY_ATTEMPTS = 3
+
+ONE_HOUR_IN_SECONDS = 60 * 60
+ONE_GB_IN_BYTES = 1024 * 1024 * 1024
+
+DEFAULT_CLICKHOUSE_SETTINGS = {
+    "max_execution_time": 4 * ONE_HOUR_IN_SECONDS,
+    "max_memory_usage": 50 * ONE_GB_IN_BYTES,
+    "distributed_aggregation_memory_efficient": "1",
+}
 
 # Duckgres connect timeout bounds the TCP+TLS handshake only. A backfill
 # connection may have to wait for duckgres to spin up a fresh worker (a cold
@@ -385,6 +390,35 @@ EVENTS_COLUMNS = """
     historical_migration,
     now64(6) as _inserted_at
 """
+
+# Expected columns in the duckling's events table for schema validation
+EXPECTED_DUCKLAKE_COLUMNS = {
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "project_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+    "person_id",
+    "person_created_at",
+    "person_properties",
+    "group0_properties",
+    "group1_properties",
+    "group2_properties",
+    "group3_properties",
+    "group4_properties",
+    "group0_created_at",
+    "group1_created_at",
+    "group2_created_at",
+    "group3_created_at",
+    "group4_created_at",
+    "person_mode",
+    "historical_migration",
+    "_inserted_at",
+}
 
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
