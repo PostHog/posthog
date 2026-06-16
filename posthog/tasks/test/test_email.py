@@ -652,6 +652,12 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == expected_emails
         assert mock_flag.call_args.kwargs["key"] == "external-data-failure-digest-email"
         assert mock_flag.call_args.kwargs["groups"]["project"] == str(self.team.pk)
+        # group_properties must be passed so project/organization release conditions can match.
+        assert mock_flag.call_args.kwargs["group_properties"]["project"]["id"] == str(self.team.pk)
+        assert mock_flag.call_args.kwargs["group_properties"]["organization"]["id"] == str(self.team.organization_id)
+        # Network fallback stays on, and the high-frequency gate must not emit $feature_flag_called events.
+        assert mock_flag.call_args.kwargs["only_evaluate_locally"] is False
+        assert mock_flag.call_args.kwargs["send_feature_flag_events"] is False
 
     def test_send_external_data_failure_digest_skips_when_already_sent_today(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
