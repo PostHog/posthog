@@ -71,6 +71,11 @@ SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 # default statement_timeout on the source role.
 SYNC_STATEMENT_TIMEOUT_MS = 1000 * 60 * 10  # 10 mins
 
+# How many times the metadata-gathering phase reconnects and retries when a hot-standby
+# recovery conflict terminates the setup connection. Past this the conflict is treated as
+# sustained and surfaced as the non-retryable "successive SerializationFailure errors" abort.
+_MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
+
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
     """Return whether this source must connect over SSL/TLS.
@@ -143,6 +148,21 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
     return False
+
+
+def _is_recovery_conflict_error(error: BaseException) -> bool:
+    """True if `error` is a Postgres standby recovery conflict.
+
+    A read replica cancels an in-flight query when WAL replay needs to remove row
+    versions the query might still read ("canceling statement due to conflict with
+    recovery", SQLSTATE 40001 -> psycopg SerializationFailure). It's transient and
+    expected on replicas — the row-streaming reader already retries it in-process and
+    `get_non_retryable_errors` deliberately keeps the raw message retryable — so
+    best-effort probes should degrade quietly rather than alert on a handled condition.
+    """
+    return isinstance(error, psycopg.errors.SerializationFailure) and "conflict with recovery" in " ".join(
+        str(arg) for arg in error.args
+    )
 
 
 def _connect_with_dropped_retry(
@@ -1299,9 +1319,16 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         )
 
         return chunk_size
-    except psycopg.errors.QueryCanceled:
-        raise
     except Exception as e:
+        # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
+        # DEFAULT_CHUNK_SIZE. The estimation query wraps the sample in `octet_length(t::text)`,
+        # which serializes every column to text and so evaluates generated columns and check/domain
+        # validator functions — making it strictly more expensive than the real chunked `SELECT *`
+        # extraction. A timeout here therefore says nothing about whether extraction will succeed,
+        # and the savepoint above keeps the connection usable. The streaming read loop has its own
+        # dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so re-raising the
+        # cancellation here would only bypass that path and leak a raw, retryable QueryCanceled that
+        # Temporal re-attempts forever on tables this query can never complete on.
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
@@ -1401,7 +1428,12 @@ def _get_partition_settings(
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
-        capture_exception(e)
+        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
+        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
+        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
+        # unexpected failures are still captured.
+        if not _is_recovery_conflict_error(e):
+            capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
 
@@ -1780,219 +1812,253 @@ def postgres_source(
     effective_sslmode = _get_sslmode(require_ssl)
 
     with tunnel() as (host, port):
-        try:
-            connection = psycopg.connect(
-                host=host,
-                port=port,
-                dbname=database,
-                user=user,
-                password=password,
-                sslmode=effective_sslmode,
-                connect_timeout=15,
-                sslrootcert="/tmp/no.txt",
-                sslcert="/tmp/no.txt",
-                sslkey="/tmp/no.txt",
-                keepalives=1,
-                keepalives_idle=30,
-                keepalives_interval=10,
-                keepalives_count=5,
-            )
-        except psycopg.OperationalError as e:
-            if require_ssl and "SSL" in str(e):
-                raise SSLRequiredError(
-                    "SSL/TLS connection is required but your database does not support it. "
-                    "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
-                ) from e
-            raise
 
-        # Autocommit so each best-effort probe is its own transaction: one that fails — a
-        # read-replica recovery conflict on a slow COUNT(*), or syntax the source rejects like
-        # TABLESAMPLE on CockroachDB — can't poison the rest. Replaces the per-probe savepoints.
-        connection.autocommit = True
-
-        with connection:
-            with connection.cursor() as cursor:
-                logger.debug("Getting table types...")
-                # Only probe the actual data for numeric scale when a fresh delta column is
-                # about to be created — either a first-ever sync or a post-reset full scan
-                # (watermark cleared). On normal incremental syncs the delta column already
-                # exists, so probing would be a wasted full-table aggregation. Mirrors the
-                # `is_initial_sync or full_table_scan` gating used a few lines below for
-                # partitioned-table row estimation.
-                fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
-                full_table = _get_table(
-                    cursor,
-                    schema,
-                    table_name,
-                    logger,
-                    probe_unconstrained_numeric_scale=fresh_schema_being_created,
+        def _open_setup_connection() -> psycopg.Connection:
+            try:
+                conn = psycopg.connect(
+                    host=host,
+                    port=port,
+                    dbname=database,
+                    user=user,
+                    password=password,
+                    sslmode=effective_sslmode,
+                    connect_timeout=15,
+                    sslrootcert="/tmp/no.txt",
+                    sslcert="/tmp/no.txt",
+                    sslkey="/tmp/no.txt",
+                    keepalives=1,
+                    keepalives_idle=30,
+                    keepalives_interval=10,
+                    keepalives_count=5,
                 )
+            except psycopg.OperationalError as e:
+                if require_ssl and "SSL" in str(e):
+                    raise SSLRequiredError(
+                        "SSL/TLS connection is required but your database does not support it. "
+                        "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+                    ) from e
+                raise
 
-                # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
-                cursor.execute(
-                    sql.SQL("SET statement_timeout = {timeout}").format(
-                        timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
-                    )
-                )
+            # Autocommit so each best-effort probe is its own transaction: one that fails — a
+            # read-replica recovery conflict on a slow COUNT(*), or syntax the source rejects like
+            # TABLESAMPLE on CockroachDB — can't poison the rest. Replaces the per-probe savepoints.
+            conn.autocommit = True
+            return conn
 
-                try:
-                    logger.debug("Checking if source is a read replica...")
-                    using_read_replica = _is_read_replica(cursor)
-                    logger.debug(f"using_read_replica = {using_read_replica}")
-                    logger.debug("Getting primary keys...")
-                    primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
-                    if primary_keys:
-                        logger.debug(f"Found primary keys: {primary_keys}")
+        # A hot-standby recovery conflict ("terminating connection due to conflict with recovery")
+        # terminates the whole connection mid-probe, so autocommit alone can't isolate it — every
+        # subsequent probe on the dead connection fails too. Reconnect and retry the metadata
+        # probes a bounded number of times with backoff, mirroring how the read loop recovers from
+        # the same conflict. Only once the conflicts are sustained do we raise the non-retryable
+        # "successive SerializationFailure errors" abort the read path already uses, rather than
+        # letting Temporal re-run setup straight back into the same wall.
+        setup_recovery_conflicts = 0
+        while True:
+            connection = _open_setup_connection()
+            try:
+                with connection:
+                    with connection.cursor() as cursor:
+                        logger.debug("Getting table types...")
+                        # Only probe the actual data for numeric scale when a fresh delta column is
+                        # about to be created — either a first-ever sync or a post-reset full scan
+                        # (watermark cleared). On normal incremental syncs the delta column already
+                        # exists, so probing would be a wasted full-table aggregation. Mirrors the
+                        # `is_initial_sync or full_table_scan` gating used a few lines below for
+                        # partitioned-table row estimation.
+                        fresh_schema_being_created = is_initial_sync or db_incremental_field_last_value is None
+                        full_table = _get_table(
+                            cursor,
+                            schema,
+                            table_name,
+                            logger,
+                            probe_unconstrained_numeric_scale=fresh_schema_being_created,
+                        )
 
-                    # Fallback on checking for an `id` field on the table. Resolve the PKs
-                    # before building queries so chunk-size sampling and the actual reader
-                    # project the same columns.
-                    used_id_pk_fallback = False
-                    if primary_keys is None and "id" in full_table:
-                        logger.debug("Falling back to ['id'] for primary keys...")
-                        primary_keys = ["id"]
-                        used_id_pk_fallback = True
+                        # Session, not LOCAL: under autocommit a LOCAL timeout has no transaction to bind to.
+                        cursor.execute(
+                            sql.SQL("SET statement_timeout = {timeout}").format(
+                                timeout=sql.Literal(1000 * 60 * 10)  # 10 mins
+                            )
+                        )
 
-                    # Project both the Arrow schema and the SELECT clause so the cursor's row shape
-                    # matches what downstream consumers expect.
-                    retained_columns: list[str] | None = None
-                    if enabled_columns is not None:
-                        retained_set: set[str] = set(enabled_columns)
-                        for pk in primary_keys or []:
-                            retained_set.add(pk)
-                        if incremental_field:
-                            retained_set.add(incremental_field)
-                        retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
-                        # Mirror `compute_projected_columns` fallback to `SELECT *` so Arrow stays full-table.
-                        if not retained_columns:
-                            retained_columns = None
-
-                    table = _project_table_columns(full_table, retained_columns)
-                    logger.debug(f"Source schema: {table.to_arrow_schema()}")
-
-                    inner_query_with_limit = _build_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        table.type,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                        add_sampling=True,
-                        enabled_columns=enabled_columns,
-                        primary_keys=primary_keys,
-                    )
-
-                    count_query = _build_count_query(
-                        schema,
-                        table_name,
-                        should_use_incremental_field,
-                        incremental_field,
-                        incremental_field_type,
-                        db_incremental_field_last_value,
-                    )
-
-                    logger.debug("Checking if table is partitioned...")
-                    is_partitioned = False
-                    child_partitions: list = []
-                    try:
-                        is_partitioned = _is_partitioned_table(cursor, schema, table_name)
-                        if is_partitioned:
-                            child_partitions = list_child_partitions(cursor, schema, table_name)
-                    except Exception as e:
-                        logger.debug(f"Partition detection failed: {e}")
-                    logger.debug("Getting table chunk size...")
-                    if chunk_size_override is not None:
-                        chunk_size = chunk_size_override
-                        logger.debug(f"Using chunk_size_override: {chunk_size_override}")
-                    else:
-                        chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
-
-                    logger.debug("Getting rows to sync...")
-                    # For partitioned tables without an incremental cursor (initial
-                    # sync, re-sync, or non-incremental), use pg_class.reltuples
-                    # estimate to avoid scanning all partitions with a COUNT(*).
-                    # `is_initial_sync` only reflects the first-ever sync; a forced
-                    # re-sync keeps initial_sync_complete=True but still scans the
-                    # whole table, so we gate on the filter actually being a full
-                    # scan (no incremental cursor value).
-                    rows_to_sync: int | None = None
-                    full_table_scan = db_incremental_field_last_value is None
-                    if is_partitioned and (is_initial_sync or full_table_scan):
                         try:
+                            logger.debug("Checking if source is a read replica...")
+                            using_read_replica = _is_read_replica(cursor)
+                            logger.debug(f"using_read_replica = {using_read_replica}")
+                            logger.debug("Getting primary keys...")
+                            primary_keys = _get_primary_keys(cursor, schema, table_name, logger)
+                            if primary_keys:
+                                logger.debug(f"Found primary keys: {primary_keys}")
+
+                            # Fallback on checking for an `id` field on the table. Resolve the PKs
+                            # before building queries so chunk-size sampling and the actual reader
+                            # project the same columns.
+                            used_id_pk_fallback = False
+                            if primary_keys is None and "id" in full_table:
+                                logger.debug("Falling back to ['id'] for primary keys...")
+                                primary_keys = ["id"]
+                                used_id_pk_fallback = True
+
+                            # Project both the Arrow schema and the SELECT clause so the cursor's row shape
+                            # matches what downstream consumers expect.
+                            retained_columns: list[str] | None = None
+                            if enabled_columns is not None:
+                                retained_set: set[str] = set(enabled_columns)
+                                for pk in primary_keys or []:
+                                    retained_set.add(pk)
+                                if incremental_field:
+                                    retained_set.add(incremental_field)
+                                retained_columns = [
+                                    column.name for column in full_table.columns if column.name in retained_set
+                                ]
+                                # Mirror `compute_projected_columns` fallback to `SELECT *` so Arrow stays full-table.
+                                if not retained_columns:
+                                    retained_columns = None
+
+                            table = _project_table_columns(full_table, retained_columns)
+                            logger.debug(f"Source schema: {table.to_arrow_schema()}")
+
+                            inner_query_with_limit = _build_query(
+                                schema,
+                                table_name,
+                                should_use_incremental_field,
+                                table.type,
+                                incremental_field,
+                                incremental_field_type,
+                                db_incremental_field_last_value,
+                                add_sampling=True,
+                                enabled_columns=enabled_columns,
+                                primary_keys=primary_keys,
+                            )
+
+                            count_query = _build_count_query(
+                                schema,
+                                table_name,
+                                should_use_incremental_field,
+                                incremental_field,
+                                incremental_field_type,
+                                db_incremental_field_last_value,
+                            )
+
+                            logger.debug("Checking if table is partitioned...")
+                            is_partitioned = False
+                            child_partitions: list = []
+                            try:
+                                is_partitioned = _is_partitioned_table(cursor, schema, table_name)
+                                if is_partitioned:
+                                    child_partitions = list_child_partitions(cursor, schema, table_name)
+                            except Exception as e:
+                                logger.debug(f"Partition detection failed: {e}")
+                            logger.debug("Getting table chunk size...")
+                            if chunk_size_override is not None:
+                                chunk_size = chunk_size_override
+                                logger.debug(f"Using chunk_size_override: {chunk_size_override}")
+                            else:
+                                chunk_size = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
+
+                            logger.debug("Getting rows to sync...")
+                            # For partitioned tables without an incremental cursor (initial
+                            # sync, re-sync, or non-incremental), use pg_class.reltuples
+                            # estimate to avoid scanning all partitions with a COUNT(*).
+                            # `is_initial_sync` only reflects the first-ever sync; a forced
+                            # re-sync keeps initial_sync_complete=True but still scans the
+                            # whole table, so we gate on the filter actually being a full
+                            # scan (no incremental cursor value).
+                            rows_to_sync: int | None = None
+                            full_table_scan = db_incremental_field_last_value is None
+                            if is_partitioned and (is_initial_sync or full_table_scan):
+                                try:
+                                    logger.debug(
+                                        f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
+                                        f"full_table_scan={full_table_scan}), using estimated row count"
+                                    )
+                                    rows_to_sync = _get_estimated_row_count_for_partitioned_table(
+                                        cursor, schema, table_name, logger
+                                    )
+                                except Exception as e:
+                                    logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
+                            if rows_to_sync is None:
+                                rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
+
+                            if _role_subject_to_rls(cursor, schema, table_name, logger):
+                                logger.warning(
+                                    f"Row-level security is active for the sync role on {schema}.{table_name} "
+                                    f"(rows visible to this sync: {rows_to_sync}). Grant the role BYPASSRLS "
+                                    f"or a permissive policy if it should see all rows."
+                                )
+
+                            logger.debug("Getting partition settings...")
+                            partition_settings = (
+                                _get_partition_settings(
+                                    cursor, schema, table_name, logger, is_partitioned=is_partitioned
+                                )
+                                if should_use_incremental_field
+                                else None
+                            )
+
+                            # Bounded date/numeric window chunking for partitioned parents keeps
+                            # each query small so statement_timeout stays comfortable and partition
+                            # pruning can drop empty partitions server-side. Non-partitioned tables
+                            # continue through the legacy single-cursor path below.
+                            use_window_chunking = (
+                                is_partitioned
+                                and should_use_incremental_field
+                                and is_supported_incremental_type_for_window(incremental_field_type)
+                            )
+                            # When the parent is range-partitioned on the incremental field, we can
+                            # query each child relation directly instead of routing through the parent
+                            # and forcing the planner to Append + sort across all children. One cursor
+                            # per child = no cross-partition merge sort, trivial pruning, and child-sized
+                            # query plans that fit comfortably under statement_timeout.
+                            use_per_partition_chunking = False
+                            if use_window_chunking and child_partitions:
+                                try:
+                                    partition_strategy = get_partition_strategy(cursor, schema, table_name)
+                                except Exception as e:
+                                    partition_strategy = None
+                                    logger.debug(f"Partition strategy detection failed: {e}")
+                                use_per_partition_chunking = (
+                                    partition_strategy is not None
+                                    and partition_strategy.strategy == "r"
+                                    and incremental_field is not None
+                                    and incremental_field in partition_strategy.key_columns
+                                )
                             logger.debug(
-                                f"Partitioned table detected (is_initial_sync={is_initial_sync}, "
-                                f"full_table_scan={full_table_scan}), using estimated row count"
+                                f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
+                                f"use_per_partition_chunking={use_per_partition_chunking}, "
+                                f"child_partitions={len(child_partitions)}"
                             )
-                            rows_to_sync = _get_estimated_row_count_for_partitioned_table(
-                                cursor, schema, table_name, logger
-                            )
-                        except Exception as e:
-                            logger.debug(f"Estimated row count failed, falling back to exact count: {e}")
-                    if rows_to_sync is None:
-                        rows_to_sync = _get_rows_to_sync(cursor, count_query, logger)
 
-                    if _role_subject_to_rls(cursor, schema, table_name, logger):
-                        logger.warning(
-                            f"Row-level security is active for the sync role on {schema}.{table_name} "
-                            f"(rows visible to this sync: {rows_to_sync}). Grant the role BYPASSRLS "
-                            f"or a permissive policy if it should see all rows."
-                        )
-
-                    logger.debug("Getting partition settings...")
-                    partition_settings = (
-                        _get_partition_settings(cursor, schema, table_name, logger, is_partitioned=is_partitioned)
-                        if should_use_incremental_field
-                        else None
-                    )
-
-                    # Bounded date/numeric window chunking for partitioned parents keeps
-                    # each query small so statement_timeout stays comfortable and partition
-                    # pruning can drop empty partitions server-side. Non-partitioned tables
-                    # continue through the legacy single-cursor path below.
-                    use_window_chunking = (
-                        is_partitioned
-                        and should_use_incremental_field
-                        and is_supported_incremental_type_for_window(incremental_field_type)
-                    )
-                    # When the parent is range-partitioned on the incremental field, we can
-                    # query each child relation directly instead of routing through the parent
-                    # and forcing the planner to Append + sort across all children. One cursor
-                    # per child = no cross-partition merge sort, trivial pruning, and child-sized
-                    # query plans that fit comfortably under statement_timeout.
-                    use_per_partition_chunking = False
-                    if use_window_chunking and child_partitions:
-                        try:
-                            partition_strategy = get_partition_strategy(cursor, schema, table_name)
-                        except Exception as e:
-                            partition_strategy = None
-                            logger.debug(f"Partition strategy detection failed: {e}")
-                        use_per_partition_chunking = (
-                            partition_strategy is not None
-                            and partition_strategy.strategy == "r"
-                            and incremental_field is not None
-                            and incremental_field in partition_strategy.key_columns
-                        )
-                    logger.debug(
-                        f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
-                        f"use_per_partition_chunking={use_per_partition_chunking}, "
-                        f"child_partitions={len(child_partitions)}"
-                    )
-
-                    has_duplicate_primary_keys = False
-                    if used_id_pk_fallback:
-                        logger.debug("Checking duplicate primary keys...")
-                        has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                            cursor, schema, table_name, primary_keys, logger
-                        )
-                except psycopg.errors.QueryCanceled:
-                    if should_use_incremental_field:
-                        raise QueryTimeoutException(
-                            f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
-                        )
+                            has_duplicate_primary_keys = False
+                            if used_id_pk_fallback:
+                                logger.debug("Checking duplicate primary keys...")
+                                has_duplicate_primary_keys = _has_duplicate_primary_keys(
+                                    cursor, schema, table_name, primary_keys, logger
+                                )
+                        except psycopg.errors.QueryCanceled:
+                            if should_use_incremental_field:
+                                raise QueryTimeoutException(
+                                    f"10 min timeout statement reached. Please ensure your incremental field ({incremental_field}) has an appropriate index created"
+                                )
+                            raise
+                        except Exception:
+                            raise
+                break
+            except psycopg.errors.SerializationFailure as e:
+                if "conflict with recovery" not in "".join(e.args):
                     raise
-                except Exception:
-                    raise
+                # Connection is dead; close defensively before reconnecting.
+                _safe_close_connection(connection)
+                setup_recovery_conflicts += 1
+                if setup_recovery_conflicts >= _MAX_SETUP_RECOVERY_CONFLICT_RETRIES:
+                    raise Exception(
+                        f"Hit {setup_recovery_conflicts} successive SerializationFailure errors. Aborting."
+                    ) from e
+                logger.debug(
+                    f"SerializationFailure during table setup ({e}). Reconnecting and retrying "
+                    f"(attempt {setup_recovery_conflicts}/{_MAX_SETUP_RECOVERY_CONFLICT_RETRIES})"
+                )
+                time.sleep(min(2 * setup_recovery_conflicts, 30))
 
     def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = table.to_arrow_schema()
@@ -2094,7 +2160,13 @@ def postgres_source(
                             connection = get_connection()
                             connection.autocommit = True
 
-                        with connection.cursor() as cursor:
+                        # Use psycopg.Cursor directly to bypass cursor_factory: on a
+                        # non-read-replica source it is ServerCursor (set in get_rows),
+                        # which requires a `name` and makes an unnamed connection.cursor()
+                        # raise "ServerCursor.__init__() missing 1 required positional
+                        # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
+                        # unnamed client cursor.
+                        with psycopg.Cursor(connection) as cursor:
                             query_with_limit = cast(
                                 LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
                             )
