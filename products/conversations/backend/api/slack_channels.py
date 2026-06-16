@@ -31,6 +31,10 @@ class SlackChannelsView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        # Broadcasts can only post to channels the bot belongs to (chat.postMessage
+        # returns not_in_channel otherwise), so the broadcast picker passes members_only.
+        members_only = bool(request.data.get("members_only"))
+
         try:
             client = WebClient(token=bot_token)
             channels = []
@@ -45,7 +49,13 @@ class SlackChannelsView(APIView):
                     cursor=cursor,
                 )
                 for c in cast(list[dict[str, Any]], result.get("channels") or []):
-                    channels.append({"id": c["id"], "name": c["name"]})
+                    # conversations_list reports is_member for public channels; private
+                    # channels are only returned when the bot is already in them, so treat
+                    # a returned private channel as a member channel when the flag is absent.
+                    is_member = bool(c.get("is_member", c.get("is_private", False)))
+                    if members_only and not is_member:
+                        continue
+                    channels.append({"id": c["id"], "name": c["name"], "is_member": is_member})
 
                 response_metadata = result.get("response_metadata") or {}
                 cursor = response_metadata.get("next_cursor", "")

@@ -210,9 +210,53 @@ class TestSlackChannelsAPI(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["channels"] == [
-            {"id": "C1", "name": "Alpha"},
-            {"id": "C2", "name": "beta"},
+            {"id": "C1", "name": "Alpha", "is_member": False},
+            {"id": "C2", "name": "beta", "is_member": False},
         ]
+
+    @patch("products.conversations.backend.api.slack_channels.WebClient")
+    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    def test_members_only_filters_non_member_channels(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
+        mock_get_token.return_value = "xoxb-support-token"
+        client = MagicMock()
+        client.conversations_list.return_value = {
+            "channels": [
+                {"id": "C1", "name": "member-public", "is_member": True},
+                {"id": "C2", "name": "non-member-public", "is_member": False},
+                # Private channels are only returned when the bot is in them; treated as member.
+                {"id": "C3", "name": "private", "is_private": True},
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+        mock_web_client.return_value = client
+
+        response = self.client.post("/api/conversations/v1/slack/channels", {"members_only": True}, format="json")
+
+        assert response.status_code == 200
+        channels = response.json()["channels"]
+        assert {c["id"] for c in channels} == {"C1", "C3"}
+        assert all("is_member" in c for c in channels)
+
+    @patch("products.conversations.backend.api.slack_channels.WebClient")
+    @patch("products.conversations.backend.api.slack_channels.get_support_slack_bot_token")
+    def test_includes_is_member_without_filter(self, mock_get_token: MagicMock, mock_web_client: MagicMock):
+        mock_get_token.return_value = "xoxb-support-token"
+        client = MagicMock()
+        client.conversations_list.return_value = {
+            "channels": [
+                {"id": "C1", "name": "member", "is_member": True},
+                {"id": "C2", "name": "non-member", "is_member": False},
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+        mock_web_client.return_value = client
+
+        response = self.client.post("/api/conversations/v1/slack/channels", {})
+
+        assert response.status_code == 200
+        channels = response.json()["channels"]
+        assert {c["id"] for c in channels} == {"C1", "C2"}
+        assert {c["id"]: c["is_member"] for c in channels} == {"C1": True, "C2": False}
 
     @patch("products.conversations.backend.api.slack_channels.MAX_CHANNEL_PAGES", 2)
     @patch("products.conversations.backend.api.slack_channels.WebClient")

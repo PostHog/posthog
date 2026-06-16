@@ -84,6 +84,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
+    SupportBroadcasts: () => import('../../products/conversations/frontend/scenes/broadcasts/SupportBroadcastsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
@@ -202,6 +203,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+    '/support/broadcasts': ['SupportBroadcasts', 'supportBroadcasts'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
@@ -568,6 +570,7 @@ export const productConfiguration: Record<string, any> = {
     SupportTickets: { name: 'Ticket list', projectBased: true, layout: 'app-container' },
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
+    SupportBroadcasts: { name: 'Broadcasts', projectBased: true, layout: 'app-container' },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -897,6 +900,7 @@ export const productUrls = {
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+    supportBroadcasts: (): string => '/support/broadcasts',
     supportSettings: (): string => '/support/settings',
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
@@ -2050,7 +2054,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings'],
+        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'SupportBroadcasts'],
     },
     {
         path: 'Surveys',

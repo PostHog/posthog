@@ -25,10 +25,17 @@ export const manifest: ProductManifest = {
             projectBased: true,
             layout: 'app-container',
         },
+        SupportBroadcasts: {
+            name: 'Broadcasts',
+            import: () => import('./frontend/scenes/broadcasts/SupportBroadcastsScene'),
+            projectBased: true,
+            layout: 'app-container',
+        },
     },
     routes: {
         '/support/tickets': ['SupportTickets', 'supportTickets'],
         '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
+        '/support/broadcasts': ['SupportBroadcasts', 'supportBroadcasts'],
         '/support/settings': ['SupportSettings', 'supportSettings'],
     },
     redirects: {
@@ -38,6 +45,7 @@ export const manifest: ProductManifest = {
         supportDashboard: (): string => '/support',
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
+        supportBroadcasts: (): string => '/support/broadcasts',
         supportSettings: (): string => '/support/settings',
     },
     fileSystemTypes: {},

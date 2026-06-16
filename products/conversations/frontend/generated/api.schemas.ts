@@ -345,6 +345,110 @@ export interface PatchedConversationApi {
 }
 
 /**
+ * * `pending` - Pending
+ * * `sending` - Sending
+ * * `sent` - Sent
+ * * `partially_failed` - Partially failed
+ * * `failed` - Failed
+ */
+export type BroadcastStatusEnumApi = (typeof BroadcastStatusEnumApi)[keyof typeof BroadcastStatusEnumApi]
+
+export const BroadcastStatusEnumApi = {
+    Pending: 'pending',
+    Sending: 'sending',
+    Sent: 'sent',
+    PartiallyFailed: 'partially_failed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `sent` - Sent
+ * * `failed` - Failed
+ */
+export type BroadcastDeliveryStatusEnumApi =
+    (typeof BroadcastDeliveryStatusEnumApi)[keyof typeof BroadcastDeliveryStatusEnumApi]
+
+export const BroadcastDeliveryStatusEnumApi = {
+    Pending: 'pending',
+    Sent: 'sent',
+    Failed: 'failed',
+} as const
+
+export interface BroadcastDeliveryApi {
+    readonly id: string
+    /** Slack channel ID the message was sent to (e.g. C0123ABCD). */
+    readonly slack_channel_id: string
+    /** Slack channel display name at send time (without the leading #). */
+    readonly slack_channel_name: string
+    /** Per-channel delivery status: pending, sent, or failed.
+     *
+     * * `pending` - Pending
+     * * `sent` - Sent
+     * * `failed` - Failed */
+    readonly status: BroadcastDeliveryStatusEnumApi
+    /** Slack error code when delivery to this channel failed; empty otherwise. */
+    readonly error: string
+    /** Timestamp ID of the posted Slack message, when delivery succeeded. */
+    readonly slack_message_ts: string
+    /**
+     * When the message was delivered to this channel. Null until sent.
+     * @nullable
+     */
+    readonly sent_at: string | null
+}
+
+export interface BroadcastChannelInputApi {
+    /** Slack channel ID to broadcast to (e.g. C0123ABCD). */
+    id: string
+    /** Slack channel display name (without the leading #), stored on the delivery row for display. */
+    name?: string
+}
+
+export interface BroadcastApi {
+    readonly id: string
+    /** Short human-friendly identifier for the broadcast. */
+    readonly short_id: string
+    /** Message body to broadcast, rendered as Slack mrkdwn. */
+    message: string
+    /** Overall delivery status: pending, sending, sent, partially_failed, or failed.
+     *
+     * * `pending` - Pending
+     * * `sending` - Sending
+     * * `sent` - Sent
+     * * `partially_failed` - Partially failed
+     * * `failed` - Failed */
+    readonly status: BroadcastStatusEnumApi
+    /** Number of channels this broadcast targets. */
+    readonly total_channels: number
+    /** Number of channels the message was successfully delivered to. */
+    readonly sent_count: number
+    /** Number of channels delivery failed for. */
+    readonly failed_count: number
+    /**
+     * When delivery finished (all channels resolved). Null while pending/sending.
+     * @nullable
+     */
+    readonly sent_at: string | null
+    /** When the broadcast was created. */
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** Per-channel delivery rows, one per selected Slack channel. */
+    readonly deliveries: readonly BroadcastDeliveryApi[]
+    /** Channels to broadcast to. Each must be a channel the SupportHog bot is a member of. */
+    channels: BroadcastChannelInputApi[]
+}
+
+export interface PaginatedBroadcastListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BroadcastApi[]
+}
+
+/**
  * * `widget` - Widget
  * * `email` - Email
  * * `slack` - Slack
@@ -774,6 +878,17 @@ export interface PaginatedTicketViewListApi {
 }
 
 export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ConversationsBroadcastsListParams = {
     /**
      * Number of results to return per page.
      */

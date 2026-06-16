@@ -74,6 +74,25 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const conversationsBroadcastsCreateBodyChannelsItemNameDefault = ``
+
+export const ConversationsBroadcastsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to broadcast, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Slack channel ID to broadcast to (e.g. C0123ABCD).'),
+                name: zod
+                    .string()
+                    .default(conversationsBroadcastsCreateBodyChannelsItemNameDefault)
+                    .describe(
+                        'Slack channel display name (without the leading #), stored on the delivery row for display.'
+                    ),
+            })
+        )
+        .describe('Channels to broadcast to. Each must be a channel the SupportHog bot is a member of.'),
+})
+
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod

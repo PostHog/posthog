@@ -1,4 +1,6 @@
 from .assignment import TicketAssignment
+from .broadcast import Broadcast
+from .broadcast_delivery import BroadcastDelivery
 from .constants import Channel, ChannelDetail, Priority, RuleType, Status
 from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
@@ -11,6 +13,8 @@ from .ticket import Ticket
 from .ticket_view import TicketView
 
 __all__ = [
+    "Broadcast",
+    "BroadcastDelivery",
     "Channel",
     "ChannelDetail",
     "ConversationRestoreToken",

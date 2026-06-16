@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BroadcastApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsRequestApi,
@@ -16,12 +17,14 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationApi,
+    ConversationsBroadcastsListParams,
     ConversationsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
+    PaginatedBroadcastListApi,
     PaginatedConversationMinimalListApi,
     PaginatedTicketListApi,
     PaginatedTicketMessageListApi,
@@ -259,6 +262,65 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsBroadcastsListUrl = (projectId: string, params?: ConversationsBroadcastsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/broadcasts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/broadcasts/`
+}
+
+export const conversationsBroadcastsList = async (
+    projectId: string,
+    params?: ConversationsBroadcastsListParams,
+    options?: RequestInit
+): Promise<PaginatedBroadcastListApi> => {
+    return apiMutator<PaginatedBroadcastListApi>(getConversationsBroadcastsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsBroadcastsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/broadcasts/`
+}
+
+export const conversationsBroadcastsCreate = async (
+    projectId: string,
+    broadcastApi: NonReadonly<BroadcastApi>,
+    options?: RequestInit
+): Promise<BroadcastApi> => {
+    return apiMutator<BroadcastApi>(getConversationsBroadcastsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(broadcastApi),
+    })
+}
+
+export const getConversationsBroadcastsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/conversations/broadcasts/${shortId}/`
+}
+
+export const conversationsBroadcastsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<BroadcastApi> => {
+    return apiMutator<BroadcastApi>(getConversationsBroadcastsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
     })
 }
 

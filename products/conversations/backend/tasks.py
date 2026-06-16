@@ -1,6 +1,7 @@
 """Celery tasks for the conversations product."""
 
 import html as html_mod
+import time
 from datetime import timedelta
 from email.utils import formataddr
 from typing import Any, cast
@@ -17,8 +18,10 @@ from django.utils import timezone
 import requests
 import structlog
 from celery import shared_task
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.comment import Comment as CommentModel
+from posthog.models.scoping import with_team_scope
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
@@ -39,6 +42,8 @@ from products.conversations.backend.mailgun import (
     send_mime,
 )
 from products.conversations.backend.models import (
+    Broadcast,
+    BroadcastDelivery,
     EmailMessageMapping,
     EmailOutboxMessage,
     GithubCommentMapping,
@@ -1245,3 +1250,137 @@ def create_github_issue(
 
     logger.info("github_issue_created", ticket_id=str(ticket.id), repo=repo, issue_number=issue_number)
     return {"ticket_id": str(ticket.id), "issue_number": issue_number}
+
+
+# ---------------------------------------------------------------------------
+# Broadcasts — send one message to many Slack channels via the SupportHog bot
+# ---------------------------------------------------------------------------
+
+# Bound the courtesy wait we honor on a Slack 429 so a rate-limited channel can't
+# stall the worker for long. One inline retry per channel, then the row fails.
+BROADCAST_RATE_LIMIT_MAX_WAIT_SECONDS = 5
+
+
+def _recompute_broadcast_status(broadcast: Broadcast) -> None:
+    """Roll up per-channel delivery rows into the broadcast's aggregate counts + status.
+
+    Auto-scoped to the broadcast's team via the surrounding ``@with_team_scope``.
+    """
+    counts = BroadcastDelivery.objects.filter(broadcast_id=broadcast.id).aggregate(
+        sent=models.Count("id", filter=models.Q(status=BroadcastDelivery.Status.SENT)),
+        failed=models.Count("id", filter=models.Q(status=BroadcastDelivery.Status.FAILED)),
+        pending=models.Count("id", filter=models.Q(status=BroadcastDelivery.Status.PENDING)),
+    )
+    sent, failed, pending = counts["sent"], counts["failed"], counts["pending"]
+
+    if pending:
+        status = Broadcast.Status.SENDING
+    elif failed and sent:
+        status = Broadcast.Status.PARTIALLY_FAILED
+    elif failed:
+        status = Broadcast.Status.FAILED
+    else:
+        status = Broadcast.Status.SENT
+
+    broadcast.sent_count = sent
+    broadcast.failed_count = failed
+    broadcast.status = status
+    update_fields = ["sent_count", "failed_count", "status", "updated_at"]
+    if not pending and broadcast.sent_at is None:
+        broadcast.sent_at = timezone.now()
+        update_fields.append("sent_at")
+    broadcast.save(update_fields=update_fields)
+
+
+def _post_broadcast_to_channel(client, delivery: BroadcastDelivery, message: str, message_kwargs: dict) -> None:
+    """Post one broadcast message to one channel, recording the outcome on the row.
+
+    Never raises — a failure on one channel is isolated to its row so the batch
+    continues. Honors a single bounded courtesy retry on a Slack 429.
+    """
+    attempted_rate_limit_retry = False
+    while True:
+        try:
+            response = client.chat_postMessage(channel=delivery.slack_channel_id, text=message, **message_kwargs)
+            delivery.status = BroadcastDelivery.Status.SENT
+            delivery.slack_message_ts = str(response.get("ts") or "")
+            delivery.sent_at = timezone.now()
+            delivery.error = ""
+            break
+        except SlackApiError as e:
+            error_code = (getattr(e, "response", None) or {}).get("error", "unknown")
+            if error_code == "rate_limited" and not attempted_rate_limit_retry:
+                attempted_rate_limit_retry = True
+                retry_after = (getattr(e, "response", None) or {}).get("headers", {}).get("Retry-After")
+                try:
+                    wait = min(float(retry_after), BROADCAST_RATE_LIMIT_MAX_WAIT_SECONDS) if retry_after else 1.0
+                except (TypeError, ValueError):
+                    wait = 1.0
+                time.sleep(wait)
+                continue
+            delivery.status = BroadcastDelivery.Status.FAILED
+            delivery.error = str(error_code)[:2000]
+            break
+        except Exception as e:
+            delivery.status = BroadcastDelivery.Status.FAILED
+            delivery.error = str(e)[:2000]
+            break
+    delivery.save(update_fields=["status", "slack_message_ts", "sent_at", "error", "updated_at"])
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@with_team_scope()
+def send_broadcast(broadcast_id: str, team_id: int) -> None:
+    """Deliver a broadcast to every selected Slack channel via the SupportHog bot.
+
+    Idempotent: only ``pending`` delivery rows are processed, so a retry (or a
+    duplicate dispatch) never re-posts to a channel that already received the message.
+    Per-channel failures are isolated to their row and never abort the batch.
+    """
+    broadcast = Broadcast.objects.filter(id=broadcast_id).first()
+    if not broadcast:
+        logger.warning("broadcast_not_found", broadcast_id=broadcast_id, team_id=team_id)
+        return
+
+    pending = list(BroadcastDelivery.objects.filter(broadcast_id=broadcast.id, status=BroadcastDelivery.Status.PENDING))
+    if not pending:
+        _recompute_broadcast_status(broadcast)
+        return
+
+    try:
+        team = Team.objects.get(id=team_id)
+        client = get_slack_client(team)
+    except (Team.DoesNotExist, ValueError):
+        logger.warning("broadcast_no_slack_credentials", broadcast_id=broadcast_id, team_id=team_id)
+        BroadcastDelivery.objects.filter(broadcast_id=broadcast.id, status=BroadcastDelivery.Status.PENDING).update(
+            status=BroadcastDelivery.Status.FAILED,
+            error="SupportHog Slack is not connected",
+            updated_at=timezone.now(),
+        )
+        _recompute_broadcast_status(broadcast)
+        return
+
+    if broadcast.status == Broadcast.Status.PENDING:
+        broadcast.status = Broadcast.Status.SENDING
+        broadcast.save(update_fields=["status", "updated_at"])
+
+    support_settings = team.conversations_settings or {}
+    message_kwargs: dict = {}
+    bot_display_name = support_settings.get("slack_bot_display_name")
+    bot_icon_url = support_settings.get("slack_bot_icon_url")
+    if bot_display_name:
+        message_kwargs["username"] = bot_display_name
+    if bot_icon_url:
+        message_kwargs["icon_url"] = bot_icon_url
+
+    for delivery in pending:
+        _post_broadcast_to_channel(client, delivery, broadcast.message, message_kwargs)
+
+    _recompute_broadcast_status(broadcast)
+    logger.info(
+        "broadcast_sent",
+        broadcast_id=broadcast_id,
+        team_id=team_id,
+        sent=broadcast.sent_count,
+        failed=broadcast.failed_count,
+    )

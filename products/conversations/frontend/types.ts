@@ -16,7 +16,7 @@ export type TicketChannelDetail =
     | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
-export type SceneTabKey = 'tickets' | 'settings'
+export type SceneTabKey = 'tickets' | 'broadcasts' | 'settings'
 export type MessageAuthorType = 'customer' | 'AI' | 'human'
 export type MessageDeliveryStatus = 'sent' | 'read'
 export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
