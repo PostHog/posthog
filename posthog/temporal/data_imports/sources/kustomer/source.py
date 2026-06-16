@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -46,6 +47,7 @@ class KustomerSource(ResumableSource[KustomerSourceConfig, KustomerResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.KUSTOMER,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Kustomer",
             caption="""Enter your Kustomer API credentials to pull your Kustomer support data into the PostHog Data warehouse.
 

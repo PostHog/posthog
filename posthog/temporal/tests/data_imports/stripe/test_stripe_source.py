@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Mapping
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -29,6 +30,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     _build_resources,
     _call_stripe,
     _clean_stripe_error_message,
+    _tracked_stripe_http_client,
     check_endpoint_permissions,
     get_rows,
     validate_credentials,
@@ -635,6 +637,32 @@ def test_call_stripe_cleans_message_and_preserves_error_type(error_factory):
 
 def test_call_stripe_passes_through_successful_result():
     assert _call_stripe(lambda x: x + 1, 41) == 42
+
+
+@parameterized.expand(
+    [
+        # (status_code, num_retries, max_network_retries, expected)
+        # 429 is now retried while budget remains — the SDK omits this on its own.
+        ("rate_limit_retried", 429, 0, 2, True),
+        # ...but stops once the retry budget is exhausted, so we don't loop forever.
+        ("rate_limit_budget_exhausted", 429, 2, 2, False),
+        # 5xx keeps the SDK's built-in retry behavior.
+        ("server_error_still_retried", 503, 0, 2, True),
+        # Non-retryable 4xx (e.g. a bad request) must NOT be retried.
+        ("bad_request_not_retried", 400, 0, 2, False),
+    ]
+)
+def test_stripe_http_client_retries_rate_limits(_name, status_code, num_retries, max_network_retries, expected):
+    """Stripe's SDK never retries 429s, so a transient rate limit during pagination would crash
+    the import activity. Our client opts 429 into the SDK's Retry-After-aware backoff while
+    preserving the base behavior for 5xx and leaving non-retryable 4xx alone."""
+    client = _tracked_stripe_http_client()
+    response: tuple[bytes, int, Mapping[str, str]] = (b"", status_code, {})
+
+    assert (
+        client._should_retry(response, None, num_retries=num_retries, max_network_retries=max_network_retries)
+        is expected
+    )
 
 
 def test_validate_credentials_nested_resources_have_registered_parents():

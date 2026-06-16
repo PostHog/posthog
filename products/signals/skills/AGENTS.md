@@ -148,6 +148,24 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
   scout owns its behavioral health. Acquisition/attribution is the web-analytics
   scout's territory and experiment validity is the experiments scout's.
+- `signals-scout-customer-analytics/` — account-health watcher for the Customer
+  analytics (Accounts) product, where each `system.accounts` row is a customer
+  organization keyed to its analytics by `external_id` (the group key). Curates a
+  watchlist of commercially-staked accounts (assigned CSM / AE / owner, or a CRM
+  link) and scores each account's product engagement — weekly volume / WAU /
+  key-feature usage — against its own trailing baseline, watching for churn-risk
+  shapes (an engagement cliff, dormancy onset, single-threaded champion departure)
+  and the positive inverse (an expansion signal worth an upsell). Its discriminator
+  is a per-account engagement regression while the fleet holds, weighted by
+  commercial ownership: one staked account sliding is signal, the whole fleet moving
+  together is a capture/aggregate problem for another scout. The linchpin is the
+  account→group join — it verifies that `external_id` actually matches a live group
+  key before trusting any per-account number (a seeded/CRM-sourced roster that
+  doesn't join is a config gap, not a finding). Fills the seam neither commercial
+  neighbor covers — `product-analytics` scores aggregate user-grain flows and
+  `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
+  individual account's engagement trajectory. Acquisition is the web-analytics
+  scout's territory.
 
 ### How the coordinator decides what runs
 

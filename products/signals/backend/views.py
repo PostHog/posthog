@@ -702,11 +702,24 @@ class SignalReportViewSet(
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source-product and PR-url maps the
         # SignalReportSerializer reads, so single-report responses aren't silently degraded.
+        # Both lookups are best-effort: the serializer degrades to empty values when a map
+        # is missing, so a ClickHouse/Postgres hiccup must not turn an otherwise-available
+        # report (or an already-committed state change) into a 500.
         report_ids = [str(report.id)]
+        try:
+            source_products_map = fetch_source_products_for_reports(self.team, report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
+            source_products_map = {}
+        try:
+            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+        except Exception:
+            logger.exception("signals.enriched_context.implementation_pr_url_failed", report_id=str(report.id))
+            implementation_pr_url_map = {}
         return {
             **self.get_serializer_context(),
-            "source_products_map": fetch_source_products_for_reports(self.team, report_ids),
-            "implementation_pr_url_map": fetch_implementation_pr_urls_for_reports(report_ids),
+            "source_products_map": source_products_map,
+            "implementation_pr_url_map": implementation_pr_url_map,
         }
 
     def retrieve(self, request, *args, **kwargs):

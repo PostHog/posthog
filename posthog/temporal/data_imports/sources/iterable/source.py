@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -97,6 +98,7 @@ class IterableSource(ResumableSource[IterableSourceConfig, IterableResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ITERABLE,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Iterable",
             caption="""Enter your Iterable API key to pull your Iterable data into the PostHog Data warehouse.
 
