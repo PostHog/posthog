@@ -86,6 +86,19 @@ def test_bigquery_get_columns_filters_existing_destination_tables():
     assert list(columns.keys()) == ["table"]
 
 
+def test_bigquery_get_columns_returns_empty_when_job_create_forbidden():
+    """A service account without `bigquery.jobs.create` raises `Forbidden` from
+    `client.query()` (which eagerly creates the job), not from `result()`. That must
+    degrade to no schemas rather than crashing schema discovery."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = Forbidden(
+        "Access Denied: Project p: User does not have bigquery.jobs.create permission in project p."
+    )
+
+    columns = BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+    assert columns == {}
+
+
 @pytest.mark.parametrize(
     "error_message,expected_type,is_token_refresh",
     [
