@@ -297,13 +297,8 @@ function DwhConfigContainer(): JSX.Element {
 export const DataWarehouseConfig: Story = {
     render: () => <DwhConfigContainer />,
     parameters: {
-        // Pins the rebuild arm — this is the rebuild-variant counterpart to the
-        // legacy `DataWarehouseColumnMapping` story in DefinitionPopover.stories.tsx.
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true },
         testOptions: {
-            // The form renders in a Quill Dialog that portals outside
-            // `#storybook-root`, so target the dialog content directly and wait
-            // for it to mount before snapshotting.
             waitForSelector: '[data-attr="dwh-config-back"]',
             snapshotTargetSelector: '[data-slot="dialog-content"]',
         },
