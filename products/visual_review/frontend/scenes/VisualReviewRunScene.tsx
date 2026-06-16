@@ -544,7 +544,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                     onClick={toggleQuarantinedThumbnails}
                                 />
                             )}
-                            {navSnapshots.length > 1 && (
+                            {visibleNavSnapshots.length > 1 && (
                                 <div className="flex items-center gap-2">
                                     <LemonButton
                                         size="xsmall"
@@ -558,7 +558,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                     </LemonButton>
                                     {currentIndex >= 0 && (
                                         <span className="text-xs text-muted">
-                                            {currentIndex + 1} of {navSnapshots.length}
+                                            {currentIndex + 1} of {visibleNavSnapshots.length}
                                         </span>
                                     )}
                                     <LemonButton
