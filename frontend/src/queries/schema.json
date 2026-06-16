@@ -4211,6 +4211,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "SlopeGraph",
+                    "type": "string"
+                },
+                {
                     "not": {}
                 }
             ]
@@ -4307,7 +4311,8 @@
                         "WorldMap",
                         "CalendarHeatmap",
                         "TwoDimensionalHeatmap",
-                        "BoxPlot"
+                        "BoxPlot",
+                        "SlopeGraph"
                     ],
                     "type": "string"
                 },
@@ -11619,7 +11624,8 @@
                 "WorldMap",
                 "CalendarHeatmap",
                 "TwoDimensionalHeatmap",
-                "BoxPlot"
+                "BoxPlot",
+                "SlopeGraph"
             ],
             "type": "string"
         },

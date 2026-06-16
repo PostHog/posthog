@@ -24,6 +24,11 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
     ctx.lineJoin = 'round'
     ctx.lineCap = 'round'
 
+    if (drawFractionalTailDash(drawCtx, series, data)) {
+        ctx.setLineDash([])
+        return
+    }
+
     for (const { start, end, pattern } of planLineStrokes(series, data.length)) {
         ctx.beginPath()
         ctx.setLineDash(pattern)
@@ -31,6 +36,45 @@ export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?:
         ctx.stroke()
     }
     ctx.setLineDash([])
+}
+
+/** Dashes only the tail of the final segment, split at `stroke.partial.fromFraction`. Draws the line
+ *  solid up to the split pixel, then dashed to the last point. Returns false (no-op) when the option
+ *  is unset or the final segment's endpoints aren't both drawable, so the caller falls back to the
+ *  index-based stroke plan. */
+function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, data: number[]): boolean {
+    const fraction = series.stroke?.partial?.fromFraction
+    if (fraction == null || data.length < 2) {
+        return false
+    }
+    const { ctx, xScale, yScale, labels } = drawCtx
+    const last = data.length - 1
+    const x0 = xScale(labels[last - 1])
+    const y0 = yScale(data[last - 1])
+    const x1 = xScale(labels[last])
+    const y1 = yScale(data[last])
+    if (x0 == null || x1 == null || !isFinite(y0) || !isFinite(y1)) {
+        return false
+    }
+
+    const f = Math.max(0, Math.min(1, fraction))
+    const splitX = x0 + (x1 - x0) * f
+    const splitY = y0 + (y1 - y0) * f
+
+    // Solid: every leading point through to the split pixel inside the final segment.
+    ctx.beginPath()
+    ctx.setLineDash(series.stroke?.pattern ?? [])
+    tracePath(drawCtx, data, 0, last - 1)
+    ctx.lineTo(splitX, splitY)
+    ctx.stroke()
+
+    // Dashed: the split pixel out to the final point.
+    ctx.beginPath()
+    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.moveTo(splitX, splitY)
+    ctx.lineTo(x1, y1)
+    ctx.stroke()
+    return true
 }
 
 /** One contiguous stroke: indices [start, end] inclusive, rendered with `pattern`. */

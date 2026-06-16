@@ -436,6 +436,7 @@ class Display(StrEnum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
+    SLOPE_GRAPH = "SlopeGraph"
 
 
 class YAxisScaleType(StrEnum):
@@ -566,6 +567,7 @@ class ChartDisplayType(StrEnum):
     CALENDAR_HEATMAP = "CalendarHeatmap"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
+    SLOPE_GRAPH = "SlopeGraph"
 
 
 class ColorMode(StrEnum):

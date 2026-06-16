@@ -2187,6 +2187,7 @@ export namespace Schemas {
       CalendarHeatmap: 'CalendarHeatmap',
       TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
       BoxPlot: 'BoxPlot',
+      SlopeGraph: 'SlopeGraph',
     } as const;
 
     export interface TrendsFormulaNode {

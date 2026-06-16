@@ -19,14 +19,18 @@ import pytest
 from hypothesis import (
     HealthCheck,
     assume,
+    event,
     given,
     settings,
     strategies as st,
+    target,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.scripts._diagnostic_common import ast_depth
+from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 
 # These tests are too slow for CI (~8 min). Run manually with:
 #   RUN_PBT=1 pytest posthog/hogql/test/test_parser_pbt.py
@@ -349,12 +353,29 @@ def _roundtrip_check(expr: ast.Expr) -> None:
 # ---------------------------------------------------------------------------
 
 
+# Shared settings base: replay the per-developer local seed read-only + write
+# new examples to the default `.hypothesis/examples` (see _pbt_corpus_db). The
+# seed dir is `.gitignore`d — devs populate it locally if they want, nothing
+# churns the repo. Per-test decorators set `parent=_BASE` to inherit the
+# database + slow-test allowances without re-wiring them on every class.
+_BASE = settings(
+    database=shared_corpus_database(),
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+
+
 class TestExprRoundTrip:
     """Print → parse → print yields the same HogQL string."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(parent=_BASE, max_examples=2000)
     def test_print_parse_print_idempotent(self, expr: ast.Expr) -> None:
+        # Steer toward deeper generated expression trees — the long tail
+        # where printer/parser round-tripping is most likely to drift. Mainly
+        # useful at shrink time: when a failure does pop, prefer to minimise
+        # to a small-but-still-deep repro rather than the trivial leaf.
+        target(float(ast_depth(expr)), label="ast_depth")
         _roundtrip_check(expr)
 
 
@@ -362,8 +383,9 @@ class TestParserBackendEquivalence:
     """Both parser backends produce equivalent ASTs for generated HogQL strings."""
 
     @given(expr=_expr_strategy())
-    @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+    @settings(parent=_BASE, max_examples=2000)
     def test_rust_py_and_cpp_backends_agree(self, expr: ast.Expr) -> None:
+        target(float(ast_depth(expr)), label="ast_depth")
         try:
             hogql_string = _print_hogql(expr)
         except BaseHogQLError:
@@ -373,15 +395,20 @@ class TestParserBackendEquivalence:
         rust_ast, cpp_ast = _parse_both_backends(hogql_string)
 
         if rust_ast is None and cpp_ast is None:
+            event("outcome", "both_reject")
             assume(False)
             return  # type: ignore[unreachable]
 
-        # If one succeeds and the other fails, that's a bug
-        assert (rust_ast is None) == (cpp_ast is None), (
-            f"Backend disagreement on parsability of: {hogql_string!r}\n"
-            f"  Rust: {'failed' if rust_ast is None else 'ok'}\n"
-            f"  C++:  {'failed' if cpp_ast is None else 'ok'}"
-        )
+        # If one succeeds and the other fails, that's a bug. Same label as the
+        # grammar PBT so `--hypothesis-show-statistics` aggregates cleanly across
+        # both files.
+        if (rust_ast is None) != (cpp_ast is None):
+            event("outcome", "accept/reject divergence")
+            raise AssertionError(
+                f"Backend disagreement on parsability of: {hogql_string!r}\n"
+                f"  Rust: {'failed' if rust_ast is None else 'ok'}\n"
+                f"  C++:  {'failed' if cpp_ast is None else 'ok'}"
+            )
 
         assert rust_ast is not None and cpp_ast is not None
 
@@ -390,28 +417,32 @@ class TestParserBackendEquivalence:
         rust_printed = _print_hogql(rust_ast)
         cpp_printed = _print_hogql(cpp_ast)
 
-        assert rust_printed == cpp_printed, (
-            f"Backend outputs differ for: {hogql_string!r}\n"
-            f"  Rust backend: {rust_printed!r}\n"
-            f"  C++ backend:  {cpp_printed!r}"
-        )
+        if rust_printed != cpp_printed:
+            event("outcome", "ast mismatch")
+            raise AssertionError(
+                f"Backend outputs differ for: {hogql_string!r}\n"
+                f"  Rust backend: {rust_printed!r}\n"
+                f"  C++ backend:  {cpp_printed!r}"
+            )
+
+        event("outcome", "match")
 
 
 class TestConstantRoundTrip:
     """Focused round-trip tests for constant values (strings, numbers, booleans, null)."""
 
     @given(s=_SAFE_STRING)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_string_constant_roundtrip(self, s: str) -> None:
         _roundtrip_check(ast.Constant(value=s))
 
     @given(n=_SAFE_INTEGER)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_integer_constant_roundtrip(self, n: int) -> None:
         _roundtrip_check(ast.Constant(value=n))
 
     @given(f=_SAFE_FLOAT)
-    @settings(max_examples=1000)
+    @settings(parent=_BASE, max_examples=1000)
     def test_float_constant_roundtrip(self, f: float) -> None:
         node = ast.Constant(value=f)
         printed = _print_hogql(node)
