@@ -593,7 +593,8 @@ class TestRaiseIfSetupConnectionBroken:
         connection = mock.MagicMock()
         connection.broken = False
 
-        assert _raise_if_setup_connection_broken(cast(Any, connection)) is None
+        # A healthy connection must not raise.
+        _raise_if_setup_connection_broken(cast(Any, connection))
 
 
 class TestConnectWithDroppedRetry:
