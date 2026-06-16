@@ -3882,7 +3882,12 @@
                 "search_replay_vision_observations",
                 "upsert_account",
                 "upsert_account_notebook",
-                "open_account"
+                "open_account",
+                "list_actions",
+                "get_action",
+                "create_action",
+                "update_action",
+                "delete_action"
             ],
             "type": "string"
         },

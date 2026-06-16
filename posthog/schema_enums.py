@@ -414,6 +414,11 @@ class AssistantTool(StrEnum):
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
+    LIST_ACTIONS = "list_actions"
+    GET_ACTION = "get_action"
+    CREATE_ACTION = "create_action"
+    UPDATE_ACTION = "update_action"
+    DELETE_ACTION = "delete_action"
 
 
 class Compare(StrEnum):

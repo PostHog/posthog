@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Any
 # `ee.hogai.tools`; eager re-exports here formed an import cycle that only survived by
 # import-order luck and dragged the whole AI agent core onto the Django startup path.
 _TOOL_MODULES: dict[str, str] = {
+    "ListActionsTool": ".actions",
+    "GetActionTool": ".actions",
+    "CreateActionTool": ".actions",
+    "UpdateActionTool": ".actions",
+    "DeleteActionTool": ".actions",
     "CallMCPServerTool": ".call_mcp_server.tool",
     "CreateFormTool": ".create_form",
     "CreateInsightTool": ".create_insight",
@@ -28,6 +33,11 @@ _TOOL_MODULES: dict[str, str] = {
 }
 
 __all__ = [
+    "ListActionsTool",
+    "GetActionTool",
+    "CreateActionTool",
+    "UpdateActionTool",
+    "DeleteActionTool",
     "CallMCPServerTool",
     "CreateFormTool",
     "ManageMemoriesTool",
@@ -65,6 +75,13 @@ def __getattr__(name: str) -> Any:
 
 
 if TYPE_CHECKING:
+    from .actions import (
+        CreateActionTool as CreateActionTool,
+        DeleteActionTool as DeleteActionTool,
+        GetActionTool as GetActionTool,
+        ListActionsTool as ListActionsTool,
+        UpdateActionTool as UpdateActionTool,
+    )
     from .call_mcp_server.tool import CallMCPServerTool as CallMCPServerTool
     from .create_form import CreateFormTool as CreateFormTool
     from .create_insight import CreateInsightTool as CreateInsightTool

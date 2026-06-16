@@ -522,6 +522,11 @@ export type AssistantTool =
     | 'upsert_account'
     | 'upsert_account_notebook'
     | 'open_account'
+    | 'list_actions'
+    | 'get_action'
+    | 'create_action'
+    | 'update_action'
+    | 'delete_action'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
