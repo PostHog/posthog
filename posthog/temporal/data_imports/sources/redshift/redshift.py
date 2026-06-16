@@ -863,6 +863,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             result = cursor.fetchone()
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # Some Redshift roles aren't granted access to the `svv_table_info` system view. That's
+            # a customer permission-config issue, not an actionable bug — table stats are optional
+            # (we fall back to no partitioning), so skip gracefully without reporting the expected,
+            # non-actionable error to error tracking. Mirrors `_explain_query`/`get_row_counts`.
+            logger.debug(f"fetch_table_stats: no access to svv_table_info, returning None: {e}")
+            return None
         except Exception as e:
             capture_exception(e)
             logger.debug(f"fetch_table_stats: returning None due to error: {e}")
