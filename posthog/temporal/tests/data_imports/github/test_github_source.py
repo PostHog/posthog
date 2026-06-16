@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.github.github import (
     _flatten_commit,
     _flatten_stargazer,
     _format_incremental_value,
+    _is_empty_repository_response,
     _is_issue_not_pr,
     _is_older_than_cutoff,
     _parse_next_url,
@@ -374,6 +375,21 @@ class TestIsIssueNotPr:
         assert _is_issue_not_pr(item) == expected
 
 
+class TestIsEmptyRepositoryResponse:
+    @parameterized.expand(
+        [
+            ("conflict_empty_repo", 409, {"message": "Git Repository is empty."}, True),
+            ("conflict_empty_repo_lowercase", 409, {"message": "git repository is empty"}, True),
+            ("conflict_other_message", 409, {"message": "Merge conflict"}, False),
+            ("conflict_no_body", 409, [], False),
+            ("not_conflict_status", 404, {"message": "Git Repository is empty."}, False),
+            ("ok_status", 200, [{"sha": "abc"}], False),
+        ]
+    )
+    def test_detects_empty_repository(self, _name: str, status: int, body: Any, expected: bool) -> None:
+        assert _is_empty_repository_response(_make_response(status=status, body=body)) is expected
+
+
 class TestValidateCredentials:
     def test_valid_credentials(self) -> None:
         with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
@@ -620,6 +636,63 @@ class TestGetRowsResume:
         saved = manager.save_state.call_args.args[0]
         assert saved.next_url == mock_get.return_value.get.call_args_list[0].args[0]
 
+    def test_empty_repository_409_syncs_zero_rows(self) -> None:
+        """An empty repo returns 409 "Git Repository is empty." on the commits
+        endpoint. That's a benign state, not an error — get_rows must yield zero
+        rows and not raise (otherwise the activity retries indefinitely)."""
+        manager = _make_manager(can_resume=False)
+        empty_repo_409 = _make_response(status=409, body={"message": "Git Repository is empty."})
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [empty_repo_409]
+            rows = list(
+                get_rows(
+                    personal_access_token="tok",
+                    repository="owner/repo",
+                    endpoint="commits",
+                    logger=mock.Mock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=False,
+                )
+            )
+
+        assert rows == []
+        manager.save_state.assert_not_called()
+
+    def test_non_empty_repo_409_still_raises(self) -> None:
+        """A 409 that is NOT the empty-repository case must still surface as an
+        error rather than being silently swallowed as zero rows."""
+        manager = _make_manager(can_resume=False)
+        other_409 = _make_response(status=409, body={"message": "Merge conflict"})
+        other_409.text = '{"message": "Merge conflict"}'
+        other_409.raise_for_status.side_effect = requests.HTTPError(
+            "409 Client Error: Conflict for url: ...", response=other_409
+        )
+
+        with (
+            self._patch_batcher(),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            ) as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [other_409]
+            with pytest.raises(requests.HTTPError):
+                list(
+                    get_rows(
+                        personal_access_token="tok",
+                        repository="owner/repo",
+                        endpoint="commits",
+                        logger=mock.Mock(),
+                        resumable_source_manager=manager,
+                        should_use_incremental_field=False,
+                    )
+                )
+
     def test_workflow_runs_envelope_is_unwrapped(self) -> None:
         manager = _make_manager(can_resume=False)
         envelope = {"total_count": 1, "workflow_runs": [{"id": 1001, "created_at": "2026-01-20T10:00:00Z"}]}
@@ -855,3 +928,30 @@ class TestGithubSourceNonRetryableErrors:
         # Mirrors the substring match done in external_data_job.update_external_data_job_model.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(pattern in internal_error for pattern in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            # GitHub returns this body verbatim when the App installation no longer exists; matching it
+            # stops the pipeline from retrying a token refresh that can never succeed.
+            (
+                "not_found",
+                'Failed to refresh installation token: {"message":"Not Found",'
+                '"documentation_url":"https://docs.github.com/rest/reference/apps'
+                '#create-an-installation-access-token-for-an-app","status":"404"}',
+                True,
+            ),
+            # A 5xx during token refresh is transient and must stay retryable, so the generic
+            # "Failed to refresh installation token" prefix must not match on its own.
+            (
+                "server_error",
+                'Failed to refresh installation token: {"message":"Server Error","status":"500"}',
+                False,
+            ),
+        ]
+    )
+    def test_installation_token_refresh_non_retryable_matching(
+        self, _name: str, error_message: str, expected_match: bool
+    ) -> None:
+        # Mirrors the substring match done in external_data_job.update_external_data_job_model.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in non_retryable_errors) == expected_match

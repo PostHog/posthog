@@ -116,6 +116,7 @@ from posthog.schema_enums import (
     GoogleAdsTableExclusions as GoogleAdsTableExclusions,
     GoogleAdsTableKeywords as GoogleAdsTableKeywords,
     GradientScaleMode as GradientScaleMode,
+    HealthCheckSeverity as HealthCheckSeverity,
     HeatmapSortOrder as HeatmapSortOrder,
     HedgehogActorAccessoryOption as HedgehogActorAccessoryOption,
     HedgehogActorColorOption as HedgehogActorColorOption,
@@ -1448,6 +1449,20 @@ class GoalLine(BaseModel):
     label: str
     position: Position | None = None
     value: float
+
+
+class HealthCheckSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    issue_id: str
+    kind: str
+    link: str = Field(..., description="Relative in-app path to the resource, e.g. '/web'.")
+    payload: dict[str, Any]
+    severity: HealthCheckSeverity
+    summary: str
+    title: str
+    url: str = Field(..., description="Absolute URL ({project.url} + link).")
 
 
 class HeatmapGradientStop(BaseModel):
@@ -5132,6 +5147,19 @@ class GroupPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class HealthCheckSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: HealthCheckSignalExtra
+    remediation: SignalRemediation | None = None
+    source_id: str
+    source_product: Literal["health_checks"] = "health_checks"
+    source_type: Literal["health_issue"] = "health_issue"
+    weight: float
+
+
 class HeatmapSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6627,6 +6655,7 @@ class SignalInput(
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | HealthCheckSignalInput
     ]
 ):
     root: (
@@ -6642,6 +6671,7 @@ class SignalInput(
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
         | LogsAlertStateChangeSignalInput
+        | HealthCheckSignalInput
     )
 
 
@@ -22192,6 +22222,17 @@ class TraceSpansQuery(BaseModel):
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),
     )
     filterGroup: PropertyGroupFilter | None = None
+    flatSpans: bool | None = Field(
+        default=None,
+        description=(
+            "Return the matching spans themselves, one row per span (root and child),"
+            " instead of the whole-trace grouping. Streams the matches under `ORDER BY"
+            " … LIMIT` rather than grouping every matching span by trace, so a filter"
+            " on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct"
+            " from `rootSpans`, which scopes whole-trace selection. The single-trace"
+            " waterfall never sets this."
+        ),
+    )
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

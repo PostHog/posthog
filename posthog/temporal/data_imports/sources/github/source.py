@@ -115,6 +115,12 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             # the App JWT to refresh its installation token. Deterministic — retrying never resolves it.
             "GITHUB_APP_CLIENT_ID is not configured": "The GitHub App is not configured on this PostHog instance. Please contact support.",
             "GITHUB_APP_PRIVATE_KEY is not configured": "The GitHub App is not configured on this PostHog instance. Please contact support.",
+            # A 404 from POST /app/installations/{id}/access_tokens means the GitHub App installation
+            # no longer exists (uninstalled or its access revoked). Retrying can never mint a token, so
+            # stop syncing until the user reconnects. Match the not-found body specifically — a bare
+            # "Failed to refresh installation token" prefix would also swallow transient 5xx/429
+            # refresh failures, which must stay retryable.
+            'Failed to refresh installation token: {"message":"Not Found"': "Your GitHub App installation could not be found. It may have been uninstalled or had its access revoked. Please reconnect your GitHub account.",
         }
 
     def _get_access_token(self, config: GithubSourceConfig, team_id: int) -> str:
