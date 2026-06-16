@@ -97,10 +97,11 @@ class TestSkillMarketplaceGit(APIBaseTest):
         )
 
     def test_info_refs_requires_credentials(self):
-        # No PSAK → 401. (The WWW-Authenticate challenge is forced to Bearer by global OAuth
-        # middleware; git clients authenticate via token-in-URL, so the challenge type is moot.)
+        # No PSAK → 401 with a Basic challenge (git can't complete a Bearer/OAuth flow, so the
+        # view pins WWW-Authenticate to Basic via the global 401 handler).
         response = self.client.get(self._info_refs_url(), {"service": "git-upload-pack"})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert response.get("WWW-Authenticate", "").startswith("Basic")
 
     def test_info_refs_with_psak_advertises_refs(self):
         self._create_skill()
@@ -152,6 +153,8 @@ class TestSkillMarketplaceGit(APIBaseTest):
             self._upload_pack_url(),
             data=b"0000000ddone\n",
             content_type="application/x-git-upload-pack-request",
+            # git sends this Accept; the passthrough renderer must satisfy content negotiation (no 406).
+            HTTP_ACCEPT="application/x-git-upload-pack-result",
             HTTP_AUTHORIZATION=_basic_header(_PSAK_TOKEN),
         )
         assert response.status_code == status.HTTP_200_OK

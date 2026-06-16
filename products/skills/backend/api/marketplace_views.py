@@ -20,6 +20,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import BaseParser
 from rest_framework.permissions import BasePermission
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -43,6 +44,17 @@ class GitProtocolParser(BaseParser):
         return stream.read()
 
 
+class GitProtocolRenderer(BaseRenderer):
+    """Accept any media type so git's specific Accept header passes content negotiation
+    (the views return raw HttpResponses, so this never actually renders)."""
+
+    media_type = "*/*"
+    format = "git"
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data
+
+
 class IsProjectSecretAPIKeyAuth(BasePermission):
     """Require Project Secret API Key auth. Deterministically rejects anonymous/session/other
     principals so the marketplace is strictly PSAK-gated (no reliance on lazy IsAuthenticated)."""
@@ -55,12 +67,16 @@ class IsProjectSecretAPIKeyAuth(BasePermission):
 
 class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "llm_skill"
+    # git clients can't complete a Bearer/OAuth flow — make the 401 advertise Basic so the
+    # credential helper (or token-in-URL) supplies the Project Secret API Key.
+    www_authenticate_challenge = 'Basic realm="PostHog Skills Marketplace"'
     # Git fetch is a read even though upload-pack is a POST — force read scope for both actions.
     required_scopes = ["llm_skill:read"]
     # Default-deny: only these git actions accept a Project Secret API Key.
     psak_allowed_actions = ["marketplace_info_refs", "marketplace_upload_pack"]
     authentication_classes = [MarketplaceGitBasicAuthentication]
     parser_classes = [GitProtocolParser]
+    renderer_classes = [GitProtocolRenderer]
     queryset = LLMSkill.objects.none()
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
