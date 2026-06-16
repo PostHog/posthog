@@ -4,8 +4,6 @@ from typing import Any, TypeVar, cast
 
 from unittest.mock import patch
 
-from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS
-
 RETENTION_BASE_QUERY_VARIANT_PATCH_PATH = (
     "posthog.hogql_queries.insights.retention.retention_base_query_fixed."
     "retention_fixed_interval_base_query_use_dwh_variant"
@@ -59,12 +57,6 @@ class RetentionBaseQueryVariantComparisonMixin:
 
         minimum_occurrences = retention_filter.get("minimumOccurrences") or 1
         if minimum_occurrences > 1:
-            return True
-
-        if retention_filter.get("retentionType") in {
-            RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
-            RETENTION_FIRST_EVER_OCCURRENCE,
-        }:
             return True
 
         if query.get("breakdownFilter"):
