@@ -19,28 +19,36 @@ use crate::v1::sinks::sink::Sink;
 use crate::v1::sinks::types::{BatchSummary, Destination, Outcome, SinkResult};
 use crate::v1::sinks::{Config, SinkName};
 
+use super::constants::*;
 use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
-/// Null the partition key when person processing is force-disabled for
-/// Main/Overflow destinations — spreads load across partitions instead of
-/// hotspotting on a single token:distinct_id pair.
-fn effective_partition_key<'a>(
-    key_buf: &'a str,
+/// Bounded batch-size bucket for the serialize_duration histogram label.
+/// 5 values keeps cardinality manageable while giving visibility into
+/// the batch-size / latency relationship.
+fn batch_size_bucket(n: usize) -> &'static str {
+    match n {
+        0..=1 => "1",
+        2..=8 => "2-8",
+        9..=32 => "9-32",
+        33..=128 => "33-128",
+        _ => "129+",
+    }
+}
+
+/// Returns true when the partition key should be nulled — i.e. when person
+/// processing is force-disabled for Main/Overflow destinations, spreading
+/// load across partitions instead of hotspotting on a single key.
+fn should_null_partition_key(
     force_disable_person_processing: bool,
     destination: &Destination,
-) -> Option<&'a str> {
-    if force_disable_person_processing
+) -> bool {
+    force_disable_person_processing
         && matches!(
             destination,
             Destination::AnalyticsMain | Destination::Overflow
         )
-    {
-        None
-    } else {
-        Some(key_buf)
-    }
 }
 
 /// Shared label values for metrics emitted within a single `publish_batch` call.
@@ -107,7 +115,7 @@ fn reject_publishable(
     }
     for (dest_tag, count) in &by_dest {
         counter!(
-            "capture_v1_kafka_publish_total",
+            KAFKA_PUBLISH_TOTAL,
             "mode" => labels.mode,
             "cluster" => labels.sink,
             "outcome" => Outcome::RetriableError.as_tag(),
@@ -159,8 +167,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         pending: &mut FuturesUnordered<AckFuture>,
         enqueued_keys: &mut Vec<(Uuid, &'static str, Instant)>,
     ) {
-        let mut payload_buf = String::with_capacity(4096);
-        let mut key_buf = String::with_capacity(128);
+        let serialize_start = Instant::now();
 
         for event in events {
             if !event.should_publish() {
@@ -175,119 +182,95 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 None => continue,
             };
 
-            payload_buf.clear();
-            if let Err(e) = event.serialize_into(ctx, &mut payload_buf) {
-                crate::ctx_log!(
-                    Level::ERROR,
-                    ctx,
-                    sink = labels.sink,
-                    event_uuid = %uuid,
-                    error = %e,
-                    "event serialization failed, dropping event"
-                );
-                counter!(
-                    "capture_v1_kafka_publish_total",
-                    "mode" => labels.mode,
-                    "cluster" => labels.sink,
-                    "outcome" => Outcome::FatalError.as_tag(),
-                    "path" => labels.path,
-                    "attempt" => labels.attempt,
-                    "destination" => dest_tag,
-                )
-                .increment(1);
-                results.push(Box::new(KafkaResult::err(
-                    uuid,
-                    KafkaSinkError::SerializationFailed(format!("{e:#}")),
-                    enqueued_at,
-                )));
-                continue;
-            }
+            let payload = match event.serialize(ctx) {
+                Ok(p) => p,
+                Err(e) => {
+                    crate::ctx_log!(
+                        Level::ERROR,
+                        ctx,
+                        sink = labels.sink,
+                        event_uuid = %uuid,
+                        error = %e,
+                        "event serialization failed, dropping event"
+                    );
+                    counter!(
+                        KAFKA_PUBLISH_TOTAL,
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => Outcome::FatalError.as_tag(),
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
+                    )
+                    .increment(1);
+                    results.push(Box::new(KafkaResult::err(
+                        uuid,
+                        KafkaSinkError::SerializationFailed(format!("{e:#}")),
+                        enqueued_at,
+                    )));
+                    continue;
+                }
+            };
 
             let captured_headers = event.headers(ctx);
 
-            key_buf.clear();
-            event.partition_key(ctx, &mut key_buf);
-            let key = effective_partition_key(
-                &key_buf,
+            let key = if should_null_partition_key(
                 captured_headers
                     .force_disable_person_processing
                     .unwrap_or(false),
                 event.destination(),
-            );
+            ) {
+                None
+            } else {
+                Some(event.partition_key(ctx))
+            };
 
             let headers: rdkafka::message::OwnedHeaders = captured_headers.into();
 
-            let mut record = ProduceRecord {
+            let record = ProduceRecord {
                 topic,
-                key,
-                payload: &payload_buf,
+                key: key.as_deref(),
+                payload: &payload,
                 headers,
             };
 
-            let enqueue_retry_max = self.config.kafka.enqueue_retry_max;
-            let enqueue_poll = Duration::from_millis(self.config.kafka.enqueue_poll_ms as u64);
-            let mut hit_queue_full = false;
-
-            for enqueue_attempt in 0..=enqueue_retry_max {
-                if enqueue_attempt > 0 {
-                    tokio::time::sleep(enqueue_poll).await;
+            match self.producer.send(record) {
+                Ok(ack_future) => {
+                    let sent_at = Instant::now();
+                    enqueued_keys.push((uuid, dest_tag, sent_at));
+                    pending.push(Box::pin(async move {
+                        let result = ack_future.await;
+                        let ack_latency = sent_at.elapsed();
+                        (uuid, dest_tag, Utc::now(), ack_latency, result)
+                    }));
                 }
-
-                match self.producer.send(record) {
-                    Ok(ack_future) => {
-                        if hit_queue_full {
-                            counter!(
-                                "capture_v1_kafka_queue_full_retries_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "result" => "recovered",
-                            )
-                            .increment(1);
-                        }
-                        let sent_at = Instant::now();
-                        enqueued_keys.push((uuid, dest_tag, sent_at));
-                        pending.push(Box::pin(async move {
-                            let result = ack_future.await;
-                            let ack_latency = sent_at.elapsed();
-                            (uuid, dest_tag, Utc::now(), ack_latency, result)
-                        }));
-                        break;
-                    }
-                    Err((e, returned_record))
-                        if e.is_queue_full() && enqueue_attempt < enqueue_retry_max =>
-                    {
-                        hit_queue_full = true;
-                        record = returned_record;
-                        continue;
-                    }
-                    Err((e, _)) => {
-                        if hit_queue_full || e.is_queue_full() {
-                            counter!(
-                                "capture_v1_kafka_queue_full_retries_total",
-                                "mode" => labels.mode,
-                                "cluster" => labels.sink,
-                                "result" => "exhausted",
-                            )
-                            .increment(1);
-                        }
-                        let sink_err = KafkaSinkError::Produce(e);
-                        let outcome = sink_err.outcome();
-                        counter!(
-                            "capture_v1_kafka_publish_total",
-                            "mode" => labels.mode,
-                            "cluster" => labels.sink,
-                            "outcome" => outcome.as_tag(),
-                            "path" => labels.path,
-                            "attempt" => labels.attempt,
-                            "destination" => dest_tag,
-                        )
-                        .increment(1);
-                        results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
-                        break;
-                    }
+                Err((e, _)) => {
+                    let sink_err = KafkaSinkError::Produce(e);
+                    let outcome = sink_err.outcome();
+                    counter!(
+                        KAFKA_PUBLISH_TOTAL,
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome.as_tag(),
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
+                    )
+                    .increment(1);
+                    results.push(Box::new(KafkaResult::err(uuid, sink_err, enqueued_at)));
                 }
             }
         }
+
+        histogram!(
+            KAFKA_SERIALIZE_DURATION_SECONDS,
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+            "batch_size" => batch_size_bucket(events.len()),
+        )
+        .record(serialize_start.elapsed().as_secs_f64());
     }
 
     /// Phase 2: drain ack futures with a per-sink deadline. Dropping remaining
@@ -322,7 +305,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     };
 
                     counter!(
-                        "capture_v1_kafka_publish_total",
+                        KAFKA_PUBLISH_TOTAL,
                         "mode" => labels.mode,
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
@@ -335,7 +318,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     // Per-event broker-ack latency (send → ack), isolated from
                     // batch enqueue wall-time.
                     histogram!(
-                        "capture_v1_kafka_ack_duration_seconds",
+                        KAFKA_ACK_DURATION_SECONDS,
                         "mode" => labels.mode,
                         "cluster" => labels.sink,
                         "outcome" => outcome_tag,
@@ -385,7 +368,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         }
         for (dest_tag, count) in &by_dest {
             counter!(
-                "capture_v1_kafka_publish_total",
+                KAFKA_PUBLISH_TOTAL,
                 "mode" => labels.mode,
                 "cluster" => labels.sink,
                 "outcome" => Outcome::Timeout.as_tag(),
@@ -400,7 +383,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             // Record timed-out acks so the latency tail (>= produce_timeout)
             // is visible rather than silently dropped.
             histogram!(
-                "capture_v1_kafka_ack_duration_seconds",
+                KAFKA_ACK_DURATION_SECONDS,
                 "mode" => labels.mode,
                 "cluster" => labels.sink,
                 "outcome" => Outcome::Timeout.as_tag(),
@@ -464,7 +447,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         )
         .await;
         histogram!(
-            "capture_v1_kafka_enqueue_duration_seconds",
+            KAFKA_ENQUEUE_DURATION_SECONDS,
             "mode" => labels.mode,
             "cluster" => labels.sink,
             "path" => labels.path,
@@ -508,7 +491,7 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         }
         for (tag, count) in &summary.errors {
             counter!(
-                "capture_v1_kafka_produce_errors_total",
+                KAFKA_PRODUCE_ERRORS_TOTAL,
                 "cluster" => labels.sink,
                 "mode" => labels.mode,
                 "error" => *tag
@@ -537,23 +520,19 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
 }
 
 #[cfg(test)]
-mod effective_partition_key_tests {
+mod should_null_partition_key_tests {
     use super::*;
     use rstest::rstest;
 
     #[rstest]
-    #[case::main_disabled(true, Destination::AnalyticsMain, None)]
-    #[case::overflow_disabled(true, Destination::Overflow, None)]
-    #[case::dlq_disabled(true, Destination::Dlq, Some("k"))]
-    #[case::historical_disabled(true, Destination::AnalyticsHistorical, Some("k"))]
-    #[case::custom_disabled(true, Destination::Custom("t".into()), Some("k"))]
-    #[case::main_not_disabled(false, Destination::AnalyticsMain, Some("k"))]
-    fn policy(
-        #[case] force_disable: bool,
-        #[case] dest: Destination,
-        #[case] expected: Option<&str>,
-    ) {
-        assert_eq!(effective_partition_key("k", force_disable, &dest), expected);
+    #[case::main_disabled(true, Destination::AnalyticsMain, true)]
+    #[case::overflow_disabled(true, Destination::Overflow, true)]
+    #[case::dlq_disabled(true, Destination::Dlq, false)]
+    #[case::historical_disabled(true, Destination::AnalyticsHistorical, false)]
+    #[case::custom_disabled(true, Destination::Custom("t".into()), false)]
+    #[case::main_not_disabled(false, Destination::AnalyticsMain, false)]
+    fn policy(#[case] force_disable: bool, #[case] dest: Destination, #[case] expected: bool) {
+        assert_eq!(should_null_partition_key(force_disable, &dest), expected);
     }
 }
 

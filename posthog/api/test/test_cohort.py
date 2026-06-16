@@ -5256,6 +5256,39 @@ email@example.org,
 
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
+    def _create_flag_referencing_cohort_transitively(self) -> tuple[int, int]:
+        # Cohort B references cohort A; the flag references only cohort B directly.
+        # Returns (cohort_a_id, cohort_b_id).
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Cohort A", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_a_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "Cohort B",
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [{"type": "OR", "values": [{"type": "cohort", "key": "id", "value": cohort_a_id}]}],
+                    }
+                },
+            },
+        )
+        cohort_b_id = response.json()["id"]
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_b_id, "type": "cohort"}]}]},
+            name="Transitive Flag",
+            key="transitive-flag",
+            created_by=self.user,
+            active=True,
+        )
+        return cohort_a_id, cohort_b_id
+
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_used_in_returns_feature_flags(self, patch_calculate_cohort, patch_capture):
@@ -5326,6 +5359,107 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         flags = response.json()["feature_flags"]["results"]
         self.assertEqual(len(flags), 1)
         self.assertEqual(flags[0]["key"], "inactive-flag")
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_returns_flags_referencing_cohort_transitively(self, patch_calculate_cohort, patch_capture):
+        # The flag references only cohort B directly; it must still show up for cohort A.
+        cohort_a_id, _ = self._create_flag_referencing_cohort_transitively()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_a_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flags = response.json()["feature_flags"]["results"]
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0]["key"], "transitive-flag")
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_excludes_flags_referencing_a_different_cohort(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Target Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        target_id = response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Other Cohort", "groups": [{"properties": {"team_id": 6}}]},
+        )
+        other_id = response.json()["id"]
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": target_id, "type": "cohort"}]}]},
+            name="Matching Flag",
+            key="matching-flag",
+            created_by=self.user,
+            active=True,
+        )
+        # This flag passes the any-cohort pre-filter but must be dropped by the expansion.
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": other_id, "type": "cohort"}]}]},
+            name="Other Flag",
+            key="other-cohort-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{target_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flags = response.json()["feature_flags"]
+        self.assertEqual([flag["key"] for flag in flags["results"]], ["matching-flag"])
+        self.assertEqual(flags["total"], 1)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_returns_flags_for_soft_deleted_cohort(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Doomed Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Inactive, so it doesn't block deletion but still appears in used_in.
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            name="Lingering Flag",
+            key="lingering-flag",
+            created_by=self.user,
+            active=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flags = response.json()["feature_flags"]
+        self.assertEqual([flag["key"] for flag in flags["results"]], ["lingering-flag"])
+        self.assertEqual(flags["total"], 1)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_used_in_excludes_flag_through_soft_deleted_intermediate_cohort(
+        self, patch_calculate_cohort, patch_capture
+    ):
+        # Flag → cohort B → cohort A. Soft-deleting B breaks the B→A hop, so the flag drops
+        # out of A's used_in. Pins the cache-seeding behavior, which matches master.
+        cohort_a_id, cohort_b_id = self._create_flag_referencing_cohort_transitively()
+
+        # Soft-delete the intermediate directly: the API delete guard would block it because
+        # the active flag references B.
+        Cohort.objects.filter(id=cohort_b_id).update(deleted=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_a_id}/used_in")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flags = response.json()["feature_flags"]
+        self.assertEqual(flags["results"], [])
+        self.assertEqual(flags["total"], 0)
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -5689,6 +5823,22 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
             data={"deleted": True},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_deletion_protection_blocks_on_transitively_referencing_flag(self, patch_calculate_cohort, patch_capture):
+        # The flag references only cohort B directly; deleting cohort A must still be blocked.
+        cohort_a_id, _ = self._create_flag_referencing_cohort_transitively()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_a_id}",
+            data={"deleted": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used in 1 active feature flag(s): Transitive Flag",
+            response.json()["detail"],
+        )
 
 
 class TestCalculateCohortCommand(APIBaseTest):

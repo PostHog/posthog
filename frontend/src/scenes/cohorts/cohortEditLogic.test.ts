@@ -2,6 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -28,6 +29,8 @@ import {
     TimeUnitType,
 } from '~/types'
 
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+
 jest.mock('uuid', () => ({
     v4: jest.fn().mockReturnValue('mocked-uuid'),
 }))
@@ -43,7 +46,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     },
 }))
 
-const mockUsedInResponse = {
+const mockUsedInResponse: CohortUsedInResponseApi = {
     feature_flags: {
         results: [{ id: 7, key: 'my-flag', name: 'My Flag' }],
         total: 1,
@@ -100,6 +103,52 @@ describe('cohortEditLogic', () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
 
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+        })
+
+        it('swallows used-in 404s without reporting them', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The loader swallows the error and returns a value, so Success (not Failure) fires.
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(null)
+            expect(posthog.captureException).not.toHaveBeenCalled()
+        })
+
+        it('reports non-404 used-in failures', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            // The loader still returns a value on non-404 errors, so Success (not Failure) fires.
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            expect(logic.values.usedIn).toEqual(null)
+            expect(posthog.captureException).toHaveBeenCalled()
+        })
+
+        it('keeps the previously loaded value when a refresh fails', async () => {
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+            expect(logic.values.usedIn).toEqual(mockUsedInResponse)
+
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/cohorts/:id/used_in/': () => [500, { detail: 'Server error' }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadUsedIn()
+            }).toDispatchActions(['loadUsedIn', 'loadUsedInSuccess'])
+
+            // The failed refresh returns the prior value instead of blanking the banner.
             expect(logic.values.usedIn).toEqual(mockUsedInResponse)
         })
 
@@ -177,13 +226,9 @@ describe('cohortEditLogic', () => {
                     },
                 })
                 logic.actions.submitCohort()
-            }).toDispatchActions([
-                'setCohort',
-                'submitCohort',
-                'submitCohortSuccess',
-                'saveCohortSuccess',
-                'loadUsedIn',
-            ])
+            })
+                .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess', 'saveCohortSuccess'])
+                .toNotHaveDispatchedActions(['loadUsedIn'])
             expect(api.update).toHaveBeenCalledTimes(1)
         })
 
