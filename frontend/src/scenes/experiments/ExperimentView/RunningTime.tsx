@@ -27,7 +27,7 @@ export const RunningTime = ({
         isComplete,
         isManualMode,
         primaryMetricsResultsLoading,
-    } = useValues(runningTimeLogic({ experimentId: experiment.id }))
+    } = useValues(runningTimeLogic({ experimentId: experiment.id, experiment }))
 
     const showProgress = currentExposures !== null && targetSampleSize !== null
 
@@ -80,7 +80,7 @@ export const RunningTime = ({
                     />
                 </div>
             </div>
-            <RunningTimeConfigModal experimentId={experiment.id} />
+            <RunningTimeConfigModal experimentId={experiment.id} experiment={experiment} />
         </>
     )
 }
