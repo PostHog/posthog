@@ -32,6 +32,7 @@ audit runs rather than every CI build.
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from typing import Any
 
 import pytest
@@ -39,20 +40,24 @@ import pytest
 from hypothesis import (
     HealthCheck,
     assume,
+    event,
     given,
     settings,
     strategies as st,
+    target,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr, parse_select, parse_string_template
+from posthog.hogql.scripts._diagnostic_common import ast_depth, ast_kpaths
 from posthog.hogql.test._generated_grammar_strategies import (
     expr_strategy,
     fullTemplateString_strategy as full_template_string_strategy,
     select_strategy,
 )
 from posthog.hogql.test._grammar_token_strategies import _RESERVED_KEYWORDS
+from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 from posthog.hogql.visitor import clear_locations
 
 pytestmark = pytest.mark.skipif(
@@ -565,16 +570,31 @@ def _assert_backends_agree(query: str, rule: str) -> None:
         # Both rejected — uninteresting; the grammar generator can
         # over-produce strings that neither visitor accepts. ``assume(False)``
         # raises ``UnsatisfiedAssumption`` to skip the example.
+        event("outcome", "both_reject")
         assume(False)
 
     if a_ok != b_ok:
+        event("outcome", "accept/reject divergence")
         accepted, rejected = (_BACKEND_A, _BACKEND_B) if a_ok else (_BACKEND_B, _BACKEND_A)
         raise AssertionError(f"{accepted!r} accepted but {rejected!r} rejected ({rule!r}): {query!r}")
 
     if a_ast != b_ast:
+        event("outcome", "ast mismatch")
         raise AssertionError(
             f"AST mismatch for {rule!r}: {query!r}\n  {_BACKEND_A}:  {a_ast!r}\n  {_BACKEND_B}: {b_ast!r}"
         )
+
+    # Both backends accepted and agree. Surface a coverage-flavoured signal
+    # to Hypothesis so the shrinker preserves interesting shapes (deep ASTs,
+    # novel k-paths) when it minimises failing examples — and so the optional
+    # `Phase.target` hill-climbing phase can hunt for them at generation time
+    # if turned on. Both targets are cheap in-process AST walks; no native
+    # instrumentation needed.
+    event("outcome", "match")
+    kpaths = ast_kpaths(a_ast, _KPATH_K)
+    target(float(len(kpaths - _SEEN_KPATHS[rule])), label="novel_kpaths")
+    _SEEN_KPATHS[rule].update(kpaths)
+    target(float(ast_depth(a_ast)), label="ast_depth")
 
 
 # Shared Hypothesis settings. Strategies overgenerate (semantic-visitor
@@ -582,6 +602,11 @@ def _assert_backends_agree(query: str, rule: str) -> None:
 _PBT_SETTINGS = settings(
     max_examples=int(os.environ.get("GRAMMAR_PBT_EXAMPLES", "1000")),
     deadline=None,
+    # Replay the per-developer local seed read-only + write new examples to the
+    # default `.hypothesis/examples` (see _pbt_corpus_db). The seed dir is
+    # `.gitignore`d — devs populate it locally if they want, nothing churns the
+    # repo.
+    database=shared_corpus_database(),
     # ``too_slow`` and ``filter_too_much`` are characteristics of the
     # grind itself (deep ASTs, semantic-visitor rejections drop a
     # sizable fraction). ``data_too_large`` is deliberately *not*
@@ -595,6 +620,13 @@ _PBT_SETTINGS = settings(
         HealthCheck.filter_too_much,
     ],
 )
+
+# Per-rule AST k-path coverage seen so far this session — feeds the `target()`
+# steering in `_assert_backends_agree`. Keyed by rule so expr / select / full
+# template don't pollute each other's novelty signal. Process-local, so the
+# steering only counts within a single pytest run.
+_SEEN_KPATHS: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+_KPATH_K: int = int(os.environ.get("GRAMMAR_PBT_KPATH_K", "2"))
 
 # Wall-clock timeout per test (via pytest-timeout, which is already a
 # project dependency). Hypothesis shrinking on a deep AST tree can run

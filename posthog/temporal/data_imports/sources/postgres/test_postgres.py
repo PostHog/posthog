@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
 import pytest
@@ -48,8 +48,10 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    SafeTimeLoader,
     SafeTimestampLoader,
     SafeTimestamptzLoader,
+    SafeTimetzLoader,
     _build_count_query,
     _build_query,
     _connect_to_postgres,
@@ -68,7 +70,6 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
     _is_read_replica,
-    _is_recovery_conflict_error,
     _is_unsupported_function_error,
     _normalize_function_names,
     _rls_active_from_conn,
@@ -166,6 +167,51 @@ class TestSafeTimestamptzLoader:
         assert loader.load(b"200082-12-31 18:30:00+00").tzinfo is UTC
 
 
+class TestSafeTimeLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimeLoader(oid=1083)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            # Postgres allows 24:00:00 (end-of-day) but Python's time caps at 23 — clamp to max.
+            (b"24:00:00", time.max),
+            (b"24:00:00.000000", time.max),
+            # Normal values are parsed unchanged.
+            (b"00:00:00", time(0, 0, 0)),
+            (b"13:45:30", time(13, 45, 30)),
+            (b"13:45:30.123456", time(13, 45, 30, 123456)),
+            (b"23:59:59.999999", time(23, 59, 59, 999999)),
+        ],
+    )
+    def test_load_times(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+    def test_non_hour_24_errors_still_propagate(self, loader):
+        with pytest.raises(psycopg.DataError):
+            loader.load(b"99:99:99")
+
+
+class TestSafeTimetzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeTimetzLoader(oid=1266)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"24:00:00+00", time.max.replace(tzinfo=UTC)),
+            (b"24:00:00.000000+00", time.max.replace(tzinfo=UTC)),
+            (b"24:00:00+05:30", time.max.replace(tzinfo=timezone(timedelta(hours=5, minutes=30)))),
+            (b"24:00:00-08", time.max.replace(tzinfo=timezone(timedelta(hours=-8)))),
+            (b"13:45:30+02", time(13, 45, 30, tzinfo=timezone(timedelta(hours=2)))),
+        ],
+    )
+    def test_load_timetz(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+
 class TestPostgresImplementationWiring:
     def test_source_exposes_postgres_implementation_singleton(self):
         source = PostgresSource()
@@ -215,6 +261,8 @@ class TestPostgresSourceNonRetryableErrors:
             # "Tenant or user not found connection to server" / "FATAL: Tenant or user not found"
             # patterns don't substring-match this, so it needs its own key.
             'connection failed: connection to server at "52.45.94.125", port 6543 failed: FATAL:  (ENOTFOUND) tenant/user postgres.hksbxxtlcfeyyalgveif not found',
+            "ProtocolViolation: server login has been failing, cached error: connect timeout (server_login_retry)",
+            "server login has been failing, cached error: connection refused (server_login_retry)",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -738,6 +786,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema_metadata: dict | None = None,
         source_model=None,
         sync_type_config: dict | None = None,
+        s3_folder_name: str | None = None,
     ):
         schema = mock.MagicMock()
         schema.name = name
@@ -749,6 +798,10 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema.chunk_size_override = None
         schema.schema_metadata = schema_metadata
         schema.sync_type_config = sync_type_config or {}
+        schema.s3_folder_name = s3_folder_name
+        # MagicMock auto-attrs are truthy; pin the property to what the real model would resolve
+        # (resolution itself is covered by warehouse_sources test_models).
+        schema.resolved_s3_folder_name = s3_folder_name
         schema.source = source_model or mock.MagicMock()
         return schema
 
@@ -805,9 +858,9 @@ class TestPostgresSourceForPipelineSchemaResolution:
             assert kwargs["schema"] == "real_schema"
             assert kwargs["table_names"] == ["real_table"]
 
-    def test_dwh_storage_key_drives_response_name_so_delta_writes_to_legacy_path(self, source):
+    def test_s3_folder_name_drives_response_name_so_delta_writes_to_legacy_path(self, source):
         # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
-        # the row carries `dwh_storage_key="example_table"`. `validate_schema_and_update_table` uses
+        # the row carries `s3_folder_name="example_table"`. `validate_schema_and_update_table` uses
         # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
         # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
         # points at `.../example_table/` and HogQL reads from an empty location.
@@ -816,7 +869,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema_model = self._make_schema_model(
             "public.example_table",
             schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
-            sync_type_config={"dwh_storage_key": "example_table"},
+            s3_folder_name="example_table",
         )
         inputs = self._make_inputs("public.example_table")
         config = self._make_config(schema=None)
@@ -836,12 +889,12 @@ class TestPostgresSourceForPipelineSchemaResolution:
             source.source_for_pipeline(config, inputs)
 
             assert response.name == NamingConvention.normalize_identifier("example_table"), (
-                f"response.name must derive from dwh_storage_key to keep Delta writes anchored to the "
+                f"response.name must derive from s3_folder_name to keep Delta writes anchored to the "
                 f"legacy folder; got {response.name!r}"
             )
 
     def test_response_name_uses_schema_name_when_no_storage_key(self, source):
-        # New (non-migrated) rows have no dwh_storage_key — response.name falls back to the row's
+        # New (non-migrated) rows have no s3_folder_name — response.name falls back to the row's
         # current name so the Delta path matches `url_pattern` (also derived from the row's name).
         from posthog.temporal.data_imports.naming_convention import NamingConvention
 
@@ -2228,17 +2281,20 @@ class TestGetPartitionSettings:
         assert result is None
         capture_mock.assert_not_called()
 
-    def test_unexpected_error_is_still_captured(self):
-        # A genuinely unexpected failure on the sizing query must still surface to error tracking.
+    @pytest.mark.django_db
+    def test_failing_sizing_query_falls_back_to_none_without_capturing(self):
         logger = structlog.get_logger()
-        cursor = mock.MagicMock()
-        cursor.execute.side_effect = Exception("some unexpected failure")
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
-            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+        # The sizing query runs against a table that doesn't exist — stands in for an
+        # upstream/source-side failure (e.g. a misbehaving extension index on the source DB)
+        # that is already tolerated by falling back to default partition settings.
+        with django_connection.cursor() as dj_cursor:
+            with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+                result = _get_partition_settings(cast(Any, dj_cursor), "public", "does_not_exist_ps_table", logger)
 
+        # Best-effort sizing falls back to None and never reports the handled failure.
         assert result is None
-        capture_mock.assert_called_once()
+        mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
         "exc",
@@ -2265,22 +2321,18 @@ class TestGetPartitionSettings:
         assert result is None
         capture_mock.assert_not_called()
 
+    def test_temp_file_limit_error_still_raises(self):
+        logger = structlog.get_logger()
 
-class TestIsRecoveryConflictError:
-    @pytest.mark.parametrize(
-        "error,expected",
-        [
-            (psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"), True),
-            (psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"), True),
-            # A non-recovery serialization failure (true 40001 write conflict) is not ours to swallow.
-            (psycopg.errors.SerializationFailure("could not serialize access due to concurrent update"), False),
-            # Right message, wrong type -> not a recovery conflict we recognise here.
-            (psycopg.errors.QueryCanceled("canceling statement due to conflict with recovery"), False),
-            (Exception("canceling statement due to conflict with recovery"), False),
-        ],
-    )
-    def test_recognises_recovery_conflict(self, error, expected):
-        assert _is_recovery_conflict_error(error) is expected
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("temporary file size exceeds temp_file_limit (1048576kB)")
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(TemporaryFileSizeExceedsLimitException):
+                _get_partition_settings(cast(Any, cursor), "public", "users", logger)
+
+        # The temp-file signal is actionable, so it propagates rather than being swallowed.
+        mock_capture.assert_not_called()
 
 
 class TestPostgreSQLColumnToArrowField:
@@ -3646,6 +3698,22 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_failed_sql_transaction_is_not_captured(self):
+        # This lookup shares a connection with earlier best-effort metadata queries (PK + index
+        # discovery). When one of those fails on a non-Postgres engine (e.g. Redshift) its exception
+        # is caught upstream but leaves the transaction aborted, so our first statement here raises
+        # InFailedSqlTransaction as a downstream symptom. That's already handled, not a bug — don't
+        # flood error tracking with it.
+        conn = self._conn_raising(
+            psycopg.errors.InFailedSqlTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            )
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
 
 class TestGetRowsInitialConnectRetry:
