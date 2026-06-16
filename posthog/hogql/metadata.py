@@ -46,7 +46,7 @@ def get_hogql_metadata(
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
-    source = get_direct_connection_source(team, query.connectionId)
+    source = get_direct_connection_source(team, query.connectionId, user=user)
     if query.connectionId and source is None:
         response.isValid = False
         response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]

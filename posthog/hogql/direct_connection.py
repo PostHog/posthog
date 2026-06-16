@@ -8,6 +8,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.rbac.user_access_control import UserAccessControl
+
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 if TYPE_CHECKING:
@@ -23,7 +25,9 @@ INVALID_CONNECTION_ID_ERROR = (
 )
 
 
-def get_direct_connection_source(team: "Team", connection_id: str | None) -> ExternalDataSource | None:
+def get_direct_connection_source(
+    team: "Team", connection_id: str | None, *, user: Optional["User"] = None
+) -> ExternalDataSource | None:
     if not connection_id:
         return None
 
@@ -32,7 +36,7 @@ def get_direct_connection_source(team: "Team", connection_id: str | None) -> Ext
     except ValueError:
         return None
 
-    return (
+    source = (
         ExternalDataSource.objects.filter(
             team_id=team.pk,
             id=source_uuid,
@@ -41,15 +45,25 @@ def get_direct_connection_source(team: "Team", connection_id: str | None) -> Ext
         .exclude(deleted=True)
         .first()
     )
+    if source is None:
+        return None
+
+    if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
+        source, required_level="viewer"
+    ):
+        return None
+
+    return source
 
 
 def get_direct_connection_source_none_or_raise(
     team: "Team",
     connection_id: str | None,
     *,
+    user: Optional["User"] = None,
     error_factory: Callable[[str], Exception],
 ) -> ExternalDataSource | None:
-    source = get_direct_connection_source(team, connection_id)
+    source = get_direct_connection_source(team, connection_id, user=user)
     if connection_id and source is None:
         raise error_factory(INVALID_CONNECTION_ID_ERROR)
     return source
@@ -64,7 +78,7 @@ def resolve_database_for_connection(
     timings: HogQLTimings | None = None,
     error_factory: Callable[[str], Exception],
 ) -> tuple[ExternalDataSource | None, Database]:
-    source = get_direct_connection_source_none_or_raise(team, connection_id, error_factory=error_factory)
+    source = get_direct_connection_source_none_or_raise(team, connection_id, user=user, error_factory=error_factory)
     database = Database.create_for(
         team=team,
         user=user,

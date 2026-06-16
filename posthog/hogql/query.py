@@ -38,6 +38,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
 from posthog.hogql.direct_connection import (
+    get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
     validate_direct_mysql_source_config,
     validate_direct_postgres_source_config,
@@ -492,6 +493,7 @@ class HogQLQueryExecutor:
         source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
+            user=self.user,
             error_factory=ExposedHogQLError,
         )
         self.connection_id = str(source.id) if source else None
@@ -694,12 +696,9 @@ class HogQLQueryExecutor:
 
         from posthog.temporal.data_imports.sources.postgres.postgres import _get_sslmode, source_requires_ssl
 
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-        try:
-            source = ExternalDataSource.objects.get(team=self.team, id=self.direct_source_id)
-        except ExternalDataSource.DoesNotExist as e:
-            raise ExposedHogQLError("Connection not found or has been deleted") from e
+        source = get_direct_connection_source(self.team, self.direct_source_id, user=self.user)
+        if source is None:
+            raise ExposedHogQLError("Connection not found or has been deleted")
 
         postgres_source, source_config = validate_direct_postgres_source_config(source, self.team)
         source_schema = source_config.schema
@@ -781,12 +780,9 @@ class HogQLQueryExecutor:
         assert self.direct_sql is not None
         assert self.direct_source_id is not None
 
-        from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-
-        try:
-            source = ExternalDataSource.objects.get(team=self.team, id=self.direct_source_id)
-        except ExternalDataSource.DoesNotExist as e:
-            raise ExposedHogQLError("Connection not found or has been deleted") from e
+        source = get_direct_connection_source(self.team, self.direct_source_id, user=self.user)
+        if source is None:
+            raise ExposedHogQLError("Connection not found or has been deleted")
 
         mysql_implementation, source_config = validate_direct_mysql_source_config(source, self.team)
         settings = self._effective_direct_settings()
@@ -923,6 +919,7 @@ class HogQLQueryExecutor:
         source = get_direct_connection_source_none_or_raise(
             self.team,
             self.connection_id,
+            user=self.user,
             error_factory=ExposedHogQLError,
         )
         if source is None:
