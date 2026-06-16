@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { memo } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
+import { formatLocalizedDate } from 'lib/utils/datetime'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 

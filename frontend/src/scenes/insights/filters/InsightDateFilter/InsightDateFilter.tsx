@@ -4,7 +4,7 @@ import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils/dateFilters'
-import { alignResolvedDateRangeToInterval } from 'lib/utils/dateTimeUtils'
+import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
+import { formatLocalizedDate } from 'lib/utils/datetime'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
 import { TimestampFormat } from '../player/playerSettingsLogic'

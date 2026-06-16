@@ -2,7 +2,7 @@ import React from 'react'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { dayjs } from 'lib/dayjs'
-import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/datetime'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 
 import { cohortsModel } from '~/models/cohortsModel'

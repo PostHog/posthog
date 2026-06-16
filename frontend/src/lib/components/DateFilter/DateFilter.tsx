@@ -18,7 +18,7 @@ import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/Lemo
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
-import { formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
+import { formatResolvedDateRange } from 'lib/utils/datetime'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
