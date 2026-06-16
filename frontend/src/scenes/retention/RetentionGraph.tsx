@@ -11,7 +11,6 @@ import { retentionGraphLogic } from './retentionGraphLogic'
 
 interface RetentionGraphProps {
     inSharedMode?: boolean
-    chartType?: 'line' | 'bar'
 }
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
