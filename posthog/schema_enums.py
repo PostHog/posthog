@@ -2583,6 +2583,7 @@ class SlackIntegrationScope(StrEnum):
 
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
+    CHANNELS_MANAGE = "channels:manage"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 
