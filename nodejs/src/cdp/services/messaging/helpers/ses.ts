@@ -40,6 +40,7 @@ const SesMailSchema = z.object({
     destination: z.array(z.string()),
     headersTruncated: z.boolean().optional(),
     headers: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+    commonHeaders: z.object({ subject: z.string().optional() }).passthrough().optional(),
     tags: z.record(z.string(), z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
 })
 
@@ -409,6 +410,7 @@ export class SesWebhookHandler {
             if (metricName) {
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
+                    $email_subject: rec.mail.commonHeaders?.subject,
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)

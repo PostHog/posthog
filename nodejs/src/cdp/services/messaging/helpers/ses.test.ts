@@ -60,6 +60,23 @@ describe('SesWebhookHandler', () => {
         ])
     })
 
+    it('includes $email_subject from the SES commonHeaders', async () => {
+        const mailWithSubject = { ...baseMail, commonHeaders: { subject: 'Welcome aboard' } }
+        const body = [
+            {
+                eventType: 'Open',
+                mail: mailWithSubject,
+                open: { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics?.[0].properties).toMatchObject({
+            $email_to: 'to@example.com',
+            $email_subject: 'Welcome aboard',
+        })
+    })
+
     it('parses a raw Click event with link URL', async () => {
         const body = [
             {

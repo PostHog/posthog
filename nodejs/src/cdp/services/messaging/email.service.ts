@@ -149,6 +149,7 @@ export class EmailService {
                 event: success ? '$workflows_email_sent' : '$workflows_email_failed',
                 properties: {
                     $workflow_id: invocation.functionId,
+                    $workflow_action_id: invocation.state.actionId,
                     // Send-time events are emitted synchronously by the service, so the source is always 'direct'
                     // (the SES webhook path sets 'ses'). Keeps $messaging_source present on every engagement event.
                     $messaging_source: 'direct',

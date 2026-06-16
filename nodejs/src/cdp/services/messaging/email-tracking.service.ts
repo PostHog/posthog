@@ -202,6 +202,7 @@ export class EmailTrackingService {
                 timestamp,
                 properties: {
                     $workflow_id: appSourceId,
+                    $workflow_action_id: actionId,
                     $messaging_source: source,
                     ...properties,
                 },
