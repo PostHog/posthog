@@ -16,6 +16,8 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import AssistantEventType, FailureMessage
 
+from posthog import event_usage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.base import AgentBaseWorkflow
 from posthog.temporal.common.client import async_connect
 
@@ -63,6 +65,12 @@ class AgentExecutor:
         self._redis_stream = ConversationRedisStream(stream_key, timeout=timeout, max_length=max_length)
         self._workflow_id = f"conversation-{conversation.id}"
         self._reconnectable = reconnectable
+        # Trace context carried by the request's workflow inputs. Captured in `astream` so that
+        # failures happening before any LLM node runs (and thus before the LangChain
+        # CallbackHandler emits any $ai_trace/$ai_span) can still be correlated to the conversation.
+        self._trace_id: str | None = None
+        self._session_id: str | None = None
+        self._trace_identity: tuple[str | None, dict[str, Any]] | None = None
 
     async def astream(self, workflow: type[AgentBaseWorkflow], inputs: Any) -> AsyncGenerator[AssistantOutput, Any]:
         """Stream agent workflow updates from Redis stream.
@@ -74,6 +82,10 @@ class AgentExecutor:
         Returns:
             AssistantOutput generator
         """
+        # Both ChatAgentWorkflowInputs and ResearchAgentWorkflowInputs carry the trace context.
+        self._trace_id = getattr(inputs, "trace_id", None)
+        self._session_id = getattr(inputs, "session_id", None)
+
         # If this is a reconnection attempt, we resume streaming
         if self._conversation.status != Conversation.Status.IDLE and self._reconnectable:
             if hasattr(inputs, "message") and inputs.message is not None:
@@ -117,7 +129,7 @@ class AgentExecutor:
                     raise Exception(f"Workflow failed to start within timeout: {self._workflow_id}")
 
             except Exception as e:
-                posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                await self._capture_failure(e, failure_stage="workflow_start")
                 logger.exception("Error starting workflow", error=e)
                 failed = True
 
@@ -263,7 +275,7 @@ class AgentExecutor:
                         yield message
             except Exception as e:
                 with trace.use_span(span, end_on_exit=False):
-                    posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
+                    await self._capture_failure(e, failure_stage="stream")
                     logger.exception("Error streaming conversation", error=e)
                 yield self._failure_message()
         finally:
@@ -305,6 +317,73 @@ class AgentExecutor:
             id=str(uuid4()),
         )
         return (AssistantEventType.MESSAGE, failure_message)
+
+    @database_sync_to_async
+    def _load_trace_identity(self) -> tuple[str | None, dict[str, Any]]:
+        user = self._conversation.user
+        distinct_id = user.distinct_id if user else None
+        return distinct_id, event_usage.groups(team=self._conversation.team)
+
+    async def _get_trace_identity(self) -> tuple[str | None, dict[str, Any]]:
+        """Resolve (distinct_id, groups) for the conversation, cached for the executor's lifetime."""
+        if self._trace_identity is None:
+            self._trace_identity = await self._load_trace_identity()
+        return self._trace_identity
+
+    async def _capture_failure(self, e: Exception, *, failure_stage: str) -> None:
+        """Record a pre-generation or stream-drop failure with full trace correlation.
+
+        These failures happen before (or instead of) any LLM node running, so the LangChain
+        CallbackHandler in the Temporal activity never emits an $ai_trace/$ai_span for them —
+        leaving thumbs-down feedback as the only surviving signal. We attach the conversation's
+        trace context to the captured exception and emit an explicit errored $ai_trace span under
+        the request's trace_id, so the failure surfaces in span-level AI monitoring instead.
+
+        Telemetry must never break the user-facing failure path, so any error here is swallowed.
+        """
+        try:
+            await self._do_capture_failure(e, failure_stage=failure_stage)
+        except Exception:
+            logger.exception("Failed to capture Max failure telemetry", conversation_id=str(self._conversation.id))
+
+    async def _do_capture_failure(self, e: Exception, *, failure_stage: str) -> None:
+        distinct_id, groups = await self._get_trace_identity()
+        properties: dict[str, Any] = {
+            "$ai_trace_id": self._trace_id,
+            "$ai_session_id": str(self._conversation.id),
+            "$session_id": self._session_id,
+            "conversation_id": str(self._conversation.id),
+            "failure_stage": failure_stage,
+            "tag": "max_ai",
+        }
+
+        posthoganalytics.capture_exception(
+            e,
+            distinct_id=distinct_id,
+            properties={**properties, "$groups": groups},
+        )
+
+        # Without a trace_id there is nothing to correlate the span to, so skip the traced event.
+        if self._trace_id is None:
+            return
+
+        error_properties: dict[str, Any] = {
+            **properties,
+            "$ai_span_name": f"max_ai.{failure_stage}_error",
+            "$ai_span_id": str(uuid4()),
+            "$ai_is_error": True,
+            "$ai_error": repr(e),
+            "$ai_framework": "max_ai",
+        }
+        if distinct_id is None:
+            error_properties["$process_person_profile"] = False
+
+        posthoganalytics.capture(
+            "$ai_trace",
+            distinct_id=distinct_id or str(self._conversation.id),
+            properties=error_properties,
+            groups=groups,
+        )
 
     async def cancel_workflow(self) -> None:
         """Cancel the current conversation and clean up resources.

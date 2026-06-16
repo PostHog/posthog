@@ -119,6 +119,99 @@ class TestAgentExecutor(BaseTest):
         message = cast(AssistantMessage, message)
         self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
 
+    @patch("ee.hogai.core.executor.async_connect")
+    async def test_start_workflow_failure_captures_trace_context(self, mock_connect):
+        """Pre-generation failures should capture the conversation's trace context and emit an errored $ai_trace."""
+        mock_connect.side_effect = Exception("Connection failed")
+
+        trace_id = str(uuid4())
+        session_id = "session-abc"
+        workflow_inputs = ChatAgentWorkflowInputs(
+            team_id=self.team_id,
+            user_id=self.user_id,
+            conversation_id=self.conversation.id,
+            stream_key=get_conversation_stream_key(self.conversation.id),
+            trace_id=trace_id,
+            session_id=session_id,
+        )
+
+        with patch("ee.hogai.core.executor.posthoganalytics") as mock_ph:
+            async for _ in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
+                pass
+
+        mock_ph.capture_exception.assert_called_once()
+        _, capture_kwargs = mock_ph.capture_exception.call_args
+        props = capture_kwargs["properties"]
+        self.assertEqual(props["$ai_trace_id"], trace_id)
+        self.assertEqual(props["$ai_session_id"], str(self.conversation.id))
+        self.assertEqual(props["$session_id"], session_id)
+        self.assertEqual(props["conversation_id"], str(self.conversation.id))
+        self.assertEqual(props["failure_stage"], "workflow_start")
+        self.assertEqual(props["tag"], "max_ai")
+
+        mock_ph.capture.assert_called_once()
+        trace_args, trace_kwargs = mock_ph.capture.call_args
+        self.assertEqual(trace_args[0], "$ai_trace")
+        trace_props = trace_kwargs["properties"]
+        self.assertTrue(trace_props["$ai_is_error"])
+        self.assertEqual(trace_props["$ai_trace_id"], trace_id)
+        self.assertEqual(trace_props["failure_stage"], "workflow_start")
+        self.assertIn("$ai_error", trace_props)
+
+    async def test_stream_drop_captures_trace_context(self):
+        """Stream-drop failures should capture trace context and emit an errored $ai_trace span."""
+        trace_id = str(uuid4())
+        self.manager._trace_id = trace_id
+        self.manager._session_id = "session-xyz"
+
+        with (
+            patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait,
+            patch.object(self.manager._redis_stream, "read_stream") as mock_read,
+            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
+            patch("ee.hogai.core.executor.posthoganalytics") as mock_ph,
+        ):
+
+            async def mock_read_stream_error():
+                raise StreamError("Stream timeout - conversation took too long to complete")
+                yield  # noqa: B901 - make it an async generator
+
+            mock_wait.return_value = True
+            mock_read.return_value = mock_read_stream_error()
+            mock_delete.return_value = True
+
+            async for _ in self.manager.stream_conversation():
+                pass
+
+        mock_ph.capture_exception.assert_called_once()
+        _, capture_kwargs = mock_ph.capture_exception.call_args
+        props = capture_kwargs["properties"]
+        self.assertEqual(props["$ai_trace_id"], trace_id)
+        self.assertEqual(props["failure_stage"], "stream")
+
+        mock_ph.capture.assert_called_once()
+        trace_args, trace_kwargs = mock_ph.capture.call_args
+        self.assertEqual(trace_args[0], "$ai_trace")
+        trace_props = trace_kwargs["properties"]
+        self.assertTrue(trace_props["$ai_is_error"])
+        # StreamError context is preserved so the failure mode is distinguishable.
+        self.assertIn("Stream timeout", trace_props["$ai_error"])
+
+    async def test_stream_drop_without_trace_id_skips_traced_event(self):
+        """Without a trace_id there is nothing to correlate to, so no $ai_trace span is emitted."""
+        with (
+            patch.object(self.manager._redis_stream, "wait_for_stream") as mock_wait,
+            patch.object(self.manager._redis_stream, "delete_stream") as mock_delete,
+            patch("ee.hogai.core.executor.posthoganalytics") as mock_ph,
+        ):
+            mock_wait.side_effect = Exception("General error")
+            mock_delete.return_value = True
+
+            async for _ in self.manager.stream_conversation():
+                pass
+
+        mock_ph.capture_exception.assert_called_once()
+        mock_ph.capture.assert_not_called()
+
     async def test_stream_conversation_success(self):
         """Test successful conversation streaming."""
         # Mock redis_stream methods
