@@ -596,6 +596,30 @@ class TestGetSchemas:
         assert events_cols["id"] == ("UInt64", False)
         assert events_cols["name"] == ("Nullable(String)", True)
 
+    def test_excludes_materialized_view_inner_tables(self):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        rows = [
+            ("events", "id", "UInt64"),
+            (".inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6", "id", "UInt64"),
+            (".inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6", "count", "UInt64"),
+            (".inner.my_legacy_mv", "value", "String"),
+        ]
+        mock_client = self._make_mock_client(rows)
+
+        with patch.object(ch_module, "_get_client", return_value=mock_client):
+            schemas = ch_module.get_schemas(
+                host="localhost",
+                port=8443,
+                database="default",
+                user="default",
+                password="",
+                secure=True,
+                verify=True,
+            )
+
+        assert set(schemas.keys()) == {"events"}
+
 
 class TestSourceClassValidateCredentials:
     """High-level checks on validate_credentials error mapping."""
