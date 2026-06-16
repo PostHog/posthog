@@ -20,6 +20,7 @@ from django.conf import settings
 import structlog
 from temporalio import common
 from temporalio.client import (
+    Client,
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleIntervalSpec,
@@ -62,9 +63,12 @@ def _build_schedule() -> Schedule:
     )
 
 
-async def a_upsert_schedule() -> None:
-    """Create-or-update the scoring Schedule. Safe to call repeatedly."""
-    client = await async_connect()
+async def create_surfacing_scoring_sweep_schedule(client: Client) -> None:
+    """Create-or-update the scoring Schedule using a shared Temporal client.
+
+    Registered in `posthog/temporal/schedule.py`'s deploy-time `schedules` list,
+    so `manage.py schedule_temporal_workflows` upserts it on every deploy.
+    """
     schedule = _build_schedule()
     search_attributes = TypedSearchAttributes(
         search_attributes=[SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=SCHEDULE_TYPE)]
@@ -77,6 +81,12 @@ async def a_upsert_schedule() -> None:
             client, SCHEDULE_ID, schedule, trigger_immediately=False, search_attributes=search_attributes
         )
         logger.info("surfacing_scoring_sweep.schedule_created", schedule_id=SCHEDULE_ID)
+
+
+async def a_upsert_schedule() -> None:
+    """Create-or-update the scoring Schedule. Safe to call repeatedly."""
+    client = await async_connect()
+    await create_surfacing_scoring_sweep_schedule(client)
 
 
 async def a_delete_schedule_if_exists() -> None:

@@ -37,3 +37,13 @@ class TestSurfacingScoringSchedule:
         assert isinstance(action, ScheduleActionStartWorkflow)
         assert schedule.spec.intervals[0].every == SCHEDULE_INTERVAL
         assert action.execution_timeout == WORKFLOW_EXECUTION_TIMEOUT
+
+    def test_schedule_is_wired_into_deploy_registry(self) -> None:
+        # Without this entry the schedule is never upserted on deploy and the
+        # workflow never fires. Guards that exact regression.
+        from posthog.temporal.schedule import schedules  # noqa: PLC0415 — heavy registry import, kept off module load
+        from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import (  # noqa: PLC0415
+            create_surfacing_scoring_sweep_schedule,
+        )
+
+        assert create_surfacing_scoring_sweep_schedule in schedules
