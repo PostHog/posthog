@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
@@ -1014,6 +1015,84 @@ class SafeDateLoader(Loader):
 
         # Fallback: clamp to max for unparseable dates
         return date.max
+
+
+def _timestamp_out_of_python_range(s: str) -> Literal["min", "max"] | None:
+    """Classify a PostgreSQL timestamp text value relative to Python's datetime range.
+
+    Returns "max" for values past datetime.max (year > 9999, 'infinity'), "min" for
+    values before datetime.min (year < 1, BC dates, '-infinity'), and None when the
+    value is in range and should be parsed normally. The year is always the leading
+    run of digits before the first '-', so this works for both `timestamp` and
+    `timestamptz` text (the timezone offset and any ' BC' suffix come later).
+    """
+    if s == "infinity":
+        return "max"
+    if s == "-infinity":
+        return "min"
+    # PostgreSQL emits pre-AD-1 timestamps with a trailing " BC"; all are before datetime.min.
+    if s.lower().endswith(" bc"):
+        return "min"
+    year_str = s.split("-", 1)[0]
+    if year_str.isdigit():
+        year = int(year_str)
+        if year > 9999:
+            return "max"
+        if year < 1:
+            return "min"
+    return None
+
+
+class SafeDateTimeLoader(Loader):
+    """Load PostgreSQL `timestamp` values, clamping those outside Python's datetime range.
+
+    PostgreSQL timestamps span 4713 BC to 294276 AD, far wider than Python's
+    datetime (year 1 to 9999). psycopg's default loader raises
+    `DataError: timestamp too large (after year 10K)` on out-of-range values, which
+    aborts the entire sync over a single bad row. Mirror SafeDateLoader: clamp to
+    datetime.max/min (and handle infinity) instead of crashing. In-range values
+    delegate to psycopg's own loader so precision parsing stays correct.
+    """
+
+    def __init__(self, oid: int, context: Any = None) -> None:
+        super().__init__(oid, context)
+        self._delegate = TimestampLoader(oid, context)
+
+    def load(self, data) -> datetime | None:
+        if data is None:
+            return None
+
+        clamp = _timestamp_out_of_python_range(bytes(data).decode("utf-8"))
+        if clamp == "max":
+            return datetime.max
+        if clamp == "min":
+            return datetime.min
+        return self._delegate.load(data)
+
+
+class SafeDateTimeTzLoader(Loader):
+    """Load PostgreSQL `timestamptz` values, clamping those outside Python's datetime range.
+
+    The timezone-aware counterpart of SafeDateTimeLoader. Clamps out-of-range
+    values to datetime.max/min in UTC (matching the UTC-typed Arrow column the
+    pipeline builds for `timestamptz`) and delegates in-range values to psycopg's
+    own timezone-aware loader.
+    """
+
+    def __init__(self, oid: int, context: Any = None) -> None:
+        super().__init__(oid, context)
+        self._delegate = TimestamptzLoader(oid, context)
+
+    def load(self, data) -> datetime | None:
+        if data is None:
+            return None
+
+        clamp = _timestamp_out_of_python_range(bytes(data).decode("utf-8"))
+        if clamp == "max":
+            return datetime.max.replace(tzinfo=UTC)
+        if clamp == "min":
+            return datetime.min.replace(tzinfo=UTC)
+        return self._delegate.load(data)
 
 
 def _build_query(
@@ -2116,6 +2195,11 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                # Postgres timestamps span years far beyond Python's datetime (max 9999);
+                # without these, a single out-of-range row aborts the whole sync with
+                # "timestamp too large (after year 10K)". Clamp instead of crashing.
+                connection.adapters.register_loader("timestamp", SafeDateTimeLoader)
+                connection.adapters.register_loader("timestamptz", SafeDateTimeTzLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)

@@ -47,6 +47,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    SafeDateTimeLoader,
+    SafeDateTimeTzLoader,
     _build_count_query,
     _build_query,
     _connect_with_dropped_retry,
@@ -105,6 +107,53 @@ class TestSafeDateLoader:
         ],
     )
     def test_load_dates(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+
+class TestSafeDateTimeLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeDateTimeLoader(oid=1114)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2024-01-15 10:30:00", datetime(2024, 1, 15, 10, 30, 0)),
+            (b"2026-06-16 10:46:45.554162", datetime(2026, 6, 16, 10, 46, 45, 554162)),
+            (b"0001-01-01 00:00:00", datetime(1, 1, 1, 0, 0, 0)),
+            (b"9999-12-31 23:59:59.999999", datetime(9999, 12, 31, 23, 59, 59, 999999)),
+            # The reported crash: a year-17026 timestamp must clamp, not raise.
+            (b"17026-04-30 22:00:00", datetime.max),
+            (b"99999-12-31 00:00:00", datetime.max),
+            (b"infinity", datetime.max),
+            (b"-infinity", datetime.min),
+            (b"0044-03-15 00:00:00 BC", datetime.min),
+            (None, None),
+        ],
+    )
+    def test_load_timestamps(self, loader, input_data, expected):
+        assert loader.load(input_data) == expected
+
+
+class TestSafeDateTimeTzLoader:
+    @pytest.fixture
+    def loader(self):
+        return SafeDateTimeTzLoader(oid=1184)
+
+    @pytest.mark.parametrize(
+        "input_data,expected",
+        [
+            (b"2026-06-16 10:46:45.554162+00", datetime(2026, 6, 16, 10, 46, 45, 554162, tzinfo=UTC)),
+            (b"9999-12-31 23:59:59.999999+00", datetime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)),
+            (b"17026-04-30 22:00:00+00", datetime.max.replace(tzinfo=UTC)),
+            (b"99999-12-31 00:00:00+00", datetime.max.replace(tzinfo=UTC)),
+            (b"infinity", datetime.max.replace(tzinfo=UTC)),
+            (b"-infinity", datetime.min.replace(tzinfo=UTC)),
+            (b"0044-03-15 00:00:00+00 BC", datetime.min.replace(tzinfo=UTC)),
+            (None, None),
+        ],
+    )
+    def test_load_timestamptz(self, loader, input_data, expected):
         assert loader.load(input_data) == expected
 
 
