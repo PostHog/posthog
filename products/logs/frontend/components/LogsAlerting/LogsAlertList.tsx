@@ -17,6 +17,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
@@ -149,6 +150,12 @@ export function LogsAlertList(): JSX.Element {
                                 <LemonTag>
                                     <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
                                     Webhook
+                                </LemonTag>
+                            )}
+                            {types.includes(NotificationDestinationTypeEnumApi.Teams) && (
+                                <LemonTag>
+                                    <img src={IconMicrosoftTeams} alt="" className="h-3 w-3 object-contain" />
+                                    Teams
                                 </LemonTag>
                             )}
                         </div>

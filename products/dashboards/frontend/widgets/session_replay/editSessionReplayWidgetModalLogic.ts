@@ -2,8 +2,9 @@ import { actions, connect, defaults, kea, listeners, path, props, reducers, sele
 
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
+import type { SessionReplayWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
-import { resolveWidgetFilterTestAccounts, type SessionReplayWidgetConfig } from '../../widget_types/configSchemas'
+import { resolveWidgetFilterTestAccounts } from '../../widget_types/widgetConfigShared'
 import {
     widgetEditModalFilterTestAccountsActions,
     widgetEditModalListFieldActions,

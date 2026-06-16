@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.convex.convex import (
+    _CONVEX_RETRY,
     ConvexResumeConfig,
     InvalidDeployUrlError,
     convex_source,
@@ -53,10 +54,17 @@ class TestValidateDeployUrl:
                 "https://clever-falcon-77.us-east-1.convex.cloud",
                 "https://clever-falcon-77.us-east-1.convex.cloud",
             ),
+            # missing scheme — normalized by prepending https://
+            ("no_scheme", "swift-lemur-123.convex.cloud", "https://swift-lemur-123.convex.cloud"),
+            (
+                "no_scheme_regional",
+                "breezy-otter-42.eu-west-1.convex.cloud",
+                "https://breezy-otter-42.eu-west-1.convex.cloud",
+            ),
+            ("no_scheme_trailing_slash", "swift-lemur-123.convex.cloud/", "https://swift-lemur-123.convex.cloud"),
             # invalid — should raise
             ("http", "http://swift-lemur-123.convex.cloud", None),
             ("ftp", "ftp://swift-lemur-123.convex.cloud", None),
-            ("no_scheme", "swift-lemur-123.convex.cloud", None),
             ("wrong_tld", "https://swift-lemur-123.convex.io", None),
             ("two_extra_subdomains", "https://extra.foo.swift-lemur-123.convex.cloud", None),
             ("lookalike", "https://convex.cloud.evil.com", None),
@@ -181,6 +189,17 @@ class TestDocumentDeltasResumable:
         assert first_params["cursor"] == 10
 
     @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_session_uses_convex_retry_policy(self, mock_get: Mock) -> None:
+        manager = _make_manager(can_resume=False)
+        mock_get.return_value.get.return_value = _make_response({"values": [], "cursor": 10, "hasMore": False})
+
+        list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
+
+        # The Cloudflare-aware retry policy must be wired into the HTTP session, otherwise a
+        # transient 520 is raised immediately instead of retried.
+        assert mock_get.call_args.kwargs["retry"] is _CONVEX_RETRY
+
+    @patch("posthog.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_resume_overrides_db_cursor(self, mock_get: Mock) -> None:
         saved = ConvexResumeConfig(cursor=25)
         manager = _make_manager(can_resume=True, state=saved)
@@ -195,6 +214,33 @@ class TestDocumentDeltasResumable:
         first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 25
         manager.save_state.assert_not_called()
+
+
+class TestConvexRetryPolicy:
+    @parameterized.expand(
+        [
+            # Cloudflare 52x family — Convex sits behind Cloudflare and emits these on transient
+            # edge/origin trouble. The 520 here is the exact code that fails syncs in production.
+            ("cf_520_unknown_error", 520, True),
+            ("cf_521_web_server_down", 521, True),
+            ("cf_522_connection_timed_out", 522, True),
+            ("cf_523_origin_unreachable", 523, True),
+            ("cf_524_timeout", 524, True),
+            # Standard transient codes inherited from DEFAULT_RETRY must still be retried.
+            ("rate_limited_429", 429, True),
+            ("internal_500", 500, True),
+            ("bad_gateway_502", 502, True),
+            ("service_unavailable_503", 503, True),
+            ("gateway_timeout_504", 504, True),
+            # Client errors are not transient — they must not be retried away.
+            ("bad_request_400", 400, False),
+            ("unauthorized_401", 401, False),
+            ("forbidden_403", 403, False),
+            ("not_found_404", 404, False),
+        ]
+    )
+    def test_retry_status_handling(self, _name: str, status_code: int, expected_retry: bool) -> None:
+        assert _CONVEX_RETRY.is_retry("GET", status_code) is expected_retry
 
 
 class TestConvexSource:

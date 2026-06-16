@@ -10,7 +10,9 @@ from temporalio import activity
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.facade.api import _telemetry_props_from_extra
 from products.signals.backend.temporal.llm import EmptyLLMResponseError, call_llm
 
 logger = structlog.get_logger(__name__)
@@ -156,13 +158,16 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
             event="signal_blocked_by_safety_filter",
             distinct_id=str(team.uuid),
             properties={
+                # Flattened scalars only (truncated, nested lists/dicts dropped) — `extra`
+                # nests customer-derived content that must not leak into product analytics.
+                # Core keys win on conflict, same as signal_emitted / signal_emission_started.
+                **_telemetry_props_from_extra(input.extra),
                 "threat_type": result.threat_type,
                 "explanation": result.explanation,
                 "source_product": input.source_product,
                 "source_type": input.source_type,
                 "source_id": input.source_id,
                 "weight": input.weight,
-                "extra": input.extra,
             },
             groups=groups(team.organization, team),
         )
@@ -174,6 +179,7 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 
 @activity.defn
 @scoped_temporal()
+@close_db_connections
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:

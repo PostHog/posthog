@@ -37,6 +37,72 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             end_date=datetime(2024, 1, 7),
         )
 
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
+        # Exposure events are captured under the flag's original key.
+        original_key = self.feature_flag.key
+        ff_property = f"$feature/{original_key}"
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": original_key,
+                        },
+                    },
+                ],
+                "user_control_2": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": original_key,
+                        },
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": original_key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        # Soft-deleting a flag linked to a stopped experiment renames its key to free it up.
+        # The exposure query must resolve back to the original key to find the captured events.
+        self.feature_flag.key = f"{original_key}:deleted:{self.feature_flag.id}"
+        self.feature_flag.deleted = True
+        self.feature_flag.save(update_fields=["key", "deleted"])
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(response.total_exposures, {"control": 2, "test": 1})
+
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries

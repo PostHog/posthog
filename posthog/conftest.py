@@ -1,5 +1,8 @@
 import os
+import time
 import subprocess
+from collections.abc import Callable
+from functools import partial
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -13,6 +16,7 @@ from django.db import connections
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
+from posthog.test import flush_lock_guard
 
 
 def create_clickhouse_tables():
@@ -332,9 +336,31 @@ def django_db_setup(django_db_setup, django_db_keepdb, django_db_blocker):
     yield from _django_db_setup(django_db_keepdb, django_db_blocker)
 
 
+def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any) -> None:
+    # Drain rather than iterate: products/conftest.py star-imports this hook, so it can
+    # be invoked once per registering conftest.
+    while flush_lock_guard.reports:
+        terminalreporter.write_line(f"[flush-lock-guard] {flush_lock_guard.reports.pop(0)}", yellow=True)
+
+
+def _truncate_persons_db_tables(database: str) -> None:
+    conn = connections[database]
+    with conn.cursor() as cursor:
+        cursor.execute("""
+            SELECT tablename FROM pg_tables
+            WHERE schemaname = 'public'
+            AND tablename NOT LIKE 'pg_%'
+            AND tablename NOT LIKE '_sqlx_%'
+            AND tablename NOT LIKE '_persons_migrations'
+        """)
+        tables = [row[0] for row in cursor.fetchall()]
+        if tables:
+            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+
+
 def _patched_flush_handle(self, **options: Any) -> None:
     """
-    Patched Django flush command for two reasons:
+    Patched Django flush command for three reasons:
 
     1. Persons database doesn't have Django's built-in tables (contenttypes,
        permissions), so we skip post_migrate signals by truncating manually.
@@ -343,28 +369,24 @@ def _patched_flush_handle(self, **options: Any) -> None:
        Django doesn't know about. CASCADE lets TRUNCATE succeed even when
        unknown FK constraints reference a table being flushed.
 
+    3. TRUNCATE waits on an ACCESS EXCLUSIVE lock, so one leaked idle-in-transaction
+       session (e.g. from a background worker thread) hangs teardown until the CI job
+       timeout. flush_lock_guard turns that silent hang into a loud, self-healing
+       terminate-and-retry.
+
     Applied at module level (not via monkeypatch) so it stays active during
     pytest-django's _post_teardown, which runs flush AFTER function-scoped
     fixture teardown.
     """
-    database = options.get("database")
+    database = options["database"]
 
     if database in ("persons_db_writer", "persons_db_reader"):
-        conn = connections[database]
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT tablename FROM pg_tables
-                WHERE schemaname = 'public'
-                AND tablename NOT LIKE 'pg_%'
-                AND tablename NOT LIKE '_sqlx_%'
-                AND tablename NOT LIKE '_persons_migrations'
-            """)
-            tables = [row[0] for row in cursor.fetchall()]
-            if tables:
-                cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+        flush: Callable[[], None] = partial(_truncate_persons_db_tables, database)
     else:
         options["allow_cascade"] = True
-        return _original_flush_handle(self, **options)
+        flush = partial(_original_flush_handle, self, **options)
+
+    flush_lock_guard.flush_with_lock_guard(database, flush)
 
 
 _original_flush_handle = FlushCommand.handle
@@ -437,6 +459,70 @@ def mock_email_mfa_verifier(request, mocker):
     )
 
 
+class _JUnitTimingsPlugin:
+    """Capture wall-clock offsets and surface them as JUnit `<testsuite>` properties.
+
+    Pytest's junit XML emits one `time` per `<testcase>` but no per-test start. The
+    CI trace exporter (`.github/scripts/report_test_timings.py`) reconstructs windows
+    by stacking durations from `<testsuite timestamp>`, so the shared pre-first-test
+    overhead (interpreter import, plugin init, collection, session/package fixture
+    setup) gets visually attributed to the first test span. We record the offset
+    explicitly so the exporter can split it into its own span.
+
+    Important: this measures up to the first test's *call* phase, not its setup
+    phase. The backend CI uses `-o junit_duration_report=call`, so session and
+    module-scoped fixture setup time is excluded from `<testcase time>` and
+    instead lives in this pre-first-call gap.
+    """
+
+    _PROPERTY_SETUP = "posthog.setup_seconds"
+    _PROPERTY_COLLECTION = "posthog.collection_seconds"
+
+    def __init__(self) -> None:
+        self._session_start: float | None = None
+        self._collection_finish: float | None = None
+        self._first_test_call_start: float | None = None
+
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        self._session_start = time.monotonic()
+
+    def pytest_collection_finish(self, session: pytest.Session) -> None:
+        if self._collection_finish is None:
+            self._collection_finish = time.monotonic()
+
+    # `tryfirst` so our timestamp lands just before pytest's default call impl
+    # actually runs the test body — capturing the moment the first call begins,
+    # after session/module fixture setup has completed.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_call(self, item: pytest.Item) -> None:
+        if self._first_test_call_start is None:
+            self._first_test_call_start = time.monotonic()
+
+    @staticmethod
+    def _find_junit_xml_plugin(config: pytest.Config) -> Any:
+        # pytest's junit XML plugin (`_pytest.junitxml.LogXML`) registers itself
+        # without a stable name — `get_plugin("junitxml")` returns the module, not
+        # the instance — so we identify it by its `add_global_property` interface.
+        for _, plugin in config.pluginmanager.list_name_plugin():
+            if hasattr(plugin, "add_global_property"):
+                return plugin
+        return None
+
+    # Must run before pytest_junitxml's own sessionfinish, which serializes the XML
+    # and stops consuming new `add_global_property` calls after that point.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
+        if self._session_start is None:
+            return
+        xml = self._find_junit_xml_plugin(session.config)
+        if xml is None:
+            return
+        if self._first_test_call_start is not None:
+            xml.add_global_property(self._PROPERTY_SETUP, f"{self._first_test_call_start - self._session_start:.6f}")
+        if self._collection_finish is not None:
+            xml.add_global_property(self._PROPERTY_COLLECTION, f"{self._collection_finish - self._session_start:.6f}")
+
+
 def pytest_configure(config):
     """
     Configure pytest-django to allow access to persons databases by default.
@@ -449,6 +535,9 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+
+    if not config.pluginmanager.hasplugin("posthog-junit-timings"):
+        config.pluginmanager.register(_JUnitTimingsPlugin(), "posthog-junit-timings")
 
 
 def _runs_on_internal_pr() -> bool:

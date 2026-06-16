@@ -671,6 +671,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.save()
         self.domain.verified_at = timezone.now()
         self.domain.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        self.organization.save()
 
         response = self.client.patch(
             f"/api/organizations/@current/domains/{self.domain.id}/",
@@ -691,6 +695,29 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(self.domain.id_jag_issuer_url, "https://example.com")
         self.assertEqual(self.domain.id_jag_jwks_url, "https://example.com/keys.json")
         self.assertEqual(self.domain.id_jag_allowed_clients, ["client-a", "client-b"])
+
+    def test_cannot_configure_id_jag_without_available_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"id_jag_issuer_url": "https://example.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "feature_not_available",
+                "detail": "XAA (ID-JAG) is not available for this organization.",
+                "attr": "id_jag_issuer_url",
+            },
+        )
 
     def test_can_clear_id_jag_configuration(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -734,6 +761,10 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.save()
         self.domain.verified_at = timezone.now()
         self.domain.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.XAA_AUTHENTICATION, "name": "XAA Authentication"}
+        ]
+        self.organization.save()
 
         response = self.client.patch(
             f"/api/organizations/@current/domains/{self.domain.id}/",

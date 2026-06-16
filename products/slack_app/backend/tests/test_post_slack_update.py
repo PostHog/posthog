@@ -30,6 +30,14 @@ class TestPostSlackUpdate(TestCase):
         )
         self._access_patcher.start()
         self.addCleanup(self._access_patcher.stop)
+        # The PR-opened notification path resolves the reply target from a live
+        # SlackThreadTaskMapping. Default that lookup to "no mapping" so tests
+        # that don't exercise multiplayer tagging aren't forced to seed the
+        # model; tests that care override the mock locally.
+        self._mapping_patcher = patch("products.slack_app.backend.models.SlackThreadTaskMapping")
+        mock_mapping_class = self._mapping_patcher.start()
+        mock_mapping_class.objects.filter.return_value.first.return_value = None
+        self.addCleanup(self._mapping_patcher.stop)
 
     def _make_mock_run(self, status: str, **kwargs):
         mock_run = MagicMock()
@@ -138,6 +146,7 @@ class TestPostSlackUpdate(TestCase):
         mock_update_reaction.assert_called_once_with("eyes")
         mock_delete_progress.assert_called_once()
 
+    @patch("products.slack_app.backend.models.SlackThreadTaskMapping")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "post_or_update_progress")
@@ -152,6 +161,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_progress,
         mock_update_reaction,
         mock_delete_progress,
+        mock_mapping_class,
     ):
         mock_run = self._make_mock_run(
             mock_task_run_class.Status.IN_PROGRESS,
@@ -160,13 +170,18 @@ class TestPostSlackUpdate(TestCase):
             state={},
         )
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+        # Reply target now resolves from the live mapping, not the workflow context.
+        mock_mapping = MagicMock()
+        mock_mapping.latest_actor_slack_user_id = "U123"
+        mock_mapping.mentioning_slack_user_id = "U_ORIG"
+        mock_mapping_class.objects.filter.return_value.first.return_value = mock_mapping
 
         post_slack_update(
             PostSlackUpdateInput(
                 run_id="run-1",
                 slack_thread_context={
                     **self.slack_thread_context,
-                    "mentioning_slack_user_id": "U123",
+                    "mentioning_slack_user_id": "U_ORIG",
                 },
             )
         )
@@ -174,6 +189,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
+            reply_target_slack_user_id="U123",
         )
         mock_update_reaction.assert_called_once_with("eyes")
         mock_delete_progress.assert_called_once()

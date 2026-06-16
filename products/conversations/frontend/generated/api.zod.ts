@@ -42,10 +42,11 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
                 'llm_analytics',
                 'sandbox',
                 'user_interview',
+                'customer_analytics',
             ])
             .optional()
             .describe(
-                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview'
+                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview\n\* `customer_analytics` - customer_analytics'
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
         resume_payload: zod.unknown().optional(),
@@ -174,6 +175,30 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const conversationsTicketsReplyCreateBodyMessageMax = 5000
+
+export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
+
+export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().max(conversationsTicketsReplyCreateBodyMessageMax).describe('Reply content in markdown.'),
+        is_private: zod
+            .boolean()
+            .default(conversationsTicketsReplyCreateBodyIsPrivateDefault)
+            .describe(
+                "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
+            ),
+        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+    })
+    .describe('Payload for posting a reply or internal note to a ticket.')
 
 /**
  * Update the status of multiple tickets in a single request.

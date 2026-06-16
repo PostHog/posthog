@@ -5,11 +5,15 @@ Caches responses to reduce database load from frequent polling.
 Short TTLs ensure stale data expires quickly without explicit invalidation.
 """
 
+import json
+import hashlib
+
 from django.core.cache import cache
 
 import structlog
 
 from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.conversations.backend.models.constants import Status
 
@@ -181,7 +185,8 @@ def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
     except Exception:
         logger.warning("conversations_cache_get_error", key=key)
 
-    persons = get_persons_by_distinct_ids(team_id, [distinct_id])
+    with personhog_caller_tag("conversations/widget-person-distinct-ids"):
+        persons = get_persons_by_distinct_ids(team_id, [distinct_id])
     all_ids = persons[0].distinct_ids if persons and persons[0].distinct_ids else [distinct_id]
 
     try:
@@ -274,5 +279,42 @@ def set_cached_teams_user(tenant_id: str, teams_user_id: str, user_info: dict) -
     key = _make_cache_key("teams_user", tenant_id, teams_user_id)
     try:
         cache.set(key, user_info, timeout=TEAMS_USER_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+
+# Resolved Groups Cache
+# Caches the ClickHouse-resolved $groups for a customer (see events._resolve_groups_from_analytics).
+# Ticket conversations re-resolve groups on creation plus every customer message, so this bounds
+# the ClickHouse fallback to one query per customer per TTL. Empty dict = negative cache
+# (customer's events carry no organization group). Org membership churn is slow, hence long TTLs.
+
+RESOLVED_GROUPS_CACHE_TTL = 12 * 60 * 60  # 12 hours
+RESOLVED_GROUPS_NEGATIVE_CACHE_TTL = 60 * 60  # 1 hour
+
+
+def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:
+    # JSON-encode for an unambiguous preimage: joining with a separator collides
+    # when distinct_ids themselves contain it (["a|b", "c"] vs ["a", "b|c"]).
+    digest = hashlib.sha256(json.dumps(sorted(distinct_ids)).encode()).hexdigest()[:32]
+    return _make_cache_key("resolved_groups", str(team_id), digest)
+
+
+def get_cached_resolved_groups(team_id: int, distinct_ids: list[str]) -> dict | None:
+    """Get cached resolved groups. Returns None on cache miss, {} for negative cache."""
+    key = _resolved_groups_cache_key(team_id, distinct_ids)
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_resolved_groups(team_id: int, distinct_ids: list[str], groups: dict | None) -> None:
+    """Cache resolved groups (or {} as negative cache when resolution found nothing)."""
+    key = _resolved_groups_cache_key(team_id, distinct_ids)
+    timeout = RESOLVED_GROUPS_CACHE_TTL if groups else RESOLVED_GROUPS_NEGATIVE_CACHE_TTL
+    try:
+        cache.set(key, groups or {}, timeout=timeout)
     except Exception:
         logger.warning("conversations_cache_set_error", key=key)

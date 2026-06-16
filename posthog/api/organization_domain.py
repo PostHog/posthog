@@ -190,6 +190,13 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                     code="feature_not_available",
                 )
 
+        if instance and attrs.get("id_jag_issuer_url"):
+            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+                raise serializers.ValidationError(
+                    {"id_jag_issuer_url": "XAA (ID-JAG) is not available for this organization."},
+                    code="feature_not_available",
+                )
+
         return attrs
 
     def update(self, instance: OrganizationDomain, validated_data: dict[str, Any]) -> OrganizationDomain:

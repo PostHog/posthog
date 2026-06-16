@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
-import type { BarChartConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
+import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -16,6 +16,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ChartParams } from '~/types'
 
+import { buildFunnelStepsBarConfig, FUNNEL_STEPS_BAND_PADDING } from '../shared/funnelStepsBarShared'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
@@ -25,23 +26,13 @@ import {
 
 const BASE_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20
-const BAND_PADDING = 0.1
 
-const chartConfig: BarChartConfig = {
-    barLayout: 'grouped',
-    showGrid: true,
-    bars: {
-        cornerRadius: 10,
-        track: true,
-        shadow: { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 },
-        bandPadding: BAND_PADDING,
-    },
-    animateHover: true,
+const chartConfig = buildFunnelStepsBarConfig({
     hideXAxis: true,
-    yTickFormatter: (value) => `${Math.round(value)}%`,
-    tooltip: { placement: 'top' },
+    animateHover: true,
+    tooltipPlacement: 'top',
     margins: { left: DEFAULT_MARGINS.left },
-}
+})
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
     posthog.captureException(error, {
@@ -86,7 +77,7 @@ export function FunnelStepsBarChart({
     const barsWidth = steps.length * stepWidthPx
     const chartWidth = DEFAULT_MARGINS.left + barsWidth + DEFAULT_MARGINS.right
 
-    const stepBandWidthPx = stepWidthPx * (1 - BAND_PADDING)
+    const stepBandWidthPx = stepWidthPx * (1 - FUNNEL_STEPS_BAND_PADDING)
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {

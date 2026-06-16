@@ -6,11 +6,11 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.schema import HogQLFilters, ProductKey
+from posthog.schema import HogQLFilters
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
-from posthog.tasks.email_utils import compute_week_over_week_change
+from posthog.schema_enums import ProductKey
 
 logger = structlog.get_logger(__name__)
 
@@ -102,6 +102,7 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """Teams with at least one exception in the last 7 days, used for digest routing."""
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, name="weekly_digest:exception_counts")
 
@@ -121,13 +122,18 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     {team_filter}
     """
 
-    results = sync_execute(query, query_params)
+    # Cross-team scan for a weekly batch job — keep it off the online cluster.
+    results = sync_execute(query, query_params, workload=Workload.OFFLINE)
     return results if isinstance(results, list) else []
 
 
 def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     from posthog.hogql.query import execute_hogql_query
+
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
+    # import the helper at call time so this module doesn't pull the task graph.
+    from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:crash_free_sessions")
 

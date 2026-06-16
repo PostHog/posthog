@@ -31,6 +31,7 @@ from products.batch_exports.backend.temporal.pipeline.table import (
     TypeTupleToCastMapping,
     are_types_compatible,
 )
+from products.batch_exports.backend.temporal.pipeline.worker_init import init_worker
 
 logger = get_write_only_logger()
 
@@ -122,7 +123,9 @@ class JSONLStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+            max_workers=self.max_workers,
+            mp_context=mp.get_context("forkserver"),
+            initializer=init_worker,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
@@ -189,7 +192,9 @@ class JSONLBrotliStreamTransformer:
         current_file_size = 0
 
         with concurrent.futures.ProcessPoolExecutor(
-            max_workers=self.max_workers, mp_context=mp.get_context("fork")
+            max_workers=self.max_workers,
+            mp_context=mp.get_context("forkserver"),
+            initializer=init_worker,
         ) as executor:
             async with _record_batches_producer(
                 record_batches,
@@ -445,11 +450,16 @@ class ParquetStreamTransformer:
     @property
     def parquet_writer(self) -> pq.ParquetWriter:
         if self._parquet_writer is None:
+            json_columns = {"properties", "person_properties", "set", "set_once"}
+            # self.schema is set before getting a ParquetWriter.
+            dicitionary_encoded_columns = [col for col in self.schema.names if col not in json_columns]
+
             self._parquet_writer = pq.ParquetWriter(
                 self._parquet_buffer,
                 schema=self.schema,
                 compression="none" if self.compression is None else self.compression,  # type: ignore
                 compression_level=self.compression_level,
+                use_dictionary=dicitionary_encoded_columns,  # type: ignore
             )
         assert self._parquet_writer is not None
         return self._parquet_writer

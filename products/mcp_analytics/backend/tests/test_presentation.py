@@ -134,7 +134,8 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.json()["attr"] == field
 
     def test_intent_clusters_returns_empty_idle_when_no_snapshot(self) -> None:
-        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -172,7 +173,8 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             },
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -185,7 +187,10 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         # Mock only the Celery dispatch so the synchronous COMPUTING write
         # still runs. The 202 body should reflect the new state, not the
         # stale pre-trigger state.
-        with patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay:
+        with (
+            patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay,
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
             )
@@ -286,7 +291,8 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         session_id = "session-123"
         MCPSession.objects.create(team=self.team, session_id=session_id, intent="A persisted summary.")
 
-        response = self.client.post(self._url(session_id))
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(session_id))
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"session_id": session_id, "intent": "A persisted summary."}
@@ -295,6 +301,7 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         session_id = "session-fresh"
         # Mock the two primitives so the endpoint path runs without ClickHouse or a real LLM call.
         with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(intent_generation, "summarize_intents", return_value="Generated summary."),
         ):
@@ -307,6 +314,7 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
     def test_returns_503_when_generation_unavailable(self) -> None:
         session_id = "session-unavailable"
         with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
             patch.object(intent_generation, "fetch_session_intents", return_value=["check the funnel"]),
             patch.object(
                 intent_generation,

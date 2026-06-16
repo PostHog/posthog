@@ -23,6 +23,7 @@ import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
+import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
@@ -115,13 +116,15 @@ export function InsightDisplayConfig(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
 
+    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&
             display !== ChartDisplayType.CalendarHeatmap &&
             display !== ChartDisplayType.BoxPlot) ||
         isStickiness ||
-        isWebAnalyticsInsightQuery(querySource)
+        isWebAnalyticsInsightQuery(querySource) ||
+        (funnelsCompareEnabled && isTrendsFunnel)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||
@@ -140,12 +143,20 @@ export function InsightDisplayConfig(): JSX.Element {
     const isCumulativeLineDisplay = display === ChartDisplayType.ActionsLineGraphCumulative
     const showAxisLabelsConfig =
         isTrends && (isLineDisplay || isBarDisplay) && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_TRENDS]
+    const showFunnelLegendConfig =
+        isTrendsFunnel &&
+        hasBreakdownFilter(breakdownFilter) &&
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]
     const isLineGraph = isLineDisplay && !isCumulativeLineDisplay
     const isLinearScale = !yAxisScaleType || yAxisScaleType === 'linear'
 
-    const { showValuesOnSeries, mightContainFractionalNumbers, showConfidenceIntervals, showMovingAverage } = useValues(
-        trendsDataLogic(insightProps)
-    )
+    const {
+        showValuesOnSeries,
+        showPercentagesOnSeries,
+        mightContainFractionalNumbers,
+        showConfidenceIntervals,
+        showMovingAverage,
+    } = useValues(trendsDataLogic(insightProps))
 
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const advancedOptions: LemonMenuItems = [
@@ -211,9 +222,10 @@ export function InsightDisplayConfig(): JSX.Element {
                           : [
                                 ...(isLifecycle ? [{ label: () => <LifecycleStackingFilter /> }] : []),
                                 ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
+                                ...(isLifecycle ? [{ label: () => <LifecyclePercentagesFilter /> }] : []),
                                 ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                                 ...(supportsBarValueStacking ? [{ label: () => <StackBreakdownFilter /> }] : []),
-                                ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
+                                ...(hasLegend || showFunnelLegendConfig ? [{ label: () => <ShowLegendFilter /> }] : []),
                                 ...(display === ChartDisplayType.ActionsPie
                                     ? [{ label: () => <ShowPieTotalFilter /> }]
                                     : []),
@@ -387,6 +399,7 @@ export function InsightDisplayConfig(): JSX.Element {
     const advancedOptionsCount: number =
         (showSmoothing && (trendsFilter?.smoothingIntervals ?? 1) !== 1 ? 1 : 0) +
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
+        (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
         (!showPercentStackView &&
         isTrends &&
@@ -394,7 +407,7 @@ export function InsightDisplayConfig(): JSX.Element {
         trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
-        (hasLegend && showLegend ? 1 : 0) +
+        ((hasLegend || showFunnelLegendConfig) && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +

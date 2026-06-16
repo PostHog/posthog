@@ -58,7 +58,7 @@ import {
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
@@ -306,8 +306,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                             : (featureFlag.features?.length || 0) > 0
                                               ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                              : (featureFlag.experiment_set?.length || 0) > 0
-                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag.'
+                                              : featureFlag.experiment_set_metadata?.some((exp) => exp.is_running)
+                                                ? 'This feature flag is linked to a running experiment. Stop the experiment to delete this flag.'
                                                 : (featureFlag.surveys?.length || 0) > 0
                                                   ? 'This feature flag is linked to a survey. Delete the survey to delete this flag.'
                                                   : null
@@ -335,6 +335,12 @@ export const scene: SceneExport = {
     component: FeatureFlags,
     logic: featureFlagsLogic,
     productKey: ProductKey.FEATURE_FLAGS,
+}
+
+const RUNTIME_LABELS: Record<FeatureFlagEvaluationRuntime, string> = {
+    [FeatureFlagEvaluationRuntime.ALL]: 'All',
+    [FeatureFlagEvaluationRuntime.CLIENT]: 'Client',
+    [FeatureFlagEvaluationRuntime.SERVER]: 'Server',
 }
 
 export function OverviewTab({
@@ -404,6 +410,34 @@ export function OverviewTab({
             },
         },
         {
+            title: 'Type',
+            width: 120,
+            render: function RenderType(_, featureFlag: FeatureFlagType) {
+                const labels: string[] = []
+                if (flagMatchesType(featureFlag, 'remote_config')) {
+                    labels.push('Remote config')
+                }
+                if (flagMatchesType(featureFlag, 'experiment')) {
+                    labels.push('Experiment')
+                }
+                if (flagMatchesType(featureFlag, 'multivariant')) {
+                    labels.push('Multiple variants')
+                }
+                if (labels.length === 0) {
+                    labels.push('Boolean')
+                }
+                return (
+                    <div className="flex flex-wrap gap-1">
+                        {labels.map((label) => (
+                            <LemonTag key={label} type="default" className="whitespace-nowrap">
+                                {label}
+                            </LemonTag>
+                        ))}
+                    </div>
+                )
+            },
+        },
+        {
             title: 'Tags',
             dataIndex: 'tags' as keyof FeatureFlagType,
             render: function Render(_, featureFlag: FeatureFlagType) {
@@ -459,29 +493,19 @@ export function OverviewTab({
                 return <FeatureFlagStatusCell featureFlag={featureFlag} />
             },
         },
-        ...(enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES]
-            ? [
-                  {
-                      title: 'Runtime',
-                      dataIndex: 'evaluation_runtime' as keyof FeatureFlagType,
-                      width: 120,
-                      render: function RenderFlagRuntime(_: any, featureFlag: FeatureFlagType) {
-                          const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
-                          return (
-                              <LemonTag type="default" className="uppercase">
-                                  {runtime === FeatureFlagEvaluationRuntime.ALL
-                                      ? 'All'
-                                      : runtime === FeatureFlagEvaluationRuntime.CLIENT
-                                        ? 'Client'
-                                        : runtime === FeatureFlagEvaluationRuntime.SERVER
-                                          ? 'Server'
-                                          : 'All'}
-                              </LemonTag>
-                          )
-                      },
-                  },
-              ]
-            : []),
+        {
+            title: 'Runtime',
+            dataIndex: 'evaluation_runtime' as keyof FeatureFlagType,
+            width: 120,
+            render: function RenderFlagRuntime(_: any, featureFlag: FeatureFlagType) {
+                const runtime = featureFlag.evaluation_runtime || FeatureFlagEvaluationRuntime.ALL
+                return (
+                    <LemonTag type="default" className="uppercase">
+                        {RUNTIME_LABELS[runtime] ?? RUNTIME_LABELS[FeatureFlagEvaluationRuntime.ALL]}
+                    </LemonTag>
+                )
+            },
+        },
         {
             width: 0,
             render: function Render(_, featureFlag: FeatureFlagType) {
@@ -683,7 +707,6 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
-    const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 
     return (
         <SceneContent className="feature_flags">
@@ -739,15 +762,11 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverviewTab />,
                     },
-                    ...(showProjectsTab
-                        ? [
-                              {
-                                  key: FeatureFlagsTab.PROJECTS,
-                                  label: 'Projects',
-                                  content: <ProjectsGrid />,
-                              },
-                          ]
-                        : []),
+                    {
+                        key: FeatureFlagsTab.PROJECTS,
+                        label: 'Projects',
+                        content: <ProjectsGrid />,
+                    },
                     {
                         key: FeatureFlagsTab.HISTORY,
                         label: 'History',

@@ -384,6 +384,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    is_remote_configuration: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
 })
 
 /**
@@ -708,6 +714,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Evaluation contexts that control where this flag evaluates at runtime.'),
+    is_remote_configuration: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.'
+        ),
 })
 
 /**
