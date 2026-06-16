@@ -370,9 +370,12 @@ class TestLinkedinAdsClientFunction:
 
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "token"
-        mock_integration_model.objects.get.side_effect = lambda *args, **kwargs: (
-            calls.append("Integration.objects.get") or mock_integration
-        )
+
+        def record_get(*args, **kwargs):
+            calls.append("Integration.objects.get")
+            return mock_integration
+
+        mock_integration_model.objects.get.side_effect = record_get
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
 
