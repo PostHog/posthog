@@ -35,6 +35,8 @@ _DEFERRED_JOINS = ("tags", "notebooks")
 # JOIN default the inline lazy join would have produced.
 _DEFERRED_DEFAULTS: dict[str, object] = {"tags": [], "notebooks": 0}
 
+_DEFERRED_TYPES: dict[str, str] = {"tags": "Array(String)", "notebooks": "UInt64"}
+
 
 def _normalize_order_clause(raw: str) -> str:
     """Allow Django-style `-col` shorthand alongside native HogQL `col DESC`."""
@@ -357,8 +359,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _fetch_deferred(self, page_ids: list[str]) -> dict[str, tuple[dict[str, object], object]]:
         enrichment: dict[str, tuple[dict[str, object], object]] = {}
         for deferred in self._deferred_columns:
+            fallback_type = _DEFERRED_TYPES[deferred.join]
             if not page_ids:
-                enrichment[deferred.column_name] = ({}, None)
+                enrichment[deferred.column_name] = ({}, fallback_type)
                 continue
             response = execute_hogql_query(
                 query_type="AccountsEnrichmentQuery",
@@ -369,7 +372,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
                 modifiers=self.modifiers,
             )
             values = {str(row[0]): row[1] for row in (response.results or [])}
-            value_type = response.types[1][1] if response.types and len(response.types) > 1 else None
+            value_type = response.types[1][1] if response.types and len(response.types) > 1 else fallback_type
             enrichment[deferred.column_name] = (values, value_type)
         return enrichment
 
