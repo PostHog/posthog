@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CALENDLY,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Calendly",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Calendly personal access token to pull your Calendly data into the PostHog Data warehouse.

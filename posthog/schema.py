@@ -68,6 +68,7 @@ from posthog.schema_enums import (
     DataColorToken as DataColorToken,
     DataTableNodeViewPropsContextType as DataTableNodeViewPropsContextType,
     DataWarehouseSavedQueryOrigin as DataWarehouseSavedQueryOrigin,
+    DataWarehouseSourceCategory as DataWarehouseSourceCategory,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
     DetailedResultsAggregationType as DetailedResultsAggregationType,
@@ -26052,6 +26053,15 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     caption: str | Any | None = None
+    category: DataWarehouseSourceCategory | None = Field(
+        default=None,
+        description=(
+            "Catalog bucket this source is grouped under in the new-source wizard."
+            " Optional at the type level so partial/in-progress sources don't break,"
+            " but every registered source must set one (enforced by a test). See"
+            " `dataWarehouseSourceCategories`."
+        ),
+    )
     disabledReason: str | None = None
     docsUrl: str | None = None
     existingSource: bool | None = None
@@ -26070,6 +26080,14 @@ class SourceConfig(BaseModel):
     ]
     iconClassName: str | None = None
     iconPath: str
+    keywords: list[str] | None = Field(
+        default=None,
+        description=(
+            "Extra search terms (alternate spellings, acronyms) for the catalog search,"
+            ' e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside'
+            " name/label/category."
+        ),
+    )
     label: str | None = None
     name: ExternalDataSourceType
     permissionsCaption: str | None = None
