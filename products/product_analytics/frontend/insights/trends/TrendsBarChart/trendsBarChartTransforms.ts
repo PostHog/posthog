@@ -1,4 +1,4 @@
-import { normalizeAxisLabel } from '@posthog/quill-charts'
+import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
 import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
@@ -48,6 +48,9 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Scale each series past the first against its own y-axis. Grouped (unstacked) bars only —
+    // stacked layouts must share one axis, so the adapter never sets this for them.
+    showMultipleYAxes?: boolean
 }
 
 export interface BuildTrendsBarAggregatedSeriesOpts<
@@ -78,12 +81,14 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     const color = resolveBarColor(r, index, opts)
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta = opts.buildMeta ? opts.buildMeta(r, index) : undefined
+    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     return {
         key: String(r.id),
         label: r.label ?? '',
         data,
         color,
         meta,
+        yAxisId,
         visibility: excluded ? { excluded: true } : undefined,
     }
 }

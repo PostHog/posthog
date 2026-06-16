@@ -3,6 +3,7 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
@@ -23,6 +24,23 @@ import {
     SessionPropertyFilter,
 } from '../../../types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+
+describe('isGroupCardFilterKey()', () => {
+    it.each([
+        { key: '$group_key', type: PropertyFilterType.Group, expected: true },
+        { key: 'id', type: PropertyFilterType.Group, expected: true },
+        // 'id' is also the Cohort key — must not match there.
+        { key: 'id', type: PropertyFilterType.Cohort, expected: false },
+        // Group *property* filters use other keys.
+        { key: 'industry', type: PropertyFilterType.Group, expected: false },
+        // '$group_key' only makes sense for a Group-type filter.
+        { key: '$group_key', type: PropertyFilterType.Event, expected: false },
+        { key: '$group_key', type: undefined, expected: false },
+        { key: undefined, type: PropertyFilterType.Group, expected: false },
+    ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
+        expect(isGroupCardFilterKey(key, type)).toBe(expected)
+    })
+})
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
@@ -353,20 +371,24 @@ describe('createDefaultPropertyFilter()', () => {
         )
     })
 
-    it('creates a standard event property filter with Exact operator', () => {
+    it.each([
+        ['$browser', PropertyOperator.Exact],
+        ['$current_url', PropertyOperator.IContains],
+        ['$pathname', PropertyOperator.IContains],
+    ])('defaults the %s event property filter to the %s operator', (propertyKey, expectedOperator) => {
         const result = createDefaultPropertyFilter(
             null,
-            '$browser',
+            propertyKey,
             PropertyFilterType.Event,
             makeGroup(TaxonomicFilterGroupType.EventProperties),
             noopDescribeProperty
         )
         expect(result).toEqual(
             expect.objectContaining({
-                key: '$browser',
+                key: propertyKey,
                 value: null,
                 type: PropertyFilterType.Event,
-                operator: PropertyOperator.Exact,
+                operator: expectedOperator,
             })
         )
     })

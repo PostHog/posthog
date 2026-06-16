@@ -28,6 +28,10 @@
  *   reliable identifier. Used to force single-exec mode regardless of the
  *   self-reported MCP client name.
  *
+ * - `isClaudeUiHost()` matches Claude web and desktop — MCP Apps hosts that
+ *   render interactive UI (iframes). Used to put them in single-exec mode so the
+ *   `render-ui` tool is available, gated behind the `mcp-render-ui` flag.
+ *
  * - `capabilities` is a feature-flag-style object describing protocol
  *   features the client actually implements (e.g. `supportsInstructions` —
  *   Codex ignores the `instructions` field returned from `initialize`).
@@ -73,6 +77,11 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // but an LLM-driven consumer that benefits from the same single-exec mode
     // and formatted-text rendering as coding agents).
     'notion',
+    // OpenCode is a terminal coding agent (and the engine behind clients like
+    // OpenWork). It connects through OpenCode's MCP client, which self-reports
+    // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
+    // wants single-exec mode like the other coding agents.
+    'opencode',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
@@ -100,6 +109,19 @@ export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 // Notion is included here because a sizeable share of sessions only carry the
 // OAuth name without the `notion-mcp-client` self-report.
 export const VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS = ['lovable', 'replit', 'notion'] as const
+
+// Claude web and desktop are MCP Apps hosts that render interactive UI (iframes),
+// so the `render-ui` tool is meaningful for them. They send `x-anthropic-client:
+// ClaudeAI` (vs `ClaudeCode` for Claude Code, `Cowork` for Cowork) and
+// `User-Agent: Claude-User`. The vendor client is authoritative when present:
+// only `ClaudeAI` is a UI host, so Cowork and Claude Code are excluded even
+// though they may share the `Claude-User` user-agent. The user-agent is a
+// fallback solely for requests that omit the vendor header. We deliberately do
+// NOT match `clientName` here — Anthropic pools transports, so Claude Code's
+// `clientInfo.name` is also `Anthropic/ClaudeAI`, and matching it would
+// misclassify Claude Code as a UI host.
+export const ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
+export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -133,6 +155,8 @@ type MCPClientProfileInput = {
     // Anthropic pools MCP transports across products, so the live inner client
     // can disagree with the session-pinned `clientName` from `initialize`.
     vendorClient?: string | undefined
+    // Per-request `User-Agent` (e.g. `Claude-User` for Claude web/desktop).
+    userAgent?: string | undefined
 }
 
 export class MCPClientProfile {
@@ -141,6 +165,7 @@ export class MCPClientProfile {
     readonly consumer: string | undefined
     readonly oauthClientName: string | undefined
     readonly vendorClient: string | undefined
+    readonly userAgent: string | undefined
 
     private _capabilities: ClientCapabilities | undefined
 
@@ -150,6 +175,7 @@ export class MCPClientProfile {
         this.consumer = input.consumer
         this.oauthClientName = input.oauthClientName
         this.vendorClient = input.vendorClient
+        this.userAgent = input.userAgent
     }
 
     isCliModeEnabled(): boolean {
@@ -170,6 +196,20 @@ export class MCPClientProfile {
 
     isVibeCodingClient(): boolean {
         return matchesAnyFragment(this.oauthClientName, VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS)
+    }
+
+    isClaudeUiHost(): boolean {
+        // The per-request vendor client (`x-anthropic-client`) is authoritative: it
+        // distinguishes the Claude surfaces that pool the same MCP transport —
+        // `ClaudeAI` (web/desktop, a UI-Apps host) from `Cowork` and `ClaudeCode`,
+        // which render no MCP-Apps UI. When it's present, trust it exclusively; only
+        // fall back to the `Claude-User` user-agent when the vendor header is absent.
+        // Otherwise a non-UI surface like Cowork — which can share the `Claude-User`
+        // user-agent with web/desktop — would be misclassified as a UI host.
+        if (this.vendorClient) {
+            return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
+        }
+        return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
     }
 
     get capabilities(): ClientCapabilities {
@@ -200,4 +240,11 @@ export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean 
 
 export function isVibeCodingClient(oauthClientName: string | undefined): boolean {
     return new MCPClientProfile({ oauthClientName }).isVibeCodingClient()
+}
+
+export function isClaudeUiHostClient(args: {
+    vendorClient?: string | undefined
+    userAgent?: string | undefined
+}): boolean {
+    return new MCPClientProfile(args).isClaudeUiHost()
 }

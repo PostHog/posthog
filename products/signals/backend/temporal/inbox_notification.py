@@ -1,10 +1,12 @@
 """Decides when (and whether) to send a report's inbox Slack notification.
 
-A report that auto-starts an implementation task waits for the PR to open (so the card can
-carry a "Review PR" button), bounded by a timeout. If that task never opens a PR (it fails,
-is cancelled, or the wait times out), no notification is sent — there's nothing actionable to
-link. A report with no auto-start task notifies immediately. Posting itself stays in
-`dispatch_inbox_item_notifications`; this governs timing and suppression.
+A notification is only sent when the report has an implementation PR to link — otherwise
+there's nothing actionable, so it's suppressed (it still appears in the inbox UI). A report
+that auto-starts an implementation task waits for the PR to open (so the card can carry a
+"Review PR" button), bounded by a timeout; if that task never opens a PR (it fails, is
+cancelled, or the wait times out) the notification is suppressed. A report with no auto-start
+task can never produce a PR, so it's suppressed immediately without waiting. Posting itself
+stays in `dispatch_inbox_item_notifications`; this governs timing and suppression.
 """
 
 from __future__ import annotations
@@ -135,12 +137,21 @@ class SignalReportInboxNotificationWorkflow:
                 if state.pr_available or state.task_terminal:
                     break
 
-        # An implementation task that never opened a PR (failed, cancelled, or timed out) has
-        # nothing actionable to link, so suppress its notification. `workflow.patched` keeps
-        # in-flight workflows from before this change on the previous always-notify behavior.
-        if workflow.patched("signals-inbox-skip-no-pr") and state.has_implementation_task and not state.pr_available:
+        # A report with no implementation PR has nothing actionable to link, so suppress its
+        # notification (it still shows in the inbox). The patch guards keep workflows already in
+        # flight at deploy on their prior, narrower behavior to preserve replay determinism:
+        # `signals-inbox-skip-any-no-pr` suppresses any PR-less report; the older
+        # `signals-inbox-skip-no-pr` only suppressed reports whose implementation task produced no PR.
+        if workflow.patched("signals-inbox-skip-any-no-pr"):
+            should_skip = not state.pr_available
+        elif workflow.patched("signals-inbox-skip-no-pr"):
+            should_skip = state.has_implementation_task and not state.pr_available
+        else:
+            should_skip = False
+
+        if should_skip:
             workflow.logger.info(
-                "inbox notification skipped: implementation task produced no PR",
+                "inbox notification skipped: no implementation PR to link",
                 extra={"report_id": inputs.report_id, "team_id": inputs.team_id},
             )
             return 0

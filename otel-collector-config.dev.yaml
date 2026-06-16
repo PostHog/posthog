@@ -62,6 +62,27 @@ receivers:
                   metrics_path: /_metrics
                   static_configs:
                       - targets: ['host.docker.internal:6738']
+                # PostHog's own logs/metrics ingestion services. Their
+                # prom-client counters (logs_ingestion_*, metrics_ingestion_*,
+                # consumer lag, batch utilization) are exactly the metrics the
+                # Grafana logs dashboard charts — scraping them here pipes a
+                # real PostHog service through the metrics product locally, so
+                # they're queryable in /metrics. Ports match HTTP_SERVER_PORT
+                # in bin/mprocs.yaml (ingestion-logs 6743, ingestion-metrics
+                # 6744). Targets that aren't running are simply scraped-down.
+                # The job_name becomes the row's service_name downstream (the
+                # receiver maps it to the service.name resource attribute);
+                # static_configs labels can NOT override it.
+                - job_name: 'logs-ingestion'
+                  scrape_interval: 15s
+                  metrics_path: /_metrics
+                  static_configs:
+                      - targets: ['host.docker.internal:6743']
+                - job_name: 'metrics-ingestion'
+                  scrape_interval: 15s
+                  metrics_path: /_metrics
+                  static_configs:
+                      - targets: ['host.docker.internal:6744']
 
 exporters:
     otlp: # Using the standard OTLP exporter

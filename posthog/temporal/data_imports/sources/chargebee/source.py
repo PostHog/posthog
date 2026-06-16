@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -104,6 +105,7 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHARGEBEE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             docsUrl="https://posthog.com/docs/cdp/sources/chargebee",
             iconPath="/static/services/chargebee.png",
             fields=cast(

@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -12,6 +12,10 @@ import type { bulkScanLogicType } from './bulkScanLogicType'
 
 export const bulkScanLogic = kea<bulkScanLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'bulkScanLogic']),
+
+    connect(() => ({
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+    })),
 
     actions({
         scanRecordings: (scannerId: string, sessionIds: string[]) => ({ scannerId, sessionIds }),
@@ -53,7 +57,12 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
     listeners(({ actions, values }) => ({
         scanRecordings: async ({ scannerId, sessionIds }) => {
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId || sessionIds.length === 0) {
+            if (sessionIds.length === 0) {
+                lemonToast.error('Select at least one recording to scan')
+                actions.scanRecordingsFailure()
+                return
+            }
+            if (!teamId) {
                 actions.scanRecordingsFailure()
                 return
             }
@@ -82,6 +91,11 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
                 lemonToast.error(`Failed to start scanning ${failed} recording${failed === 1 ? '' : 's'}`)
             }
             actions.scanRecordingsSuccess()
+        },
+        // The logic is global/propless, so reload scanners when the active team changes
+        // to avoid POSTing the previous team's scanner IDs to the new team's endpoint.
+        loadCurrentTeamSuccess: () => {
+            actions.loadScanners()
         },
     })),
 

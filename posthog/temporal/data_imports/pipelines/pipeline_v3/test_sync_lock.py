@@ -5,6 +5,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     LOCK_TTL_SECONDS,
     _lock_key,
     acquire_v3_pipeline_lock,
+    get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
 )
 
@@ -49,6 +50,42 @@ class TestAcquireV3PipelineLock:
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is False
+
+
+class TestGetV3PipelineLockHolder:
+    @pytest.mark.parametrize(
+        "get_return, expected",
+        [
+            (b"tok-1", "tok-1"),
+            ("tok-1", "tok-1"),
+            (None, None),
+        ],
+        ids=["bytes_token", "str_token", "unheld"],
+    )
+    @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    def test_holder_result(self, mock_ctx: MagicMock, get_return: bytes | str | None, expected: str | None) -> None:
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = get_return
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        assert get_v3_pipeline_lock_holder(1, "s-1") == expected
+
+    @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    def test_returns_none_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        assert get_v3_pipeline_lock_holder(1, "s-1") is None
+
+    @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    def test_returns_none_on_get_exception(self, mock_ctx: MagicMock) -> None:
+        mock_redis = MagicMock()
+        mock_redis.get.side_effect = Exception("connection lost")
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        assert get_v3_pipeline_lock_holder(1, "s-1") is None
 
 
 class TestReleaseV3PipelineLock:

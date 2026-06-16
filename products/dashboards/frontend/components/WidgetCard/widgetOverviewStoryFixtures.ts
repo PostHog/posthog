@@ -1,5 +1,6 @@
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -181,6 +182,23 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     results: sessionReplaySampleRecordings,
                     hasMore: true,
                     limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
+                },
+            }
+        case 'activity_events_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig },
+                loading: false,
+                result: {
+                    results: activityEventsSampleEvents,
+                    hasMore: true,
+                    limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
                 },
             }
         default: {

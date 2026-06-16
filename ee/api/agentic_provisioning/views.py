@@ -32,6 +32,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, find_oauth_access_token
@@ -736,6 +737,19 @@ def _handle_new_user(
         team_id=team.id,
     )
 
+    # Emit the standard signup event so provisioned accounts flow into the shared
+    # signup / activation / billing analyses, segmentable by client. Vercel does the
+    # same (ee/vercel/integration.py); the agentic path previously skipped it entirely.
+    report_user_signed_up(
+        user,
+        is_instance_first_user=False,
+        is_organization_first_user=True,
+        backend_processor="AgenticProvisioning",
+        social_provider=partner.name if partner else "",
+        user_analytics_metadata=user.get_analytics_metadata(),
+        org_analytics_metadata=organization.get_analytics_metadata(),
+    )
+
     try:
         reset_token = password_reset_token_generator.make_token(user)
         send_provisioning_welcome.delay(user.id, reset_token, partner_label)
@@ -997,7 +1011,7 @@ def oauth_token(request: Request) -> Response:
         )
 
 
-def _lock_application(application_id: int) -> OAuthApplication | None:
+def _lock_application(application_id: uuid.UUID) -> OAuthApplication | None:
     """Row-lock the OAuthApplication so direct-mint serializes with revoke_application_sessions.
 
     The revoke updates this row first and holds the lock for its whole transaction before

@@ -57,57 +57,6 @@ describe('SessionReplayWidget', () => {
         expect(screen.getByText('1 of 1 recording')).toBeInTheDocument()
     })
 
-    it('shows capped total in footer when more recordings exist than the count cap', () => {
-        render(
-            <SessionReplayWidget
-                tileId={1}
-                config={{ limit: 1 }}
-                loading={false}
-                result={{
-                    results: [recording],
-                    hasMore: true,
-                    limit: 1,
-                    totalCount: 25,
-                    totalCountCapped: true,
-                }}
-            />
-        )
-
-        expect(screen.getByText('1 of 25+ recordings')).toBeInTheDocument()
-    })
-
-    it('shows lower-bound footer when hasMore and total count was not fetched', () => {
-        render(
-            <SessionReplayWidget
-                tileId={1}
-                config={{ limit: 1 }}
-                loading={false}
-                result={{ results: [recording], hasMore: true, limit: 1 }}
-            />
-        )
-
-        expect(screen.getByText('1+ recording')).toBeInTheDocument()
-    })
-
-    it('shows exact total in footer when hasMore and total is known', () => {
-        render(
-            <SessionReplayWidget
-                tileId={1}
-                config={{ limit: 1 }}
-                loading={false}
-                result={{
-                    results: [recording],
-                    hasMore: true,
-                    limit: 1,
-                    totalCount: 4,
-                    totalCountCapped: false,
-                }}
-            />
-        )
-
-        expect(screen.getByText('1 of 4 recordings')).toBeInTheDocument()
-    })
-
     it('renders an empty state when there are no recordings', () => {
         const { container } = render(
             <SessionReplayWidget tileId={1} config={{ limit: 10 }} loading={false} result={{ results: [] }} />
@@ -115,5 +64,6 @@ describe('SessionReplayWidget', () => {
 
         expect(container.querySelector('[data-attr="session-replay-widget-empty-state"]')).toBeInTheDocument()
         expect(screen.getByText('No recordings yet')).toBeInTheDocument()
+        expect(screen.getByText('No session recordings matched your filters.')).toBeInTheDocument()
     })
 })

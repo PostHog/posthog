@@ -79,6 +79,23 @@ class TestBuildInitialParams:
 
     @parameterized.expand(
         [
+            ("default_endpoint_uses_max_page_size", "customers", 250),
+            ("payment_methods_uses_smaller_page_size", "payment_methods", 50),
+        ]
+    )
+    def test_page_size_is_per_endpoint(self, _name: str, endpoint: str, expected_limit: int) -> None:
+        # `payment_methods` pages are too slow to generate within the read
+        # timeout at the 250 max, so it requests smaller pages.
+        params = _build_initial_params(
+            RECHARGE_ENDPOINTS[endpoint],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params["limit"] == expected_limit
+
+    @parameterized.expand(
+        [
             # `collections` is full-refresh but still sortable -> keeps `id-asc`.
             ("collections", {"limit": 250, "sort_by": "id-asc"}),
             # `/products` on the 2021-11 API rejects `sort_by` outright -> limit only.
@@ -187,6 +204,34 @@ class TestGetRows:
         )
 
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
+    @parameterized.expand(
+        [
+            ("payment_methods_uses_smaller_limit", "payment_methods", 50),
+            ("customers_use_default_limit", "customers", 250),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
+    def test_cursor_pages_use_per_endpoint_limit(
+        self, _name: str, endpoint: str, expected_limit: int, mock_session: MagicMock
+    ) -> None:
+        # Both the first page and cursor pages must carry the per-endpoint limit;
+        # for `payment_methods` that's 50 (to avoid the 60s read timeout), for
+        # other endpoints it's the 250 max — otherwise the second page would time
+        # out at the wrong size again.
+        mock_session.return_value.get.side_effect = [
+            _mock_response(json_body={endpoint: [{"id": 1}], "next_cursor": "cursor-2"}),
+            _mock_response(json_body={endpoint: [{"id": 2}], "next_cursor": None}),
+        ]
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        list(get_rows(api_key="t", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager))
+
+        first_url, second_url = (call.args[0] for call in mock_session.return_value.get.call_args_list)
+        assert f"limit={expected_limit}" in first_url
+        assert "cursor=cursor-2" in second_url
+        assert f"limit={expected_limit}" in second_url
 
     @patch("posthog.temporal.data_imports.sources.recharge.recharge.make_tracked_session")
     def test_products_request_omits_sort_by(self, mock_session: MagicMock) -> None:

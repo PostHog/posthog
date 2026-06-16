@@ -3,6 +3,16 @@ from typing import Optional
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
+# Recharge caps page size at 250 (default 50). Larger pages mean fewer
+# round-trips against the leaky-bucket rate limit (40 burst, ~2 req/s sustained).
+DEFAULT_PAGE_SIZE = 250
+
+# `payment_methods` is an expensive endpoint: a full 250-record page consistently
+# exceeds the 60s read timeout (the server can't generate the page in time),
+# surfacing as upstream read timeouts. Request smaller pages so each response
+# returns well within the timeout.
+PAYMENT_METHODS_PAGE_SIZE = 50
+
 
 @dataclass
 class RechargeEndpointConfig:
@@ -33,6 +43,9 @@ class RechargeEndpointConfig:
     # `<field>-asc` / `<field>-desc`; `id-asc` is a stable monotonic order that
     # avoids page-boundary skips/dupes when rows are inserted mid-sync.
     default_sort_field: str = "id"
+    # Records requested per page. Capped at 250 by Recharge; lower it for
+    # endpoints whose pages are too slow to generate within the read timeout.
+    page_size: int = DEFAULT_PAGE_SIZE
 
 
 def _timestamp_field(name: str) -> IncrementalField:
@@ -100,6 +113,7 @@ RECHARGE_ENDPOINTS: dict[str, RechargeEndpointConfig] = {
         name="payment_methods",
         path="/payment_methods",
         incremental_fields=_UPDATED_AND_CREATED,
+        page_size=PAYMENT_METHODS_PAGE_SIZE,
     ),
     # Collections expose `created_at`/`updated_at` on the object but the list
     # endpoint's server-side timestamp filtering is not documented as reliably

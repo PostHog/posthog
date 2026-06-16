@@ -2,10 +2,12 @@ import { color as d3Color } from 'd3-color'
 
 import { bandCenter, type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../../core/bar-layout'
 import {
+    BAR_HIGHLIGHT_DARKEN,
     BAR_TRACK_HOVER_ALPHA,
     type BarRect,
     type BarShadow,
     clipToRoundedRects,
+    drawAxes,
     drawBarHighlight,
     drawBars,
     drawBarTracks,
@@ -74,6 +76,7 @@ export interface DrawBarChartStaticArgs {
     barLayout: BarLayout
     isHorizontal: boolean
     showGrid: boolean
+    showAxisLines: boolean
     xTickFormatter: BarChartConfig['xTickFormatter']
     stackedData: Map<string, StackedBand> | undefined
     topStackedKeyByAxis: Map<string, string>
@@ -93,6 +96,7 @@ export function drawBarChartStatic(
         barLayout,
         isHorizontal,
         showGrid,
+        showAxisLines,
         xTickFormatter,
         stackedData,
         topStackedKeyByAxis,
@@ -122,6 +126,8 @@ export function drawBarChartStatic(
             orientation: isHorizontal ? 'horizontal' : 'vertical',
             categoryTicks: computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
+    } else if (showAxisLines) {
+        drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
     }
 
     const seriesBars = coloredSeries
@@ -221,7 +227,7 @@ export function drawBarHoverItems(
             )
         } else {
             const barColor = barColorAt(s, bar.dataIndex)
-            const highlightColor = d3Color(barColor)?.darker(0.6).toString() ?? barColor
+            const highlightColor = d3Color(barColor)?.darker(BAR_HIGHLIGHT_DARKEN).toString() ?? barColor
             drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
         }
     }

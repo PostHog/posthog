@@ -107,6 +107,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
+    "posthog_tasks_push_dispatcher_failures_total",
+    "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
+    labelnames=["kind", "reason"],
+)
+
 
 def _metric_label(value: object | None) -> str:
     if value is None:

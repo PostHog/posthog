@@ -7,18 +7,12 @@ description: >
   it discovers over time. Leans on the sandbox's bundled `exploring-llm-*` deep-dive skills
   for the actual queries. Emits findings only when they clear the confidence bar; otherwise
   writes durable memory and closes out empty. Self-contained peer in the signals-scout-*
-  fleet — no dependencies on other scouts. Picked uniformly at random by the coordinator
-  alongside `signals-scout-general` and other specialists.
+  fleet — no dependencies on other scouts.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes (mostly read-only, plus
-  signal_scout_internal:write for scratchpad-remember/forget and emit-signal). Assumes the signals-scout MCP family is available (project-profile-get, runs-list,
-  scratchpad-search, scratchpad-remember, scratchpad-forget, emit-signal), the analytics + LLM
-  tools (query-llm-traces-list, query-llm-trace, execute-sql, get-llm-total-costs-for-project,
-  llma-evaluation-list, llma-evaluation-get, llma-evaluation-test-hog,
-  llma-evaluation-summary-create, llma-tagger-list, llma-score-definition-list,
-  llma-clustering-job-list, llma-prompt-list, llma-prompt-get, read-data-schema),
-  and the bundled deep-dive skills (exploring-llm-costs / -traces / -evaluations / -clusters,
-  querying-posthog-data).
+  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
+  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
+  the signals-scout MCP tool family, the LLM analytics tools listed in the body's MCP
+  tools section, and the bundled exploring-llm-* deep-dive skills.
 metadata:
   owner_team: signals
   scope: llm_analytics

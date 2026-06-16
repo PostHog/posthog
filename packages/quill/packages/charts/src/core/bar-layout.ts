@@ -1,6 +1,7 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
 import type { Series } from './types'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
  *  narrowed by its draw callbacks. */
@@ -9,6 +10,9 @@ export interface BarChartPrivate {
 }
 
 export type SeriesBarLayout = (BarRect | null)[]
+
+// Sub-pixel overlap between adjacent stacked segments, to hide anti-aliased seams at shared edges.
+const STACK_SEGMENT_OVERLAP_PX = 0.5
 
 /** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked
  *  layers below the topmost. `shouldRoundBaseline` rounds the side *towards* the baseline — used
@@ -160,18 +164,29 @@ export function computeBarAtIndex({
     const shouldRoundBaseline = isGrouped ? false : (baseRounded ?? false)
     const bandWidth = scales.band.bandwidth()
 
+    // Grouped multi-axis: each series scales against its own value axis. Falls back to the
+    // shared `value` scale when only one axis is present (`yAxes` unset).
+    const valueScale = scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.value
+
     if (isGrouped) {
         const slot = groupedBandSlot(scales, label, series.key)
-        const valuePixel = scales.value(raw)
+        const valuePixel = valueScale(raw)
         if (!slot || !isFinite(valuePixel)) {
             return null
         }
         const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-        return makeBarRect(isHorizontal, slot.x, slot.width, scales.value(0), valuePixel, corners, dataIndex)
+        // A fixed `valueDomain` (e.g. [50, 100]) makes `valueScale(0)` extrapolate outside the
+        // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
+        const [r0, r1] = valueScale.range()
+        const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
     }
 
-    const topPixel = scales.value(stackedBand!.top[dataIndex])
-    const bottomPixel = scales.value(stackedBand!.bottom[dataIndex])
+    // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
+    // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
+    // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
+    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
     if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
         return null
     }
@@ -179,7 +194,16 @@ export function computeBarAtIndex({
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
     const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap, shouldRoundBaseline)
-    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
+    // Extend an interior segment a sub-pixel toward the baseline so it overlaps its lower neighbour,
+    // hiding the faint anti-aliased seam where two adjacent fills meet on a fractional device pixel.
+    // The bottom-of-stack segment sits on the value-axis baseline, so it's left exact — extending it
+    // would only overpaint the axis. The cap (away-from-baseline) side is always exact so cap
+    // rounding and the stack's outer edge stay put.
+    const sitsOnBaseline = Math.abs(bottomPixel - valueScale(0)) < 0.001
+    const overlappedBottom = sitsOnBaseline
+        ? bottomPixel
+        : bottomPixel + STACK_SEGMENT_OVERLAP_PX * Math.sign(bottomPixel - topPixel)
+    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, overlappedBottom, corners, dataIndex)
 }
 
 /** The track rect behind a bar — the bar's band slot stretched across the whole value
