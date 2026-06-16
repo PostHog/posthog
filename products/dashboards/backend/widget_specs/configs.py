@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from products.dashboards.backend.constants import ACTIVITY_EVENTS_DEFAULT_LIMIT, DEFAULT_WIDGET_LIST_LIMIT
 from products.dashboards.backend.widget_specs.common import (
@@ -46,6 +46,22 @@ class SessionReplayListWidgetConfig(WidgetListConfigBase):
     limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of recordings to return.")
     orderBy: SessionReplayOrderBy = Field(default="start_time", description="Recording ranking column.")
     orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
+    savedFilterId: str | None = Field(
+        default=None,
+        description=(
+            "short_id of a saved session replay filter to use as the recordings source. When set, the saved filter "
+            "owns the date range and property filters; only orderBy, orderDirection, and limit still apply."
+        ),
+    )
+
+    @field_validator("savedFilterId", mode="before")
+    @classmethod
+    def validate_saved_filter_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise ValueError("savedFilterId must be a string.")
+        return value
 
 
 class ActivityEventsListWidgetConfig(WidgetListConfigBase):

@@ -67,7 +67,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     config.secret_token, config.region.selection, config.region.subdomain
                 )
             except Exception as e:
-                capture_exception(e)
+                # A 401/403 here is a customer credential problem (invalid/revoked token), not a bug
+                # we can fix — the per-schema sync path already surfaces it and disables the source.
+                # Skip capturing those to avoid spamming error tracking on every discovery run, but
+                # still capture genuinely unexpected discovery failures.
+                if not any(pattern in str(e) for pattern in self.get_non_retryable_errors()):
+                    capture_exception(e)
                 definitions = []
 
             for definition in definitions:

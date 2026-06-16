@@ -17,6 +17,7 @@
             "limit",
             "orderBy",
             "orderDirection",
+            "savedFilterId",
             "widgetFilters"
         ]
     },
@@ -250,6 +251,9 @@
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]
+            },
+            "savedFilterId": {
+                "$type": "string"
             }
         }
     }
