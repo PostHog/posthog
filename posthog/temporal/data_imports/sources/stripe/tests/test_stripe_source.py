@@ -20,6 +20,8 @@ class TestStripeSource:
             # IP allowlist rejection — matched on the stable phrase, ignoring the appended IP address.
             "The API key provided does not allow requests from your IP address.",
             "The API key provided does not allow requests from your IP address (1.2.3.4).",
+            # Same rejection surfaced mid-sync, where `str(StripeError)` prefixes "Request <id>:".
+            "Request req_abc123: The API key provided does not allow requests from your IP address.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
