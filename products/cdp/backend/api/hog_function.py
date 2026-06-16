@@ -305,7 +305,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
 
-        self._validate_hidden_template_not_enabled(attrs, is_create)
+        self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
