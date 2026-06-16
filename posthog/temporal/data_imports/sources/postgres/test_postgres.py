@@ -418,7 +418,7 @@ class TestConnectForcesUtf8ClientEncoding:
         assert connect_mock.call_args.kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
         assert "client_encoding=UTF8" in FORCE_UTF8_CLIENT_ENCODING
 
-    def test_caller_supplied_options_take_precedence(self):
+    def test_caller_supplied_options_are_appended_after_utf8(self):
         with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
             _connect_to_postgres(
                 host="db.example.com",
@@ -429,7 +429,7 @@ class TestConnectForcesUtf8ClientEncoding:
                 options="-c statement_timeout=5000",
             )
 
-        assert connect_mock.call_args.kwargs["options"] == "-c statement_timeout=5000"
+        assert connect_mock.call_args.kwargs["options"] == f"{FORCE_UTF8_CLIENT_ENCODING} -c statement_timeout=5000"
 
 
 class TestStatementTimeoutAsNonRetryable:
