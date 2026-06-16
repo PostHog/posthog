@@ -52,6 +52,12 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # or PostHog no longer has access to it. Retrying can't fix a missing resource, so we
             # stop and surface a config-facing message instead of burning retries every schedule.
             "No virtual resource found": "LinkedIn could not find the configured ad account. Please check that the Account ID is correct and that PostHog still has access to it, then try again.",
+            # The Account ID is a free-text field. A malformed value (a profile URL, a name, stray
+            # whitespace) makes LinkedIn reject the `urn:li:sponsoredAccount:<id>` accounts param with
+            # a deterministic 400 ("...is invalid. Reason: Deserializing output ... failed"). Retrying
+            # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
+            # the stable prefix only — the offending value that follows varies per source.
+            "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
         }
 
     @property
