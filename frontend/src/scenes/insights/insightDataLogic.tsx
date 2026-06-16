@@ -297,6 +297,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             if (result) {
                 actions.setInsightData({ ...values.insightData, result })
+            } else if (query) {
+                // No precomputed result (e.g. a SQL editor PATCH response carries none) — re-run
+                // the query so the view doesn't keep rendering the pre-edit response.
+                const source = isInsightVizNode(query) || isDataVisualizationNode(query) ? query.source : query
+                actions.loadData(isHogQLQuery(source) ? 'force_blocking' : 'force_async')
             }
         },
         loadInsightSuccess: ({ insight }) => {

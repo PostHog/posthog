@@ -315,6 +315,18 @@ describe('insightDataLogic', () => {
                 theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: false })
             }).toNotHaveDispatchedActions(['setQuery'])
         })
+        it('re-runs the query when overriding without a result', async () => {
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightLogic.actions.setInsight({ query: q }, { overrideQuery: true })
+            }).toDispatchActions(['setQuery', 'loadData'])
+        })
+        it('uses the handed-in result instead of re-running when one is provided', async () => {
+            await expectLogic(theInsightDataLogic, () => {
+                theInsightLogic.actions.setInsight({ query: q, result: [{ count: 1 }] }, { overrideQuery: true })
+            })
+                .toDispatchActions(['setQuery', 'setInsightData'])
+                .toNotHaveDispatchedActions(['loadData'])
+        })
     })
 
     describe('dashboard tile: cached insight with no chart data yet', () => {
