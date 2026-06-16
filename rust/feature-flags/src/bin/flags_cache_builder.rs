@@ -350,7 +350,9 @@ async fn consume_loop(
         commit_offsets(&consumer);
     }
 
-    tracing::info!("Consumer loop draining; offsets committed up to last batch");
+    // On a mid-batch interrupt we break *before* committing, so the commit point
+    // is the last fully processed batch — not necessarily the last one fetched.
+    tracing::info!("Consumer loop draining; offsets committed up to last fully processed batch");
 }
 
 /// Dedupe a fetched batch by `team_id`, counting received messages and errors.
