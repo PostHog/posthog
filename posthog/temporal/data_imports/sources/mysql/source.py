@@ -146,6 +146,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # MySQL/MariaDB error 1054 (ER_BAD_FIELD_ERROR): a column the sync query references no
+            # longer exists in the source table — almost always the configured incremental field
+            # after the column was renamed or dropped (schema drift). The streaming query reissues
+            # the same WHERE/ORDER BY on every attempt, so it fails identically forever; the COUNT(*)
+            # probe already swallows this same error expecting it to be classified here. Match on the
+            # locale-independent error code (the column name and clause are volatile, and the message
+            # text is translated on non-English servers) so it catches both the raw pymysql string and
+            # the Temporal-wrapped `OperationalError: (1054, ...)` form.
+            '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
         }
 
     def validate_credentials(
