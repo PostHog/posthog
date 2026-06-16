@@ -1063,6 +1063,64 @@ class TestPostgresSchemaDiscovery:
         connection.cursor.return_value = cursor_context
         return connection
 
+    def test_get_schemas_retries_transient_connection_drop_on_connect(self):
+        # A transient drop on the discovery connect ("server closed the connection unexpectedly")
+        # is the same class of error the import read path already recovers from. Discovery must
+        # retry the connect in-process and recover instead of failing the whole run — and surfacing
+        # as captured error-tracking noise — on the first blip.
+        drop = psycopg.OperationalError(
+            'connection failed: connection to server at "66.33.22.246", port 11212 failed: '
+            "server closed the connection unexpectedly"
+        )
+        connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[drop, connection],
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        # First connect dropped, second succeeded — before the fix the drop escaped on the first
+        # connect (call_count == 1) and failed the discovery activity.
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        connection.close.assert_called_once()
+
+    def test_get_schemas_does_not_retry_permanent_connect_error(self):
+        # A permanent connect failure (bad password) must propagate on the first attempt — the
+        # dropped-connection retry is scoped strictly to transient drops.
+        err = psycopg.OperationalError(
+            'connection to server at "10.0.0.1" failed: FATAL: password authentication failed for user "postgres"'
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=err,
+        ) as connect_mock:
+            with mock.patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.OperationalError):
+                    get_schemas(
+                        host="localhost",
+                        port=5432,
+                        database="postgres",
+                        user="postgres",
+                        password="postgres",
+                        schema="",
+                    )
+
+        assert connect_mock.call_count == 1
+
     def test_get_schemas_qualifies_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(
             [("public", "users"), ("analytics", "events")],

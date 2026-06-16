@@ -832,10 +832,24 @@ def get_schemas(
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
-    with pg_connection(
-        host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
-    ) as connection:
+    # Schema discovery opens a fresh connection on its own periodic cadence. A momentary drop on
+    # connect — "server closed the connection unexpectedly" / an SSL EOF from a pooler, firewall,
+    # or SSH-tunnel hiccup — is transient and recovers on a retry, exactly like the drops the
+    # import read path already retries via `_connect_with_dropped_retry`. Without an in-process
+    # retry here that blip fails the whole discovery activity and surfaces as captured
+    # error-tracking noise even though the next attempt would succeed. Permanent errors (auth
+    # failures, SSL-required) re-raise immediately because `_is_connection_dropped_error` only
+    # matches transient drops.
+    connection = _connect_with_dropped_retry(
+        lambda: _connect_to_postgres(
+            host=host, port=port, database=database, user=user, password=password, require_ssl=require_ssl
+        ),
+        structlog.get_logger(),
+    )
+    try:
         return _schemas_from_conn(connection, schema, names)
+    finally:
+        connection.close()
 
 
 def get_primary_keys_for_schemas(
