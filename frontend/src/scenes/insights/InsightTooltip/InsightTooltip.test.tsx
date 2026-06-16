@@ -21,6 +21,7 @@ describe('InsightTooltip', () => {
                     date="2026-06-15"
                     seriesData={seriesData}
                     breakdownFilter={breakdownFilter}
+                    renderSeries={(value) => value}
                     renderCount={(value) => `${value}%`}
                 />
             </Provider>
