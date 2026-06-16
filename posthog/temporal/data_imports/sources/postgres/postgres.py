@@ -164,6 +164,21 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _is_recovery_conflict_error(error: BaseException) -> bool:
+    """True if `error` is a Postgres standby recovery conflict.
+
+    A read replica cancels an in-flight query when WAL replay needs to remove row
+    versions the query might still read ("canceling statement due to conflict with
+    recovery", SQLSTATE 40001 -> psycopg SerializationFailure). It's transient and
+    expected on replicas — the row-streaming reader already retries it in-process and
+    `get_non_retryable_errors` deliberately keeps the raw message retryable — so
+    best-effort probes should degrade quietly rather than alert on a handled condition.
+    """
+    return isinstance(error, psycopg.errors.SerializationFailure) and "conflict with recovery" in " ".join(
+        str(arg) for arg in error.args
+    )
+
+
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -1318,9 +1333,16 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
         )
 
         return chunk_size
-    except psycopg.errors.QueryCanceled:
-        raise
     except Exception as e:
+        # Best-effort: any failure (including a statement_timeout / QueryCanceled) falls back to
+        # DEFAULT_CHUNK_SIZE. The estimation query wraps the sample in `octet_length(t::text)`,
+        # which serializes every column to text and so evaluates generated columns and check/domain
+        # validator functions — making it strictly more expensive than the real chunked `SELECT *`
+        # extraction. A timeout here therefore says nothing about whether extraction will succeed,
+        # and the savepoint above keeps the connection usable. The streaming read loop has its own
+        # dedicated QueryCanceled handling (`_statement_timeout_as_non_retryable`), so re-raising the
+        # cancellation here would only bypass that path and leak a raw, retryable QueryCanceled that
+        # Temporal re-attempts forever on tables this query can never complete on.
         logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
 
         return DEFAULT_CHUNK_SIZE
@@ -1420,7 +1442,12 @@ def _get_partition_settings(
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
-        capture_exception(e)
+        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
+        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
+        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
+        # unexpected failures are still captured.
+        if not _is_recovery_conflict_error(e):
+            capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
 
@@ -2113,7 +2140,13 @@ def postgres_source(
                             connection = get_connection()
                             connection.autocommit = True
 
-                        with connection.cursor() as cursor:
+                        # Use psycopg.Cursor directly to bypass cursor_factory: on a
+                        # non-read-replica source it is ServerCursor (set in get_rows),
+                        # which requires a `name` and makes an unnamed connection.cursor()
+                        # raise "ServerCursor.__init__() missing 1 required positional
+                        # argument: 'name'". This LIMIT/OFFSET fetchall path wants an
+                        # unnamed client cursor.
+                        with psycopg.Cursor(connection) as cursor:
                             query_with_limit = cast(
                                 LiteralString, f"{query.as_string()} LIMIT {chunk_size} OFFSET {offset}"
                             )

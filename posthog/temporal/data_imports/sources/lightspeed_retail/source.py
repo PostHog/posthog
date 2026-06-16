@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -46,6 +47,8 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LIGHTSPEED_RETAIL,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
+            keywords=["lightspeed"],
             label="Lightspeed Retail",
             caption="""Enter your Lightspeed Retail (X-Series) credentials to pull your point-of-sale data into the PostHog Data warehouse.
 

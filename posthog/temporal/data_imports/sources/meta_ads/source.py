@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -46,8 +47,9 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
             "Ad account owner has NOT": None,
             "cannot be loaded due to missing permissions": None,
             # Meta returns this 500 when the requested query is too large for their backend to
-            # service. We already adaptively shrink stats chunks (30 → 7 → 1 day) and detect this
-            # message in `_is_timeout_error`; if it still escapes, retrying the whole job won't help.
+            # service. Both pagination paths adapt to it (stats chunks shrink 30 → 7 → 1 day, and
+            # both paths shrink the per-page limit 500 → 100 → 50); if it still escapes after those
+            # fallbacks are exhausted, retrying the whole job won't help.
             "Please reduce the amount of data you're asking for": None,
         }
 
@@ -101,6 +103,8 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.META_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["facebook ads", "instagram ads"],
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
             iconPath="/static/services/meta-ads.png",

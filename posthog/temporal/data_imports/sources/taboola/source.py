@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -48,6 +49,7 @@ class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TABOOLA,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Taboola",
             caption="""Connect your Taboola account to pull your advertising data into the PostHog Data warehouse.
 

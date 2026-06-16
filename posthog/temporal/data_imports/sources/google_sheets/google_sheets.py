@@ -1,6 +1,7 @@
 import time
 import random
-from typing import Any, Optional
+from collections.abc import Callable
+from typing import Any, Optional, TypeVar
 
 from django.conf import settings
 
@@ -56,22 +57,15 @@ _RETRYABLE_API_ERROR_CODES = {429, 500, 502, 503, 504}
 # stable, descriptive message so downstream matching can identify it.
 _PERMISSION_DENIED_MESSAGE = "Spreadsheet access denied. Please share the spreadsheet with the PostHog service account."
 
+T = TypeVar("T")
 
-@cached(cache)
-def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
-    """Attempt to get a worksheet with linear backoff. Google Sheets has a 300
-    request quota per minute, and also returns transient 5xx server errors. We
-    retry both (see `_RETRYABLE_API_ERROR_CODES`) and add a +- 10s jitter to the
-    sleep per attempt so that multiple jobs blocked by quota limits dont all retry
-    at the same time"""
 
-    def execute():
-        client = google_sheets_client()
-        try:
-            spreadsheet = client.open_by_url(spreadsheet_url)
-        except PermissionError as e:
-            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
-        return spreadsheet.get_worksheet_by_id(worksheet_id)
+def _retry_on_transient_api_error(execute: Callable[[], T]) -> T:
+    """Run `execute` with linear backoff, retrying transient Google Sheets API
+    errors. Google Sheets has a 300 request quota per minute, and also returns
+    transient 5xx server errors (see `_RETRYABLE_API_ERROR_CODES`). We retry both
+    and add a +- 10s jitter to the sleep per attempt so that multiple jobs blocked
+    by quota limits dont all retry at the same time."""
 
     attempts = 1
 
@@ -89,15 +83,34 @@ def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet
             attempts = attempts + 1
 
 
+@cached(cache)
+def _get_worksheet(spreadsheet_url: str, worksheet_id: int) -> gspread.Worksheet:
+    def execute():
+        client = google_sheets_client()
+        try:
+            spreadsheet = client.open_by_url(spreadsheet_url)
+        except PermissionError as e:
+            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        return spreadsheet.get_worksheet_by_id(worksheet_id)
+
+    return _retry_on_transient_api_error(execute)
+
+
 def get_schemas(config: GoogleSheetsSourceConfig) -> list[tuple[str, int]]:
     """Returns a tuple of worksheets in the form of (title, id)"""
 
-    client = google_sheets_client()
-    try:
-        spreadsheet = client.open_by_url(config.spreadsheet_url)
-    except PermissionError as e:
-        raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
-    worksheets = spreadsheet.worksheets()
+    # `open_by_url` and `worksheets()` hit the Sheets API and so are subject to the same
+    # transient quota (429) and 5xx server errors as `_get_worksheet` — retry them with backoff
+    # rather than letting a transient blip fail the whole sync during schema discovery.
+    def execute():
+        client = google_sheets_client()
+        try:
+            spreadsheet = client.open_by_url(config.spreadsheet_url)
+        except PermissionError as e:
+            raise PermissionError(_PERMISSION_DENIED_MESSAGE) from e
+        return spreadsheet.worksheets()
+
+    worksheets = _retry_on_transient_api_error(execute)
 
     return [(NamingConvention.normalize_identifier(worksheet.title), worksheet.id) for worksheet in worksheets]
 

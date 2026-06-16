@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class GoogleAnalyticsSource(SimpleSource[GoogleAnalyticsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_ANALYTICS,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            keywords=["ga4", "ga"],
             label="Google Analytics",
             iconPath="/static/services/google_analytics.png",
             fields=cast(list[FieldType], []),
