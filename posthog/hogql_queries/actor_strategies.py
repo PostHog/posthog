@@ -71,13 +71,18 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
+    # Default 101 matches the canonical ClickHouse person query (groupArray(101)): consumers read
+    # distinct_ids[0] or the display-name scorer, none needs the full set. get_serialized_people
+    # overrides with its own distinct_id_limit for the persons-list/export API.
+    def get_actors(
+        self, actor_ids, sort_by_created_at_descending: bool = False, limit_per_person: int | None = 101
+    ) -> dict[str, dict]:
         from posthog.personhog_client.client import get_personhog_client
 
         client = get_personhog_client()
         if client is not None:
             try:
-                result = self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending)
+                result = self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending, limit_per_person)
                 PERSONHOG_ROUTING_TOTAL.labels(
                     operation="get_actors", source="personhog", client_name=get_client_name()
                 ).inc()
@@ -95,6 +100,7 @@ class PersonStrategy(ActorStrategy):
         self,
         actor_ids,
         sort_by_created_at_descending: bool,
+        limit_per_person: int | None,
     ) -> dict[str, dict]:
         actor_ids_list = [str(uid) for uid in actor_ids]
         team_id = self.team.pk
@@ -105,7 +111,9 @@ class PersonStrategy(ActorStrategy):
             all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
 
         person_ids = [p.id for p in all_persons]
-        distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
+        distinct_ids_by_person = _batched_get_distinct_ids_for_persons(
+            team_id, person_ids, limit_per_person=limit_per_person
+        )
 
         return {
             p.uuid: {

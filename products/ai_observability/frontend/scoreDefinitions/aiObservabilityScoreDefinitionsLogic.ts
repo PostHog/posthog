@@ -275,7 +275,14 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
             }
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic owns the bare params (search, page, ...) — pass everyone
+                // else's through (review_*, queue_*, shared filters) instead of stripping them.
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),

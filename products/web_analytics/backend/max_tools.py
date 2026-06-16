@@ -575,10 +575,15 @@ def _execute(team: Team, stmt: ast.SelectQuery | ast.SelectSetQuery) -> Any:
 def _coordinate_points(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]]:
     stmt = parse_select(
         DEFAULT_QUERY,
-        {"aggregation_count": parse_expr("count(*) as cnt"), "predicates": ast.And(exprs=exprs)},
+        {
+            "aggregation_count": parse_expr("count(*) as cnt"),
+            "predicates": ast.And(exprs=exprs),
+            "limit": ast.Constant(value=_TOP_POINTS),
+            "offset": ast.Constant(value=0),
+        },
     )
     result = _execute(team, stmt)
-    points = [
+    return [
         {
             "pointer_target_fixed": bool(item[0]),
             "pointer_relative_x": item[1],
@@ -587,8 +592,6 @@ def _coordinate_points(team: Team, exprs: list[ast.Expr]) -> list[dict[str, Any]
         }
         for item in result.results or []
     ]
-    points.sort(key=lambda p: p["count"], reverse=True)
-    return points[:_TOP_POINTS]
 
 
 def _fold_summary(team: Team, exprs: list[ast.Expr]) -> dict[str, Any]:
