@@ -78,7 +78,6 @@ class SandboxResources:
 
     cpu_cores: float | None = None
     memory_gb: float | None = None
-    disk_size_gb: float | None = None
 
 
 class SandboxConfig(BaseModel):

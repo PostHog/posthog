@@ -365,8 +365,6 @@ async def select_repository(
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
-        # Repo selection only clones a dummy repo and runs read-only SQL, so it
-        # needs far less compute than a coding task — half the default sandbox.
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
     )
 

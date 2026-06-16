@@ -451,8 +451,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 extra_state["sandbox_cpu_cores"] = sandbox_resources.cpu_cores
             if sandbox_resources.memory_gb is not None:
                 extra_state["sandbox_memory_gb"] = sandbox_resources.memory_gb
-            if sandbox_resources.disk_size_gb is not None:
-                extra_state["sandbox_disk_size_gb"] = sandbox_resources.disk_size_gb
         if sandbox_timeout_seconds is not None:
             extra_state["sandbox_ttl_seconds"] = sandbox_timeout_seconds
 

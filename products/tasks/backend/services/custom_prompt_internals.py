@@ -93,8 +93,8 @@ class CustomPromptSandboxContext:
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
     sandbox_resources: SandboxResources | None = None
-    """Override the sandbox's compute (CPU / memory / disk). Unset fields keep the
-    SandboxConfig defaults (4 cores / 16 GB / 64 GB)."""
+    """Override the sandbox's compute (CPU / memory). Unset fields keep the
+    SandboxConfig defaults (4 cores / 16 GB)."""
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
 

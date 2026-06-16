@@ -124,7 +124,6 @@ class TaskProcessingContext:
         for state_key, config_key in (
             ("sandbox_cpu_cores", "cpu_cores"),
             ("sandbox_memory_gb", "memory_gb"),
-            ("sandbox_disk_size_gb", "disk_size_gb"),
         ):
             value = state.get(state_key)
             if isinstance(value, int | float) and not isinstance(value, bool):
