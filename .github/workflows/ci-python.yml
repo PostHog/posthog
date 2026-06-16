@@ -46,13 +46,11 @@ jobs:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
                         # file lands undetected and trips the next unrelated PR that does run.
-                        # The two globs below cover every .py change; the remaining entries
-                        # only exist to catch non-Python files (or trigger dedicated steps).
                         - '**/*.py'
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'posthog/**/*' # non-.py assets (templates, fixtures) feed Python checks/tests
+                        - 'posthog/**/*'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
@@ -62,12 +60,12 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
-                        # hogli CLI changes need validation (non-.py manifests + dedicated test steps)
+                        # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'hogli.yaml'
                         - 'bin/**'
-                        # Dev tools with dedicated pytest steps below (catches their non-.py files too)
+                        # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
                         - 'tools/query-performance-ai/**'
 
