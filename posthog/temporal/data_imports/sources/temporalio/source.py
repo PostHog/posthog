@@ -50,6 +50,10 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             # authentication, which this source does not provide — it authenticates with mTLS client
             # certificates. This is a credential/host configuration problem, so retrying can never recover.
             "code: Unauthenticated": "Temporal rejected the connection because it requires API key (JWT) authentication, which this source does not provide. This usually means the configured host points at a Temporal Cloud API endpoint that uses API key authentication rather than your namespace's mTLS gRPC endpoint (typically <namespace>.<account>.tmprl.cloud:7233). Update the source's host to the namespace's gRPC endpoint that accepts client-certificate (mTLS) authentication.",
+            # The Temporal SDK's Rust bridge raises this when the connection target has no host, i.e. the
+            # source was saved with an empty Host field. This is a config problem — retrying can never
+            # recover until the host is set.
+            "invalid target URL: empty host": "This source has no host configured. Update the source with the host of your Temporal namespace's gRPC endpoint (typically <namespace>.<account>.tmprl.cloud).",
         }
 
     def get_schemas(
