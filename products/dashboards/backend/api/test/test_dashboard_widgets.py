@@ -23,6 +23,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -920,6 +921,28 @@ class TestDashboardWidgets(APIBaseTest):
         assert tiles[0]["layouts"]["sm"]["x"] == 0
         assert tiles[1]["layouts"]["sm"]["y"] == 5
         assert tiles[1]["layouts"]["sm"]["x"] == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_widget_lands_below_tiles_with_no_persisted_layout(self) -> None:
+        # Insights added to a dashboard get `layouts = {}` until a layout save; the backend
+        # must still count them so a new widget lands below, not in a mid-page gap.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+        for _ in range(3):
+            insight = Insight.objects.create(team=self.team, name="layoutless")
+            DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 5}}]},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        # 3 layout-less tiles pack two-per-row at 6×5 → bottom row at y=5 (height 10);
+        # the widget must land below the tallest column, not at the top.
+        sm = response.json()["tiles"][0]["layouts"]["sm"]
+        assert sm["y"] == 10
+        assert sm["x"] == 0
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_batch_create_widget_tiles_rejects_empty_list(self) -> None:
