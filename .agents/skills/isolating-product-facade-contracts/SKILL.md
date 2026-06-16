@@ -228,11 +228,16 @@ in `facade/api.py` with the viewset deferred.
      module whose wave is cheap; defer only the expensive ones, naming the reason and
      the surviving `ignore_imports` entries in the PR description.
    - Deferred modules keep exact-pair `ignore_imports` entries in `pyproject.toml`'s
-     TODO section. That debt is **architectural** (business logic in views, the internal
-     boundary unenforced), not a CI-coverage hole: the product's own job tests its views
-     either way, and the full-suite skip is made safe by the caller sweep, test
-     residency, and the parity tests — not by this refactor. A follow-up
-     presentation-wave PR deletes the entries.
+     TODO section. That debt **gates the skip**: while any entry remains the product
+     must NOT enable `backend:contract-check` (step 6), so the full suite keeps running
+     and there is no coverage hole. This is the soundness boundary — the skip only
+     re-runs the suite on facade/presentation changes, so it is honest only once
+     presentation is thin. A thick deferred view reaches internals directly, so an
+     internals change flowing to HTTP through it would slip past the skip (and past the
+     cross-cutting core tests that exercise the product by URL with zero imports).
+     `hogli product:lint` enforces the gate — contract-check while `ignore_imports`
+     entries exist fails lint. The skip is the reward the presentation-wave PR unlocks
+     when it empties them.
    - The mechanical share is one command: `hogli product:isolate:move <name>` (run
      `--dry-run` first) moves the ViewSet modules into `presentation/views/` (auto-detected,
      `--views` to override), `tasks.py` into a `tasks/` package with celery names pinned,
@@ -258,7 +263,10 @@ in `facade/api.py` with the viewset deferred.
       add a new dedicated block if the product needs a non-standard expose
       pattern.
    3. **`backend:contract-check` script** — add to `package.json` so
-      turbo-discover treats the product as isolated.
+      turbo-discover treats the product as isolated. This is the **last** piece:
+      add it only once the product is fully isolated — no `ignore_imports` entries
+      left, presentation thin. `hogli product:lint` blocks the script while deferred
+      entries remain, because the skip is unsound until then (see step 5).
    4. **Narrowed `turbo.json` inputs** — restrict `backend:contract-check`
       inputs to `backend/facade/**` and `backend/presentation/**` so the
       Django suite is only re-run on facade/presentation changes (see
@@ -308,8 +316,12 @@ and let commit structure — not PR boundaries — organize review.
 2. **Commit — sweep.** All caller migrations. Mechanical; reviewers sample, the
    verification chain carries it.
 3. **Commit — structure + chain.** Presentation move and rewrites
-   (`hogli product:isolate:move`), strict-lint fixes, tach interface,
-   `backend:contract-check`, narrowed `turbo.json`.
+   (`hogli product:isolate:move`), strict-lint fixes, tach interface. Add
+   `backend:contract-check` + narrowed `turbo.json` here **only if the product is
+   fully isolated in this PR** — no deferred view modules. If any module is deferred
+   (`ignore_imports` entries remain), the skip can't turn on yet (`product:lint` blocks
+   it), so it lands with the presentation-wave PR; this PR ships without the skip and
+   keeps paying the full suite, which is sound.
 
 Don't split the facade into its own PR for reviewability: new files cannot conflict
 regardless of which PR they sit in, so a standalone design PR buys no conflict
@@ -380,7 +392,11 @@ commit (the contract and function shapes are the long-lived API), so it gets its
 PR rather than riding along with mechanical work. Refactoring a wave-one function while
 here (e.g. subsuming a runner builder under a run-function) is fine — its callers are
 few and the parity tests pin behavior. The product's done criteria below are only fully
-satisfiable once this wave has emptied the allowlist.
+satisfiable once this wave has emptied the allowlist — and emptying it is what unlocks
+the skip: the PR that deletes the last `ignore_imports` entry is where
+`backend:contract-check` + narrowed `turbo.json` are finally added (`product:lint`
+blocks them until then). For a product that deferred modules, this is when it earns the
+CI skip.
 
 ## Done criteria
 
@@ -399,4 +415,6 @@ Treat migration as complete only when:
   view modules; the presentation wave deletes them.
 - `hogli product:lint <name>` shows no legacy leak warning and the isolation chain is intact.
 - `backend:contract-check` is present in `package.json` with `turbo.json` inputs
-  narrowed to `backend/facade/**` and `backend/presentation/**` (enables isolated testing in CI).
+  narrowed to `backend/facade/**` and `backend/presentation/**` (enables the CI skip).
+  This is the **last** thing added — `product:lint` blocks it until the `ignore_imports`
+  entries above are gone, so the skip only ever turns on for a fully isolated product.

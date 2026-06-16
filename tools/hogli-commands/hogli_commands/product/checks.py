@@ -451,7 +451,13 @@ class PackageJsonScriptsCheck(ProductCheck):
 
         facade_api = ctx.backend_dir / "facade" / "api.py"
         has_real_facade = facade_api.exists() and has_any_function_defs(facade_api)
-        needs_contract_check = ctx.is_isolated and not has_leaks and has_real_facade
+        # While a product has deferred presentation-wave ignore_imports entries, its
+        # views still bypass the facade and reach internals directly. The skip only
+        # re-runs the full suite on facade/presentation changes, so an internals
+        # change flowing to HTTP through such a view would be hidden. The skip is the
+        # reward for finishing — it can't be enabled until the wave empties them.
+        deferred = count_presentation_allowlist_entries(ctx.name)
+        needs_contract_check = ctx.is_isolated and not has_leaks and has_real_facade and deferred == 0
         required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
             if script not in scripts:
@@ -462,10 +468,17 @@ class PackageJsonScriptsCheck(ProductCheck):
                 )
 
         # --- absence check: must NOT have contract-check when not safe for isolation ---
-        must_not_have_contract_check = not ctx.is_isolated or has_leaks or not has_real_facade
+        must_not_have_contract_check = not ctx.is_isolated or has_leaks or not has_real_facade or deferred > 0
         if must_not_have_contract_check and "backend:contract-check" in scripts:
             if has_leaks:
                 reason = "has legacy interface leaks (core imports internals directly)"
+            elif deferred > 0:
+                plural = "entry" if deferred == 1 else "entries"
+                reason = (
+                    f"has {deferred} deferred presentation-wave ignore_imports {plural} — its presentation "
+                    "still bypasses the facade, so finish the presentation wave (empty the ignore_imports TODO "
+                    "section) before opting into the skip"
+                )
             else:
                 reason = "non-isolated product must not have 'backend:contract-check' script"
             result.lines.append("✗ must not have 'backend:contract-check'")
@@ -763,14 +776,9 @@ class IsolationChainCheck(ProductCheck):
                 "a real facade should convert models to contracts, not just re-export"
             )
 
-        if has_script and has_narrowed:
-            deferred = count_presentation_allowlist_entries(ctx.name)
-            if deferred:
-                result.warnings.append(
-                    f"{deferred} deferred presentation-wave ignore_imports entr{'y' if deferred == 1 else 'ies'} "
-                    "in pyproject.toml — views bypass their own facade; see the presentation-wave "
-                    "section of the isolating-product-facade-contracts skill"
-                )
+        # Note: a product that has the contract-check script *and* deferred
+        # presentation-wave ignore_imports entries is hard-blocked by
+        # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
 
         if result.issues or result.warnings:
             result.file = f"products/{ctx.name}/backend/facade/api.py"
