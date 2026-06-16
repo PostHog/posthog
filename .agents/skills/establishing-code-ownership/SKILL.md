@@ -38,6 +38,10 @@ Check both sources or you'll miss code:
 
 If neither `product.yaml` nor CODEOWNERS resolves it, consult the [feature-ownership handbook](https://posthog.com/handbook/engineering/feature-ownership) (teams to product areas). It's a genuine last resort: coarse-grained (broad areas, not files) and hand-maintained (lags repo moves and reorgs). Prefer the repo files, and flag any handbook-sourced answer as possibly stale.
 
+## Even-last-er resort: ask Slack
+
+If even the handbook comes up empty and you have the Slack MCP available, search Slack — or ask in a relevant channel — to track down who owns it. This is the final fallback and the least authoritative source: ad-hoc opinions and stale threads, not a maintained mapping. Verify anything it surfaces against the repo files, and flag the answer as Slack-sourced.
+
 ## Slug vs handle
 
 - **Handle** (CODEOWNERS): `@PostHog/<slug>`, e.g. `@PostHog/team-replay`.
