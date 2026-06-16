@@ -17,6 +17,7 @@ endpoints synced is used.
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.models.team import Team
@@ -25,6 +26,9 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 # GitHub source endpoints (``ExternalDataSchema.name``) backing the curated builders. The
 # materialized table for each is ``prefix + "github_" + endpoint``, e.g. with prefix
@@ -47,7 +51,9 @@ class GitHubTables:
     workflow_runs: str
 
 
-def resolve_github_tables(*, team: Team, source_id: str | None = None) -> GitHubTables:
+def resolve_github_tables(
+    *, team: Team, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+) -> GitHubTables:
     """Resolve the team's curated GitHub table names from its warehouse models.
 
     With ``source_id``, reads that specific connected GitHub source; otherwise picks the
@@ -56,6 +62,12 @@ def resolve_github_tables(*, team: Team, source_id: str | None = None) -> GitHub
     Raises ``GitHubSourceNotConnectedError`` when no matching usable source exists (the
     presentation layer maps it to a 400, so the UI prompts to connect a source and an agent gets
     an actionable error), or ``ValueError`` when ``source_id`` is not a UUID.
+
+    ``user_access_control`` enforces the requesting user's per-source warehouse RBAC: a source the
+    user can't access is filtered out before resolution, so a denied ``source_id`` raises (400) and
+    the default-oldest path skips it. The curated HogQL runs team-scoped with no user and HogQL does
+    not enforce per-user ACL on warehouse tables, so this is the only place that can honor it. None
+    (system/Temporal/CLI contexts with no request user) skips filtering — team scoping still holds.
     """
     sources = (
         ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
@@ -64,6 +76,8 @@ def resolve_github_tables(*, team: Team, source_id: str | None = None) -> GitHub
     )
     if source_id is not None:
         sources = sources.filter(id=_as_source_uuid(source_id))
+    if user_access_control is not None:
+        sources = user_access_control.filter_queryset_by_access_level(sources)
     for source in sources:
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)

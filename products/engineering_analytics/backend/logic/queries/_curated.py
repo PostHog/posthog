@@ -13,6 +13,8 @@ flow through ``ast.Constant`` placeholders in the calling query, never be string
 into these fragments.
 """
 
+from typing import TYPE_CHECKING
+
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
@@ -24,6 +26,9 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 
 class CuratedGitHubSource:
@@ -40,8 +45,13 @@ class CuratedGitHubSource:
         self._tables = tables
 
     @classmethod
-    def for_team(cls, team: Team, *, source_id: str | None = None) -> "CuratedGitHubSource":
-        return cls(team=team, tables=resolve_github_tables(team=team, source_id=source_id))
+    def for_team(
+        cls, team: Team, *, source_id: str | None = None, user_access_control: "UserAccessControl | None" = None
+    ) -> "CuratedGitHubSource":
+        return cls(
+            team=team,
+            tables=resolve_github_tables(team=team, source_id=source_id, user_access_control=user_access_control),
+        )
 
     def pr_source(self) -> str:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""

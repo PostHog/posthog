@@ -99,7 +99,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     @action(detail=False, methods=["get"], pagination_class=None)
     def ci_cards(self, request: Request, **kwargs) -> Response:
         try:
-            result = api.get_ci_cards(team=self.team, source_id=request.query_params.get("source_id") or None)
+            result = api.get_ci_cards(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(CICardSummarySerializer(instance=result).data)
@@ -125,6 +129,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
             )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from or source_id")
@@ -154,6 +159,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
             )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
@@ -199,6 +205,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 pr_number=pr_number,
                 repo=request.query_params.get("repo") or None,
                 source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
             )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid repo or source_id")
