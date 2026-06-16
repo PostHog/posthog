@@ -945,7 +945,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     const matchByOptions = [
         {
-            value: 'properties',
+            value: 'properties' as const,
             icon: <IconBrackets className="text-base shrink-0" />,
             label: 'Properties',
             description: showGroupsOptions
@@ -955,7 +955,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
         ...(onBucketingIdentifierChange
             ? [
                   {
-                      value: 'device',
+                      value: 'device' as const,
                       icon: <IconLaptop className="text-base shrink-0" />,
                       label: 'Device',
                       description: 'Stable assignment per device. Good fit for experiments on anonymous users.',
