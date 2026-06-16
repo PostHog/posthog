@@ -12,6 +12,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CachedEventsQueryResponse,
     EventMetadataPropertyFilter,
@@ -718,6 +720,55 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         display_names = [row[1]["display_name"] for row in response.results]
         assert set(display_names) == {"id_email", "id_anon"}
+
+    @parameterized.expand(
+        [
+            (
+                "empty_first_prop_falls_through",
+                ["name", "email"],
+                {"name": "", "email": "user@email.com"},
+                "user@email.com",
+            ),
+            ("all_props_empty_falls_back_to_distinct_id", ["name", "email"], {"name": "", "email": ""}, "id_email"),
+            (
+                "non_empty_value_still_wins",
+                ["name", "email"],
+                {"name": "Test User", "email": "user@email.com"},
+                "Test User",
+            ),
+        ]
+    )
+    def test_person_display_name_field_empty_string_fallthrough(
+        self, _name, display_name_properties, person_properties, expected_display_name
+    ):
+        # An empty-string property should fall through to the next configured property,
+        # the same way a missing property does.
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email"],
+            properties=person_properties,
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        self.team.person_display_name_properties = display_name_properties
+        self.team.save()
+        self.team.refresh_from_db()
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {expected_display_name}
 
     def test_person_display_name_field_with_spaces_in_property_name(self):
         _create_person(
