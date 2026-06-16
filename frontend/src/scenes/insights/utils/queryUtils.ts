@@ -200,6 +200,9 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
 
     // separate runner
     [ChartDisplayType.BoxPlot]: ChartDisplayType.BoxPlot,
+
+    // separate runner — only the two range endpoints, cached on its own key
+    [ChartDisplayType.SlopeGraph]: ChartDisplayType.SlopeGraph,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */

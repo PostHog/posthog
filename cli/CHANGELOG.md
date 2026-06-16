@@ -1,5 +1,12 @@
 # posthog-cli
 
+## 0.7.24 — 2026-06-16
+
+### Patch changes
+
+- [10af01f66f](https://github.com/PostHog/posthog/commit/10af01f66fad9b230ca925fe4753f6361cd4ca4a) Refresh master before preparing CLI releases — Thanks @cat-ph!
+- [ace786f67b](https://github.com/PostHog/posthog/commit/ace786f67bd4d0360bd79e531cfce2d1f3af9bef) Fix API CLI bundle packaging and lookup — Thanks @cvolzer3!
+
 ## 0.7.23 — 2026-06-15
 
 ### Patch changes
