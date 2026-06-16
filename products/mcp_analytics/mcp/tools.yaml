@@ -4,6 +4,18 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
+#
+# Alpha product: every enabled tool is gated behind the mcp-analytics feature flag
+# (matching the UI and the REST viewsets). The dashboard, tool-quality, and sessions
+# *list* views are answered SQL-first via skills over the mcp_tool_call event table,
+# so their list/read operations stay disabled here — only the bespoke, non-SQL
+# capabilities (intent clusters, LLM session intent, feedback writes) are exposed.
+#
+# Cross-layer sync (enforced in different places — keep in lockstep): each tool's
+# `feature_flag: mcp-analytics` must match the viewset's `posthog_feature_flag`, and
+# its `scopes:` (mcp_analytics:read|write — underscore) must match the viewset's
+# `scope_object` ("mcp_analytics") and read/write action mapping. The flag/url use a
+# hyphen (mcp-analytics); the scope object uses an underscore (mcp_analytics).
 category: MCP analytics
 feature: mcp_analytics
 url_prefix: /mcp-analytics
@@ -67,7 +79,9 @@ tools:
         enabled: false
     mcp-feedback-submit:
         operation: mcp_analytics_feedback_create
-        enabled: false
+        enabled: true
+        scopes:
+            - mcp_analytics:write
         annotations:
             readOnly: false
             destructive: false
@@ -81,12 +95,15 @@ tools:
             - feedback
             - category
             - attempted_tool
+        feature_flag: mcp-analytics
     mcp-missing-capability-list:
         operation: mcp_analytics_missing_capabilities_list
         enabled: false
     mcp-missing-capability-report:
         operation: mcp_analytics_missing_capabilities_create
-        enabled: false
+        enabled: true
+        scopes:
+            - mcp_analytics:write
         annotations:
             readOnly: false
             destructive: false
@@ -100,3 +117,4 @@ tools:
             - missing_capability
             - blocked
             - attempted_tool
+        feature_flag: mcp-analytics

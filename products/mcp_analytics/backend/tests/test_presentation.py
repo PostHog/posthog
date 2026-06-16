@@ -10,6 +10,13 @@ from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixi
 
 
 class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Alpha product gated by the mcp-analytics feature flag; enable it for the happy-path tests.
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     @parameterized.expand(
         [
             ("feedback_create", "post", "feedback/", {"goal": "understand usage", "feedback": "Need clearer results"}),
@@ -46,10 +53,10 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             ("missing_capability_list", "get", "missing_capabilities/", None),
         ]
     )
-    def test_endpoints_are_staff_only_in_cloud(
+    def test_endpoints_require_feature_flag(
         self, _name: str, method: str, path: str, payload: dict[str, str] | None
     ) -> None:
-        with self.is_cloud(True):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             request = getattr(self.client, method)
             response = request(f"/api/environments/{self.team.id}/mcp_analytics/{path}", payload, format="json")
 
@@ -274,6 +281,12 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _url(self, session_id: str) -> str:
         return f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/generate_intent/"
 
@@ -282,8 +295,8 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         response = self.client.post(self._url("abc"))
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_staff_only_in_cloud(self) -> None:
-        with self.is_cloud(True):
+    def test_requires_feature_flag(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
             response = self.client.post(self._url("abc"))
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
