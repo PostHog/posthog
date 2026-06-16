@@ -51,7 +51,7 @@ const getSlackAppManifest = (): any => ({
     },
 })
 
-export function SlackIntegration(): JSX.Element {
+export function SlackIntegration({ next }: { next?: string } = {}): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const { preflight, isDev } = useValues(preflightLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
@@ -86,7 +86,7 @@ export function SlackIntegration(): JSX.Element {
 
                 <div>
                     {slackAvailable ? (
-                        <Link to={api.integrations.authorizeUrl({ kind: 'slack' })} disableClientSideRouting>
+                        <Link to={api.integrations.authorizeUrl({ kind: 'slack', next })} disableClientSideRouting>
                             <img
                                 alt="Connect to Slack workspace"
                                 height="40"
