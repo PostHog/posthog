@@ -5,11 +5,15 @@
 // the bot's own anchor message (tagged via Slack message metadata) and reconciles.
 // There is no external state store, so there are no cache races and the alerter
 // self-heals: delete the anchor and the next run reposts; a missed run just
-// reconciles on the next tick.
+// reconciles on the next tick. (A duration-only incident deleted during a quiet period
+// reposts only once pushes resume.)
 //
 // Two signals make master "unhealthy" (folded into one incident):
-//   1. any gating workflow with >= WORKFLOW_FAILURE_STREAK_THRESHOLD consecutive
-//      failures on master — a single workflow broken run after run.
+//   1. any gating workflow failing run-after-run (>= WORKFLOW_FAILURE_STREAK_THRESHOLD
+//      consecutive failures) OR red for >= WORKFLOW_FAILURE_MINUTES_THRESHOLD minutes. The
+//      wall-clock arm only OPENS an incident while master is still being pushed (a commit
+//      within ACTIVITY_WINDOW_MINUTES), so a master sitting red over a quiet weekend doesn't
+//      page; an open incident still resolves only on green.
 //   2. >= COMMIT_FAILURE_STREAK_THRESHOLD consecutive red commits across the gating
 //      workflows — rotating-culprit breakage where no single workflow crosses its
 //      own threshold but master is still consistently red.
@@ -18,8 +22,8 @@
 //   - Anchor: one top-level message, edited silently each tick to keep the live
 //     summary current. On resolve its header is struck through and a green line
 //     prepended — the close is visible, nothing is erased.
-//   - Thread: append-only replies, one per *real change* (workflow crossed
-//     threshold / recovered, commit-streak started, master green). An unchanged
+//   - Thread: append-only replies, one per *real change* (workflow started failing
+//     / recovered, commit-streak started, master green). An unchanged
 //     tick refreshes the anchor duration only — no thread noise.
 //
 // GitHub API rate-limit observability is handled by the separate
@@ -230,8 +234,11 @@ function buildAnchorMessage({
     durationMins,
     allFailingRunsUrl,
 }) {
-    const lines = blocking.map(
-        (wf) => `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row`
+    // Duration-only blockers show just the red time — no sub-threshold "N failed runs" count.
+    const lines = blocking.map((wf) =>
+        wf.byCount
+            ? `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row · red for ${formatDuration(wf.redForMins)}`
+            : `• ${workflowLink(wf)} — red for ${formatDuration(wf.redForMins)}`
     )
     if (commitActive) {
         lines.push(`• _${plural(commitStreakCount, 'commit')} in a row failed a required check_`)
@@ -281,7 +288,8 @@ function buildResolvedMessage({ previousWorkflows, durationMins }) {
 function buildThreadReply({ created = [], added = [], removed = [], commitStarted = false }) {
     const parts = []
     if (created.length) {
-        parts.push(...created.map((wf) => `:red_circle: ${workflowLink(wf)} crossed the failure threshold`))
+        // Arm-neutral wording: the anchor bullet already says count vs. duration.
+        parts.push(...created.map((wf) => `:red_circle: ${workflowLink(wf)} is now failing master`))
     }
     if (added.length) parts.push(`:heavy_plus_sign: now also failing: ${added.map(workflowLink).join(', ')}`)
     if (removed.length) parts.push(`:white_check_mark: recovered: ${removed.map(workflowLink).join(', ')}`)
@@ -306,6 +314,8 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
     const workflowFiles = (process.env.GATING_WORKFLOWS || '').split(',').filter(Boolean)
     const workflowThreshold = parseInt(process.env.WORKFLOW_FAILURE_STREAK_THRESHOLD || '5', 10)
+    const minutesThreshold = parseInt(process.env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10)
+    const activityWindowMins = parseInt(process.env.ACTIVITY_WINDOW_MINUTES || '120', 10)
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
     // Over-fetch to survive cancelled/skipped runs (force-pushes, concurrency cancels).
     const perPage = Math.max(workflowThreshold * 3, 20)
@@ -331,17 +341,35 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     ])
 
     const failing = buildFailingMap(allWorkflowRuns)
+    // byDuration catches slow-velocity breakage that never stacks up a full failure streak.
     const blocking = Object.values(failing)
-        .filter((f) => f.consecutive_failures >= workflowThreshold)
-        .sort((a, b) => b.consecutive_failures - a.consecutive_failures) // longest streak first
-        .map((b) => ({ ...b, runsUrl: runsUrlFor(owner, repo, b.workflow_file) }))
+        .map((f) => {
+            const redForMins = Math.round((now.getTime() - new Date(f.since).getTime()) / 60000)
+            return {
+                ...f,
+                runsUrl: runsUrlFor(owner, repo, f.workflow_file),
+                redForMins,
+                byCount: f.consecutive_failures >= workflowThreshold,
+                byDuration: redForMins >= minutesThreshold,
+            }
+        })
+        .filter((f) => f.byCount || f.byDuration)
+        .sort((a, b) => b.redForMins - a.redForMins) // longest red first
 
     const latestCommit = commits[0] || null
+    // Fail closed: no dated commit → not recent → the wall-clock arm won't open.
+    const recentActivity =
+        latestCommit?.date != null && now.getTime() - new Date(latestCommit.date).getTime() <= activityWindowMins * 60000
+
     const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
         classifyCommits(commits, allWorkflowRuns)
     )
     const commitActive = commitStreakCount >= commitThreshold
+    // Sustains/resolves an open incident — ungated, so a stale-red master stays unhealthy
+    // and an open incident resolves only on genuine green.
     const unhealthy = blocking.length > 0 || commitActive
+    // Gates OPENING a new incident on recent push activity — the weekend-safety gate.
+    const shouldOpen = commitActive || blocking.some((f) => f.byCount || (f.byDuration && recentActivity))
 
     const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
@@ -354,7 +382,10 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
 
     let action = 'none'
 
-    if (unhealthy) {
+    // Open incident: sustain while unhealthy, else resolve. No incident: open only if shouldOpen.
+    const shouldWriteAnchor = active ? unhealthy : shouldOpen
+
+    if (shouldWriteAnchor) {
         // Carry name + runs link in metadata so later ticks can diff and re-link by name.
         const workflows = blocking.map((b) => ({ name: b.name, runsUrl: b.runsUrl }))
         const since = active?.payload?.since || computeSince()
