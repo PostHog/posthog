@@ -1495,6 +1495,15 @@ def _get_partition_settings(
         cursor.execute(query)
     except psycopg.errors.QueryCanceled:
         raise
+    except psycopg.errors.UndefinedTable as e:
+        # The selected table was dropped or renamed in the source between schema discovery and
+        # this best-effort partition-sizing probe. That's a user/upstream condition we already
+        # tolerate here (return None -> no partitioning), and the real extraction query — which
+        # shares this FROM clause — hits the same missing relation and surfaces it through the
+        # normal non-retryable path ("does not exist"). Capturing it here too would only flood
+        # error tracking with handled duplicates, so mirror `_get_rows_to_sync` and log at debug.
+        logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
+        return None
     except Exception as e:
         # Partition sizing is best-effort: on failure we return None and the sync proceeds
         # unpartitioned. Two handled conditions must not flood error tracking:
