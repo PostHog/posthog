@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import cast
 
@@ -1292,7 +1293,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self,
         feature_flag,
         variant: str,
-        per_user_purchases: list[list[float]],
+        per_user_purchases: Sequence[Sequence[float]],
     ) -> None:
         """Create one user per entry in per_user_purchases, each making the listed purchase amounts."""
         feature_flag_property = f"$feature/{feature_flag.key}"
