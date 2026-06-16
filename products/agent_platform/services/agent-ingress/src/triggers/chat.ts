@@ -192,12 +192,18 @@ async function cancelHandler(ctx: AuthedRouteCtx): Promise<void> {
     //     `completed`. It also closes the publish/subscribe race — a
     //     cancel that lands in the gap between claim and subscribe is
     //     caught by the runner's start-of-run state recheck.
-    await deps.bus.publish({
-        session_id: sessionId,
-        kind: 'cancel',
-        data: {},
-        ts: new Date().toISOString(),
-    })
+    // Best-effort: the publish only matters for an actively-running worker, so
+    // a Redis hiccup must not skip the durable `cancelled` write below.
+    try {
+        await deps.bus.publish({
+            session_id: sessionId,
+            kind: 'cancel',
+            data: {},
+            ts: new Date().toISOString(),
+        })
+    } catch {
+        // Swallow — the state write is the durable cancel signal.
+    }
     await deps.queue.update(sessionId, { state: 'cancelled' })
     res.json({ ok: true, state: 'cancelled' })
 }
