@@ -231,6 +231,31 @@ def custom_rule_to_expr(custom_rule: "CustomChannelRule", source_exprs: ChannelT
         return ast.Call(name=custom_rule.combiner.lower(), args=conditions)
 
 
+# HogQL function name for the default channel-type classification. Registered in
+# HOGQL_POSTHOG_FUNCTIONS and intercepted by the printer's visit_call, which expands it to the full
+# multiIf SQL via expand_default_channel_type_call. It is never mapped to a real ClickHouse function.
+DEFAULT_CHANNEL_TYPE_FUNCTION = "_defaultChannelType"
+
+
+def expand_default_channel_type_call(args: list[ast.Expr]) -> ast.Expr:
+    # Printer-side expansion of _defaultChannelType(...): substitute the 7 args (in the order
+    # create_channel_type_expr emits them) into the cached default channel-rules template. Lives here
+    # next to the template; called from the printer's visit_call.
+    campaign, medium, source, referring_domain, has_gclid, has_fbclid, gad_source = args
+    return replace_placeholders(
+        _initial_default_channel_rules_expr(),
+        placeholders={
+            "campaign": wrap_with_lower(wrap_with_null_if_empty(campaign)),
+            "medium": wrap_with_lower(wrap_with_null_if_empty(medium)),
+            "source": wrap_with_lower(wrap_with_null_if_empty(source)),
+            "referring_domain": referring_domain,
+            "has_gclid": has_gclid,
+            "has_fbclid": has_fbclid,
+            "gad_source": wrap_with_null_if_empty(gad_source),
+        },
+    )
+
+
 def create_channel_type_expr(
     custom_rules: Optional[list["CustomChannelRule"]],
     source_exprs: ChannelTypeExprs,
@@ -249,26 +274,24 @@ def create_channel_type_expr(
             if_args.append(ast.Constant(value=None))
             custom_rule_expr = ast.Call(name="multiIf", args=if_args)
 
-    with timings.measure("default_channel_rules_parse"):
-        builtin_rules_expr = _initial_default_channel_rules_expr()
-    with timings.measure("default_channel_rules_replace"):
-        builtin_rules = replace_placeholders(
-            builtin_rules_expr,
-            placeholders={
-                "campaign": wrap_with_lower(wrap_with_null_if_empty(source_exprs.campaign)),
-                "medium": wrap_with_lower(wrap_with_null_if_empty(source_exprs.medium)),
-                "source": wrap_with_lower(wrap_with_null_if_empty(source_exprs.source)),
-                "referring_domain": source_exprs.referring_domain,
-                "has_gclid": source_exprs.has_gclid,
-                "has_fbclid": source_exprs.has_fbclid,
-                "gad_source": wrap_with_null_if_empty(source_exprs.gad_source),
-            },
-        )
+    # The default GA4-style classification is a large constant multiIf. Emit it as a single
+    # _defaultChannelType(...) call (args in the order expand_default_channel_type_call expects); the
+    # printer expands it to SQL, so the catalog AST stays one node and only queries that actually select
+    # the field pay the expansion, in the printer rather than in every catalog build.
+    builtin_rules: ast.Expr = ast.Call(
+        name=DEFAULT_CHANNEL_TYPE_FUNCTION,
+        args=[
+            source_exprs.campaign,
+            source_exprs.medium,
+            source_exprs.source,
+            source_exprs.referring_domain,
+            source_exprs.has_gclid,
+            source_exprs.has_fbclid,
+            source_exprs.gad_source,
+        ],
+    )
     if custom_rule_expr:
-        return ast.Call(
-            name="coalesce",
-            args=[custom_rule_expr, builtin_rules],
-        )
+        return ast.Call(name="coalesce", args=[custom_rule_expr, builtin_rules])
     else:
         return builtin_rules
 
