@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
+use std::time::Instant;
+
 use chrono::{DateTime, Utc};
+use metrics::histogram;
 use uuid::Uuid;
 
 use super::constants::{
@@ -47,6 +50,7 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    let processing_start = Instant::now();
     crate::ctx_log!(Level::INFO, context, "process_batch called");
 
     validate_batch(&batch)?;
@@ -87,6 +91,12 @@ pub async fn process_batch(
     if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
         apply_token_distinct_id_limits(limiter, context, &mut events).await;
     }
+
+    histogram!(
+        "capture_v1_processing_duration_seconds",
+        "path" => context.path,
+    )
+    .record(processing_start.elapsed().as_secs_f64());
 
     // Publish to v1 sink, merge results, build response
     let sink_router = state
