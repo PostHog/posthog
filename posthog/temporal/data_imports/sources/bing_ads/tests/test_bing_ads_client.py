@@ -1,8 +1,26 @@
+import types
+
 import pytest
 from unittest import mock
 
+from suds import WebFault
+
 from posthog.temporal.data_imports.sources.bing_ads.client import BingAdsClient
 from posthog.temporal.data_imports.sources.bing_ads.source import BingAdsSource
+
+
+def _make_webfault(faultstring: str, detail: object | None) -> WebFault:
+    """Build a suds WebFault mirroring the shape the bingads SDK produces.
+
+    str(WebFault) is the generic faultstring; the actionable error codes live on fault.detail.
+    """
+    fault = types.SimpleNamespace(faultstring=faultstring, detail=detail)
+    return WebFault(fault, None)
+
+
+def _ad_api_fault_detail(error_code: str, message: str, code: int = 105) -> object:
+    error = types.SimpleNamespace(Code=code, ErrorCode=error_code, Message=message)
+    return types.SimpleNamespace(AdApiFaultDetail=types.SimpleNamespace(Errors=types.SimpleNamespace(AdApiError=error)))
 
 
 class TestBingAdsClient:
@@ -76,6 +94,50 @@ class TestBingAdsClient:
         message = str(exc_info.value)
         assert "ConnectionError" in message
 
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert not any(pattern in message for pattern in non_retryable_patterns)
+
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_surfaces_soap_fault_detail(self, mock_service_client):
+        """The generic 'Invalid client data' faultstring hides the real error code in the SOAP fault
+        detail. get_customer_id must surface that code so the retry framework can recognise it and
+        operators can see the real cause — matching an existing non-retryable auth pattern.
+        """
+        webfault = _make_webfault(
+            "Invalid client data. Check the SOAP fault details for more information. TrackingId: abc-123.",
+            _ad_api_fault_detail("InvalidCredentials", "The user is not authenticated."),
+        )
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = webfault
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "Failed to fetch customer ID" in message
+        # The detail error code is surfaced alongside the generic umbrella message.
+        assert "InvalidCredentials" in message
+        assert "Invalid client data" in message
+        # The surfaced detail makes the failure match a non-retryable pattern.
+        non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable_patterns)
+
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_get_customer_id_webfault_without_detail_keeps_generic_message(self, mock_service_client):
+        """A WebFault with no parseable detail must not crash extraction — it just keeps the faultstring."""
+        webfault = _make_webfault("Internal Error", detail=None)
+        mock_client_instance = mock_service_client.return_value
+        mock_client_instance.GetUser.side_effect = webfault
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError) as exc_info:
+            client.get_customer_id()
+
+        message = str(exc_info.value)
+        assert "Failed to fetch customer ID: WebFault" in message
+        assert "Internal Error" in message
+        # No detail to surface, so no auth pattern should be matched (stays retryable).
         non_retryable_patterns = BingAdsSource().get_non_retryable_errors()
         assert not any(pattern in message for pattern in non_retryable_patterns)
 
