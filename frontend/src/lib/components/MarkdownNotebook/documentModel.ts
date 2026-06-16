@@ -660,16 +660,45 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
 }
 
-export function getAskAIInlineNotebookQuery(userQuery: string, responseMarker: string): string {
+const ASK_AI_NOTEBOOK_CONTEXT_MAX_LENGTH = 100_000
+
+function getMarkdownFenceForContent(content: string): string {
+    const longestRun = content.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
+    return '`'.repeat(Math.max(3, longestRun + 1))
+}
+
+function getReadOnlyNotebookContext(notebookMarkdown: string): string[] {
+    if (!notebookMarkdown.trim()) {
+        return []
+    }
+
+    const trimmedMarkdown =
+        notebookMarkdown.length > ASK_AI_NOTEBOOK_CONTEXT_MAX_LENGTH
+            ? notebookMarkdown.slice(0, ASK_AI_NOTEBOOK_CONTEXT_MAX_LENGTH)
+            : notebookMarkdown
+    const fence = getMarkdownFenceForContent(trimmedMarkdown)
+
+    return ['Current notebook markdown, for read-only context:', `${fence}markdown`, trimmedMarkdown, fence, '']
+}
+
+export function getAskAIInlineNotebookQuery(
+    userQuery: string,
+    responseMarker: string,
+    notebookMarkdown: string = ''
+): string {
     return [
         'The user is writing in a markdown notebook and asked PostHog AI to continue inline.',
         '',
         'User request:',
         userQuery,
         '',
-        `Your response is streamed directly into the notebook by replacing the "${responseMarker}" text block.`,
-        'Write the markdown that should appear in the notebook. Do not say you will add, insert, or update it later.',
-        'Use normal notebook markdown only unless the request clearly needs a notebook artifact.',
+        ...getReadOnlyNotebookContext(notebookMarkdown),
+        `Your response will be inserted into the notebook by replacing the "${responseMarker}" text block.`,
+        'Return only the markdown that should appear at that location.',
+        'Use tools or artifacts when the request needs live product data, charts, insights, recordings, or notebook changes.',
+        'When returning notebook components directly, use only supported Markdown notebook component tags. Use <Query query={{...}} /> for insights and charts. Do not return <insight>...</insight> or other unsupported tags.',
+        'If you use a tool or artifact, the resulting notebook content will be applied at this location.',
+        'Do not rewrite the full notebook. Do not echo the notebook context. Do not narrate tool plans.',
     ].join('\n')
 }
 
@@ -677,7 +706,8 @@ export function getAskAISelectionQuery(
     selectedMarkdown: string,
     userQuery: string,
     responseMarker: string,
-    refId?: string
+    refId?: string,
+    notebookMarkdown: string = ''
 ): string {
     const highlightedMarkdown = selectedMarkdown.trim()
     // A fence longer than any backtick run in the content, so embedded ``` can't close the block early
@@ -691,15 +721,20 @@ export function getAskAISelectionQuery(
         'User request:',
         userQuery,
         '',
+        ...getReadOnlyNotebookContext(notebookMarkdown),
         'Highlighted markdown:',
         `${fence}markdown`,
         highlightedMarkdown,
         fence,
         '',
         ...refContext,
-        `Use the notebook context as the source of truth. Your response is streamed directly into the notebook by replacing the "${responseMarker}" text block below the highlighted content.`,
-        'Write the markdown that should appear in the notebook. Do not say you will add, insert, or update it later.',
-        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook near the highlighted content. If the user asks to explain or analyze the highlighted content, answer directly unless they explicitly ask for a change.',
+        `Your response will be inserted into the notebook by replacing the "${responseMarker}" text block below the highlighted content.`,
+        'Return only the markdown that should appear at that location.',
+        'Use tools or artifacts when the request needs live product data, charts, insights, recordings, or notebook changes.',
+        'When returning notebook components directly, use only supported Markdown notebook component tags. Use <Query query={{...}} /> for insights and charts. Do not return <insight>...</insight> or other unsupported tags.',
+        'If you use a tool or artifact, the resulting notebook content will be applied at this location.',
+        'Do not rewrite the full notebook. Do not echo the notebook context. Do not narrate tool plans.',
+        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, return the replacement markdown. If the user asks to explain or analyze the highlighted content, answer directly.',
     ].join('\n')
 }
 

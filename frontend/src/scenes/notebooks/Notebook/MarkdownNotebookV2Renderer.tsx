@@ -11,7 +11,6 @@ import {
     getNotebookAgentClientId,
     getNotebookAgentColorIndex,
     getNotebookAgentsFromMarkdown,
-    insertMarkdownAfterNotebookAIAgentCursor,
     insertNotebookAIFollowUpPromptAfterCursor,
     insertNotebookAgentMarkdownAfterRef,
     replaceNotebookAIAgentCursorMarkdown,
@@ -217,18 +216,12 @@ export function MarkdownNotebookV2(): JSX.Element {
                 const inlineAIRequest = getInlineAIRequest(chatId)
                 if (inlineAIRequest) {
                     const artifactMarkdown = notebookArtifactContentToMarkdown(content)
-                    if (mode === 'insert-after-chat') {
-                        updateMarkdownEditorValue((currentMarkdown) =>
-                            insertMarkdownAfterNotebookAIAgentCursor(currentMarkdown, artifactMarkdown)
-                        )
-                    } else {
-                        const replacedNodeCount = inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] ?? 1
-                        updateMarkdownEditorValue((currentMarkdown) =>
-                            replaceNotebookAIAgentCursorMarkdown(currentMarkdown, artifactMarkdown, replacedNodeCount)
-                        )
-                        inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] =
-                            getMarkdownBlockCount(artifactMarkdown)
-                    }
+                    const replacedNodeCount = inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] ?? 1
+                    updateMarkdownEditorValue((currentMarkdown) =>
+                        replaceNotebookAIAgentCursorMarkdown(currentMarkdown, artifactMarkdown, replacedNodeCount)
+                    )
+                    inlineAIResponseNodeCountsRef.current[inlineAIRequest.chatId] =
+                        getMarkdownBlockCount(artifactMarkdown)
                     return
                 }
 

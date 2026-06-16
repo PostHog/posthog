@@ -104,12 +104,7 @@ export function InlineNotebookAIThread({
             return
         }
 
-        const hasArtifact = threadRaw.some(
-            (message) =>
-                message.status === 'completed' &&
-                (message.type === AssistantMessageType.Notebook ||
-                    isCompletedNotebookApplicableArtifactMessage(message))
-        )
+        const hasArtifact = hasCompletedNotebookArtifactMessage(threadRaw)
 
         threadRaw.forEach((message, index) => {
             if (message.type !== AssistantMessageType.Assistant) {
@@ -170,11 +165,7 @@ export type InlineAIAssistantMessage = {
 }
 
 export function getInlineAICompletion(threadRaw: ThreadMessage[]): InlineAICompletion | null {
-    const hasArtifact = threadRaw.some(
-        (message) =>
-            message.status === 'completed' &&
-            (message.type === AssistantMessageType.Notebook || isCompletedNotebookApplicableArtifactMessage(message))
-    )
+    const hasArtifact = hasCompletedNotebookArtifactMessage(threadRaw)
     const lastErrorMessage = [...threadRaw]
         .reverse()
         .find((message) => message.type === AssistantMessageType.Failure || message.status === 'error')
@@ -232,6 +223,14 @@ export function getInlineAICompletion(threadRaw: ThreadMessage[]): InlineAICompl
         hasArtifact,
         message: 'PostHog AI finished.',
     }
+}
+
+function hasCompletedNotebookArtifactMessage(threadRaw: ThreadMessage[]): boolean {
+    return threadRaw.some(
+        (message) =>
+            message.status === 'completed' &&
+            (message.type === AssistantMessageType.Notebook || isCompletedNotebookApplicableArtifactMessage(message))
+    )
 }
 
 export function getInlineAIStatusText(value: string | undefined, fallback: string): string {

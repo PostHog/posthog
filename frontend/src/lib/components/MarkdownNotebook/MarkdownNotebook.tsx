@@ -4739,8 +4739,8 @@ export function MarkdownNotebook({
             chatId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId)
-                    : getAskAIInlineNotebookQuery(query, responseMarker),
+                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId, markdown)
+                    : getAskAIInlineNotebookQuery(query, responseMarker, markdown),
             source,
             responseNodeId: nodeId,
             responseMarker,

@@ -3267,7 +3267,9 @@ ${queryMarkdown}`)
                 selectedMarkdown: undefined,
             })
         )
-        expect(aiRequest.query).toContain('streamed directly into the notebook')
+        expect(aiRequest.query).toContain('Current notebook markdown, for read-only context')
+        expect(aiRequest.query).toContain('Use tools or artifacts when the request needs live product data')
+        expect(aiRequest.query).toContain('Use <Query query={{...}} /> for insights and charts')
     })
 
     it('animates the live AI thinking placeholder without editing markdown', () => {
@@ -4932,7 +4934,9 @@ First paragraph
         expect(aiRequest.query).toContain('Highlighted markdown:')
         expect(aiRequest.query).toContain('# First paragraph\n\nSecond')
         expect(aiRequest.query).toContain('User request:\nExplain what this means')
-        expect(aiRequest.query).toContain('streamed directly into the notebook')
+        expect(aiRequest.query).toContain('Current notebook markdown, for read-only context')
+        expect(aiRequest.query).toContain('Use tools or artifacts when the request needs live product data')
+        expect(aiRequest.query).toContain('Use <Query query={{...}} /> for insights and charts')
         expect(aiRequest.query).toContain(`ref id "${selectedRefId}"`)
         expect(aiRequest.selectedRefId).toEqual(selectedRefId)
         expect(aiRequest.selectedMarkdown).toContain('# First paragraph\n\nSecond')

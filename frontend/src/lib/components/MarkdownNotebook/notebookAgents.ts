@@ -8,7 +8,7 @@ import type {
     NotebookPropValue,
     NotebookTextBlockNode,
 } from './types'
-import { getInlineText, hashString } from './utils'
+import { getInlineText, getNodeFingerprint, hashString } from './utils'
 
 export const NOTEBOOK_AGENT_COMPONENT_TAG = 'Agent'
 export const NOTEBOOK_AGENT_CLIENT_ID_PREFIX = 'notebook-agent:'
@@ -118,6 +118,45 @@ export function preserveNotebookAIAgentNode(nextMarkdown: string, currentMarkdow
     return serializeMarkdownNotebook({
         ...nextDocument,
         nodes: [...nextDocument.nodes, currentAIAgentNode],
+    })
+}
+
+export function normalizeNotebookAIAgentArtifactMarkdown(artifactMarkdown: string, currentMarkdown: string): string {
+    const currentDocument = parseMarkdownNotebook(currentMarkdown)
+    const currentAgentIndex = currentDocument.nodes.findIndex(
+        (node) => getNotebookAgentFromNode(node)?.id === NOTEBOOK_AI_AGENT_ID
+    )
+    if (currentAgentIndex === -1) {
+        return artifactMarkdown
+    }
+
+    const agent = getNotebookAgentFromNode(currentDocument.nodes[currentAgentIndex])
+    const cursorIndex = getNotebookAIAgentTargetIndex(
+        currentDocument.nodes,
+        agent?.cursor?.nodeIndex,
+        currentAgentIndex
+    )
+    const cursorNode = currentDocument.nodes[cursorIndex]
+    if (!cursorNode || isNotebookAgentNode(cursorNode)) {
+        return artifactMarkdown
+    }
+
+    const artifactDocument = parseMarkdownNotebook(artifactMarkdown)
+    const artifactNodes = artifactDocument.nodes.filter((node) => !isNotebookAgentNode(node))
+    const prefixNodes = currentDocument.nodes.slice(0, cursorIndex).filter((node) => !isNotebookAgentNode(node))
+    if (!prefixNodes.length || !nodesStartWith(artifactNodes, prefixNodes)) {
+        return artifactMarkdown
+    }
+
+    const tailNodes = stripNotebookAIAgentEchoFromTail(artifactNodes.slice(prefixNodes.length), prefixNodes, cursorNode)
+    const nextNodes = [...prefixNodes, ...tailNodes]
+    if (nodesHaveSameFingerprints(nextNodes, artifactNodes)) {
+        return artifactMarkdown
+    }
+
+    return serializeMarkdownNotebook({
+        ...artifactDocument,
+        nodes: nextNodes,
     })
 }
 
@@ -274,7 +313,9 @@ export function insertNotebookAgentMarkdownAfterRef({
     refId: string
     insertedMarkdown: string
 }): string {
-    const insertedNodes = parseMarkdownNotebook(insertedMarkdown).nodes.filter((node) => !isNotebookAgentNode(node))
+    const insertedNodes = parseMarkdownNotebook(normalizeNotebookAIInsertedMarkdown(insertedMarkdown)).nodes.filter(
+        (node) => !isNotebookAgentNode(node)
+    )
     if (!insertedNodes.length) {
         return markdown
     }
@@ -355,7 +396,7 @@ function applyNotebookAIAgentCursorMarkdown(
     mode: 'replace' | 'insert-after',
     replacedNodeCount: number = 1
 ): string {
-    const trimmedInsertedMarkdown = insertedMarkdown.trim()
+    const trimmedInsertedMarkdown = normalizeNotebookAIInsertedMarkdown(insertedMarkdown).trim()
     if (!trimmedInsertedMarkdown || (mode === 'insert-after' && markdown.includes(trimmedInsertedMarkdown))) {
         return markdown
     }
@@ -366,15 +407,23 @@ function applyNotebookAIAgentCursorMarkdown(
         return markdown
     }
 
-    const replacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes.filter(
+    const parsedReplacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes.filter(
         (node) => getNotebookAgentFromNode(node)?.id !== NOTEBOOK_AI_AGENT_ID
     )
-    if (!replacementNodes.length) {
+    if (!parsedReplacementNodes.length) {
         return markdown
     }
 
     const agent = getNotebookAgentFromNode(document.nodes[agentIndex])
     const cursorIndex = getNotebookAIAgentTargetIndex(document.nodes, agent?.cursor?.nodeIndex, agentIndex)
+    const replacementNodes = stripEchoedNotebookContextBeforeAICursor(
+        document.nodes,
+        cursorIndex,
+        parsedReplacementNodes
+    )
+    if (!replacementNodes.length) {
+        return markdown
+    }
     const targetRange =
         mode === 'replace'
             ? getNotebookAIAgentReplaceRange(document.nodes, cursorIndex, replacedNodeCount)
@@ -394,6 +443,100 @@ function applyNotebookAIAgentCursorMarkdown(
             getNotebookNodeEndCursor(nextNodes[cursorNodeIndex], cursorNodeIndex)
         ),
     })
+}
+
+function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
+    return markdown
+        .replace(
+            /(^|\n)<insight>\s*([A-Za-z0-9_-]+)\s*<\/insight>(?=\n|$)/gi,
+            (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
+        )
+        .replace(
+            /(^|\n)<Insight\s+(?:id|shortId)=["']([A-Za-z0-9_-]+)["']\s*\/>(?=\n|$)/g,
+            (_match, prefix: string, shortId: string) => `${prefix}${getSavedInsightQueryMarkdown(shortId)}`
+        )
+}
+
+function getSavedInsightQueryMarkdown(shortId: string): string {
+    return `<Query query={{"kind":"SavedInsightNode","shortId":"${shortId}"}} />`
+}
+
+function stripEchoedNotebookContextBeforeAICursor(
+    currentNodes: NotebookBlockNode[],
+    cursorIndex: number,
+    replacementNodes: NotebookBlockNode[]
+): NotebookBlockNode[] {
+    if (replacementNodes.length <= 1) {
+        return replacementNodes
+    }
+
+    const cursorNode = currentNodes[cursorIndex]
+    if (!cursorNode || isNotebookAgentNode(cursorNode)) {
+        return replacementNodes
+    }
+
+    const prefixWithCursorNodes = currentNodes.slice(0, cursorIndex + 1).filter((node) => !isNotebookAgentNode(node))
+    if (prefixWithCursorNodes.length && nodesStartWith(replacementNodes, prefixWithCursorNodes)) {
+        return replacementNodes.slice(prefixWithCursorNodes.length)
+    }
+
+    const prefixNodes = currentNodes.slice(0, cursorIndex).filter((node) => !isNotebookAgentNode(node))
+    if (!cursorNode || !prefixNodes.length || !nodesStartWith(replacementNodes, prefixNodes)) {
+        return replacementNodes
+    }
+
+    const strippedTailNodes = stripNotebookAIAgentEchoFromTail(
+        replacementNodes.slice(prefixNodes.length),
+        prefixNodes,
+        cursorNode
+    )
+    const tailNodes = replacementNodes.slice(prefixNodes.length)
+    return nodesHaveSameFingerprints(strippedTailNodes, tailNodes) ? replacementNodes : strippedTailNodes
+}
+
+function stripNotebookAIAgentEchoFromTail(
+    tailNodes: NotebookBlockNode[],
+    prefixNodes: NotebookBlockNode[],
+    cursorNode: NotebookBlockNode
+): NotebookBlockNode[] {
+    let nextNodes = tailNodes
+    if (prefixNodes.length && nodesStartWith(nextNodes, prefixNodes)) {
+        nextNodes = nextNodes.slice(prefixNodes.length)
+    }
+
+    if (nodesStartWith(nextNodes, [cursorNode])) {
+        nextNodes = nextNodes.slice(1)
+    }
+
+    if (nodesEndWith(nextNodes, [cursorNode])) {
+        nextNodes = nextNodes.slice(0, -1)
+    }
+
+    return nextNodes
+}
+
+function nodesStartWith(nodes: NotebookBlockNode[], prefixNodes: NotebookBlockNode[]): boolean {
+    if (nodes.length < prefixNodes.length) {
+        return false
+    }
+
+    return prefixNodes.every((node, index) => getNodeFingerprint(node) === getNodeFingerprint(nodes[index]))
+}
+
+function nodesEndWith(nodes: NotebookBlockNode[], suffixNodes: NotebookBlockNode[]): boolean {
+    if (nodes.length < suffixNodes.length) {
+        return false
+    }
+
+    const offset = nodes.length - suffixNodes.length
+    return suffixNodes.every((node, index) => getNodeFingerprint(node) === getNodeFingerprint(nodes[offset + index]))
+}
+
+function nodesHaveSameFingerprints(leftNodes: NotebookBlockNode[], rightNodes: NotebookBlockNode[]): boolean {
+    return (
+        leftNodes.length === rightNodes.length &&
+        leftNodes.every((node, index) => getNodeFingerprint(node) === getNodeFingerprint(rightNodes[index]))
+    )
 }
 
 function getNotebookAIAgentReplaceRange(

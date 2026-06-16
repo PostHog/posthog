@@ -14,6 +14,7 @@ import {
     insertNotebookAIFollowUpPromptAfterCursor,
     insertNotebookAgentMarkdownAfterRef,
     makeNotebookAgentNode,
+    normalizeNotebookAIAgentArtifactMarkdown,
     preserveNotebookAIAgentNode,
     replaceNotebookAIAgentCursorMarkdown,
     removeNotebookAgentFromMarkdown,
@@ -75,6 +76,70 @@ describe('notebookAgents', () => {
         )
     })
 
+    it('strips echoed notebook context before replacing the AI cursor row', () => {
+        const markdown =
+            '# This is a new notebook\n\nLet\'s write some text\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+
+        expect(
+            replaceNotebookAIAgentCursorMarkdown(
+                markdown,
+                "# This is a new notebook\n\nLet's write some text\n\nThinking...\n\nJoke setup.\n\nPunchline."
+            )
+        ).toEqual(
+            '# This is a new notebook\n\nLet\'s write some text\n\nJoke setup.\n\nPunchline.\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":3,"offset":10}} />'
+        )
+    })
+
+    it('strips echoed notebook context when the AI leaves the cursor placeholder at the end', () => {
+        const markdown =
+            '# New notebook\n\nThis is a random notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+
+        expect(
+            replaceNotebookAIAgentCursorMarkdown(
+                markdown,
+                '# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.\n\nThinking...'
+            )
+        ).toEqual(
+            '# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":33}} />'
+        )
+    })
+
+    it('keeps assistant markdown that does not echo the AI cursor placeholder', () => {
+        const markdown = '# Notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+
+        expect(replaceNotebookAIAgentCursorMarkdown(markdown, '# Notebook\n\nA generated answer.')).toEqual(
+            '# Notebook\n\n# Notebook\n\nA generated answer.\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":19}} />'
+        )
+    })
+
+    it('ignores an assistant response that only echoes the notebook context', () => {
+        const markdown = '# Notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+
+        expect(replaceNotebookAIAgentCursorMarkdown(markdown, '# Notebook\n\nThinking...')).toEqual(markdown)
+    })
+
+    it('normalizes full notebook artifacts that echo context before the answer', () => {
+        const currentMarkdown =
+            '# New notebook\n\nThis is a random notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+        const artifactMarkdown =
+            '# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.\n\nThinking...'
+
+        expect(normalizeNotebookAIAgentArtifactMarkdown(artifactMarkdown, currentMarkdown)).toEqual(
+            '# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.'
+        )
+    })
+
+    it('normalizes full notebook artifacts that duplicate context twice', () => {
+        const currentMarkdown =
+            '# New notebook\n\nThis is a random notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":11}} />'
+        const artifactMarkdown =
+            '# New notebook\n\nThis is a random notebook\n\n# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.\n\nThinking...'
+
+        expect(normalizeNotebookAIAgentArtifactMarkdown(artifactMarkdown, currentMarkdown)).toEqual(
+            '# New notebook\n\nThis is a random notebook\n\nJames Hawkins co-founded PostHog.'
+        )
+    })
+
     it('replaces a previously streamed multi-block AI response', () => {
         const markdown =
             '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":16}} />'
@@ -83,6 +148,19 @@ describe('notebookAgents', () => {
             replaceNotebookAIAgentCursorMarkdown(markdown, 'First paragraph\n\nSecond paragraph\n\nThird paragraph', 2)
         ).toEqual(
             '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":3,"offset":15}} />'
+        )
+    })
+
+    it('normalizes saved insight tags from AI output before insertion', () => {
+        const markdown = '# Notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+
+        expect(
+            replaceNotebookAIAgentCursorMarkdown(
+                markdown,
+                '## Browsers in use\n\n<insight>uONk</insight>\n\nThe chart shows browser usage.'
+            )
+        ).toEqual(
+            '# Notebook\n\n## Browsers in use\n\n<Query query={{"kind":"SavedInsightNode","shortId":"uONk"}} />\n\nThe chart shows browser usage.\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":3,"offset":30}} />'
         )
     })
 
