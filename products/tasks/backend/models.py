@@ -340,6 +340,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         initial_permission_mode: str | None = None,
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
+        inactivity_timeout_seconds: int | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -453,6 +454,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 extra_state["sandbox_memory_gb"] = sandbox_resources.memory_gb
         if sandbox_timeout_seconds is not None:
             extra_state["sandbox_ttl_seconds"] = sandbox_timeout_seconds
+
+        # Optional per-task inactivity timeout override (seconds). Read back via
+        # TaskProcessingContext.inactivity_timeout(); unset falls back to the
+        # origin-aware default.
+        if inactivity_timeout_seconds is not None:
+            extra_state["inactivity_timeout_seconds"] = inactivity_timeout_seconds
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 

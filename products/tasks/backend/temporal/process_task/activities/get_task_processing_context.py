@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -17,6 +18,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -111,6 +113,16 @@ class TaskProcessingContext:
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
+
+    def inactivity_timeout(self) -> timedelta:
+        """How long the run may sit idle before the workflow times it out.
+
+        Longer for user-driven runs (explicitly user-created, or with no origin
+        product) than for automated/background runs. A global env override or a
+        per-task override set at creation time both take precedence.
+        """
+        is_user_origin = not self.origin_product or self.origin_product == Task.OriginProduct.USER_CREATED.value
+        return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """SandboxConfig field overrides requested at task creation (compute + TTL).
