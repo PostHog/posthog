@@ -3694,6 +3694,22 @@ class TestRlsActiveFromConnErrorHandling:
         assert result == {}
         capture_mock.assert_called_once()
 
+    def test_failed_sql_transaction_is_not_captured(self):
+        # This lookup shares a connection with earlier best-effort metadata queries (PK + index
+        # discovery). When one of those fails on a non-Postgres engine (e.g. Redshift) its exception
+        # is caught upstream but leaves the transaction aborted, so our first statement here raises
+        # InFailedSqlTransaction as a downstream symptom. That's already handled, not a bug — don't
+        # flood error tracking with it.
+        conn = self._conn_raising(
+            psycopg.errors.InFailedSqlTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            )
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
+
 
 class TestGetRowsInitialConnectRetry:
     # Regression: the main server-cursor read path opened its initial connection with a bare
