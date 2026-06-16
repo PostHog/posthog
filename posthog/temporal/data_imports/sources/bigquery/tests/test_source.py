@@ -594,3 +594,16 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
 
     assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        "request failed: The table has un-applied upsert data that is not fresh enough to meet table's max_staleness.",
+        "400 request failed: The table has un-applied upsert data that is not fresh enough to meet table's max_staleness.",
+    ],
+)
+def test_max_staleness_storage_read_errors_are_non_retryable(error_msg):
+    non_retryable = BigQuerySource().get_non_retryable_errors()
+    is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+    assert is_non_retryable

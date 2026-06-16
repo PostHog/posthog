@@ -66,6 +66,11 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # so match the stable phrasing here. Retrying can't recover — the user must fix the
             # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # BigQuery's Storage Read API can't read a source table that runs runtime merge jobs
+            # because its change-data-capture `max_staleness` is set too low for the background
+            # apply to keep up (a documented Storage Read API incompatibility). The fix lives on
+            # the source side — there's nothing for us to do but stop retrying and surface it.
+            "un-applied upsert data that is not fresh enough to meet table's max_staleness": "This BigQuery table uses change data capture with a max_staleness value that's too low for its background apply to keep up, so it can't be read via the Storage Read API. Increase the table's max_staleness (or give its background reservation more resources), then re-sync.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
