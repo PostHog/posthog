@@ -7,7 +7,7 @@ import collections
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
 
 if TYPE_CHECKING:
@@ -20,6 +20,7 @@ import pyarrow as pa
 import structlog
 from psycopg import sql
 from psycopg.adapt import Loader
+from psycopg.types.datetime import TimestampLoader, TimestamptzLoader
 from structlog.types import FilteringBoundLogger
 
 from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
@@ -1038,6 +1039,57 @@ class SafeDateLoader(Loader):
         return date.max
 
 
+def _clamp_out_of_range_timestamp(data, *, tzinfo: timezone | None) -> datetime:
+    """Map a Postgres timestamp value outside Python's datetime range onto datetime.min/max.
+
+    PostgreSQL timestamps span years 4713 BC to 294276 AD and include 'infinity'/'-infinity',
+    far wider than Python's datetime (year 1 to 9999). We pick the boundary by sign so values
+    'before year 1' (BC dates, '-infinity', negative years) clamp low and everything else
+    clamps high. `tzinfo` keeps the result aware/naive to match the column's Arrow type.
+    """
+    s = bytes(data).decode("utf-8", "replace").strip().lower()
+    if s == "-infinity" or s.startswith("-") or "bc" in s:
+        return datetime.min.replace(tzinfo=tzinfo)
+    return datetime.max.replace(tzinfo=tzinfo)
+
+
+class SafeTimestampLoader(TimestampLoader):
+    """Load PostgreSQL timestamps, handling values beyond Python's datetime range.
+
+    psycopg's default loader raises `DataError` on timestamps outside Python's datetime
+    range (years > 9999, 'infinity'/'-infinity'), which aborts the whole table sync. We
+    defer to the default loader for in-range values and clamp the rest, mirroring
+    `SafeDateLoader`. `timestamp` columns map to a naive Arrow type, so the clamp stays naive.
+    """
+
+    # psycopg short-circuits SQL NULL before the loader, so `data` is never None in practice;
+    # the guard mirrors SafeDateLoader's defensive parity, hence the widened return + override ignore.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=None)
+
+
+class SafeTimestamptzLoader(TimestamptzLoader):
+    """`timestamptz` counterpart of `SafeTimestampLoader` (see its docstring).
+
+    `timestamptz` columns map to a UTC-aware Arrow type, so the clamp is made tz-aware to
+    avoid mixing naive and aware datetimes in the same Arrow column.
+    """
+
+    # See SafeTimestampLoader.load for why the override is widened/ignored.
+    def load(self, data) -> datetime | None:  # type: ignore[override]
+        if data is None:
+            return None
+        try:
+            return super().load(data)
+        except psycopg.DataError:
+            return _clamp_out_of_range_timestamp(data, tzinfo=UTC)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -1466,11 +1518,19 @@ def _get_partition_settings(
     except psycopg.errors.QueryCanceled:
         raise
     except Exception as e:
-        # A read replica can cancel this best-effort sizing query with a recovery conflict; it's
-        # transient (the row-streaming reader retries it in-process) and expected on replicas, so
-        # degrade quietly instead of flooding error tracking with a handled condition. Genuinely
-        # unexpected failures are still captured.
-        if not _is_recovery_conflict_error(e):
+        # Partition sizing is best-effort: on failure we return None and the sync proceeds
+        # unpartitioned. Two handled conditions must not flood error tracking:
+        #   - A read replica can cancel this sizing query with a recovery conflict
+        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
+        #     replicas, and the row-streaming reader retries it in-process.
+        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
+        #     partition detection) can hit that transient condition and leave the transaction in
+        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
+        #     downstream symptom.
+        # Both resurface (and are classified through the normal retryable/non-retryable path) via
+        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
+        # captured.
+        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: returning None due to error: {e}")
         return None
@@ -2138,6 +2198,8 @@ def postgres_source(
                 connection.adapters.register_loader("tstzrange", RangeAsStringLoader)
                 connection.adapters.register_loader("daterange", RangeAsStringLoader)
                 connection.adapters.register_loader("date", SafeDateLoader)
+                connection.adapters.register_loader("timestamp", SafeTimestampLoader)
+                connection.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)
@@ -2353,7 +2415,14 @@ def postgres_source(
 
             offset = 0
             try:
-                with get_connection() as connection:
+                # Retry transient connection-dropped errors (e.g. "server closed the
+                # connection unexpectedly") on the initial connect, matching the
+                # offset-chunking bootstrap above. Retrying here is always safe: offset
+                # is still 0 and no rows have been yielded, so the unsafe-resume concern
+                # in the except clause below doesn't apply. Permanent errors (auth,
+                # SSL-required) still surface immediately — _is_connection_dropped_error
+                # only matches transient drops.
+                with _connect_with_dropped_retry(get_connection, logger) as connection:
                     with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                         query = _build_query(
                             schema,
