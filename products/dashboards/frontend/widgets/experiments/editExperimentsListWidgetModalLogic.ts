@@ -13,7 +13,6 @@ import {
     parseExperimentsListWidgetConfig,
     validateExperimentsListWidgetConfigInput,
     type ExperimentsListWidgetFieldErrors,
-    type ExperimentsListWidgetStatus,
 } from './experimentsListWidgetConfigValidation'
 
 export type EditExperimentsListWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
@@ -47,10 +46,6 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
             },
         ],
-        // status and creator are edited on the tile filter bar, not in this modal — these reducers only
-        // carry the values from config through validation so saving the limit/name preserves the filters.
-        status: ['all' as ExperimentsListWidgetStatus, {}],
-        createdBy: [null as number | null, {}],
         tileName: [
             '',
             {
@@ -96,13 +91,17 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
     selectors({
         ...widgetEditModalPropSelectors,
         validation: [
-            (s) => [s.limit, s.status, s.createdBy],
-            (limit, status, createdBy) =>
-                validateExperimentsListWidgetConfigInput({
+            // status + creator live on the tile filter bar; read them from the persisted config so saving
+            // the limit/name here preserves the active filters.
+            (s) => [s.limit, (_, props) => props.config],
+            (limit, config) => {
+                const baseConfig = parseExperimentsListWidgetConfig(config)
+                return validateExperimentsListWidgetConfigInput({
                     limit,
-                    status,
-                    createdBy,
-                }),
+                    status: baseConfig.status ?? 'all',
+                    createdBy: baseConfig.createdBy ?? null,
+                })
+            },
         ],
         activeFieldErrors: [
             (s) => [s.validation, s.fieldErrors],
@@ -132,8 +131,6 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
 
         return {
             limit: baseConfig.limit,
-            status: baseConfig.status,
-            createdBy: baseConfig.createdBy ?? null,
             ...getWidgetEditModalTileDefaults(props),
             fieldErrors: {},
             saving: false,

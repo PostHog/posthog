@@ -949,10 +949,11 @@ class TestDashboardWidgets(APIBaseTest):
         assert len(tiles) == 2
         assert tiles[0]["widget"]["widget_type"] == "error_tracking_list"
         assert tiles[1]["widget"]["widget_type"] == "error_tracking_list"
+        # Batch adds stack downward so vertical compaction keeps each tile at the bottom.
         assert tiles[0]["layouts"]["sm"]["y"] == 0
         assert tiles[0]["layouts"]["sm"]["x"] == 0
-        assert tiles[1]["layouts"]["sm"]["y"] == 0
-        assert tiles[1]["layouts"]["sm"]["x"] == 6
+        assert tiles[1]["layouts"]["sm"]["y"] == 5
+        assert tiles[1]["layouts"]["sm"]["x"] == 0
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_batch_create_widget_tiles_rejects_empty_list(self) -> None:

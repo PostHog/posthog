@@ -7,6 +7,7 @@ See products/dashboards/backend/widget_specs/ for config contracts and catalog m
 from __future__ import annotations
 
 from products.dashboards.backend.widget_specs.configs import (
+    ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
@@ -30,6 +31,7 @@ WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
 }
 
 __all__ = [
+    "ACTIVITY_EVENTS_LIST_WIDGET_TYPE",
     "ERROR_TRACKING_LIST_WIDGET_TYPE",
     "EXPERIMENT_RESULTS_WIDGET_TYPE",
     "EXPERIMENTS_LIST_WIDGET_TYPE",

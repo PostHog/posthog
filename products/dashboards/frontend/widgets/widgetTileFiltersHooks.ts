@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { QuickFilter } from '~/types'
 
 import {
-    getDashboardWidgetCatalogEntry,
+    DASHBOARD_WIDGET_CATALOG,
+    type DashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
     type DashboardWidgetTileFiltersCatalogConfig,
 } from '../widget_types/catalog'
@@ -28,7 +29,8 @@ export function widgetTileFiltersSetupFromCatalog(
 }
 
 export function getWidgetTileFiltersSetup(widgetType: DashboardWidgetCatalogKey): WidgetFilterDefinitionsSetup {
-    const tileFilters = getDashboardWidgetCatalogEntry(widgetType).tileFilters
+    const entry: DashboardWidgetCatalogEntry = DASHBOARD_WIDGET_CATALOG[widgetType]
+    const tileFilters = entry.tileFilters
     if (!tileFilters) {
         throw new Error(`Dashboard widget catalog entry ${widgetType} is missing tileFilters config`)
     }

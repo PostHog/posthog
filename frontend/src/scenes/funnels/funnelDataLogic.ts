@@ -58,6 +58,37 @@ import {
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
+/** A time-to-convert bins payload tagged with its compare period (present only when comparing). */
+type TimeToConvertCompareBins = FunnelsTimeConversionBins & { compare_label?: 'current' | 'previous' }
+
+/** Maps a time-to-convert bins payload onto histogram data. Returns null for too-few bins, [] when
+ * nobody converted. Shared between the current and previous (compare) periods. */
+function timeConversionBinsToHistogramData(
+    timeConversionResults: FunnelsTimeConversionBins | null
+): HistogramGraphDatum[] | null {
+    if ((timeConversionResults?.bins?.length ?? 0) < 2) {
+        return null // There are no results
+    }
+
+    const totalCount = sum(timeConversionResults!.bins.map(([, count]) => count))
+    if (totalCount === 0) {
+        return [] // Nobody has converted in the time period
+    }
+
+    const binSize = timeConversionResults!.bins[1][0] - timeConversionResults!.bins[0][0]
+    return timeConversionResults!.bins.map(([id, count]: [id: number, count: number]) => {
+        const value = Math.max(0, id)
+        const percent = count / totalCount
+        return {
+            id: value,
+            bin0: value,
+            bin1: value + binSize,
+            count,
+            label: percent === 0 ? '' : percentage(percent, 1, true),
+        }
+    })
+}
+
 function getStepMetric(step: FunnelStepWithConversionMetrics | undefined, metric: string): number {
     if (!step) {
         return 0
@@ -473,36 +504,42 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         timeConversionResults: [
             (s) => [s.results, s.funnelsFilter],
             (results, funnelsFilter): FunnelsTimeConversionBins | null => {
-                return funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert
-                    ? (results as FunnelsTimeConversionBins)
-                    : null
+                if (funnelsFilter?.funnelVizType !== FunnelVizType.TimeToConvert) {
+                    return null
+                }
+                // Compare returns a two-element list tagged with compare_label; take the current period.
+                if (Array.isArray(results)) {
+                    return (
+                        (results as unknown as TimeToConvertCompareBins[]).find(
+                            (row) => row.compare_label === 'current'
+                        ) ?? null
+                    )
+                }
+                return results as FunnelsTimeConversionBins
+            },
+        ],
+        timeConversionResultsPrevious: [
+            (s) => [s.results, s.funnelsFilter],
+            (results, funnelsFilter): FunnelsTimeConversionBins | null => {
+                if (funnelsFilter?.funnelVizType !== FunnelVizType.TimeToConvert || !Array.isArray(results)) {
+                    return null
+                }
+                return (
+                    (results as unknown as TimeToConvertCompareBins[]).find(
+                        (row) => row.compare_label === 'previous'
+                    ) ?? null
+                )
             },
         ],
         histogramGraphData: [
             (s) => [s.timeConversionResults],
-            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
-                if ((timeConversionResults?.bins?.length ?? 0) < 2) {
-                    return null // There are no results
-                }
-
-                const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
-                if (totalCount === 0) {
-                    return [] // Nobody has converted in the time period
-                }
-
-                const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
-                return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
-                    const value = Math.max(0, id)
-                    const percent = totalCount === 0 ? 0 : count / totalCount
-                    return {
-                        id: value,
-                        bin0: value,
-                        bin1: value + binSize,
-                        count,
-                        label: percent === 0 ? '' : percentage(percent, 1, true),
-                    }
-                })
-            },
+            (timeConversionResults): HistogramGraphDatum[] | null =>
+                timeConversionBinsToHistogramData(timeConversionResults),
+        ],
+        histogramGraphDataPrevious: [
+            (s) => [s.timeConversionResultsPrevious],
+            (timeConversionResultsPrevious): HistogramGraphDatum[] | null =>
+                timeConversionBinsToHistogramData(timeConversionResultsPrevious),
         ],
         hasFunnelResults: [
             (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],

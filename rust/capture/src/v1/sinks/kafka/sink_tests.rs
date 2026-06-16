@@ -739,6 +739,37 @@ async fn batch_summary_with_timeouts() {
     assert_eq!(summary.errors.get("timeout").copied(), Some(2));
 }
 
+// ---------------------------------------------------------------------------
+// Slow-ack path: acks resolve within produce_timeout → all events succeed.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn slow_ack_within_timeout_batch_all_succeed() {
+    let h = TestHarness::builder()
+        .ack_delay(Duration::from_millis(20))
+        .produce_timeout(Duration::from_secs(30))
+        .build();
+    let e1 = FakeEvent::ok("evt-1");
+    let e2 = FakeEvent::ok("evt-2");
+    let e3 = FakeEvent::ok("evt-3");
+    let events: Vec<&(dyn Event + Send + Sync)> = vec![&e1, &e2, &e3];
+
+    let results = h.sink.publish_batch(&h.ctx, &events).await;
+
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert_eq!(r.outcome(), Outcome::Success);
+        assert!(r.cause().is_none());
+        assert!(r.elapsed().is_some());
+    }
+    assert_eq!(h.producer.record_count(), 3);
+
+    let by_key: HashMap<Uuid, _> = results.iter().map(|r| (r.key(), r)).collect();
+    assert!(by_key.contains_key(&e1.parsed_uuid));
+    assert!(by_key.contains_key(&e2.parsed_uuid));
+    assert!(by_key.contains_key(&e3.parsed_uuid));
+}
+
 // ===========================================================================
 // Health heartbeat tests
 //

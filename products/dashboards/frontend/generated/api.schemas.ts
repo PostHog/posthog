@@ -365,6 +365,7 @@ export interface DashboardCollaboratorApi {
 }
 
 /**
+ * * `activity_events_list` - activity_events_list
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
@@ -374,6 +375,7 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
     (typeof DashboardPatchWidgetOpenApiWidgetTypeEnumApi)[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnumApi]
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
+    ActivityEventsList: 'activity_events_list',
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
@@ -446,6 +448,20 @@ export interface WidgetFilterEntryApi {
     optionId: string
     operator: PropertyOperatorApi
     value?: string | string[] | null
+}
+
+export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
+
+export interface ActivityEventsListWidgetConfigApi {
+    dateRange?: WidgetDateRangeApi | null
+    filterTestAccounts?: boolean | null
+    widgetFilters?: ActivityEventsListWidgetConfigApiWidgetFilters
+    /**
+     * Maximum number of events to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
 }
 
 /**
@@ -564,6 +580,8 @@ export interface SessionReplayListWidgetConfigApi {
     orderBy?: SessionReplayListWidgetConfigApiOrderBy
     /** Sort direction for orderBy. */
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
+    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+    savedFilterId?: string | null
 }
 
 /**
@@ -599,6 +617,7 @@ export interface ExperimentResultsWidgetConfigApi {
 }
 
 export type DashboardWidgetConfigApi =
+    | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
     | ExperimentsListWidgetConfigApi
@@ -609,6 +628,7 @@ export interface DashboardPatchWidgetOpenApiApi {
     id?: string
     /** Widget type identifier (cannot be changed on update).
      *
+     * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
@@ -1956,6 +1976,7 @@ export const ChartDisplayTypeApi = {
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
+    SlopeGraph: 'SlopeGraph',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -7951,6 +7972,31 @@ export interface _WidgetTileLayoutsOpenApiApi {
     xs?: _WidgetTileLayoutBoxOpenApiApi
 }
 
+export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetAddRequestOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the recent events widget. */
+    config: ActivityEventsListWidgetConfigApi
+}
+
 export type ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType =
     (typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType]
 
@@ -8052,6 +8098,7 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
 }
 
 export type AddDashboardWidgetRequestApi =
+    | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
     | ExperimentsListWidgetAddRequestOpenApiApi
@@ -8062,7 +8109,7 @@ export type AddDashboardWidgetRequestApi =
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8116,6 +8163,25 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export type ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetCatalogEntryOpenApiApi {
+    widget_type: ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: ActivityEventsListWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
 }
 
 export type ErrorTrackingListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -8195,6 +8261,7 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
 }
 
 export type WidgetCatalogEntryApi =
+    | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
     | ExperimentsListWidgetCatalogEntryOpenApiApi
@@ -8235,6 +8302,16 @@ export interface PatchedDataColorThemeApi {
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+/**
+ * * `activity_events_list` - activity_events_list
+ */
+export type ActivityEventsListWidgetTypeEnumApi =
+    (typeof ActivityEventsListWidgetTypeEnumApi)[keyof typeof ActivityEventsListWidgetTypeEnumApi]
+
+export const ActivityEventsListWidgetTypeEnumApi = {
+    ActivityEventsList: 'activity_events_list',
+} as const
 
 /**
  * * `error_tracking_list` - error_tracking_list

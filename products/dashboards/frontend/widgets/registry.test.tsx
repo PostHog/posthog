@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 
-import { DASHBOARD_WIDGET_CATALOG, getDashboardWidgetCatalogEntry } from '../widget_types/catalog'
+import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogEntry } from '../widget_types/catalog'
 import {
     getDashboardWidgetDefinition,
     parseDashboardWidgetConfigApiError,
@@ -24,7 +24,8 @@ describe('dashboard widget registry', () => {
 
     it.each(Object.keys(DASHBOARD_WIDGET_CATALOG))('registers catalog widget %s', (widgetType) => {
         const definition = getDashboardWidgetDefinition(widgetType)
-        const catalogEntry = getDashboardWidgetCatalogEntry(widgetType)
+        const catalogEntry: DashboardWidgetCatalogEntry =
+            DASHBOARD_WIDGET_CATALOG[widgetType as keyof typeof DASHBOARD_WIDGET_CATALOG]
 
         expect(definition?.Component).toBeTruthy()
         expect(definition?.EditModal).toBeTruthy()

@@ -181,6 +181,7 @@ export function DataTable({
         highlightedRows,
         backToSourceQuery,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
+    const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
@@ -923,6 +924,7 @@ export function DataTable({
                                             <InsightErrorState
                                                 query={query}
                                                 excludeDetail
+                                                onRetry={() => loadData('force_blocking')}
                                                 title={
                                                     queryCancelled
                                                         ? 'The query was cancelled'
@@ -932,7 +934,10 @@ export function DataTable({
                                                 }
                                             />
                                         ) : (
-                                            <InsightErrorState query={query} />
+                                            <InsightErrorState
+                                                query={query}
+                                                onRetry={() => loadData('force_blocking')}
+                                            />
                                         )
                                     ) : (
                                         <InsightEmptyState
