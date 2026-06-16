@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -55,6 +56,7 @@ class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHECKOUT_COM,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Checkout.com",
             caption="""Enter your Checkout.com API access keys to pull your disputes data into the PostHog Data warehouse.
 
