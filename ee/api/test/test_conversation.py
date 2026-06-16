@@ -1543,6 +1543,34 @@ class TestConversationListTaskHandle(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertIsNone(results[0]["task"])
 
+    def test_retrieve_surfaces_current_run_id_without_extra_query(self):
+        # A sandbox conversation backed by a Task with runs, and one with no Task at all.
+        latest = self._sandbox_conversation("With task")
+        with_task = Conversation.objects.get(task_id=latest.task_id)
+        without_task = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="No task",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+        base = f"/api/environments/{self.team.id}/conversations/"
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            self.client.get(f"{base}{with_task.id}/")  # warm one-time auth/session caches
+            with CaptureQueriesContext(connection) as ctx_with:
+                r_with = self.client.get(f"{base}{with_task.id}/")
+            with CaptureQueriesContext(connection) as ctx_without:
+                r_without = self.client.get(f"{base}{without_task.id}/")
+
+        self.assertEqual(r_with.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_without.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_with.json()["task"], {"id": str(latest.task_id), "current_run_id": str(latest.id)})
+        self.assertIsNone(r_without.json()["task"])
+        # Resolving the current run for the task-backed conversation must not cost extra queries:
+        # the latest-run id comes from the annotated subquery, not a per-row `latest_run` lookup.
+        self.assertEqual(len(ctx_with.captured_queries), len(ctx_without.captured_queries))
+
     def test_list_query_count_does_not_scale_with_conversation_count(self):
         url = f"/api/environments/{self.team.id}/conversations/"
 

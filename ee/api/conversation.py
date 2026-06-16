@@ -324,14 +324,15 @@ class ConversationViewSet(
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
-        if self.action == "list":
-            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
-            # Surface each sandbox conversation's latest-run id via one correlated subquery
-            # (constant, not per-row), so the list payload carries the bootstrap handle and
-            # the frontend doesn't have to retrieve each conversation. Yields None for
-            # LangGraph rows (null task FK → no matching runs).
+        # Surface each conversation's latest-run id via one correlated subquery (constant, not
+        # per-row) so both the list payload and a single retrieve carry the sandbox bootstrap
+        # handle without resolving `current_run`/`latest_run` per row. Yields None for LangGraph
+        # rows (null task FK → no matching runs).
+        if self.action in ("list", "retrieve"):
             latest_run = TaskRun.objects.filter(task=OuterRef("task_id")).order_by("-created_at")
             queryset = queryset.annotate(current_run_id=Subquery(latest_run.values("id")[:1]))
+        if self.action == "list":
+            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
     def get_throttles(self):

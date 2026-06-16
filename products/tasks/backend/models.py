@@ -248,17 +248,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
     @property
     def latest_run(self) -> Optional["TaskRun"]:
-        # When runs are prefetched (e.g. the tasks list endpoint does prefetch_related("runs")),
-        # reuse the cache and sort in Python — this avoids N+1 queries on bulk-load callers.
-        if "runs" in getattr(self, "_prefetched_objects_cache", {}):
-            runs = list(self.runs.all())
-            if runs:
-                return max(runs, key=lambda r: r.created_at)
-            return None
-        # Otherwise fetch only the newest row instead of materializing every run.
-        # TaskRun.Meta.ordering is "-created_at", but order explicitly so the query is
-        # correct regardless of the model default.
-        return self.runs.order_by("-created_at").first()
+        # Use .all() which respects prefetch_related cache, then sort in Python
+        # This avoids N+1 queries when tasks are loaded with prefetch_related("runs")
+        runs = list(self.runs.all())
+        if runs:
+            return max(runs, key=lambda r: r.created_at)
+        return None
 
     def _assign_task_number(self) -> None:
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]

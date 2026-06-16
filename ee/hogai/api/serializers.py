@@ -19,6 +19,9 @@ from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
 
+# Sentinel: tells "queryset annotated current_run_id (possibly None)" apart from "not annotated".
+_UNSET = object()
+
 _conversation_fields = [
     "id",
     "status",
@@ -72,14 +75,19 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ConversationSandboxTaskSerializer(allow_null=True))
     def get_task(self, conversation: Conversation) -> dict[str, Any] | None:
-        # Reads the row's `task_id` and the `current_run_id` subquery annotated by the list
-        # queryset — no extra query, never touches `current_run`/`latest_run`. Constant query
-        # count regardless of conversation count.
+        # The backing Task + current Run let the frontend bootstrap the sandbox stream. The
+        # list/retrieve querysets annotate `current_run_id` with one correlated subquery, so this
+        # reads it for free; standalone serialization (no annotation) falls back to the derived
+        # `current_run`. Null for LangGraph conversations (no task).
         if conversation.task_id is None:
             return None
+        current_run_id = getattr(conversation, "current_run_id", _UNSET)
+        if current_run_id is _UNSET:
+            current_run = conversation.current_run
+            current_run_id = current_run.id if current_run else None
         return {
             "id": str(conversation.task_id),
-            "current_run_id": (str(crid) if (crid := getattr(conversation, "current_run_id", None)) else None),
+            "current_run_id": str(current_run_id) if current_run_id else None,
         }
 
 
@@ -112,7 +120,6 @@ class ConversationSerializer(ConversationMinimalSerializer):
     agent_mode = serializers.SerializerMethodField()
     is_sandbox = serializers.SerializerMethodField()
     pending_approvals = serializers.SerializerMethodField()
-    task = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
         # Sandbox conversations don't persist messages Django-side — history lives in S3
@@ -152,19 +159,6 @@ class ConversationSerializer(ConversationMinimalSerializer):
 
     def get_is_sandbox(self, conversation: Conversation) -> bool:
         return conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
-
-    @extend_schema_field(ConversationSandboxTaskSerializer(allow_null=True))
-    def get_task(self, conversation: Conversation) -> dict[str, Any] | None:
-        # The backing Task + current Run let the frontend bootstrap the sandbox stream on
-        # open. `current_run` is derived (latest Run on the Task), so this costs one extra
-        # query — acceptable on single retrieve, never hit on `list`.
-        if conversation.task_id is None:
-            return None
-        current_run = conversation.current_run
-        return {
-            "id": str(conversation.task_id),
-            "current_run_id": str(current_run.id) if current_run else None,
-        }
 
     def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """
