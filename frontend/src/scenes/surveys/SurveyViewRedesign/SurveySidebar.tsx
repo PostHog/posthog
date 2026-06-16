@@ -7,7 +7,7 @@ import { LemonButton, LemonMenu, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { SURVEY_TYPE_LABEL_MAP } from 'scenes/surveys/constants'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'

@@ -2,8 +2,7 @@ import { finder } from '@medv/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
-import { cssEscape } from 'lib/utils/cssEscape'
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
@@ -146,7 +145,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             continue
         }
 
-        const escapedSelector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        const escapedSelector = `[${CSS.escape(name)}="${CSS.escape(value)}"]`
         const unescapedSelector = `[${name}="${value}"]`
 
         if (querySelectorAllDeep(escapedSelector).length == 1) {
@@ -407,7 +406,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     }
 
     if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
-        selector += `[href="${cssEscape(step.href)}"]`
+        selector += `[href="${CSS.escape(step.href)}"]`
     }
 
     const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')
