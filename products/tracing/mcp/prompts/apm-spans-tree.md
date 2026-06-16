@@ -10,6 +10,7 @@ Returns rows with:
 - `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds
 - `error_count` — child spans with OTel status code `Error` (status_code = 2)
 - `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start
+- `calls_per_parent_invocation` — how many times this child runs per parent invocation (null for root edges). A child can top `total_duration_nano` purely by fan-out volume; divide by this to compare per-call cost
 
 Rows are ordered by `total_duration_nano` DESC and capped at 5000.
 
@@ -136,5 +137,6 @@ Property filters applied to both windows. See the "Property filters" section.
 - Root spans have `parent_name = "<ROOT>"` and `avg_start_offset_nano = 0`.
 - Duration values are in nanoseconds.
 - Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.
+- `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.
 - For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.
 - Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.

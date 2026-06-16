@@ -351,6 +351,57 @@ class TestRunOperations:
         removed = run.snapshots.get(identifier="deleted")
         assert removed.result == SnapshotResult.REMOVED
 
+    def test_complete_run_partial_skips_removals_off_default_branch(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="feature-x",
+            pr_number=7,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 0
+        assert not run.snapshots.filter(identifier="deleted").exists()
+
+    def test_complete_run_partial_ignored_on_default_branch(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="master",
+            pr_number=None,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=True)
+
+        completed = logic.complete_run(run.id)
+
+        # is_partial must not suppress removal detection on the default branch.
+        assert completed.removed_count == 1
+        removed = run.snapshots.get(identifier="deleted")
+        assert removed.result == SnapshotResult.REMOVED
+        # The default-branch correction is persisted, so the run is no longer
+        # treated as partial anywhere downstream (status context, UI).
+        assert completed.is_partial is False
+
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
         """complete_run passes run.commit_sha so default-branch baselines are pinned."""
         run, _ = logic.create_run(
@@ -919,7 +970,40 @@ class TestCommitStatusChecks:
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
-        assert "No visual changes" in statuses[-1]["description"]
+        assert statuses[-1]["description"] == "No visual changes"
+        # A full run posts to the gating context that branch protection evaluates.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook"
+
+    def test_complete_run_partial_annotates_posted_status(self, github_repo, mock_github_api, mocker):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="feature-x",
+            pr_number=7,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
+        logic.complete_run(run.id)
+
+        # A partial run suppresses removal detection, so it must never satisfy
+        # the gating status context branch protection evaluates. It posts to a
+        # separate "(partial)" context instead, and the description discloses it.
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "No visual changes (partial run)"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (partial)"
+        # The gating context is never posted green by a partial run.
+        gating_context = "PostHog Visual Review / storybook"
+        assert all(s["context"] != gating_context for s in statuses)
 
     def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api, mocker):
         github_repo.enable_pr_comments = True
@@ -1781,6 +1865,34 @@ class TestRerunGithubJob:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRunIsOnDefaultBranch:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=1234, repo_full_name="org/test-repo")
+
+    def _mock_github(self, mocker, default_branch="master"):
+        mock_github = mocker.MagicMock()
+        mock_github.access_token_expired.return_value = False
+        mocker.patch("products.visual_review.backend.logic.get_github_integration_for_repo", return_value=mock_github)
+        mocker.patch("products.visual_review.backend.logic._get_default_branch", return_value=default_branch)
+
+    def test_true_when_branch_matches_default(self, repo, mocker):
+        self._mock_github(mocker, default_branch="main")
+        assert logic._run_is_on_default_branch(repo, "main") is True
+
+    def test_false_when_branch_differs(self, repo, mocker):
+        self._mock_github(mocker, default_branch="main")
+        assert logic._run_is_on_default_branch(repo, "feature-x") is False
+
+    def test_false_when_no_github_integration(self, repo, mocker):
+        mocker.patch(
+            "products.visual_review.backend.logic.get_github_integration_for_repo",
+            side_effect=logic.GitHubIntegrationNotFoundError("none"),
+        )
+        assert logic._run_is_on_default_branch(repo, "master") is False
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestMergeBaseBaselineHealing:
     """Tests for _resolve_baselines_with_merge_base healing rebase-corrupted baselines."""
 
@@ -2428,6 +2540,70 @@ class TestApprovalComment:
         assert "changed" not in body
         assert "new" not in body
         assert "removed" not in body
+        # A genuinely empty run stays silent — the suppressed-only note must not fire
+        assert "quarantined or tolerated" not in body
+
+    def test_build_approval_comment_body_excludes_quarantined_and_tolerated(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="mixed",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id, run=run, identifier="Real/Change", result=SnapshotResult.CHANGED
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.TOLERATED,
+        )
+
+        body = logic._build_approval_comment_body(run, repo, logic._Approver(label="bob", is_github_login=True))
+
+        assert "1 changed." in body
+        assert "new" not in body
+        assert "quarantined or tolerated" not in body
+
+    def test_build_approval_comment_body_notes_when_only_quarantined_and_tolerated(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="suppressed",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.TOLERATED,
+        )
+
+        body = logic._build_approval_comment_body(run, repo, logic._Approver(label="bob", is_github_login=True))
+
+        assert "All visual changes in this run were quarantined or tolerated." in body
+        assert "1 changed" not in body
 
     def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
         repo.enable_pr_comments = False
@@ -2598,6 +2774,35 @@ class TestApprovalComment:
         assert "_(none)_" in body
         # Long-lived URL so GitHub's image proxy can still fetch it later
         assert f"exp={logic._COMMENT_IMAGE_URL_EXPIRATION}" in body
+
+    def test_build_snapshot_image_tables_excludes_quarantined_and_tolerated(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run_with_artifacts,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+            baseline_artifact=self._mk_artifact(repo, "base_q"),
+            current_artifact=self._mk_artifact(repo, "curr_q"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run_with_artifacts,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.CHANGED,
+            review_state=ReviewState.TOLERATED,
+            baseline_artifact=self._mk_artifact(repo, "base_t"),
+            current_artifact=self._mk_artifact(repo, "curr_t"),
+        )
+
+        body = logic._build_snapshot_image_tables(run_with_artifacts, repo)
+
+        assert "Flaky/Quarantined" not in body
+        assert "Known/Tolerated" not in body
+        assert "curr_q" not in body
+        assert "curr_t" not in body
+        assert "Login/Form" in body
 
     def test_build_approval_comment_body_deep_links_each_snapshot(self, repo, run_with_artifacts, mocker):
         mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())

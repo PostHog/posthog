@@ -3,6 +3,7 @@ from typing import Optional, cast
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -45,6 +46,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SNOWFLAKE,
+            category=DataWarehouseSourceCategory.DATABASES,
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
             iconPath="/static/services/snowflake.png",
             docsUrl="https://posthog.com/docs/cdp/sources/snowflake",
@@ -163,7 +165,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
                         label="Schema (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
-                        placeholder="leave blank to list tables from all schemas",
+                        placeholder="Leave blank to import all schemas",
                         secret=False,
                     ),
                 ],
@@ -173,6 +175,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "This account has been marked for decommission": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
+            # Snowflake error 000606 (57P03): the session has no active warehouse, so the first query
+            # needing compute fails. The connector doesn't fail at connect time even when the configured
+            # warehouse is missing/suspended or the role lacks USAGE on it — it just leaves the session
+            # warehouse unset. Retrying can never succeed until the customer fixes the grant or warehouse.
+            "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
