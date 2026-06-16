@@ -10,9 +10,12 @@ import {
     getNotebookAgentClientId,
     getNotebookAgentIdFromClientId,
     getNotebookAgentsFromMarkdown,
+    insertMarkdownAfterNotebookAIAgentCursor,
+    insertNotebookAIFollowUpPromptAfterCursor,
     insertNotebookAgentMarkdownAfterRef,
     makeNotebookAgentNode,
     preserveNotebookAIAgentNode,
+    replaceNotebookAIAgentCursorMarkdown,
     removeNotebookAgentFromMarkdown,
 } from './notebookAgents'
 
@@ -62,6 +65,53 @@ describe('notebookAgents', () => {
                 '# Original notebook\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />'
             )
         ).toEqual('# Rewritten notebook\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />')
+    })
+
+    it('replaces the AI cursor row with assistant markdown', () => {
+        const markdown = '# Notebook\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+
+        expect(replaceNotebookAIAgentCursorMarkdown(markdown, 'Here is the answer.\n\n- First\n- Second')).toEqual(
+            '# Notebook\n\nHere is the answer.\n\n- First\n- Second\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":6,"listItemIndex":1}} />'
+        )
+    })
+
+    it('replaces a previously streamed multi-block AI response', () => {
+        const markdown =
+            '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2,"offset":16}} />'
+
+        expect(
+            replaceNotebookAIAgentCursorMarkdown(markdown, 'First paragraph\n\nSecond paragraph\n\nThird paragraph', 2)
+        ).toEqual(
+            '# Notebook\n\nFirst paragraph\n\nSecond paragraph\n\nThird paragraph\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":3,"offset":15}} />'
+        )
+    })
+
+    it('inserts artifact markdown after the AI cursor row', () => {
+        const markdown =
+            '# Notebook\n\nWorking on it\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":13}} />'
+
+        expect(
+            insertMarkdownAfterNotebookAIAgentCursor(markdown, '<Query query={{"kind":"DataTableNode"}} />')
+        ).toEqual(
+            '# Notebook\n\nWorking on it\n\n<Query query={{"kind":"DataTableNode"}} />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":2}} />'
+        )
+    })
+
+    it('inserts a follow-up prompt and keeps the AI cursor before it', () => {
+        const markdown = '# Notebook\n\nAnswer text\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+
+        expect(insertNotebookAIFollowUpPromptAfterCursor(markdown, '<Prompt question="" />')).toEqual(
+            '# Notebook\n\nAnswer text\n\n<Prompt question="" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+        )
+    })
+
+    it('keeps the AI cursor on the final list item before a follow-up prompt', () => {
+        const markdown =
+            '# Notebook\n\n- First\n- Second\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":6,"listItemIndex":1}} />'
+
+        expect(insertNotebookAIFollowUpPromptAfterCursor(markdown, '<Prompt question="" />')).toEqual(
+            '# Notebook\n\n- First\n- Second\n\n<Prompt question="" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":6,"listItemIndex":1}} />'
+        )
     })
 
     it('builds an agent query for the LLM without generating the response locally', () => {

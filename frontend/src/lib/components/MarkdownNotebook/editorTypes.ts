@@ -52,6 +52,7 @@ export type InsertMenuState = {
     removeNodeOnClose?: boolean
     source?: 'slash' | 'selection'
     selectedMarkdown?: string
+    selectedRefId?: string
 }
 
 export type InsertMenuSelectionDirection = 'next' | 'previous'

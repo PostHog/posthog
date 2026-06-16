@@ -3233,12 +3233,12 @@ ${queryMarkdown}`)
         fireEvent.click(firstInsertItem)
 
         expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI:')
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-title')).toBeNull()
         expect(container.querySelector('button[aria-label="Delete prompt"]')).toBeInstanceOf(HTMLButtonElement)
         expect(
             container.querySelector('.MarkdownNotebook__ai-prompt-card')?.closest('.MarkdownNotebook__text-group')
-        ).toBeNull()
+        ).toBeInstanceOf(HTMLElement)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Prompt question="" />`)
 
         const editableTextBlock = getAIPromptInput(container)
@@ -3251,20 +3251,57 @@ ${queryMarkdown}`)
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`
         )
         const aiRequest = onAskAI.mock.calls[0][0]
 
-        expect(aiRequest).toEqual({
-            chatId: TEST_AI_CHAT_ID,
-            query: 'Add a summary here',
-            source: 'slash',
-            chatNodeId: expect.any(String),
-            chatMarker: `<Chat id="${TEST_AI_CHAT_ID}" />`,
-            markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />`,
-            markdownWithChat: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />`,
-            selectedMarkdown: undefined,
-        })
+        expect(aiRequest).toEqual(
+            expect.objectContaining({
+                chatId: TEST_AI_CHAT_ID,
+                query: expect.stringContaining('User request:\nAdd a summary here'),
+                source: 'slash',
+                responseNodeId: expect.any(String),
+                responseMarker: 'Thinking...',
+                markdown: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`,
+                markdownWithResponse: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`,
+                selectedMarkdown: undefined,
+            })
+        )
+        expect(aiRequest.query).toContain('streamed directly into the notebook')
+    })
+
+    it('animates the live AI thinking placeholder without editing markdown', () => {
+        jest.useFakeTimers()
+        const onChange = jest.fn()
+
+        try {
+            const { container, unmount } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle(
+                        'Thinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />'
+                    ),
+                    onChange,
+                })
+            )
+            const thinkingBlock = getBodyTextBlock(container)
+
+            expect(thinkingBlock.textContent).toEqual('Thinking...')
+            expect(thinkingBlock.classList.contains('MarkdownNotebook__text-block--ai-thinking')).toBe(true)
+            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking.')
+
+            act(() => jest.advanceTimersByTime(450))
+            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking..')
+
+            act(() => jest.advanceTimersByTime(450))
+            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking...')
+
+            act(() => jest.advanceTimersByTime(450))
+            expect(thinkingBlock.getAttribute('data-ai-thinking-label')).toEqual('Thinking.')
+            expect(onChange).not.toHaveBeenCalled()
+            unmount()
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('selects the Ask AI prompt text with Cmd+A on the first press', () => {
@@ -3294,8 +3331,24 @@ ${queryMarkdown}`)
         const { container } = render(createElement(MarkdownNotebook, { value: persistedPromptMarkdown }))
         const editableTextBlock = getAIPromptInput(container)
 
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI:')
         expect(editableTextBlock.value).toEqual('Summarize this notebook')
+    })
+
+    it('focuses the latest empty Ask AI prompt when requested', async () => {
+        const persistedPromptMarkdown = `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nEarlier prompt\n\n<Prompt question="" />`
+        const { container, rerender } = render(createElement(MarkdownNotebook, { value: persistedPromptMarkdown }))
+        const titleButton = container.querySelector('.MarkdownNotebook__ai-prompt-heading') as HTMLButtonElement
+
+        expect(titleButton).toBeInstanceOf(HTMLButtonElement)
+        fireEvent.click(titleButton)
+        expect(container.querySelector('textarea.MarkdownNotebook__text-block--ai-prompt')).toBeNull()
+
+        rerender(createElement(MarkdownNotebook, { value: persistedPromptMarkdown, focusAIPromptRequest: 1 }))
+
+        await waitFor(() => {
+            expect(document.activeElement).toEqual(getAIPromptInput(container))
+        })
     })
 
     it('collapses a persisted Ask AI prompt from the title button', () => {
@@ -3305,7 +3358,7 @@ ${queryMarkdown}`)
         const titleButton = container.querySelector('.MarkdownNotebook__ai-prompt-heading') as HTMLButtonElement
 
         expect(titleButton).toBeInstanceOf(HTMLButtonElement)
-        expect(titleButton.textContent).toContain('Ask AI')
+        expect(titleButton.textContent).toContain('Ask AI:')
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-title')).toBeNull()
         expect(titleButton.getAttribute('aria-expanded')).toEqual('true')
         expect(getAIPromptInput(container)).toBeInstanceOf(HTMLTextAreaElement)
@@ -3357,7 +3410,7 @@ ${queryMarkdown}`)
             })
         )
 
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI:')
         expect(getAIPromptInput(container).value).toEqual('Summarize this notebook')
 
         fireEvent.keyDown(getAIPromptInput(container), { key: 'Enter' })
@@ -3365,12 +3418,12 @@ ${queryMarkdown}`)
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 chatId: TEST_AI_CHAT_ID,
-                query: 'Summarize this notebook',
+                query: expect.stringContaining('User request:\nSummarize this notebook'),
                 source: 'slash',
             })
         )
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`
         )
     })
 
@@ -3393,11 +3446,11 @@ ${queryMarkdown}`)
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 chatId: TEST_AI_CHAT_ID,
-                query: 'What happened here?',
+                query: expect.stringContaining('User request:\nWhat happened here?'),
             })
         )
         expect(onChange).toHaveBeenLastCalledWith(
-            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n<Chat id="${TEST_AI_CHAT_ID}" />\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />`
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nThinking...\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1,"offset":11}} />`
         )
     })
 
@@ -3431,7 +3484,7 @@ ${queryMarkdown}`)
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 chatId: TEST_AI_CHAT_ID,
-                query: 'What happened here?',
+                query: expect.stringContaining('User request:\nWhat happened here?'),
             })
         )
     })
@@ -4846,9 +4899,11 @@ First paragraph
 
     it('opens an inline AI prompt below highlighted text from the formatting toolbar', () => {
         const onAskAI = jest.fn()
+        const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
                 value: 'First paragraph\n\nSecond paragraph',
+                onChange,
                 onAskAI,
                 createAIChatId: () => TEST_AI_CHAT_ID,
             })
@@ -4859,7 +4914,13 @@ First paragraph
         fireEvent.click(container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement)
 
         expect(onAskAI).not.toHaveBeenCalled()
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI:')
+        const refElements = Array.from(container.querySelectorAll('[data-notebook-ref]'))
+        const selectedRefId = refElements[0]?.getAttribute('data-notebook-ref')
+        expect(selectedRefId).toBeTruthy()
+        expect(refElements.map((element) => element.textContent).join('')).toEqual('First paragraphSecond')
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining(`<Prompt question="" source="selection"`))
+        expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining(`ref="${selectedRefId}"`))
 
         const promptBlock = getAIPromptInput(container)
         updateAIPromptInput(promptBlock, 'Explain what this means')
@@ -4871,13 +4932,14 @@ First paragraph
         expect(aiRequest.query).toContain('Highlighted markdown:')
         expect(aiRequest.query).toContain('# First paragraph\n\nSecond')
         expect(aiRequest.query).toContain('User request:\nExplain what this means')
-        expect(aiRequest.query).toContain(`inline <Chat id="${TEST_AI_CHAT_ID}" /> block is the answer anchor`)
+        expect(aiRequest.query).toContain('streamed directly into the notebook')
+        expect(aiRequest.query).toContain(`ref id "${selectedRefId}"`)
+        expect(aiRequest.selectedRefId).toEqual(selectedRefId)
         expect(aiRequest.selectedMarkdown).toContain('# First paragraph\n\nSecond')
-        expect(aiRequest.markdown).toContain(
-            `# First paragraph\n\nSecond paragraph\n\n<Chat id="${TEST_AI_CHAT_ID}" />`
-        )
-        expect(aiRequest.chatMarker).toEqual(`<Chat id="${TEST_AI_CHAT_ID}" />`)
-        expect(aiRequest.markdownWithChat).toContain(`Second paragraph\n\n<Chat id="${TEST_AI_CHAT_ID}" />`)
+        expect(aiRequest.markdown).toContain('<ref id=')
+        expect(aiRequest.markdown).toContain('</ref> paragraph\n\nThinking...')
+        expect(aiRequest.responseMarker).toEqual('Thinking...')
+        expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
     })
 
     it('adds a link from the formatting toolbar', () => {
@@ -5281,8 +5343,8 @@ Second paragraph`,
         updateAIPromptInput(aiPromptBlock, 'Add a summary here')
         fireEvent.keyDown(aiPromptBlock, { key: 'Enter' })
 
-        const chatComponent = container.querySelector('.MarkdownNotebook__component-shell')
-        expect(chatComponent?.getAttribute('contenteditable')).toEqual('false')
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(getBodyTextBlock(container, 1).textContent).toEqual('Thinking...')
     })
 
     it('syncs text edits when native input is dispatched from the root editable surface', () => {
@@ -5489,19 +5551,21 @@ second line
         fireEvent.input(canvas)
         fireEvent.keyDown(canvas, { key: 'Enter' })
 
-        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI:')
 
         const aiPromptBlock = getAIPromptInput(container)
         updateAIPromptInput(aiPromptBlock, 'Add a summary here')
         fireEvent.keyDown(aiPromptBlock, { key: 'Enter' })
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
-        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(getBodyTextBlock(container).textContent).toEqual('Thinking...')
         expect(onAskAI).toHaveBeenCalledWith(
             expect.objectContaining({
                 chatId: TEST_AI_CHAT_ID,
-                query: 'Add a summary here',
+                query: expect.stringContaining('User request:\nAdd a summary here'),
                 source: 'slash',
+                responseMarker: 'Thinking...',
             })
         )
     })
@@ -8449,7 +8513,7 @@ After component`,
             '``````markdown\n`````\nnested\n`````\n``````',
         ],
     ])('wraps the highlighted markdown in an unescapable fence: %s', (_name, selection, expectedBlock) => {
-        const query = getAskAISelectionQuery(selection, 'rewrite this', TEST_AI_CHAT_ID)
+        const query = getAskAISelectionQuery(selection, 'rewrite this', 'Thinking...')
 
         expect(query).toContain(expectedBlock)
     })

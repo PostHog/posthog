@@ -42,6 +42,7 @@ import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
     ensureEditableNotebookDocument,
+    getAskAIInlineNotebookQuery,
     getAskAISelectionQuery,
     getClipboardMarkdown,
     getHistoryRestoreSelection,
@@ -163,6 +164,7 @@ import {
 import {
     NOTEBOOK_AI_AGENT_ID,
     NOTEBOOK_AI_AGENT_NAME,
+    NOTEBOOK_AI_WRITING_PLACEHOLDER,
     NOTEBOOK_AGENT_COMPONENT_TAG,
     getNotebookAgentCursorProp,
     getNotebookAgentFromNode,
@@ -239,6 +241,7 @@ export type MarkdownNotebookProps = {
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
+    focusAIPromptRequest?: number
     placeholder?: string
     className?: string
     autoFocus?: boolean
@@ -250,11 +253,12 @@ export type MarkdownNotebookAskAIRequest = {
     chatId: string
     query: string
     source: 'slash' | 'selection' | 'agent'
-    chatNodeId: string
-    chatMarker: string
+    responseNodeId: string
+    responseMarker: string
     markdown: string
-    markdownWithChat: string
+    markdownWithResponse: string
     selectedMarkdown?: string
+    selectedRefId?: string
     agent?: {
         id: string
         name: string
@@ -354,6 +358,35 @@ function upsertNotebookAIAgentNode(
     return foundAIAgent ? nextNodes : [...nextNodes, makeNotebookAIAgentNode(cursor)]
 }
 
+function getAIWritingPlaceholderNodeIds(nodes: NotebookBlockNode[]): Set<string> {
+    const nodeIds = new Set<string>()
+    for (const node of nodes) {
+        const agent = getNotebookAgentFromNode(node)
+        if (!agent || agent.id !== NOTEBOOK_AI_AGENT_ID || agent.cursor?.nodeIndex === undefined) {
+            continue
+        }
+
+        const targetNode = nodes[agent.cursor.nodeIndex]
+        if (
+            targetNode?.type === 'paragraph' &&
+            getInlineText(targetNode.children) === NOTEBOOK_AI_WRITING_PLACEHOLDER
+        ) {
+            nodeIds.add(targetNode.id)
+        }
+    }
+    return nodeIds
+}
+
+function getLatestEmptyAIPromptNodeId(nodes: NotebookBlockNode[]): string | null {
+    for (let index = nodes.length - 1; index >= 0; index--) {
+        const node = nodes[index]
+        if (node && isPromptComponentNode(node) && !(getNotebookStringProp(node.props.question) ?? '').trim()) {
+            return node.id
+        }
+    }
+    return null
+}
+
 /** A debug recording session: JSONL entries downloaded as a .log file on stop. */
 type NotebookDebugLog = {
     startedAt: number
@@ -421,6 +454,7 @@ export function MarkdownNotebook({
     onRemoteCaretClick,
     onCaretChange,
     initialInsertMenu,
+    focusAIPromptRequest,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
@@ -2356,7 +2390,10 @@ export function MarkdownNotebook({
     )
 
     const openAIPrompt = useCallback(
-        (nodeId: string, options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string }): void => {
+        (
+            nodeId: string,
+            options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
+        ): void => {
             onInteractionStateChange?.(true)
             updateNode(nodeId, (currentNode) => {
                 if (!isTextBlockNode(currentNode) && currentNode.type !== 'component') {
@@ -2366,6 +2403,9 @@ export function MarkdownNotebook({
                 if (options?.source === 'selection') {
                     promptProps.source = 'selection'
                     promptProps.selectedMarkdown = options.selectedMarkdown ?? ''
+                    if (options.selectedRefId) {
+                        promptProps.ref = options.selectedRefId
+                    }
                 }
                 return {
                     id: currentNode.id,
@@ -2381,6 +2421,7 @@ export function MarkdownNotebook({
                 mode: 'ai',
                 source: options?.source ?? 'slash',
                 selectedMarkdown: options?.selectedMarkdown,
+                selectedRefId: options?.selectedRefId,
             })
         },
         [onInteractionStateChange, updateNode]
@@ -2396,6 +2437,11 @@ export function MarkdownNotebook({
     }
 
     const renderedNodes = getRenderedNodes()
+    const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
+    const focusAIPromptNodeId = useMemo(
+        () => (focusAIPromptRequest === undefined ? null : getLatestEmptyAIPromptNodeId(document.nodes)),
+        [document.nodes, focusAIPromptRequest]
+    )
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
@@ -3223,10 +3269,20 @@ export function MarkdownNotebook({
 
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const textRangesByNodeId = new Map(floatingToolbar.textRanges.map((entry) => [entry.node.id, entry]))
+        const listItemRangesByNodeId = new Map<string, FloatingToolbarListItemRange[]>()
+        floatingToolbar.listItemRanges.forEach((entry) => {
+            listItemRangesByNodeId.set(entry.node.id, [...(listItemRangesByNodeId.get(entry.node.id) ?? []), entry])
+        })
+        const refId =
+            floatingToolbar.textRanges.length + floatingToolbar.listItemRanges.length > 0
+                ? createNotebookRefId()
+                : undefined
         // Insert the prompt after the last selected block in document order.
         const selectedNodeIds = new Set(
             [
                 ...floatingToolbar.textRanges.map(({ node }) => node.id),
+                ...floatingToolbar.codeRanges.map(({ node }) => node.id),
                 ...floatingToolbar.listItemRanges.map(({ node }) => node.id),
             ].filter(Boolean)
         )
@@ -3247,12 +3303,43 @@ export function MarkdownNotebook({
                 question: '',
                 source: 'selection',
                 selectedMarkdown,
+                ...(refId ? { ref: refId } : {}),
             },
         }
         onInteractionStateChange?.(true)
+        const nextNodes = nodes.flatMap((node, index): NotebookBlockNode[] => {
+            let updatedNode = node
+            const textRange = textRangesByNodeId.get(node.id)
+            const listItemRanges = listItemRangesByNodeId.get(node.id)
+            if (refId && textRange && isTextBlockNode(node)) {
+                updatedNode = { ...node, children: setInlineRefMark(node.children, textRange.range, refId) }
+            } else if (refId && listItemRanges && node.type === 'list') {
+                updatedNode = {
+                    ...node,
+                    items: node.items.map((item, itemIndex) => {
+                        const itemRange = listItemRanges.find((entry) => entry.itemIndex === itemIndex)
+                        return itemRange
+                            ? { ...item, children: setInlineRefMark(item.children, itemRange.range, refId) }
+                            : item
+                    }),
+                }
+            }
+            return index === targetNodeIndex ? [updatedNode, promptNode] : [updatedNode]
+        })
+        if (refId) {
+            restoreSelectionRef.current = {
+                textRanges: [
+                    ...floatingToolbar.textRanges.map(({ range }) => range),
+                    ...floatingToolbar.listItemRanges.map(({ itemIndex, range }) => ({
+                        ...range,
+                        listItemIndex: itemIndex,
+                    })),
+                ],
+            }
+        }
         commitDocument({
             ...currentDocument,
-            nodes: nodes.flatMap((node, index) => (index === targetNodeIndex ? [node, promptNode] : [node])),
+            nodes: nextNodes,
         })
 
         floatingToolbarPositionLockRef.current = null
@@ -3264,6 +3351,7 @@ export function MarkdownNotebook({
             mode: 'ai',
             source: 'selection',
             selectedMarkdown,
+            selectedRefId: refId,
         })
     }
 
@@ -4620,44 +4708,46 @@ export function MarkdownNotebook({
         }
 
         const chatId = createAIChatId()
-        let chatNodeIndex = 0
-        const nodesWithChat = nodes.map((currentNode, index): NotebookBlockNode => {
+        let responseNodeIndex = 0
+        const nodesWithResponse = nodes.map((currentNode, index): NotebookBlockNode => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
                 return currentNode
             }
-            chatNodeIndex = index
+            responseNodeIndex = index
             return {
                 id: currentNode.id,
-                type: 'component',
-                tagName: 'Chat',
-                props: {
-                    id: chatId,
-                },
+                type: 'paragraph',
+                children: plainTextToInlineNodes(NOTEBOOK_AI_WRITING_PLACEHOLDER),
             }
         })
         const nextDocument: NotebookDocument = {
             ...currentDocument,
-            nodes: upsertNotebookAIAgentNode(nodesWithChat, { nodeIndex: chatNodeIndex }),
+            nodes: upsertNotebookAIAgentNode(nodesWithResponse, {
+                nodeIndex: responseNodeIndex,
+                offset: NOTEBOOK_AI_WRITING_PLACEHOLDER.length,
+            }),
         }
         commitDocument(nextDocument)
         clearInsertMenu()
         const markdown = serializeMarkdownNotebook(nextDocument)
-        const chatMarker = `<Chat id="${chatId}" />`
+        const responseMarker = NOTEBOOK_AI_WRITING_PLACEHOLDER
         const source = activeAIPromptMenu?.source ?? getPromptSource(currentPromptNode?.props.source)
         const selectedMarkdown =
             activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
+        const selectedRefId = activeAIPromptMenu?.selectedRefId ?? getNotebookStringProp(currentPromptNode?.props.ref)
         onAskAI({
             chatId,
             query:
                 source === 'selection' && selectedMarkdown
-                    ? getAskAISelectionQuery(selectedMarkdown, query, chatId)
-                    : query,
+                    ? getAskAISelectionQuery(selectedMarkdown, query, responseMarker, selectedRefId)
+                    : getAskAIInlineNotebookQuery(query, responseMarker),
             source,
-            chatNodeId: nodeId,
-            chatMarker,
+            responseNodeId: nodeId,
+            responseMarker,
             markdown,
-            markdownWithChat: markdown,
+            markdownWithResponse: markdown,
             selectedMarkdown,
+            selectedRefId,
         })
         return true
     }
@@ -4955,6 +5045,7 @@ export function MarkdownNotebook({
                 className={clsx(
                     'MarkdownNotebook__row',
                     isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open',
+                    isAIPromptOpen && 'MarkdownNotebook__row--ai-prompt',
                     isDiscussionCommentNode(node) && 'MarkdownNotebook__row--margin-comment',
                     draggingNodeId === node.id && 'MarkdownNotebook__row--dragging'
                 )}
@@ -5109,6 +5200,11 @@ export function MarkdownNotebook({
                     isInsertMenuOpen,
                     insertMenuMode,
                     hasInvalidInsertMenuQuery,
+                    isAIWritingPlaceholder: aiWritingPlaceholderNodeIds.has(node.id),
+                    aiPromptFocusRequest:
+                        focusAIPromptNodeId === node.id && focusAIPromptRequest !== undefined
+                            ? focusAIPromptRequest
+                            : undefined,
                     submitInsertMenuSelection: (queryOverride) =>
                         submitInsertMenuSelectionForNode(node.id, queryOverride),
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),

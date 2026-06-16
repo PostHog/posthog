@@ -16,6 +16,7 @@ export type { TextChange } from './collaboration'
 export {
     NOTEBOOK_AI_AGENT_ID,
     NOTEBOOK_AI_AGENT_NAME,
+    NOTEBOOK_AI_WRITING_PLACEHOLDER,
     appendNotebookAgentCommentReplyToMarkdown,
     applyNotebookAgentArtifactMarkdown,
     getNotebookAgentAIQuery,
@@ -26,8 +27,11 @@ export {
     getNotebookAgentIdFromClientId,
     getNotebookAgentSyntheticUserId,
     getNotebookAgentsFromMarkdown,
+    insertMarkdownAfterNotebookAIAgentCursor,
+    insertNotebookAIFollowUpPromptAfterCursor,
     insertNotebookAgentMarkdownAfterRef,
     preserveNotebookAIAgentNode,
+    replaceNotebookAIAgentCursorMarkdown,
     removeNotebookAgentFromMarkdown,
 } from './notebookAgents'
 export type { NotebookAgent } from './notebookAgents'

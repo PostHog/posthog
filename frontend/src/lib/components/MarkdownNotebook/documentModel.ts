@@ -58,7 +58,7 @@ export function getMarkdownNotebookVisualGroups(
     const groups: MarkdownNotebookVisualGroup[] = []
     let currentTextGroup: Extract<MarkdownNotebookVisualGroup, { type: 'text' }> | null = null
     const isTextLikeNode = (node: NotebookBlockNode | undefined): boolean =>
-        !!node && (isTextBlockNode(node) || node.type === 'list' || node.type === 'code')
+        !!node && (isTextBlockNode(node) || node.type === 'list' || node.type === 'code' || isPromptComponentNode(node))
 
     // A discussion comment sits right above the text it highlights; joining the surrounding
     // text group keeps that text from being split into separate cards. A comment anchored to
@@ -82,7 +82,8 @@ export function getMarkdownNotebookVisualGroups(
             return
         }
 
-        if ((isTextLikeNode(node) || commentJoinsTextGroup(index)) && node.id !== insertMenuNodeId) {
+        const shouldBreakTextGroupForInsertMenu = node.id === insertMenuNodeId && !isPromptComponentNode(node)
+        if ((isTextLikeNode(node) || commentJoinsTextGroup(index)) && !shouldBreakTextGroupForInsertMenu) {
             if (!currentTextGroup) {
                 currentTextGroup = {
                     type: 'text',
@@ -149,6 +150,13 @@ export function getDiscussionCommentRefId(node: NotebookBlockNode): string | nul
     if (!isCommentComponentNode(node)) {
         return null
     }
+    return getNotebookComponentRefId(node)
+}
+
+export function getNotebookComponentRefId(node: NotebookBlockNode): string | null {
+    if (node.type !== 'component') {
+        return null
+    }
     const refId = node.props.ref
     return typeof refId === 'string' && refId.trim() ? refId : null
 }
@@ -200,7 +208,7 @@ export function removeNotebookNodesWithRefCleanup(document: NotebookDocument, no
     const removedRefIds = new Set(
         document.nodes
             .filter((node) => nodeIds.has(node.id))
-            .map(getDiscussionCommentRefId)
+            .map(getNotebookComponentRefId)
             .filter((refId): refId is string => !!refId)
     )
     const remainingNodes = document.nodes.filter((node) => !nodeIds.has(node.id))
@@ -652,11 +660,30 @@ export function serializeNotebookNodes(nodes: NotebookBlockNode[]): string {
     return serializeMarkdownNotebook({ type: 'doc', nodes, errors: [] })
 }
 
-export function getAskAISelectionQuery(selectedMarkdown: string, userQuery: string, chatId: string): string {
+export function getAskAIInlineNotebookQuery(userQuery: string, responseMarker: string): string {
+    return [
+        'The user is writing in a markdown notebook and asked PostHog AI to continue inline.',
+        '',
+        'User request:',
+        userQuery,
+        '',
+        `Your response is streamed directly into the notebook by replacing the "${responseMarker}" text block.`,
+        'Write the markdown that should appear in the notebook. Do not say you will add, insert, or update it later.',
+        'Use normal notebook markdown only unless the request clearly needs a notebook artifact.',
+    ].join('\n')
+}
+
+export function getAskAISelectionQuery(
+    selectedMarkdown: string,
+    userQuery: string,
+    responseMarker: string,
+    refId?: string
+): string {
     const highlightedMarkdown = selectedMarkdown.trim()
     // A fence longer than any backtick run in the content, so embedded ``` can't close the block early
     const longestBacktickRun = highlightedMarkdown.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0
     const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))
+    const refContext = refId ? [`The highlighted content is marked in the notebook with ref id "${refId}".`] : []
 
     return [
         'The user highlighted content in a markdown notebook and asked PostHog AI to help with it.',
@@ -669,9 +696,10 @@ export function getAskAISelectionQuery(selectedMarkdown: string, userQuery: stri
         highlightedMarkdown,
         fence,
         '',
-        `Use the notebook context as the source of truth. The inline <Chat id="${chatId}" /> block is the answer anchor directly below the highlighted content.`,
-        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook near the highlighted content and keep that Chat block as the anchor for the answer.',
-        'If the user asks to explain or analyze the highlighted content, answer directly without editing the notebook unless they explicitly ask for a change.',
+        ...refContext,
+        `Use the notebook context as the source of truth. Your response is streamed directly into the notebook by replacing the "${responseMarker}" text block below the highlighted content.`,
+        'Write the markdown that should appear in the notebook. Do not say you will add, insert, or update it later.',
+        'If the user asks to replace, rewrite, shorten, expand, summarize, or otherwise change the highlighted content, update the notebook near the highlighted content. If the user asks to explain or analyze the highlighted content, answer directly unless they explicitly ask for a change.',
     ].join('\n')
 }
 

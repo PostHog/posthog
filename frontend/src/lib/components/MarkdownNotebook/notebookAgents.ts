@@ -6,13 +6,15 @@ import type {
     NotebookDocument,
     NotebookInlineNode,
     NotebookPropValue,
+    NotebookTextBlockNode,
 } from './types'
-import { hashString } from './utils'
+import { getInlineText, hashString } from './utils'
 
 export const NOTEBOOK_AGENT_COMPONENT_TAG = 'Agent'
 export const NOTEBOOK_AGENT_CLIENT_ID_PREFIX = 'notebook-agent:'
 export const NOTEBOOK_AI_AGENT_ID = 'ai'
 export const NOTEBOOK_AI_AGENT_NAME = 'AI'
+export const NOTEBOOK_AI_WRITING_PLACEHOLDER = 'Thinking...'
 
 export type NotebookAgent = {
     id: string
@@ -116,6 +118,52 @@ export function preserveNotebookAIAgentNode(nextMarkdown: string, currentMarkdow
     return serializeMarkdownNotebook({
         ...nextDocument,
         nodes: [...nextDocument.nodes, currentAIAgentNode],
+    })
+}
+
+export function replaceNotebookAIAgentCursorMarkdown(
+    markdown: string,
+    replacementMarkdown: string,
+    replacedNodeCount: number = 1
+): string {
+    return applyNotebookAIAgentCursorMarkdown(markdown, replacementMarkdown, 'replace', replacedNodeCount)
+}
+
+export function insertMarkdownAfterNotebookAIAgentCursor(markdown: string, insertedMarkdown: string): string {
+    return applyNotebookAIAgentCursorMarkdown(markdown, insertedMarkdown, 'insert-after')
+}
+
+export function insertNotebookAIFollowUpPromptAfterCursor(markdown: string, promptMarkdown: string): string {
+    const trimmedPromptMarkdown = promptMarkdown.trim()
+    if (!trimmedPromptMarkdown || markdown.includes(trimmedPromptMarkdown)) {
+        return markdown
+    }
+
+    const document = parseMarkdownNotebook(markdown)
+    const agentIndex = document.nodes.findIndex((node) => getNotebookAgentFromNode(node)?.id === NOTEBOOK_AI_AGENT_ID)
+    if (agentIndex === -1) {
+        return markdown
+    }
+
+    const promptNodes = parseMarkdownNotebook(trimmedPromptMarkdown).nodes.filter(
+        (node) => getNotebookAgentFromNode(node)?.id !== NOTEBOOK_AI_AGENT_ID
+    )
+    if (!promptNodes.length) {
+        return markdown
+    }
+
+    const agent = getNotebookAgentFromNode(document.nodes[agentIndex])
+    const cursorIndex = getNotebookAIAgentTargetIndex(document.nodes, agent?.cursor?.nodeIndex, agentIndex)
+    const insertionIndex = cursorIndex + 1
+    const nextNodes = [
+        ...document.nodes.slice(0, insertionIndex),
+        ...promptNodes,
+        ...document.nodes.slice(insertionIndex),
+    ]
+
+    return serializeMarkdownNotebook({
+        ...document,
+        nodes: updateNotebookAIAgentCursor(nextNodes, getNotebookNodeEndCursor(nextNodes[cursorIndex], cursorIndex)),
     })
 }
 
@@ -299,6 +347,145 @@ function getNotebookAgentCursor(value: NotebookPropValue | undefined): MarkdownN
         offset: typeof candidate.offset === 'number' ? candidate.offset : undefined,
         listItemIndex: typeof candidate.listItemIndex === 'number' ? candidate.listItemIndex : undefined,
     }
+}
+
+function applyNotebookAIAgentCursorMarkdown(
+    markdown: string,
+    insertedMarkdown: string,
+    mode: 'replace' | 'insert-after',
+    replacedNodeCount: number = 1
+): string {
+    const trimmedInsertedMarkdown = insertedMarkdown.trim()
+    if (!trimmedInsertedMarkdown || (mode === 'insert-after' && markdown.includes(trimmedInsertedMarkdown))) {
+        return markdown
+    }
+
+    const document = parseMarkdownNotebook(markdown)
+    const agentIndex = document.nodes.findIndex((node) => getNotebookAgentFromNode(node)?.id === NOTEBOOK_AI_AGENT_ID)
+    if (agentIndex === -1) {
+        return markdown
+    }
+
+    const replacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes.filter(
+        (node) => getNotebookAgentFromNode(node)?.id !== NOTEBOOK_AI_AGENT_ID
+    )
+    if (!replacementNodes.length) {
+        return markdown
+    }
+
+    const agent = getNotebookAgentFromNode(document.nodes[agentIndex])
+    const cursorIndex = getNotebookAIAgentTargetIndex(document.nodes, agent?.cursor?.nodeIndex, agentIndex)
+    const targetRange =
+        mode === 'replace'
+            ? getNotebookAIAgentReplaceRange(document.nodes, cursorIndex, replacedNodeCount)
+            : { insertionIndex: cursorIndex + 1, deleteCount: 0 }
+    const { insertionIndex, deleteCount } = targetRange
+    const nextNodes = [
+        ...document.nodes.slice(0, insertionIndex),
+        ...replacementNodes,
+        ...document.nodes.slice(insertionIndex + deleteCount),
+    ]
+    const cursorNodeIndex = insertionIndex + replacementNodes.length - 1
+
+    return serializeMarkdownNotebook({
+        ...document,
+        nodes: updateNotebookAIAgentCursor(
+            nextNodes,
+            getNotebookNodeEndCursor(nextNodes[cursorNodeIndex], cursorNodeIndex)
+        ),
+    })
+}
+
+function getNotebookAIAgentReplaceRange(
+    nodes: NotebookBlockNode[],
+    cursorIndex: number,
+    replacedNodeCount: number
+): { insertionIndex: number; deleteCount: number } {
+    if (isNotebookAgentNode(nodes[cursorIndex])) {
+        return { insertionIndex: cursorIndex, deleteCount: 0 }
+    }
+
+    const deleteEndExclusive = cursorIndex + 1
+    const requestedDeleteCount = Math.max(1, Math.floor(replacedNodeCount))
+    const insertionIndex = Math.max(0, deleteEndExclusive - requestedDeleteCount)
+    const deleteNodes = nodes.slice(insertionIndex, deleteEndExclusive)
+    if (deleteNodes.some(isNotebookAgentNode)) {
+        return { insertionIndex: cursorIndex, deleteCount: 1 }
+    }
+
+    return { insertionIndex, deleteCount: deleteNodes.length }
+}
+
+function getNotebookAIAgentTargetIndex(
+    nodes: NotebookBlockNode[],
+    preferredIndex: number | undefined,
+    agentIndex: number
+): number {
+    if (
+        preferredIndex !== undefined &&
+        preferredIndex >= 0 &&
+        preferredIndex < nodes.length &&
+        !isNotebookAgentNode(nodes[preferredIndex])
+    ) {
+        return preferredIndex
+    }
+
+    for (let index = agentIndex - 1; index >= 0; index--) {
+        if (!isNotebookAgentNode(nodes[index])) {
+            return index
+        }
+    }
+    return agentIndex
+}
+
+function updateNotebookAIAgentCursor(
+    nodes: NotebookBlockNode[],
+    cursor: MarkdownNotebookCaretPosition
+): NotebookBlockNode[] {
+    const cursorProp = getNotebookAgentCursorProp(cursor)
+    return nodes.map((node) => {
+        const agent = getNotebookAgentFromNode(node)
+        if (!agent || agent.id !== NOTEBOOK_AI_AGENT_ID || node.type !== 'component') {
+            return node
+        }
+
+        return {
+            ...node,
+            props: {
+                ...node.props,
+                name: NOTEBOOK_AI_AGENT_NAME,
+                cursor: cursorProp,
+            },
+        }
+    })
+}
+
+function getNotebookNodeEndCursor(
+    node: NotebookBlockNode | undefined,
+    nodeIndex: number
+): MarkdownNotebookCaretPosition {
+    if (isNotebookTextBlockNode(node)) {
+        return { nodeIndex, offset: getInlineText(node.children).length }
+    }
+
+    if (node?.type === 'list' && node.items.length > 0) {
+        const listItemIndex = node.items.length - 1
+        return {
+            nodeIndex,
+            listItemIndex,
+            offset: getInlineText(node.items[listItemIndex].children).length,
+        }
+    }
+
+    return { nodeIndex }
+}
+
+function isNotebookTextBlockNode(node: NotebookBlockNode | undefined): node is NotebookTextBlockNode {
+    return !!node && (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote')
+}
+
+function createNotebookAgentId(): string {
+    return Math.random().toString(36).slice(2, 10)
 }
 
 function isNotebookAgentCommentNode(

@@ -87,7 +87,7 @@ export function InlineNotebookAIThread({
     const { threadRaw, threadLoading } = useValues(threadLogicInstance)
     const didAskRef = useRef(false)
     const didCompleteRef = useRef(false)
-    const reportedAssistantMessageIdsRef = useRef<Set<string>>(new Set())
+    const reportedAssistantMessagesRef = useRef<Map<string, string>>(new Map())
     useApplyNotebookArtifactMessages(threadRaw, request.chatId)
 
     useEffect(() => {
@@ -104,8 +104,15 @@ export function InlineNotebookAIThread({
             return
         }
 
+        const hasArtifact = threadRaw.some(
+            (message) =>
+                message.status === 'completed' &&
+                (message.type === AssistantMessageType.Notebook ||
+                    isCompletedNotebookApplicableArtifactMessage(message))
+        )
+
         threadRaw.forEach((message, index) => {
-            if (message.type !== AssistantMessageType.Assistant || message.status !== 'completed') {
+            if (message.type !== AssistantMessageType.Assistant) {
                 return
             }
 
@@ -115,12 +122,15 @@ export function InlineNotebookAIThread({
             }
 
             const id = getThreadMessageId(message, index)
-            if (reportedAssistantMessageIdsRef.current.has(id)) {
+            if (request.source === 'agent' && message.status !== 'completed') {
+                return
+            }
+            if (reportedAssistantMessagesRef.current.get(id) === content) {
                 return
             }
 
-            reportedAssistantMessageIdsRef.current.add(id)
-            onAssistantMessage(request, { id, content })
+            reportedAssistantMessagesRef.current.set(id, content)
+            onAssistantMessage(request, { id, content, hasArtifact })
         })
     }, [onAssistantMessage, request, threadRaw])
 
@@ -156,6 +166,7 @@ export type InlineAICompletion = {
 export type InlineAIAssistantMessage = {
     id: string
     content: string
+    hasArtifact: boolean
 }
 
 export function getInlineAICompletion(threadRaw: ThreadMessage[]): InlineAICompletion | null {

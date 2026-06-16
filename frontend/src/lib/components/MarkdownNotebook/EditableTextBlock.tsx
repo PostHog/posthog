@@ -5,9 +5,11 @@ import {
     KeyboardEvent,
     MutableRefObject,
     useCallback,
+    useEffect,
     useLayoutEffect,
     useMemo,
     useRef,
+    useState,
 } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -41,6 +43,9 @@ import { htmlElementToInlineNodes, inlineNodesToHtml, makeEmptyParagraph, parseM
 import { NotebookBlockNode, NotebookInlineNode, NotebookMode, NotebookTextBlockNode } from './types'
 import { getInlineText, normalizeInlineNodes } from './utils'
 
+const AI_THINKING_FRAMES = ['Thinking.', 'Thinking..', 'Thinking...'] as const
+const AI_THINKING_FRAME_MS = 450
+
 export function EditableTextBlock({
     node,
     isTitleBlock,
@@ -64,6 +69,7 @@ export function EditableTextBlock({
     isInsertMenuOpen,
     insertMenuMode,
     hasInvalidInsertMenuQuery,
+    isAIWritingPlaceholder,
     submitInsertMenuSelection,
     handleSelectionChange,
     startTextSelectionPointer,
@@ -92,6 +98,7 @@ export function EditableTextBlock({
     isInsertMenuOpen: boolean
     insertMenuMode: InsertMenuState['mode'] | null
     hasInvalidInsertMenuQuery: boolean
+    isAIWritingPlaceholder: boolean
     submitInsertMenuSelection: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
@@ -103,6 +110,8 @@ export function EditableTextBlock({
     const renderedHtml = useMemo(() => inlineNodesToHtml(node.children), [node.children])
     const text = getInlineText(node.children)
     const isEmpty = text.length === 0
+    const [aiThinkingFrameIndex, setAIThinkingFrameIndex] = useState(0)
+    const aiThinkingLabel = isAIWritingPlaceholder ? AI_THINKING_FRAMES[aiThinkingFrameIndex] : undefined
     const isToolInsertMenuOpen = isInsertMenuOpen && (!insertMenuMode || insertMenuMode === 'tools')
     const TextTag =
         node.type === 'heading' ? (`h${node.level ?? 1}` as const) : node.type === 'blockquote' ? 'blockquote' : 'p'
@@ -114,6 +123,19 @@ export function EditableTextBlock({
         },
         [setBlockRef]
     )
+
+    useEffect(() => {
+        if (!isAIWritingPlaceholder) {
+            return
+        }
+
+        setAIThinkingFrameIndex(0)
+        const interval = window.setInterval(() => {
+            setAIThinkingFrameIndex((currentFrame) => (currentFrame + 1) % AI_THINKING_FRAMES.length)
+        }, AI_THINKING_FRAME_MS)
+
+        return () => window.clearInterval(interval)
+    }, [isAIWritingPlaceholder])
 
     useLayoutEffect(() => {
         const element = elementRef.current
@@ -636,9 +658,11 @@ export function EditableTextBlock({
                     `MarkdownNotebook__text-block--${node.type}`,
                     isTitleBlock && 'MarkdownNotebook__text-block--title',
                     isToolInsertMenuOpen && 'MarkdownNotebook__text-block--insert-placeholder',
+                    isAIWritingPlaceholder && 'MarkdownNotebook__text-block--ai-thinking',
                     hasInvalidInsertMenuQuery && 'MarkdownNotebook__text-block--invalid-insert-filter'
                 )}
                 data-markdown-notebook-node-id={node.id}
+                data-ai-thinking-label={aiThinkingLabel}
                 contentEditable={mode === 'edit'}
                 suppressContentEditableWarning
                 data-placeholder={isEmpty ? placeholder : undefined}

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { KeyboardEvent, MutableRefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconSend, IconSparkles, IconTrash } from '@posthog/icons'
+import { IconSend, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { getNotebookStringProp, isPromptComponentNode } from './documentModel'
@@ -17,6 +17,7 @@ export function EditablePromptComponent({
     updateAIPromptQuery,
     submitAIPrompt,
     isActive,
+    focusRequest,
     restoreSelectionRef,
 }: {
     node: NotebookComponentBlockNode
@@ -27,9 +28,11 @@ export function EditablePromptComponent({
     updateAIPromptQuery: (query: string) => void
     submitAIPrompt: (queryOverride?: string) => boolean
     isActive: boolean
+    focusRequest?: number
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
 }): JSX.Element {
     const elementRef = useRef<HTMLTextAreaElement | null>(null)
+    const handledFocusRequestRef = useRef<number | undefined>(undefined)
     const [isCollapsed, setIsCollapsed] = useState(false)
     const question = getNotebookStringProp(node.props.question) ?? ''
     const isEmpty = question.length === 0
@@ -49,6 +52,12 @@ export function EditablePromptComponent({
     }, [isActive])
 
     useEffect(() => {
+        if (focusRequest !== undefined && handledFocusRequestRef.current !== focusRequest) {
+            setIsCollapsed(false)
+        }
+    }, [focusRequest])
+
+    useEffect(() => {
         const element = elementRef.current
         if (!isActive || !element || document.activeElement === element) {
             return
@@ -57,6 +66,22 @@ export function EditablePromptComponent({
         element.focus()
         element.setSelectionRange(question.length, question.length)
     }, [isActive, question.length])
+
+    useEffect(() => {
+        const element = elementRef.current
+        if (focusRequest === undefined || handledFocusRequestRef.current === focusRequest || !element) {
+            return
+        }
+
+        if (document.activeElement === element) {
+            handledFocusRequestRef.current = focusRequest
+            return
+        }
+
+        element.focus()
+        element.setSelectionRange(question.length, question.length)
+        handledFocusRequestRef.current = focusRequest
+    }, [focusRequest, question.length, isCollapsed])
 
     const updateQuestion = (nextQuestion: string): void => {
         updateNode(node.id, (currentNode) => {
@@ -140,19 +165,9 @@ export function EditablePromptComponent({
                         onClick={() => setIsCollapsed((currentValue) => !currentValue)}
                     >
                         <span className="MarkdownNotebook__ai-prompt-tag" aria-label="Ask AI prompt">
-                            <IconSparkles />
-                            Ask AI
+                            Ask AI:
                         </span>
                     </button>
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        status="danger"
-                        icon={<IconTrash />}
-                        tooltip="Delete prompt"
-                        aria-label="Delete prompt"
-                        onClick={deletePrompt}
-                    />
                 </div>
                 {isCollapsed ? null : (
                     <div className="MarkdownNotebook__ai-chat-reply MarkdownNotebook__ai-prompt-form">
@@ -164,24 +179,34 @@ export function EditablePromptComponent({
                             onChange={updateQuestion}
                             onPressEnter={submitPrompt}
                             onKeyDown={handleKeyDown}
-                            placeholder="Ask AI..."
-                            minRows={2}
+                            placeholder=""
+                            minRows={1}
                             maxRows={6}
                             autoFocus={isActive}
                             stopPropagation
+                            hideFocus
                             disabled={mode !== 'edit'}
                         />
                         <LemonButton
                             type="primary"
-                            size="small"
+                            size="xsmall"
                             icon={<IconSend />}
+                            tooltip="Send prompt"
+                            aria-label="Send prompt"
                             onClick={() => submitPrompt()}
                             disabledReason={question.trim() ? undefined : 'Write a prompt first'}
-                        >
-                            Send
-                        </LemonButton>
+                        />
                     </div>
                 )}
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    status="danger"
+                    icon={<IconTrash />}
+                    tooltip="Delete prompt"
+                    aria-label="Delete prompt"
+                    onClick={deletePrompt}
+                />
             </div>
         </div>
     )
