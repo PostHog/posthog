@@ -47,7 +47,9 @@ export class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
                 }
                 const effectiveLimit = decision ? Math.min(decision.limit, this.batchMaxSize) : this.batchMaxSize
 
-                const rows = await this.dequeueJobs(effectiveLimit)
+                const rows = this.fairDequeue
+                    ? await this.fairDequeueJobs(effectiveLimit)
+                    : await this.dequeueJobs(effectiveLimit)
 
                 if (rows.length === 0) {
                     if (this.includeEmptyBatches) {

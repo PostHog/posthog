@@ -68,7 +68,7 @@ export class CyclotronV2Worker {
         while (this.isConsuming) {
             try {
                 this.lastPollTime = new Date()
-                const rows = await this.dequeueJobs()
+                const rows = this.fairDequeue ? await this.fairDequeueJobs() : await this.dequeueJobs()
 
                 if (rows.length === 0) {
                     if (this.includeEmptyBatches) {
@@ -111,16 +111,6 @@ export class CyclotronV2Worker {
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
-        // Fair dequeue (email queue): order by the precomputed sort key so
-        // tenants interleave 1-for-1 instead of FIFO. Hits the partial index
-        // `idx_cyclotron_jobs_email_fair_dequeue`. NULLS FIRST so any legacy
-        // rows without dequeue_seq (pre-migration backlog) drain first.
-        //
-        // Default (non-email queues): FIFO by priority then scheduled time.
-        // Hits the partial index `idx_cyclotron_jobs_dequeue`.
-        const orderBy = this.fairDequeue
-            ? 'ORDER BY dequeue_seq ASC NULLS FIRST'
-            : 'ORDER BY priority ASC, scheduled ASC'
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
@@ -128,7 +118,7 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ${orderBy}
+                ORDER BY priority ASC, scheduled ASC
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )
@@ -163,6 +153,62 @@ export class CyclotronV2Worker {
         return result.rows.sort(
             (a, b) => a.priority - b.priority || new Date(a.scheduled).getTime() - new Date(b.scheduled).getTime()
         )
+    }
+
+    /**
+     * Fair dequeue: orders by the precomputed `dequeue_seq` so jobs interleave
+     * across tenants instead of being strict FIFO. The sort key is assigned at
+     * insert time (see `CyclotronV2Manager.bulkCreateJobs` and the helper
+     * `cyclotron_email_team_seq`); this method just reads them back in order.
+     *
+     * Hits the partial index `idx_cyclotron_jobs_email_fair_dequeue` (only
+     * indexes email-queue rows with status='available'). NULLS FIRST drains
+     * any pre-migration legacy rows ahead of new fair-ordered ones.
+     *
+     * Email-specific by intent — but mechanically just "ORDER BY a different
+     * column", so the SQL shape mirrors `dequeueJobs` exactly. Kept as a
+     * separate method so non-fair callers can read `dequeueJobs` end-to-end
+     * without following a conditional or an indirection.
+     */
+    protected async fairDequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
+        const lockId = uuidv7()
+        const result = await this.pool.query<RawJobRow>(
+            `WITH available AS (
+                SELECT id
+                FROM cyclotron_jobs
+                WHERE status = 'available'
+                  AND queue_name = $1
+                  AND scheduled <= NOW()
+                ORDER BY dequeue_seq ASC NULLS FIRST
+                LIMIT $2
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE cyclotron_jobs
+            SET status = 'running',
+                lock_id = $3,
+                last_heartbeat = NOW(),
+                last_transition = NOW(),
+                transition_count = transition_count + 1
+            FROM available
+            WHERE cyclotron_jobs.id = available.id
+            RETURNING
+                cyclotron_jobs.id,
+                cyclotron_jobs.team_id,
+                cyclotron_jobs.function_id,
+                cyclotron_jobs.queue_name,
+                cyclotron_jobs.priority,
+                cyclotron_jobs.scheduled,
+                cyclotron_jobs.created,
+                cyclotron_jobs.parent_run_id,
+                cyclotron_jobs.transition_count,
+                cyclotron_jobs.state,
+                cyclotron_jobs.distinct_id,
+                cyclotron_jobs.person_id,
+                cyclotron_jobs.action_id,
+                cyclotron_jobs.lock_id`,
+            [this.config.queueName, limit, lockId]
+        )
+        return result.rows
     }
 
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
