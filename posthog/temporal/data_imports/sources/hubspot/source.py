@@ -99,6 +99,10 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
             # Raised by source_for_pipeline (OAuth path) when the integration is missing its access or refresh token.
             "Hubspot refresh or access token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by OAuthMixin.get_oauth_integration when the referenced integration row no longer
+            # exists (e.g. the HubSpot connection was deleted while the source still points at it).
+            # Retrying cannot recreate a deleted integration. Match the stable prefix, not the volatile id.
+            "Integration not found": "The linked HubSpot integration no longer exists. Please reconnect your HubSpot account.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
