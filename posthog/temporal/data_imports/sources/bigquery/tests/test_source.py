@@ -7,6 +7,7 @@ from google.api_core.exceptions import BadRequest, Forbidden, NotFound, Permissi
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_STORAGE_HOST,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     BigQueryTokenRefreshError,
@@ -18,6 +19,7 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     _resolve_project_id,
     _resolve_query_project,
     _resolve_region,
+    bigquery_storage_read_client,
     delete_all_temp_destination_tables,
     validate_bigquery_credentials,
 )
@@ -594,3 +596,38 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
 
     assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+def test_bigquery_storage_read_client_lifts_grpc_message_size_limit():
+    """The Storage Read API can return Arrow messages larger than gRPC's default 4 MiB
+    inbound cap. We build the channel ourselves (to attach tracked interceptors), which
+    bypasses the gapic transport's unlimited-message-size default, so we must pass it
+    explicitly — otherwise reads fail with `ResourceExhausted: Received message larger than max`."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.service_account.Credentials.from_service_account_info",
+            return_value=mock.MagicMock(),
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.BigQueryReadGrpcTransport"
+        ) as mock_transport,
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.make_tracked_channel",
+            side_effect=lambda channel, host: channel,
+        ),
+        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_storage.BigQueryReadClient"),
+    ):
+        with bigquery_storage_read_client(
+            project_id="project-id",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ):
+            pass
+
+    _, kwargs = mock_transport.create_channel.call_args
+    assert kwargs["host"] == BIGQUERY_STORAGE_HOST
+    options = dict(kwargs["options"])
+    assert options["grpc.max_receive_message_length"] == -1
+    assert options["grpc.max_send_message_length"] == -1

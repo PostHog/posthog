@@ -67,6 +67,18 @@ __all__ = [
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 
+# gRPC defaults to a 4 MiB inbound message cap. A single Storage Read API Arrow
+# response can exceed that (it batches many rows), so the read fails client-side
+# with `ResourceExhausted: CLIENT: Received message larger than max`. The gapic
+# transport sets these to -1 (unlimited) when it builds its own channel, but we
+# hand it a pre-built channel (to attach the tracked interceptors), which bypasses
+# that default — so we must replicate it here. Mirrors the options in
+# `BigQueryReadGrpcTransport.__init__`.
+_BIGQUERY_STORAGE_CHANNEL_OPTIONS = [
+    ("grpc.max_send_message_length", -1),
+    ("grpc.max_receive_message_length", -1),
+]
+
 # Stable, source-specific marker for a failed service-account OAuth token refresh.
 # Used both when raising below and when matching in `BigQuerySource.get_non_retryable_errors`,
 # so it must stay free of volatile data (urls, ids, timestamps).
@@ -206,7 +218,9 @@ def bigquery_storage_read_client(
     # via `create_channel(credentials=...)`. This routes the Storage Read API's
     # create_read_session (unary) + read_rows (server-streaming) RPCs through our
     # logging / metrics / sample-capture pipeline.
-    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    channel = BigQueryReadGrpcTransport.create_channel(
+        host=BIGQUERY_STORAGE_HOST, credentials=credentials, options=_BIGQUERY_STORAGE_CHANNEL_OPTIONS
+    )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
     transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
