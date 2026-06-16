@@ -5,6 +5,7 @@ from posthog.models.bot_definition.sql import (
     BOT_DEFINITION_UDFS_SQL,
     DROP_BOT_DEFINITION_UDFS_SQL,
     _bot_definition_rows,
+    _format_array,
 )
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
@@ -150,27 +151,30 @@ class TestBotDefinitionUDFs:
             assert name.startswith("webAnalytics"), f"UDF {name} is not namespaced"
             assert f"CREATE OR REPLACE FUNCTION {name} AS (ua)" in joined
 
-    def test_udfs_use_multimatch_not_dictget(self):
+    def test_no_udf_uses_dictget(self):
         # The whole point: multiMatch (Hyperscan) is 7-46x cheaper than the REGEXP_TREE dictGet.
         for sql in BOT_DEFINITION_UDFS_SQL:
             assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
-        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsBot" in s)
-        assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index
-        for name in ("webAnalyticsBotName", "webAnalyticsBotCategory", "webAnalyticsBotTrafficType"):
-            sql = next(s for s in BOT_DEFINITION_UDFS_SQL if name in s)
-            assert "multiMatchAnyIndex(ifNull(ua, '')," in sql
-            assert "arrayElement(" in sql
 
-    def test_label_arrays_align_with_patterns(self):
-        # arrayElement(arr, multiMatchAnyIndex(...) + 1): arr must be [default, <N bots>, empty_ua],
-        # i.e. len(BOT_DEFINITIONS) + 2, so index 0 -> default and index N+1 (^$) -> empty_ua_value.
+    def test_isbot_uses_cheapest_multimatchany(self):
+        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsBot" in s)
+        assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index lookup
+
+    # Derive the attribute UDFs from the canonical name list so a newly added UDF can't be
+    # silently skipped (it gets parametrized automatically).
+    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "webAnalyticsIsBot"])
+    def test_attribute_udf_uses_multimatchanyindex(self, udf_name):
+        sql = next(s for s in BOT_DEFINITION_UDFS_SQL if udf_name in s)
+        assert "multiMatchAnyIndex(ifNull(ua, '')," in sql
+        assert "arrayElement(" in sql
+
+    def test_label_array_aligns_with_patterns(self):
+        # arrayElement(arr, multiMatchAnyIndex(...) + 1): arr must be [default, <N bots>, empty_ua].
+        # Reconstruct the expected array literal with the same escaping rather than counting quotes
+        # (apostrophe-safe: a label like "it's bot" escapes to '' and would break a naive count).
+        expected = _format_array(["", *(bot.name for bot in BOT_DEFINITIONS.values()), ""])
         bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsBotName" in s)
-        # count quoted elements in the first array literal of the lookup
-        array_literal = bot_name_sql[
-            bot_name_sql.index("arrayElement([") + len("arrayElement(") : bot_name_sql.index("], multiMatch") + 1
-        ]
-        n_elements = array_literal.count("'") // 2
-        assert n_elements == len(BOT_DEFINITIONS) + 2
+        assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
 
     def test_isbot_equivalent_to_traffic_type_not_regular(self):
         # webAnalyticsIsBot is multiMatchAny (any pattern matches). That equals the dict's
