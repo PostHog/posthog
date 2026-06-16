@@ -1,11 +1,22 @@
 import { render } from '@testing-library/react'
 
-import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogDetail, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import { exportedAssetActivityDescriber } from './activityDescriptions'
+
+function makeDetail(name: string | null, exportFormat?: string): ActivityLogDetail {
+    return {
+        merge: null,
+        trigger: null,
+        name,
+        changes: exportFormat
+            ? [{ type: ActivityScope.EXPORTED_ASSET, action: 'exported', field: 'export_format', after: exportFormat }]
+            : [],
+    }
+}
 
 function makeLogItem(overrides: Partial<ActivityLogItem> & { detail: ActivityLogItem['detail'] }): ActivityLogItem {
     return {
@@ -34,72 +45,39 @@ describe('exported asset activity descriptions', () => {
     })
 
     it('describes a dashboard export with its format', () => {
-        const text = describeText(
-            makeLogItem({
-                detail: {
-                    name: 'Weekly metrics',
-                    changes: [
-                        { type: 'ExportedAsset', action: 'exported', field: 'export_format', after: 'image/png' },
-                    ],
-                },
-            })
-        )
+        const text = describeText(makeLogItem({ detail: makeDetail('Weekly metrics', 'image/png') }))
         expect(text).toBe('Max Hog exported Weekly metrics as a png')
     })
 
     it('describes a SQL query export', () => {
-        const text = describeText(
-            makeLogItem({
-                detail: {
-                    name: 'SQL query results',
-                    changes: [{ type: 'ExportedAsset', action: 'exported', field: 'export_format', after: 'text/csv' }],
-                },
-            })
-        )
+        const text = describeText(makeLogItem({ detail: makeDetail('SQL query results', 'text/csv') }))
         expect(text).toBe('Max Hog exported SQL query results as a csv')
     })
 
     it('prefixes with "your" when rendered as a notification', () => {
-        const text = describeText(
-            makeLogItem({
-                detail: {
-                    name: 'Weekly metrics',
-                    changes: [
-                        { type: 'ExportedAsset', action: 'exported', field: 'export_format', after: 'image/png' },
-                    ],
-                },
-            }),
-            true
-        )
+        const text = describeText(makeLogItem({ detail: makeDetail('Weekly metrics', 'image/png') }), true)
         expect(text).toBe('Max Hog exported your Weekly metrics as a png')
     })
 
     it('falls back gracefully when name and format are missing', () => {
-        const text = describeText(makeLogItem({ detail: { name: undefined, changes: [] } }))
+        const text = describeText(makeLogItem({ detail: makeDetail(null) }))
         expect(text).toBe('Max Hog exported an export as an export')
     })
 
     it('uses the raw format when it has no slash', () => {
-        const text = describeText(
-            makeLogItem({
-                detail: {
-                    name: 'an export',
-                    changes: [{ type: 'ExportedAsset', action: 'exported', field: 'export_format', after: 'csv' }],
-                },
-            })
-        )
+        const text = describeText(makeLogItem({ detail: makeDetail('an export', 'csv') }))
         expect(text).toBe('Max Hog exported an export as a csv')
     })
 
     it('returns no description for a non-export scope', () => {
         const { description } = exportedAssetActivityDescriber(
-            makeLogItem({ scope: ActivityScope.INSIGHT, detail: { name: 'x', changes: [] } })
+            makeLogItem({ scope: ActivityScope.INSIGHT, detail: makeDetail('x') })
         )
         expect(description).toBeNull()
     })
 
     it('delegates unknown activities to the default describer', () => {
-        const text = describeText(makeLogItem({ activity: 'deleted', detail: { name: 'Weekly metrics', changes: [] } }))
+        const text = describeText(makeLogItem({ activity: 'deleted', detail: makeDetail('Weekly metrics') }))
         expect(text).not.toContain('exported')
     })
 })
