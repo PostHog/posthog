@@ -113,26 +113,15 @@ describe('buildDefaultVerifiers', () => {
         expect(await v.verify(req({}), mode, APP)).toMatchObject({ ok: false, status: 0 })
     })
 
-    it('shared_secret: binds x-posthog-caller-id into the principal when sent', async () => {
+    it('shared_secret: yields a single team-scoped principal (no per-caller discriminator)', async () => {
+        // One secret == one trust principal. Any holder of the agent's secret
+        // is the same principal; per-caller isolation belongs to `jwt`.
         const v = sharedSecretVerifier(secretResolver)
         const mode = { type: 'shared_secret' as const, header: 'X-WH', secret_ref: 'WH' }
         const res = await v.verify(req({ 'x-wh': 's3cret', 'x-posthog-caller-id': 'alice' }), mode, APP)
         expect(res.ok).toBe(true)
         if (res.ok) {
-            expect(res.principal).toMatchObject({ kind: 'shared_secret', team_id: 7, caller_id: 'alice' })
-        }
-    })
-
-    it('shared_secret: omits caller_id from the principal when the header is absent', async () => {
-        // Single-principal behaviour: callers that don't opt into the
-        // per-caller discriminator share one identity (the old behaviour).
-        const v = sharedSecretVerifier(secretResolver)
-        const mode = { type: 'shared_secret' as const, header: 'X-WH', secret_ref: 'WH' }
-        const res = await v.verify(req({ 'x-wh': 's3cret' }), mode, APP)
-        expect(res.ok).toBe(true)
-        if (res.ok) {
-            expect(res.principal).toMatchObject({ kind: 'shared_secret', team_id: 7 })
-            expect((res.principal as { caller_id?: string }).caller_id).toBeUndefined()
+            expect(res.principal).toEqual({ kind: 'shared_secret', team_id: 7 })
         }
     })
 

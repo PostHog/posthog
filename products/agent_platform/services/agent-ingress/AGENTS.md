@@ -59,7 +59,44 @@ for the wider dev flow before non-trivial changes.
    lookup into a trigger handler — extend or swap the `AuthProvider`
    passed to `buildApp`.
 
-5. **No `process.env` reads + one HttpClient.** Env access goes
+5. **One auth mode, one trust model. Pick by the use case, not by
+   convenience.** Each `AuthMode` carries a specific identity semantic;
+   trying to fake another mode's semantic on top is the bug we keep
+   repeating.
+
+   | Use case                                                           | Auth mode          | Principal identity                                        |
+   | ------------------------------------------------------------------ | ------------------ | --------------------------------------------------------- |
+   | Single upstream integration (Stripe, GitHub, internal CRM webhook) | `shared_secret`    | One per agent — every secret holder is the same principal |
+   | Embedded chat / multi-tenant with per-caller isolation             | `jwt`              | `sub` (forge-resistant; upstream signs it)                |
+   | PostHog user calling their own agent                               | `posthog`          | The PostHog user (validated against `/api/users/@me/`)    |
+   | PostHog backend → ingress server-to-server                         | `posthog_internal` | The platform itself                                       |
+   | Genuinely public surface (docs embed, marketing)                   | `public`           | Anonymous — opt-in via `acknowledge_public_exposure`      |
+
+   **`shared_secret` is single-principal by design.** Holders of the
+   agent's secret share a session space; `x-external-key` is a routing
+   tag, not a credential, and `principalsMatch` discriminates only on
+   `team_id`. Do NOT add a per-caller header / claim / discriminator to
+   this mode — anything the holder asserts behind the secret is forgeable
+   by any other holder, and a "self-asserted identity" creates a false
+   security boundary that looks like isolation but isn't. Per-caller
+   isolation belongs in `jwt`. We tried this twice (PR 63930 added a
+   spec-level `caller_id_header`; the followup refactored it to the
+   conventional `x-posthog-caller-id` header) and reverted both —
+   re-introducing it should require a threat-model write-up, not a
+   review nit.
+
+   This means the original threat-model finding F5 ("any holder of the
+   agent's shared secret can resume any session keyed under it") is now
+   the **documented model**, not a latent bug. The platform-level
+   mitigation is to scope each `secret_ref` to a single upstream
+   integration; multi-tenant isolation is `jwt`'s job. If a future use
+   case genuinely needs continuity _with_ per-caller isolation under
+   `shared_secret` (today it doesn't), the design path is
+   **server-issued unguessable resume tokens** (random token returned
+   on session create, required on resume), NOT a self-asserted caller
+   header. Reach for that only when something concrete demands it.
+
+6. **No `process.env` reads + one HttpClient.** Env access goes
    through `loadAgentIngressConfig` at boot; the typed `Config` flows
    from there. Every outbound HTTP call (PostHog API introspect,
    Slack identity bridge) reaches the wire via the shared `HttpClient`
