@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class ChartMogulSource(ResumableSource[ChartMogulSourceConfig, ChartMogulResumeC
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHART_MOGUL,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="ChartMogul",
             caption="""Enter your ChartMogul API key to pull your subscription analytics data into the PostHog Data warehouse.
 

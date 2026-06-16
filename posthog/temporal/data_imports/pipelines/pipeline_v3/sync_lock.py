@@ -76,6 +76,23 @@ def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
             return False
 
 
+def get_v3_pipeline_lock_holder(team_id: int, schema_id: str) -> str | None:
+    """Return the token currently holding the lock, or None if unheld or Redis is unavailable."""
+    with _get_redis_client() as client:
+        if client is None:
+            return None
+
+        try:
+            holder = client.get(_lock_key(team_id, schema_id))
+            if holder is None:
+                return None
+            return holder.decode() if isinstance(holder, bytes) else str(holder)
+        except Exception as e:
+            logger.warning("v3_pipeline_lock_get_holder_error", error=str(e), team_id=team_id, schema_id=schema_id)
+            capture_exception(e)
+            return None
+
+
 def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
     """Release the lock only if held by this token. Fail-silent on errors."""
     with _get_redis_client() as client:

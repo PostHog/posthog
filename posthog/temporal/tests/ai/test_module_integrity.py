@@ -65,6 +65,7 @@ class TestAITemporalModuleIntegrity:
             "cascade_posthog_code_repository_activity",
             "discover_posthog_code_repository_via_agent_activity",
             "classify_posthog_code_task_needs_repo_activity",
+            "classify_untagged_followup_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
             "block_posthog_code_task_if_no_personal_github_activity",

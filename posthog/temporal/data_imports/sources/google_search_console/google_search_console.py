@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import quote
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import requests
 import structlog
@@ -104,6 +105,11 @@ class GoogleSearchConsoleResumeConfig:
 
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
+    # Temporal activities run in a thread pool where Django DB connections can go
+    # stale between uses (Postgres closes the connection server-side). This is
+    # invoked lazily from inside `get_rows`, so the connection has often been idle
+    # for minutes by the time we reach it — drop any stale connection first.
+    close_old_connections()
     integration = Integration.objects.get(id=integration_id, team_id=team_id)
     return OAuthCredentials(
         token=None,
@@ -111,7 +117,13 @@ def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
         client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
         client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
         token_uri="https://oauth2.googleapis.com/token",
-        scopes=["https://www.googleapis.com/auth/webmasters.readonly"],
+        # No `scopes=` on purpose. With a refresh-token grant, google-auth forwards the
+        # requested scopes to Google's token endpoint, which rejects anything that isn't an
+        # exact subset of what the original consent granted — surfacing as
+        # "invalid_scope: Bad Request" and failing every sync/validation. Omitting it
+        # refreshes with the originally-granted scopes (matching the Google Ads client). A
+        # genuinely missing scope then shows up as a 403 on the sites call, which we map to
+        # an actionable "reconnect" message instead.
     )
 
 
