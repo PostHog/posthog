@@ -1,4 +1,5 @@
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, NotRequired, Required, TypedDict
@@ -26,6 +27,12 @@ from posthog.temporal.ai_observability.metrics import (
     increment_provider_model,
     increment_tokens,
 )
+from posthog.temporal.ai_observability.sentiment.extraction import (
+    extract_user_messages_individually,
+    truncate_to_token_limit,
+)
+from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
+from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
@@ -67,14 +74,13 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
 
 
 class LLMJudgeResult(TypedDict, total=False):
-    """Result produced by `execute_llm_judge_activity`, `_build_errored_trace_result`, and
-    `execute_hog_eval_activity`.
+    """Result produced by evaluation execution activities.
 
     `total=False` is used as the default so individual fields opt in via `Required` /
     `NotRequired`, making the contract honest about which keys every path actually sets:
 
-    - `verdict`, `reasoning`, `allows_na` are set on every path (LLM judge success, errored-
-      trace skip, hog eval) and are `Required`.
+    - `reasoning` is set on every path and is `Required`.
+    - `verdict` and `allows_na` are set for boolean outputs only.
     - `applicable` is set only when `allows_na=True`.
     - `skipped` and `skip_reason` are set only on the skip path (e.g. errored source trace).
     - `model`, `provider`, `key_id`, `is_byok`, and the `*_tokens` fields come from the LLM
@@ -82,11 +88,13 @@ class LLMJudgeResult(TypedDict, total=False):
       attribution doesn't credit phantom calls, and `execute_hog_eval_activity` (whose
       output also flows into `emit_evaluation_event_activity`) emits only `verdict`,
       `reasoning`, `allows_na`, and optionally `applicable`.
+    - `sentiment_*` fields are set for sentiment evaluations and deliberately omit
+      `verdict` so report and pass/fail metrics do not treat sentiment as N/A.
     """
 
-    verdict: Required[bool | None]
     reasoning: Required[str]
-    allows_na: Required[bool]
+    verdict: NotRequired[bool | None]
+    allows_na: NotRequired[bool]
     input_tokens: NotRequired[int]
     output_tokens: NotRequired[int]
     total_tokens: NotRequired[int]
@@ -97,6 +105,11 @@ class LLMJudgeResult(TypedDict, total=False):
     applicable: NotRequired[bool]
     skipped: NotRequired[bool]
     skip_reason: NotRequired[str]
+    sentiment_label: NotRequired[str]
+    sentiment_score: NotRequired[float]
+    sentiment_scores: NotRequired[dict[str, float]]
+    sentiment_messages: NotRequired[dict[str, dict[str, Any]]]
+    sentiment_message_count: NotRequired[int]
 
 
 class WorkflowResult(TypedDict, total=False):
@@ -104,16 +117,16 @@ class WorkflowResult(TypedDict, total=False):
 
     Composes a subset of `LLMJudgeResult` with workflow-level identifiers. Both branches
     that build this dict — the skip-on-error branch (e.g. `trial_limit_reached`,
-    `key_invalid`) and the normal-completion branch — always set `verdict`, `evaluation_id`,
-    `evaluation_type`, and `skipped`, so those four are `Required`. The skip-on-error branch
+    `key_invalid`) and the normal-completion branch — always set `evaluation_id`,
+    `evaluation_type`, and `skipped`, so those three are `Required`. The skip-on-error branch
     omits `reasoning` and `is_byok` and adds `message`; `skip_reason` is set only when
-    `skipped=True`.
+    `skipped=True`. Sentiment evaluations omit `verdict`.
     """
 
-    verdict: Required[bool | None]
     evaluation_id: Required[str]
     evaluation_type: Required[str]
     skipped: Required[bool]
+    verdict: NotRequired[bool | None]
     reasoning: NotRequired[str]
     is_byok: NotRequired[bool]
     skip_reason: NotRequired[str]
@@ -974,6 +987,96 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
     return activity_result
 
 
+def _neutral_sentiment_activity_result(reasoning: str) -> LLMJudgeResult:
+    return {
+        "reasoning": reasoning,
+        "sentiment_label": "neutral",
+        "sentiment_score": 0.0,
+        "sentiment_scores": {"positive": 0.0, "neutral": 0.0, "negative": 0.0},
+        "sentiment_messages": {},
+        "sentiment_message_count": 0,
+    }
+
+
+def _build_sentiment_activity_result(
+    event_uuid: str,
+    trace_id: str,
+    user_messages: list[tuple[int, str]],
+    classification_results: list[SentimentResult],
+) -> LLMJudgeResult:
+    if not user_messages:
+        return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
+    if not classification_results:
+        return _neutral_sentiment_activity_result(
+            "No sentiment classifications produced; sentiment defaults to neutral."
+        )
+
+    pending = [
+        PendingClassification(
+            trace_id=trace_id,
+            gen_uuid=event_uuid,
+            msg_index=message_index,
+            text=text,
+        )
+        for message_index, text in user_messages
+    ]
+    generation_result = build_generation_result(event_uuid, pending, classification_results)
+    label = generation_result["label"]
+    message_count = generation_result["message_count"]
+
+    return {
+        "reasoning": f"Classified {message_count} user message{'s' if message_count != 1 else ''} as {label}.",
+        "sentiment_label": label,
+        "sentiment_score": generation_result["score"],
+        "sentiment_scores": generation_result["scores"],
+        "sentiment_messages": generation_result["messages"],
+        "sentiment_message_count": message_count,
+    }
+
+
+@temporalio.activity.defn
+async def execute_sentiment_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> LLMJudgeResult:
+    """Classify sentiment for the target event's user messages."""
+    if evaluation["evaluation_type"] != "sentiment":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    output_type = evaluation["output_type"]
+    if output_type != "sentiment":
+        raise ApplicationError(
+            f"Unsupported output type: {output_type}. Supported types: 'sentiment'.",
+            non_retryable=True,
+        )
+
+    evaluation_config = evaluation.get("evaluation_config", {})
+    source = evaluation_config.get("source", "user_messages")
+    if source != "user_messages":
+        raise ApplicationError(
+            f"Unsupported sentiment source: {source}. Supported sources: 'user_messages'.",
+            non_retryable=True,
+        )
+
+    properties = event_data["properties"]
+    if isinstance(properties, str):
+        properties = json.loads(properties)
+
+    input_raw, _output_raw = extract_event_io(event_data["event"], properties)
+    event_uuid = event_data["uuid"]
+    trace_id = properties.get("$ai_trace_id", event_uuid)
+    user_messages = extract_user_messages_individually(input_raw)
+    if not user_messages:
+        return _neutral_sentiment_activity_result("No user messages found; sentiment defaults to neutral.")
+
+    texts = [truncate_to_token_limit(text) for _message_index, text in user_messages]
+
+    from posthog.temporal.ai_observability.sentiment.model import classify  # noqa: PLC0415 -- loads ONNX deps lazily
+
+    classification_results = await asyncio.to_thread(classify, texts)
+    return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
+
+
 @dataclass
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
@@ -1021,7 +1124,6 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             "$ai_evaluation_type": "online",
             "$ai_evaluation_runtime": evaluation_type,
             "$ai_evaluation_start_time": start_time.isoformat(),
-            "$ai_evaluation_allows_na": allows_na,
             "$ai_evaluation_reasoning": result["reasoning"],
             "$ai_target_event_id": event_data["uuid"],
             "$ai_target_event_type": event_data["event"],
@@ -1044,7 +1146,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
         # LLM-specific properties: cost attribution and model info (not applicable for hog evals,
         # and skipped evaluations never made an API call so attributing them to a model would
         # pollute cost dashboards with phantom calls).
-        if evaluation_type != "hog" and not result.get("skipped"):
+        if evaluation_type == "llm_judge" and not result.get("skipped"):
             properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
             properties["$ai_provider"] = result.get("provider", "openai")
             properties["$ai_input_tokens"] = result.get("input_tokens", 0)
@@ -1054,14 +1156,22 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
             properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
             properties["$ai_evaluation_key_id"] = result.get("key_id")
 
-        # Handle result based on allows_na config
-        if allows_na:
-            applicable = result.get("applicable", True)
-            properties["$ai_evaluation_applicable"] = applicable
-            if applicable:
-                properties["$ai_evaluation_result"] = result["verdict"]
+        if evaluation_type == "sentiment":
+            properties["$ai_sentiment_label"] = result.get("sentiment_label")
+            properties["$ai_sentiment_score"] = result.get("sentiment_score")
+            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
         else:
-            properties["$ai_evaluation_result"] = result["verdict"]
+            properties["$ai_evaluation_allows_na"] = allows_na
+            # Handle result based on allows_na config
+            if allows_na:
+                applicable = result.get("applicable", True)
+                properties["$ai_evaluation_applicable"] = applicable
+                if applicable:
+                    properties["$ai_evaluation_result"] = result["verdict"]
+            else:
+                properties["$ai_evaluation_result"] = result["verdict"]
 
         event_timestamp = datetime.now(UTC)
 
@@ -1162,7 +1272,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
-        else:
+        elif evaluation_type == "sentiment":
+            result = await temporalio.workflow.execute_activity(
+                execute_sentiment_eval_activity,
+                args=[evaluation, inputs.event_data],
+                schedule_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        elif evaluation_type == "llm_judge":
             # LLM judge evaluation
             try:
                 result = await temporalio.workflow.execute_activity(
@@ -1283,6 +1400,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                             team_id=evaluation["team_id"],
                             threshold_pct=threshold_pct,
                         )
+        else:
+            raise ApplicationError(
+                f"Unsupported evaluation type: {evaluation_type}",
+                non_retryable=True,
+            )
 
         # Activity 4: Emit evaluation event
         try:
@@ -1305,7 +1427,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # provider, and token usage on the PostHog org for cost attribution; skipped evaluations
         # never made an API call, so emitting a phantom record with `verdict=False` and zero
         # tokens would pollute that data.
-        if not result.get("skipped"):
+        if evaluation_type == "llm_judge" and not result.get("skipped"):
             await temporalio.workflow.execute_activity(
                 emit_internal_telemetry_activity,
                 EmitInternalTelemetryInputs(
@@ -1320,7 +1442,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         # v2: dedicated workflow on VIDEO_EXPORT_TASK_QUEUE (signals worker).
         # v1: legacy activity on evals queue, kept for in-flight workflows during migration.
         #     Always fails due to missing API key on llma worker
-        if result.get("verdict") is True and result.get("reasoning"):
+        if evaluation_type == "llm_judge" and result.get("verdict") is True and result.get("reasoning"):
             event_uuid = inputs.event_data.get("uuid", "")
             properties = inputs.event_data.get("properties", {})
             if isinstance(properties, str):
@@ -1374,13 +1496,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     )
 
         workflow_result: WorkflowResult = {
-            "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
             "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
             "skipped": result.get("skipped", False),
         }
+        if "verdict" in result:
+            workflow_result["verdict"] = result["verdict"]
         # Match the shape of the existing workflow-level skip path (around the `error_type` branch
         # above) so consumers can group skipped workflows by reason without special-casing the
         # source of the skip.

@@ -142,6 +142,19 @@ describe('TemporalService', () => {
             })
         })
 
+        it('uses sentiment workflow prefix for sentiment evaluations', async () => {
+            const mockEvent = createMockEvent()
+
+            await service.startEvaluationRunWorkflow('eval-123', mockEvent, 'sentiment')
+
+            expect(mockClient.workflow.start).toHaveBeenCalledWith(
+                'run-evaluation',
+                expect.objectContaining({
+                    workflowId: 'llma-sentiment-eval-eval-123-event-456-ingestion',
+                })
+            )
+        })
+
         it('generates deterministic workflow IDs', async () => {
             const mockEvent = createMockEvent()
 

@@ -673,6 +673,38 @@ describe('Evaluation Scheduler', () => {
             )
         })
 
+        it('does not provider-key gate sentiment evaluations', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({
+                team_id: teamId,
+                evaluation_type: 'sentiment',
+                evaluation_config: { source: 'user_messages' },
+                output_type: 'sentiment',
+                output_config: {},
+                provider_key_id: 'key-1',
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', bytecode: ['_H', 1, 32, true], rollout_percentage: 100 }),
+                ],
+            })
+            ;(evaluationManager.getEvaluationsForTeams as jest.Mock).mockResolvedValue({ [teamId]: [evaluation] })
+
+            await eachBatchEvaluationScheduler(
+                [messageFor(event)],
+                evaluationManager,
+                taggerManager,
+                temporalService,
+                { topic: 'events', aiTopicTeams: [] },
+                { enabled: true, providerKeyManager }
+            )
+
+            expect(providerKeyManager.getProviderKey).not.toHaveBeenCalled()
+            expect(temporalService.startEvaluationRunWorkflow).toHaveBeenCalledWith(
+                evaluation.id,
+                event,
+                evaluation.evaluation_type
+            )
+        })
+
         it('does not start tagger workflows when the configured provider key is not ok', async () => {
             const event = createAiGenerationEvent(teamId)
             const tagger = createTagger({

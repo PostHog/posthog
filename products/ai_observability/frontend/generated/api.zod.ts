@@ -104,6 +104,7 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
 
 export const evaluationsCreateBodyNameMax = 400
 
+export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
@@ -121,10 +122,10 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
     evaluation_type: zod
-        .enum(['llm_judge', 'hog'])
-        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog')
+        .enum(['llm_judge', 'hog', 'sentiment'])
+        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
         ),
     evaluation_config: zod
         .union([
@@ -140,13 +141,23 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                     .min(1)
                     .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
             }),
+            zod.object({
+                source: zod
+                    .enum(['user_messages'])
+                    .default(evaluationsCreateBodyEvaluationConfigThreeSourceDefault)
+                    .describe('Classify sentiment from user messages in the generation input.'),
+            }),
         ])
         .optional()
-        .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
+        .describe(
+            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+        ),
     output_type: zod
-        .enum(['boolean'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)')
-        .describe("Output format. Currently only 'boolean' is supported.\n\n\* `boolean` - Boolean (Pass\/Fail)"),
+        .enum(['boolean', 'sentiment'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+        .describe(
+            "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+        ),
     output_config: zod
         .object({
             allows_na: zod
@@ -215,6 +226,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
 
 export const evaluationsUpdateBodyNameMax = 400
 
+export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
 
@@ -232,10 +244,10 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
     evaluation_type: zod
-        .enum(['llm_judge', 'hog'])
-        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog')
+        .enum(['llm_judge', 'hog', 'sentiment'])
+        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
         ),
     evaluation_config: zod
         .union([
@@ -251,13 +263,23 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                     .min(1)
                     .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
             }),
+            zod.object({
+                source: zod
+                    .enum(['user_messages'])
+                    .default(evaluationsUpdateBodyEvaluationConfigThreeSourceDefault)
+                    .describe('Classify sentiment from user messages in the generation input.'),
+            }),
         ])
         .optional()
-        .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
+        .describe(
+            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+        ),
     output_type: zod
-        .enum(['boolean'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)')
-        .describe("Output format. Currently only 'boolean' is supported.\n\n\* `boolean` - Boolean (Pass\/Fail)"),
+        .enum(['boolean', 'sentiment'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+        .describe(
+            "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+        ),
     output_config: zod
         .object({
             allows_na: zod
@@ -326,6 +348,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
 
 export const evaluationsPartialUpdateBodyNameMax = 400
 
+export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
@@ -343,11 +366,11 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Whether the evaluation runs automatically on new $ai_generation events.'),
     evaluation_type: zod
-        .enum(['llm_judge', 'hog'])
-        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog')
+        .enum(['llm_judge', 'hog', 'sentiment'])
+        .describe('\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis')
         .optional()
         .describe(
-            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog"
+            "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n\* `llm_judge` - LLM as a judge\n\* `hog` - Hog\n\* `sentiment` - Sentiment analysis"
         ),
     evaluation_config: zod
         .union([
@@ -363,14 +386,24 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .min(1)
                     .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
             }),
+            zod.object({
+                source: zod
+                    .enum(['user_messages'])
+                    .default(evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault)
+                    .describe('Classify sentiment from user messages in the generation input.'),
+            }),
         ])
         .optional()
-        .describe("Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."),
+        .describe(
+            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
+        ),
     output_type: zod
-        .enum(['boolean'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)')
+        .enum(['boolean', 'sentiment'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
         .optional()
-        .describe("Output format. Currently only 'boolean' is supported.\n\n\* `boolean` - Boolean (Pass\/Fail)"),
+        .describe(
+            "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+        ),
     output_config: zod
         .object({
             allows_na: zod

@@ -40,6 +40,8 @@ if (not result) {
 }
 return result`
 
+const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
+
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
@@ -222,7 +224,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         : state,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
-                    state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
+                    state && state.output_type === 'boolean'
+                        ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
+                        : state,
                 setTriggerConditions: (state, { conditions }) =>
                     state
                         ? {
@@ -235,7 +239,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                           }
                         : null,
                 setModelConfiguration: (state, { modelConfiguration }) =>
-                    state ? { ...state, model_configuration: modelConfiguration } : null,
+                    state && state.evaluation_type !== 'sentiment'
+                        ? { ...state, model_configuration: modelConfiguration }
+                        : state,
                 setEvaluationType: (state, { evaluationType }) => {
                     if (!state) {
                         return null
@@ -245,14 +251,27 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             ...state,
                             evaluation_type: 'hog',
                             evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                            output_type: 'boolean',
                             model_configuration: null,
                             output_config: { ...state.output_config, allows_na: false },
+                        }
+                    }
+                    if (evaluationType === 'sentiment') {
+                        return {
+                            ...state,
+                            evaluation_type: 'sentiment',
+                            evaluation_config: { source: DEFAULT_SENTIMENT_SOURCE },
+                            output_type: 'sentiment',
+                            output_config: {},
+                            model_configuration: null,
                         }
                     }
                     return {
                         ...state,
                         evaluation_type: 'llm_judge',
                         evaluation_config: { prompt: '' },
+                        output_type: 'boolean',
+                        output_config: { allows_na: false },
                     }
                 },
                 setHogSource: (state, { source }) =>
@@ -553,7 +572,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 // reading .values on an unmounted keyed logic would throw.
                 const reportLogicKey = isNew ? 'new' : props.evaluationId
                 const reportLogic = evaluationReportLogic({ evaluationId: reportLogicKey })
-                if (response?.id && reportLogic.isMounted()) {
+                if (response?.id && response.output_type === 'boolean' && reportLogic.isMounted()) {
                     try {
                         await persistReportDraft(
                             teamId,
@@ -599,6 +618,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
+        setEvaluationType: ({ evaluationType }) => {
+            if (evaluationType === 'sentiment' && values.activeTab === 'reports') {
+                actions.setActiveTab('configuration')
+            }
+        },
     })),
 
     selectors({
@@ -639,6 +663,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 let hasValidConfig = false
                 if (evaluation.evaluation_type === 'hog') {
                     hasValidConfig = evaluation.evaluation_config.source.trim().length > 0
+                } else if (evaluation.evaluation_type === 'sentiment') {
+                    hasValidConfig = true
                 } else {
                     hasValidConfig = evaluation.evaluation_config.prompt.length > 0
                 }
@@ -653,8 +679,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation || !isTrialLimitReached) {
                     return true
                 }
-                // Hog evals don't call an LLM and never consume trial quota
-                if (evaluation.evaluation_type === 'hog') {
+                // Hog and sentiment evals don't call an LLM judge and never consume trial quota
+                if (evaluation.evaluation_type === 'hog' || evaluation.evaluation_type === 'sentiment') {
                     return true
                 }
                 // Can enable if the evaluation has a BYOK key

@@ -9,7 +9,7 @@ import { hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
-import type { EvaluationRun } from './evaluations/types'
+import type { EvaluationRun, EvaluationType } from './evaluations/types'
 import {
     AnthropicDocumentMessage,
     AnthropicImageMessage,
@@ -1023,19 +1023,38 @@ type RawEvaluationRunRow = [
     result: boolean | string | null,
     reasoning: string | null,
     applicable: boolean | string | null,
+    evaluation_type: string | null,
+    sentiment_label: string | null,
+    sentiment_score: number | string | null,
 ]
+
+function normalizeEvaluationType(value: string | null): EvaluationType | undefined {
+    if (value === 'llm_judge' || value === 'hog' || value === 'sentiment') {
+        return value
+    }
+    return undefined
+}
+
+function normalizeOptionalNumber(value: number | string | null): number | null {
+    if (value === null) {
+        return null
+    }
+    const parsed = typeof value === 'number' ? value : Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
 
 export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
     const rawResult = row[6]
     const applicable = row[8]
+    const evaluationType = normalizeEvaluationType(row[9])
 
     // N/A only when backend explicitly sets applicable=false
     // Otherwise, convert result to boolean (handle string 'false' from HogQL)
     let result: boolean | null
-    if (applicable === false || applicable === 'false') {
+    if (evaluationType === 'sentiment' || applicable === false || applicable === 'false' || rawResult === null) {
         result = null
     } else {
-        result = rawResult === true || rawResult === 'true'
+        result = rawResult === true || rawResult === 'true' || rawResult === 'True' || rawResult === '1'
     }
 
     return {
@@ -1045,7 +1064,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         evaluation_name: row[3] || 'Unknown Evaluation',
         generation_id: row[4],
         trace_id: row[5],
+        evaluation_type: evaluationType,
         result,
+        sentiment_label: row[10] || null,
+        sentiment_score: normalizeOptionalNumber(row[11]),
         reasoning: row[7] || 'No reasoning provided',
         status: 'completed' as const,
         applicable: applicable === null ? undefined : applicable === 'true' || applicable === true,
@@ -1076,7 +1098,10 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_trace_id as trace_id,
             properties.$ai_evaluation_result as result,
             properties.$ai_evaluation_reasoning as reasoning,
-            properties.$ai_evaluation_applicable as applicable
+            properties.$ai_evaluation_applicable as applicable,
+            properties.$ai_evaluation_runtime as evaluation_type,
+            properties.$ai_sentiment_label as sentiment_label,
+            properties.$ai_sentiment_score as sentiment_score
         FROM events
         WHERE
             event = '$ai_evaluation'

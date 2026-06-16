@@ -3823,7 +3823,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -3879,7 +3879,7 @@
         }
     },
     "llma-evaluation-list": {
-        "description": "List all LLM evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.",
+        "description": "List all AI observability evaluations for the current project. Optionally filter by name/description search or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety, sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog' (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluations",
@@ -4034,7 +4034,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt or Hog source), or change the model configuration.",
+        "description": "Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for llm_judge evaluations.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",

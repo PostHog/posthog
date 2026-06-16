@@ -31,6 +31,14 @@ from ..models.evaluations import Evaluation
 logger = structlog.get_logger(__name__)
 
 
+def _evaluation_workflow_prefix(evaluation_type: str) -> str:
+    if evaluation_type == "hog":
+        return "llma-hog-eval"
+    if evaluation_type == "sentiment":
+        return "llma-sentiment-eval"
+    return "llma-llm-eval"
+
+
 class EvaluationRunRequestSerializer(serializers.Serializer):
     evaluation_id = serializers.UUIDField(required=True, help_text="UUID of the evaluation to run.")
     target_event_id = serializers.UUIDField(required=True, help_text="UUID of the $ai_generation event to evaluate.")
@@ -158,7 +166,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         # Generate unique workflow ID
-        prefix = "llma-hog-eval" if evaluation.evaluation_type == "hog" else "llma-llm-eval"
+        prefix = _evaluation_workflow_prefix(evaluation.evaluation_type)
         workflow_id = f"{prefix}-{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow

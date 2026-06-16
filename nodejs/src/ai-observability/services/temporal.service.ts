@@ -23,6 +23,12 @@ export type TemporalServiceConfig = Pick<
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
 
+const EVALUATION_WORKFLOW_PREFIXES: Record<string, string> = {
+    hog: 'llma-hog-eval',
+    llm_judge: 'llma-llm-eval',
+    sentiment: 'llma-sentiment-eval',
+}
+
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
     help: 'Number of evaluation run workflows started',
@@ -135,7 +141,7 @@ export class TemporalService {
     ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
-        const prefix = evaluationRuntime === 'hog' ? 'llma-hog-eval' : 'llma-llm-eval'
+        const prefix = EVALUATION_WORKFLOW_PREFIXES[evaluationRuntime] ?? EVALUATION_WORKFLOW_PREFIXES.llm_judge
         const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
 
         const handle = await client.workflow.start('run-evaluation', {

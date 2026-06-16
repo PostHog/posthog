@@ -161,10 +161,11 @@ tools:
             idempotent: false
         title: Create evaluation
         description: >
-            Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration
-            (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). When
-            enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation'
-            events.
+            Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and
+            model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning
+            a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set
+            evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new
+            $ai_generation events. Results appear as '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -220,10 +221,11 @@ tools:
             idempotent: true
         title: List evaluations
         description: >
-            List all LLM evaluations for the current project. Optionally filter by name/description search or enabled
-            status. Evaluations automatically score $ai_generation events for quality, relevance, safety, and other
-            criteria. Two types are supported: 'llm_judge' (LLM scores outputs against a prompt) and 'hog'
-            (deterministic Hog code). Results are stored as '$ai_evaluation' events.
+            List all AI observability evaluations for the current project. Optionally filter by name/description search
+            or enabled status. Evaluations automatically score $ai_generation events for quality, relevance, safety,
+            sentiment, and other criteria. Supported types are 'llm_judge' (LLM scores outputs against a prompt), 'hog'
+            (deterministic Hog code), and 'sentiment' (user-message sentiment analysis). Results are stored as
+            '$ai_evaluation' events.
     llma-evaluation-report-create:
         operation: llm_analytics_evaluation_reports_create
         enabled: true
@@ -412,8 +414,9 @@ tools:
             idempotent: true
         title: Update evaluation
         description: >
-            Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the evaluation config
-            (prompt or Hog source), or change the model configuration.
+            Update an existing AI observability evaluation (partial update). Toggle enabled/disabled, update the
+            evaluation config (prompt, Hog source, or sentiment source), or change the model configuration for
+            llm_judge evaluations.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false

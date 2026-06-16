@@ -25,7 +25,7 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..models.evaluation_config import EvaluationConfig
-from ..models.evaluation_configs import validate_evaluation_configs
+from ..models.evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
 from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -60,6 +60,19 @@ logger = structlog.get_logger(__name__)
                         "type": "string",
                         "description": "Hog source code. Must return true (pass), false (fail), or null for N/A.",
                         "minLength": 1,
+                    }
+                },
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "title": "Sentiment config",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "enum": ["user_messages"],
+                        "description": "Classify sentiment from user messages in the generation input.",
+                        "default": "user_messages",
                     }
                 },
                 "additionalProperties": False,
@@ -132,7 +145,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
     evaluation_config = _EvaluationConfigField(
         required=False,
-        help_text="Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.",
+        help_text=(
+            "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; "
+            "for 'sentiment': {source: 'user_messages'}."
+        ),
     )
     output_config = _OutputConfigField(
         required=False,
@@ -176,23 +192,54 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "description": {"help_text": "Optional description of what this evaluation checks."},
             "enabled": {"help_text": "Whether the evaluation runs automatically on new $ai_generation events."},
             "evaluation_type": {
-                "help_text": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code."
+                "help_text": (
+                    "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; "
+                    "'sentiment' classifies user-message sentiment."
+                )
             },
-            "output_type": {"help_text": "Output format. Currently only 'boolean' is supported."},
+            "output_type": {
+                "help_text": (
+                    "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis."
+                )
+            },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
         }
 
     def validate(self, data):
-        if "evaluation_config" in data and "output_config" in data:
-            evaluation_type = data.get("evaluation_type")
-            output_type = data.get("output_type")
-            if evaluation_type and output_type:
-                try:
-                    data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
-                        evaluation_type, output_type, data["evaluation_config"], data["output_config"]
-                    )
-                except ValueError as e:
-                    raise serializers.ValidationError({"config": str(e)})
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        model_configuration = data.get(
+            "model_configuration",
+            getattr(self.instance, "model_configuration", None) if self.instance else None,
+        )
+
+        if evaluation_type == EvaluationType.SENTIMENT and model_configuration is not None:
+            raise serializers.ValidationError(
+                {"model_configuration": "Sentiment evaluations do not use model configuration."}
+            )
+
+        should_validate_configs = (
+            self.instance is None
+            or "evaluation_type" in data
+            or "output_type" in data
+            or "evaluation_config" in data
+            or "output_config" in data
+        )
+        if should_validate_configs and evaluation_type and output_type:
+            evaluation_config = data.get(
+                "evaluation_config",
+                getattr(self.instance, "evaluation_config", {}) if self.instance else {},
+            )
+            output_config = data.get(
+                "output_config",
+                getattr(self.instance, "output_config", {}) if self.instance else {},
+            )
+            try:
+                data["evaluation_config"], data["output_config"] = validate_evaluation_configs(
+                    evaluation_type, output_type, evaluation_config, output_config
+                )
+            except ValueError as e:
+                raise serializers.ValidationError({"config": str(e)})
 
         # Guard re-enable transitions: if the eval is currently disabled and the caller is flipping
         # `enabled=True`, make sure whatever caused the disabled state has actually been resolved.
@@ -210,7 +257,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
         # Hog evals run deterministic bytecode server-side: they never call an LLM provider,
         # never consume trial quota, and never need a BYOK key. The trial-limit / model-allowlist /
         # provider-key-deleted gates below all assume an LLM-judge call path, so skip them entirely.
-        if evaluation_type == "hog":
+        if evaluation_type in (EvaluationType.HOG, EvaluationType.SENTIMENT):
             return
 
         # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
@@ -454,7 +501,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             if instance.evaluation_type == "hog":
                 source = instance.evaluation_config.get("source", "")
                 return len(source) if isinstance(source, str) else 0
-            else:
+            elif instance.evaluation_type == "llm_judge":
                 prompt = instance.evaluation_config.get("prompt", "")
                 return len(prompt) if isinstance(prompt, str) else 0
         return 0
@@ -463,13 +510,14 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         with transaction.atomic():
             instance = serializer.save()
 
-            # Auto-create a default report config so reports are generated from the start.
-            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-            # and users add email/Slack delivery targets later if they want notifications.
-            EvaluationReport.objects.create(
-                team=self.team,
-                evaluation=instance,
-            )
+            if instance.output_type == OutputType.BOOLEAN:
+                # Auto-create a default report config so reports are generated from the start.
+                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+                # and users add email/Slack delivery targets later if they want notifications.
+                EvaluationReport.objects.create(
+                    team=self.team,
+                    evaluation=instance,
+                )
 
         # Calculate properties for tracking
         conditions = instance.conditions or []

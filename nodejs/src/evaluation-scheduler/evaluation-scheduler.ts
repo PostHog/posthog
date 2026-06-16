@@ -550,7 +550,11 @@ async function getProviderKeySkipOutcome(
         return null
     }
 
-    if (definition.evaluation_type === 'hog' || definition.tagger_type === 'hog') {
+    if (
+        definition.evaluation_type === 'hog' ||
+        definition.evaluation_type === 'sentiment' ||
+        definition.tagger_type === 'hog'
+    ) {
         return null
     }
 

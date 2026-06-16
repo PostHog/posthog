@@ -89,8 +89,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
+    const isHog = evaluation.evaluation_type === 'hog'
+    const isSentiment = evaluation.evaluation_type === 'sentiment'
+    const isBooleanEvaluation = evaluation.output_type === 'boolean'
+
     const trendInsightUrl =
-        !isNewEvaluation && evaluation.id
+        !isSentiment && !isNewEvaluation && evaluation.id
             ? urls.insightNew({
                   query: {
                       kind: NodeKind.InsightVizNode,
@@ -144,10 +148,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
               })
             : null
 
-    const isHog = evaluation.evaluation_type === 'hog'
     const configValid = isHog
         ? evaluation.evaluation_config.source.trim().length > 0
-        : evaluation.evaluation_config.prompt.trim().length > 0
+        : isSentiment
+          ? true
+          : evaluation.evaluation_config.prompt.trim().length > 0
     const hasName = evaluation.name.length > 0
     const basicFieldsValid = hasName && configValid
     const percentageUnset = evaluation.conditions.some((c) => (c.rollout_percentage ?? 0) === 0)
@@ -198,6 +203,28 @@ export function AIObservabilityEvaluation(): JSX.Element {
         }
         push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
     }
+
+    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = featureFlags[
+        FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE
+    ]
+        ? [
+              {
+                  value: 'hog',
+                  label: 'Hog code',
+              },
+          ]
+        : []
+    const evaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'llm_judge',
+            label: 'LLM as a judge',
+        },
+        ...hogEvaluationMethodOptions,
+        {
+            value: 'sentiment',
+            label: 'Sentiment analysis',
+        },
+    ]
 
     return (
         <div className="space-y-6">
@@ -317,13 +344,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                 <div className="text-muted">Total runs</div>
                                             </div>
-                                            <div className="text-center">
-                                                <div className="font-semibold text-lg text-success">
-                                                    {runsSummary.successRate}%
+                                            {isBooleanEvaluation && (
+                                                <div className="text-center">
+                                                    <div className="font-semibold text-lg text-success">
+                                                        {runsSummary.successRate}%
+                                                    </div>
+                                                    <div className="text-muted">Success rate</div>
                                                 </div>
-                                                <div className="text-muted">Success rate</div>
-                                            </div>
-                                            {evaluation.output_config.allows_na && (
+                                            )}
+                                            {isBooleanEvaluation && evaluation.output_config.allows_na && (
                                                 <div className="text-center">
                                                     <div className="font-semibold text-lg">
                                                         {runsSummary.applicabilityRate}%
@@ -345,6 +374,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         ),
                     },
                     !isNewEvaluation &&
+                        isBooleanEvaluation &&
                         !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && {
                             key: 'reports',
                             label: 'Reports',
@@ -377,27 +407,20 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 />
                                             </Field>
 
-                                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE] && (
+                                            {evaluationMethodOptions.length > 1 && (
                                                 <Field name="evaluation_type" label="Method">
                                                     <LemonSelect
                                                         value={evaluation.evaluation_type}
                                                         onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                                        options={[
-                                                            {
-                                                                value: 'llm_judge',
-                                                                label: 'LLM as a judge',
-                                                            },
-                                                            {
-                                                                value: 'hog',
-                                                                label: 'Hog code',
-                                                            },
-                                                        ]}
+                                                        options={evaluationMethodOptions}
                                                         fullWidth
                                                     />
                                                 </Field>
                                             )}
                                             <p className="text-muted text-sm -mt-2">
-                                                {isHog ? (
+                                                {isSentiment ? (
+                                                    'Classify the sentiment of user messages on each matching generation.'
+                                                ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
                                                         <Link to="https://posthog.com/docs/hog" target="_blank">
@@ -443,66 +466,73 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 </span>
                                             </div>
 
-                                            <Field
-                                                name="allows_na"
-                                                label={
-                                                    <div className="flex items-center gap-1">
-                                                        <span>Allow N/A responses</span>
-                                                        <Tooltip
-                                                            title={
-                                                                isHog
-                                                                    ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
-                                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
-                                                            }
-                                                        >
+                                            {isBooleanEvaluation && (
+                                                <Field
+                                                    name="allows_na"
+                                                    label={
+                                                        <div className="flex items-center gap-1">
+                                                            <span>Allow N/A responses</span>
+                                                            <Tooltip
+                                                                title={
+                                                                    isHog
+                                                                        ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
+                                                                        : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
+                                                                }
+                                                            >
+                                                                <IconInfo className="text-muted text-base" />
+                                                            </Tooltip>
+                                                        </div>
+                                                    }
+                                                >
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSwitch
+                                                            checked={evaluation.output_config.allows_na ?? false}
+                                                            onChange={setAllowsNA}
+                                                        />
+                                                        <span className="text-muted text-sm">
+                                                            {evaluation.output_config.allows_na
+                                                                ? isHog
+                                                                    ? 'Returning null means "Not Applicable"'
+                                                                    : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                                                : isHog
+                                                                  ? 'Evaluation must return true or false'
+                                                                  : 'Evaluation returns true or false'}
+                                                        </span>
+                                                    </div>
+                                                </Field>
+                                            )}
+                                            {!isNewEvaluation &&
+                                                user?.is_staff &&
+                                                evaluation.evaluation_type === 'llm_judge' && (
+                                                    <div className="flex items-center gap-2">
+                                                        <LemonSwitch
+                                                            checked={signalEmissionEnabled}
+                                                            onChange={setSignalEmission}
+                                                        />
+                                                        <span>Emit signals</span>
+                                                        <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
                                                             <IconInfo className="text-muted text-base" />
                                                         </Tooltip>
                                                     </div>
-                                                }
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <LemonSwitch
-                                                        checked={evaluation.output_config.allows_na ?? false}
-                                                        onChange={setAllowsNA}
-                                                    />
-                                                    <span className="text-muted text-sm">
-                                                        {evaluation.output_config.allows_na
-                                                            ? isHog
-                                                                ? 'Returning null means "Not Applicable"'
-                                                                : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
-                                                            : isHog
-                                                              ? 'Evaluation must return true or false'
-                                                              : 'Evaluation returns true or false'}
-                                                    </span>
-                                                </div>
-                                            </Field>
-                                            {!isNewEvaluation && user?.is_staff && (
-                                                <div className="flex items-center gap-2">
-                                                    <LemonSwitch
-                                                        checked={signalEmissionEnabled}
-                                                        onChange={setSignalEmission}
-                                                    />
-                                                    <span>Emit signals</span>
-                                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
-                                                        <IconInfo className="text-muted text-base" />
-                                                    </Tooltip>
-                                                </div>
-                                            )}
+                                                )}
                                         </div>
                                     </div>
 
                                     {/* Prompt / Code Configuration */}
-                                    <div className="bg-bg-light border rounded p-6">
-                                        <h3 className="text-lg font-semibold mb-4">
-                                            {isHog ? 'Evaluation code' : 'Evaluation prompt'}
-                                        </h3>
-                                        {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
-                                    </div>
+                                    {!isSentiment && (
+                                        <div className="bg-bg-light border rounded p-6">
+                                            <h3 className="text-lg font-semibold mb-4">
+                                                {isHog ? 'Evaluation code' : 'Evaluation prompt'}
+                                            </h3>
+                                            {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
+                                        </div>
+                                    )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {!isHog && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                                        <EvaluationModelPicker />
-                                    )}
+                                    {evaluation.evaluation_type === 'llm_judge' &&
+                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
+                                            <EvaluationModelPicker />
+                                        )}
 
                                     {/* Trigger Configuration */}
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
@@ -515,17 +545,20 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
                                     {/* Scheduled Reports (inline config for new evaluations) */}
                                     {isNewEvaluation &&
+                                        isBooleanEvaluation &&
                                         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
                                             <EvaluationReportConfig evaluationId="new" />
                                         )}
                                 </Form>
 
                                 {/* Scheduled Reports (for existing evaluations, outside the form) */}
-                                {!isNewEvaluation && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
-                                    <div className="mt-6">
-                                        <EvaluationReportConfig evaluationId={evaluation.id} />
-                                    </div>
-                                )}
+                                {!isNewEvaluation &&
+                                    isBooleanEvaluation &&
+                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_REPORTS] && (
+                                        <div className="mt-6">
+                                            <EvaluationReportConfig evaluationId={evaluation.id} />
+                                        </div>
+                                    )}
                             </div>
                         ),
                     },

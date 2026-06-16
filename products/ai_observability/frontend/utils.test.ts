@@ -21,10 +21,81 @@ import {
     isToolResult,
     isToolStepItem,
     looksLikeXml,
+    mapEvaluationRunRow,
     parsePartialJSON,
     parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
+
+type EvaluationRunRow = Parameters<typeof mapEvaluationRunRow>[0]
+
+interface EvaluationRunRowOverrides {
+    result?: EvaluationRunRow[6]
+    applicable?: EvaluationRunRow[8]
+    evaluationType?: EvaluationRunRow[9]
+    sentimentLabel?: EvaluationRunRow[10]
+    sentimentScore?: EvaluationRunRow[11]
+}
+
+function makeEvaluationRunRow({
+    result = true,
+    applicable = true,
+    evaluationType = 'llm_judge',
+    sentimentLabel = null,
+    sentimentScore = null,
+}: EvaluationRunRowOverrides = {}): EvaluationRunRow {
+    return [
+        'run-1',
+        '2026-04-10T12:00:00Z',
+        'eval-1',
+        'Test Eval',
+        'gen-1',
+        'trace-1',
+        result,
+        'Looks good',
+        applicable,
+        evaluationType,
+        sentimentLabel,
+        sentimentScore,
+    ]
+}
+
+describe('mapEvaluationRunRow', () => {
+    it('maps sentiment rows without coercing missing boolean results to false', () => {
+        const run = mapEvaluationRunRow(
+            makeEvaluationRunRow({
+                result: null,
+                applicable: null,
+                evaluationType: 'sentiment',
+                sentimentLabel: 'positive',
+                sentimentScore: '0.91',
+            })
+        )
+
+        expect(run.result).toBeNull()
+        expect(run.evaluation_type).toBe('sentiment')
+        expect(run.sentiment_label).toBe('positive')
+        expect(run.sentiment_score).toBe(0.91)
+    })
+
+    it('keeps absent boolean results as null instead of false', () => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: null }))
+
+        expect(run.result).toBeNull()
+    })
+
+    it('maps explicit string boolean results', () => {
+        expect(mapEvaluationRunRow(makeEvaluationRunRow({ result: 'true' })).result).toBe(true)
+        expect(mapEvaluationRunRow(makeEvaluationRunRow({ result: 'false' })).result).toBe(false)
+    })
+
+    it('maps explicitly non-applicable rows to null', () => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: false, applicable: 'false' }))
+
+        expect(run.result).toBeNull()
+        expect(run.applicable).toBe(false)
+    })
+})
 
 // The recipe-based `RecipeNormalizer` in `./normalizer` is the production code path.
 const recipe = new RecipeNormalizer()

@@ -1,7 +1,6 @@
 import { BuiltLogic, useValues } from 'kea'
 
-import { IconCheck, IconMinus, IconWarning, IconX } from '@posthog/icons'
-import { LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -9,6 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogicType } from '../generationEvaluationRunsLogicType'
+import { EvaluationResultTag, getEvaluationResultSortValue } from './EvaluationResultTag'
 
 export function GenerationEvalRunsTable({
     generationRunsLogic,
@@ -36,44 +36,9 @@ export function GenerationEvalRunsTable({
         {
             title: 'Result',
             key: 'result',
-            render: (_, run) => {
-                if (run.status === 'failed') {
-                    return (
-                        <LemonTag type="danger" icon={<IconWarning />}>
-                            Error
-                        </LemonTag>
-                    )
-                }
-                if (run.status === 'running') {
-                    return <LemonTag type="primary">Running...</LemonTag>
-                }
-                // Handle N/A case (result is null when not applicable)
-                if (run.result === null) {
-                    return (
-                        <LemonTag type="muted" icon={<IconMinus />}>
-                            N/A
-                        </LemonTag>
-                    )
-                }
-                return (
-                    <div className="flex items-center gap-2">
-                        {run.result ? (
-                            <LemonTag type="success" icon={<IconCheck />}>
-                                True
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="danger" icon={<IconX />}>
-                                False
-                            </LemonTag>
-                        )}
-                    </div>
-                )
-            },
+            render: (_, run) => <EvaluationResultTag run={run} />,
             sorter: (a, b) => {
-                // N/A (null) sorts between pass (1) and fail (0)
-                const valA = a.result === null ? 0.5 : Number(a.result)
-                const valB = b.result === null ? 0.5 : Number(b.result)
-                return valB - valA
+                return getEvaluationResultSortValue(b) - getEvaluationResultSortValue(a)
             },
         },
         {

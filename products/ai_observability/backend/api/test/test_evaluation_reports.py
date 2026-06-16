@@ -55,6 +55,19 @@ class TestEvaluationReportApi(APIBaseTest):
         payload.update(overrides)
         return payload
 
+    def _create_sentiment_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment Eval",
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
     def test_unauthenticated_user_cannot_access(self):
         self.client.logout()
         response = self.client.get(self.base_url)
@@ -129,6 +142,37 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertTrue(report.is_count_triggered)
         self.assertEqual(report.rrule, "")
         self.assertIsNone(report.starts_at)
+
+    def test_create_rejects_sentiment_evaluation(self):
+        sentiment_evaluation = self._create_sentiment_evaluation()
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(sentiment_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+
+    def test_list_excludes_sentiment_reports(self):
+        sentiment_evaluation = self._create_sentiment_evaluation()
+        EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=sentiment_evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+
+        response = self.client.get(self.base_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 0)
 
     def test_create_scheduled_sets_next_delivery_date(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=HOURLY"), format="json")

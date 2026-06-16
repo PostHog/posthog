@@ -45,6 +45,7 @@ async def fetch_due_eval_reports_activity(
                 next_delivery_date__lte=now_with_buffer,
                 enabled=True,
                 deleted=False,
+                evaluation__output_type="boolean",
             )
             .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
             .values_list("id", flat=True)
@@ -88,6 +89,7 @@ async def fetch_count_triggered_eval_reports_activity(
                 enabled=True,
                 deleted=False,
                 trigger_threshold__isnull=False,
+                evaluation__output_type="boolean",
             ).select_related("evaluation")
         )
         total_checked = len(reports)

@@ -27,6 +27,7 @@ EVAL_ACTIVITY_TYPES = {
     "fetch_evaluation_activity",
     "execute_llm_judge_activity",
     "execute_hog_eval_activity",
+    "execute_sentiment_eval_activity",
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "increment_trial_eval_count_activity",
@@ -201,8 +202,8 @@ class _EvalsMetricsWorkflowInterceptor(WorkflowInboundInterceptor):
                     increment_workflow_finished(status, evaluation_type)
                     return result
 
-                # Record verdict
-                if isinstance(result, dict):
+                # Record verdict for boolean-output evaluations. Sentiment emits no boolean verdict.
+                if isinstance(result, dict) and "verdict" in result:
                     verdict = result.get("verdict")
                     if verdict is True:
                         increment_verdict("true", evaluation_type)

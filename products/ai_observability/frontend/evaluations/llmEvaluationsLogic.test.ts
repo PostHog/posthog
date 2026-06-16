@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
-import { EvaluationConfig } from './types'
+import { HogEvaluation, LLMJudgeEvaluation, SentimentEvaluation } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
     {
@@ -49,7 +49,7 @@ const mockProviderKeys: LLMProviderKey[] = [
     },
 ]
 
-const evaluationWithKey = (id: string, providerKeyId: string | null): EvaluationConfig => ({
+const evaluationWithKey = (id: string, providerKeyId: string | null): LLMJudgeEvaluation => ({
     id,
     name: `Evaluation ${id}`,
     description: '',
@@ -71,6 +71,22 @@ const evaluationWithKey = (id: string, providerKeyId: string | null): Evaluation
     total_runs: 0,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+})
+
+const hogEvaluation = (id: string): HogEvaluation => ({
+    ...evaluationWithKey(id, null),
+    evaluation_type: 'hog',
+    evaluation_config: { source: 'return true' },
+    model_configuration: null,
+})
+
+const sentimentEvaluation = (id: string): SentimentEvaluation => ({
+    ...evaluationWithKey(id, null),
+    evaluation_type: 'sentiment',
+    evaluation_config: { source: 'user_messages' },
+    output_type: 'sentiment',
+    output_config: {},
+    model_configuration: null,
 })
 
 describe('llmEvaluationsLogic', () => {
@@ -115,6 +131,21 @@ describe('llmEvaluationsLogic', () => {
     })
 
     describe('unhealthyProviderKeysUsedByEvaluations', () => {
+        it('allows Hog and sentiment evaluations when trial limit is reached', async () => {
+            keysLogic.actions.loadEvaluationConfigSuccess({
+                trial_eval_limit: 100,
+                trial_evals_used: 100,
+                trial_evals_remaining: 0,
+                active_provider_key: null,
+                created_at: '2024-01-01T00:00:00Z',
+                updated_at: '2024-01-01T00:00:00Z',
+            })
+
+            expect(logic.values.canEnableEvaluation(hogEvaluation('hog'))).toBe(true)
+            expect(logic.values.canEnableEvaluation(sentimentEvaluation('sentiment'))).toBe(true)
+            expect(logic.values.canEnableEvaluation(evaluationWithKey('llm-default', null))).toBe(false)
+        })
+
         it('returns unhealthy keys used by evaluations without duplicates', async () => {
             logic.actions.loadEvaluations()
             keysLogic.actions.loadProviderKeys()

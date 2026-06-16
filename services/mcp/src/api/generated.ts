@@ -18954,7 +18954,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type EvaluationEvaluationConfig = {
       /**
@@ -18968,6 +18968,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -19009,6 +19012,7 @@ export namespace Schemas {
     /**
      * * `llm_judge` - LLM as a judge
      * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
      */
     export type EvaluationTypeEnum = typeof EvaluationTypeEnum[keyof typeof EvaluationTypeEnum];
 
@@ -19016,16 +19020,19 @@ export namespace Schemas {
     export const EvaluationTypeEnum = {
       LlmJudge: 'llm_judge',
       Hog: 'hog',
+      Sentiment: 'sentiment',
     } as const;
 
     /**
      * * `boolean` - Boolean (Pass/Fail)
+     * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
 
 
     export const OutputTypeEnum = {
       Boolean: 'boolean',
+      Sentiment: 'sentiment',
     } as const;
 
     export type EvaluationConditionPropertiesItem = { [key: string]: unknown };
@@ -19097,16 +19104,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status: EvaluationStatusEnum;
       readonly status_reason: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
@@ -33776,7 +33785,7 @@ export namespace Schemas {
     }
 
     /**
-     * Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}.
+     * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
     export type PatchedEvaluationEvaluationConfig = {
       /**
@@ -33790,6 +33799,9 @@ export namespace Schemas {
          * @minLength 1
          */
       source: string;
+    } | {
+      /** Classify sentiment from user messages in the generation input. */
+      source?: 'user_messages';
     };
 
     /**
@@ -33813,16 +33825,18 @@ export namespace Schemas {
       enabled?: boolean;
       readonly status?: EvaluationStatusEnum;
       readonly status_reason?: StatusReasonEnum | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
        *
        * * `llm_judge` - LLM as a judge
-       * * `hog` - Hog */
+       * * `hog` - Hog
+       * * `sentiment` - Sentiment analysis */
       evaluation_type?: EvaluationTypeEnum;
-      /** Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}. */
+      /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format. Currently only 'boolean' is supported.
+      /** Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.
        *
-       * * `boolean` - Boolean (Pass/Fail) */
+       * * `boolean` - Boolean (Pass/Fail)
+       * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;

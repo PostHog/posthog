@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from django.db import models
 
@@ -10,12 +10,14 @@ class EvaluationType(models.TextChoices):
 
     LLM_JUDGE = "llm_judge", "LLM as a judge"
     HOG = "hog", "Hog"
+    SENTIMENT = "sentiment", "Sentiment analysis"
 
 
 class OutputType(models.TextChoices):
     """What type of result is expected"""
 
     BOOLEAN = "boolean", "Boolean (Pass/Fail)"
+    SENTIMENT = "sentiment", "Sentiment"
 
 
 class LLMJudgeConfig(BaseModel):
@@ -51,10 +53,24 @@ class BooleanOutputConfig(BaseModel):
     allows_na: bool = False
 
 
+class SentimentEvalConfig(BaseModel):
+    """Configuration for sentiment evaluations."""
+
+    source: Literal["user_messages"] = Field(
+        default="user_messages",
+        description="Text source used for sentiment classification.",
+    )
+
+
+class SentimentOutputConfig(BaseModel):
+    """Configuration for sentiment output type."""
+
+
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
-EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[BaseModel], type[BooleanOutputConfig]]] = {
+EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[BaseModel], type[BaseModel]]] = {
     (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN.value): (LLMJudgeConfig, BooleanOutputConfig),
     (EvaluationType.HOG.value, OutputType.BOOLEAN.value): (HogEvalConfig, BooleanOutputConfig),
+    (EvaluationType.SENTIMENT.value, OutputType.SENTIMENT.value): (SentimentEvalConfig, SentimentOutputConfig),
 }
 
 

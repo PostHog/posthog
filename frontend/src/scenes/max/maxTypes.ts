@@ -60,12 +60,14 @@ export interface MaxErrorTrackingIssueContext {
     name?: string | null
 }
 
+export type MaxEvaluationRuntime = 'hog' | 'llm_judge' | 'sentiment'
+
 export interface MaxEvaluationContext {
     type: MaxContextType.EVALUATION
     id: string
     name?: string | null
     description?: string | null
-    evaluation_type: 'hog' | 'llm_judge'
+    evaluation_type: MaxEvaluationRuntime
     hog_source?: string | null
 }
 
@@ -142,7 +144,7 @@ type MaxEvaluationContextInput = {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: MaxEvaluationRuntime
         hog_source?: string | null
     }
 }
@@ -224,7 +226,7 @@ export const createMaxContextHelpers = {
         id: string
         name?: string | null
         description?: string | null
-        evaluation_type: 'hog' | 'llm_judge'
+        evaluation_type: MaxEvaluationRuntime
         hog_source?: string | null
     }): MaxEvaluationContextInput => ({
         type: MaxContextType.EVALUATION,
