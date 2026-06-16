@@ -65,6 +65,12 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
 MIN_VALUE_SEARCH_LENGTH = 4
 
 
+def _ilike_pattern(search: str) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def _normalise_to_base64(value: str) -> str:
     try:
         int(value, 16)
@@ -640,7 +646,7 @@ def run_service_names_query(
         exprs.append(
             parse_expr(
                 "service_name ILIKE {search}",
-                placeholders={"search": ast.Constant(value=f"%{search}%")},
+                placeholders={"search": ast.Constant(value=_ilike_pattern(search))},
             )
         )
 
@@ -732,7 +738,7 @@ def run_attribute_names_query(
         )
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "limit": ast.Constant(value=limit),
             "offset": ast.Constant(value=offset),
@@ -832,7 +838,7 @@ def _run_attribute_names_value_search(
         OFFSET {offset}
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "limit": ast.Constant(value=limit),
             "offset": ast.Constant(value=offset),
@@ -912,7 +918,7 @@ def run_attribute_values_query(
         )
         """,
         placeholders={
-            "search": ast.Constant(value=f"%{search}%"),
+            "search": ast.Constant(value=_ilike_pattern(search)),
             "attributeType": ast.Constant(value=attribute_type),
             "attributeKey": ast.Constant(value=attribute_key),
             "limit": ast.Constant(value=limit),

@@ -36,6 +36,9 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
             ("user.trace_id", "unrelated-value", 5, "span_attribute"),  # key contains "trace_id"
             ("k8s.pod.name", TRACE_ID_VALUE, 2, "span_resource_attribute"),
             ("service.version", "1.2.3", 20, "span_resource_attribute"),
+            # ILIKE-escaping fixtures: "50%off" must not wildcard-match "50ABCoff".
+            ("promo.code", "50%off", 4, "span_attribute"),
+            ("promo.alt", "50ABCoff", 4, "span_attribute"),
         ]
         values_sql = ",".join(
             f"({cls.team.id}, '{bucket}', '{bucket}', 'svc', 0, '{k}', '{v}', {c}, '{t}')" for k, v, c, t in rows
@@ -103,6 +106,13 @@ class TestTracingAttributeValueSearch(ClickhouseTestMixin, APIBaseTest):
         first_value_idx = next((i for i, m in enumerate(match_kinds) if m == "value"), None)
         if first_value_idx is not None:
             self.assertNotIn("key", match_kinds[first_value_idx:], "key matches must appear before value matches")
+
+    def test_value_search_escapes_ilike_wildcards(self):
+        # "%" is escaped to a literal — "50%off" must not wildcard-match "50ABCoff".
+        results = self._attributes({"attribute_type": "span_attribute", "search": "50%off", "search_values": "true"})
+        names = {r["name"] for r in results}
+        self.assertIn("promo.code", names)
+        self.assertNotIn("promo.alt", names)
 
     def test_key_search_is_case_insensitive(self):
         # Keys are stored lowercase; an upper-case search term must still match them (ILIKE).
