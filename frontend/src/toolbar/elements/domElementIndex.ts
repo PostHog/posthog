@@ -80,7 +80,8 @@ export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
 
         addToIndex(index.byTagName, fingerprint.tagName, element)
 
-        for (const cls of fingerprint.classes) {
+        // `classes` can be absent if the element mutated out from under us during the async matching loop
+        for (const cls of fingerprint.classes ?? []) {
             addToIndex(index.byClass, cls, element)
         }
 
@@ -181,7 +182,7 @@ function matchesParent(candidate: HTMLElement, parentEvent: ElementType, index: 
     }
     if (parentEvent.attr_class?.length) {
         for (const cls of parentEvent.attr_class) {
-            if (cls && !fp.classes.has(cls)) {
+            if (cls && !fp.classes?.has(cls)) {
                 return false
             }
         }

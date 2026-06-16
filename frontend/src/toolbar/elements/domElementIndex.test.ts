@@ -371,6 +371,37 @@ describe('domElementIndex', () => {
             }
         })
 
+        it('does not throw when a parent fingerprint has no classes', () => {
+            const { container, cleanup } = createTestDOM(`
+                <div class="container-a"><button class="btn"></button></div>
+                <div class="container-b"><button class="btn" id="target"></button></div>
+            `)
+            try {
+                const index = buildDOMIndex(getAllElements(container))
+
+                // Simulate a stale/incomplete fingerprint left behind by a DOM mutation race
+                // during the async matching loop: the object exists but its `classes` set is gone.
+                for (const parent of Array.from(container.querySelectorAll('div')) as HTMLElement[]) {
+                    const fp = index.fingerprints.get(parent)
+                    if (fp) {
+                        ;(fp as { classes: Set<string> | null }).classes = null
+                    }
+                }
+
+                const event = createEvent([
+                    { tag_name: 'button', attr_class: ['btn'] },
+                    { tag_name: 'div', attr_class: ['container-b'] },
+                ])
+
+                // Parent class filtering can no longer disambiguate, so the matcher degrades to
+                // returning null rather than dereferencing the missing `classes` set.
+                expect(() => matchEventToElementUsingIndex(event, [], false, index)).not.toThrow()
+                expect(matchEventToElementUsingIndex(event, [], false, index)).toBeNull()
+            } finally {
+                cleanup()
+            }
+        })
+
         it('returns null for empty elements array', () => {
             const { container, cleanup } = createTestDOM('<div></div>')
             try {
