@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.property.property import ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates
@@ -73,8 +74,10 @@ def handle_compare(filter, func: Callable, team: Team, **kwargs) -> list:
 
 
 def determine_parsed_incoming_date(
-    value: Any | datetime.date | datetime.datetime | float,
+    value: ValueT | datetime.date | datetime.datetime | float,
 ) -> datetime.datetime | None:
+    # This parses the incoming date value. The range of possibilities is only limited by our customers imagination, but usually
+    # take the form of a string, a unix timestamp, or a datetime object.
     if isinstance(value, datetime.datetime):
         return convert_to_datetime_aware(value)
 
@@ -89,10 +92,12 @@ def determine_parsed_incoming_date(
             return convert_to_datetime_aware(parsed)
         except Exception:
             try:
+                # This might be a Unix timestamp passed as a string in milliseconds
                 parsed_date = float(value)
                 return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
             except Exception:
                 try:
+                    # This might be a Unix timestamp passed as a string in seconds
                     parsed_date = int(value)
                     return datetime.datetime.fromtimestamp(parsed_date, tz=ZoneInfo("UTC"))
                 except Exception:
@@ -101,7 +106,8 @@ def determine_parsed_incoming_date(
     return None
 
 
-def determine_parsed_date_for_property_matching(value: Any) -> datetime.datetime | None:
+def determine_parsed_date_for_property_matching(value: ValueT) -> datetime.datetime | None:
+    # This parses the filter value we compare against. The range of possible values is limited by our UI.
     parsed_date = None
     try:
         parsed_date = relative_date_parse_for_feature_flag_matching(str(value))
