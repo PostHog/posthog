@@ -27,7 +27,7 @@
         "activity_events_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1h", "-24h", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
                 }
             },
             "filterTestAccounts": {
@@ -94,7 +94,7 @@
         "error_tracking_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1h", "-24h", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
                 }
             },
             "filterTestAccounts": {
@@ -178,7 +178,7 @@
         "session_replay_list": {
             "dateRange": {
                 "date_from": {
-                    "$enum": ["-14d", "-1h", "-24h", "-30d", "-3h", "-7d", "-90d"]
+                    "$enum": ["-14d", "-1M", "-1h", "-24h", "-30M", "-30d", "-3h", "-7d", "-90d"]
                 }
             },
             "filterTestAccounts": {

@@ -184,6 +184,8 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                     date_from: zod
                                                         .union([
                                                             zod.enum([
+                                                                '-1M',
+                                                                '-30M',
                                                                 '-1h',
                                                                 '-3h',
                                                                 '-24h',
@@ -268,6 +270,8 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                     date_from: zod
                                                         .union([
                                                             zod.enum([
+                                                                '-1M',
+                                                                '-30M',
                                                                 '-1h',
                                                                 '-3h',
                                                                 '-24h',
@@ -389,6 +393,8 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                     date_from: zod
                                                         .union([
                                                             zod.enum([
+                                                                '-1M',
+                                                                '-30M',
                                                                 '-1h',
                                                                 '-3h',
                                                                 '-24h',
@@ -970,7 +976,17 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         zod.object({
                                             date_from: zod
                                                 .union([
-                                                    zod.enum(['-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']),
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
                                                     zod.null(),
                                                 ])
                                                 .optional(),
@@ -1105,7 +1121,17 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         zod.object({
                                             date_from: zod
                                                 .union([
-                                                    zod.enum(['-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']),
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
                                                     zod.null(),
                                                 ])
                                                 .optional(),
@@ -1264,7 +1290,17 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         zod.object({
                                             date_from: zod
                                                 .union([
-                                                    zod.enum(['-1h', '-3h', '-24h', '-7d', '-14d', '-30d', '-90d']),
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
                                                     zod.null(),
                                                 ])
                                                 .optional(),

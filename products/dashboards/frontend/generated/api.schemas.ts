@@ -387,6 +387,8 @@ export type WidgetDateRangeApiDateFrom =
     | null
 
 export const WidgetDateRangeApiDateFrom = {
+    '1m': '-1M',
+    '30m': '-30M',
     '1h': '-1h',
     '3h': '-3h',
     '24h': '-24h',
