@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -131,7 +132,7 @@ class TestGetRows:
         manager.can_resume.return_value = False
 
         good_response = _make_response(_page([{"id": "1"}], None))
-        attempts = iter(
+        attempts: Iterator[ChunkedEncodingError | Response] = iter(
             [
                 ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
                 good_response,
