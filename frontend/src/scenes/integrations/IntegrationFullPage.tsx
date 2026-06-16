@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
@@ -60,6 +61,13 @@ function ConnectView({
     definition: IntegrationDefinition
     SettingsSection: SettingsSectionComponent
 }): JSX.Element {
+    const onConnectClick = (): void => {
+        posthog.capture('integration_connect_clicked', {
+            integration: definition.slug,
+            integration_kind: definition.kind,
+        })
+    }
+
     return (
         <>
             <div className="flex flex-col items-center gap-1 text-center">
@@ -69,7 +77,10 @@ function ConnectView({
 
             <div className="text-center text-sm">{definition.description}</div>
 
-            <SettingsSection next={urls.integration(definition.slug)} />
+            {/* onClickCapture fires before the connect button triggers its OAuth redirect */}
+            <div onClickCapture={onConnectClick}>
+                <SettingsSection next={urls.integration(definition.slug)} />
+            </div>
 
             {definition.docsUrl ? (
                 <Link to={definition.docsUrl} target="_blank" className="text-sm">
