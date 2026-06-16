@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 
@@ -8,6 +11,7 @@ from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
     _get_worksheet,
     get_schemas,
+    google_sheets_source,
 )
 from posthog.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
 
@@ -41,6 +45,71 @@ def test_get_worksheet_backoff():
             _get_worksheet("url", 1)
 
         assert mock_get_worksheet_by_id.call_count == 10
+
+
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+def test_get_worksheet_retries_transient_api_errors(status_code):
+    """Transient API errors (quota 429s and 5xx server errors like
+    "[500]: Internal error encountered.") should be retried with backoff, not
+    re-raised on the first occurrence."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_spreadsheet = mock.MagicMock()
+        mock_get_worksheet_by_id = mock.MagicMock()
+
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {
+            "error": {
+                "code": status_code,
+                "message": "Internal error encountered.",
+                "status": "INTERNAL",
+            }
+        }
+
+        mock_get_worksheet_by_id.side_effect = gspread.exceptions.APIError(mock_response)
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.return_value = mock_spreadsheet
+        mock_spreadsheet.get_worksheet_by_id = mock_get_worksheet_by_id
+
+        # Use a unique worksheet id per status code to avoid the module-level TTLCache
+        with pytest.raises(gspread.exceptions.APIError):
+            _get_worksheet("transient-url", status_code)
+
+        assert mock_get_worksheet_by_id.call_count == 10
+
+
+def test_get_worksheet_does_not_retry_non_transient_api_error():
+    """A non-transient API error (e.g. 400) should be raised immediately without
+    burning through the retry budget."""
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.google_sheets_client"
+        ) as mock_google_sheets_client,
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.time"),
+    ):
+        mock_spreadsheet = mock.MagicMock()
+        mock_get_worksheet_by_id = mock.MagicMock()
+
+        mock_response = mock.MagicMock()
+        mock_response.json.return_value = {
+            "error": {"code": 400, "message": "Bad request", "status": "INVALID_ARGUMENT"}
+        }
+
+        mock_get_worksheet_by_id.side_effect = gspread.exceptions.APIError(mock_response)
+
+        instance = mock_google_sheets_client.return_value
+        instance.open_by_url.return_value = mock_spreadsheet
+        mock_spreadsheet.get_worksheet_by_id = mock_get_worksheet_by_id
+
+        with pytest.raises(gspread.exceptions.APIError):
+            _get_worksheet("non-transient-url", 400)
+
+        assert mock_get_worksheet_by_id.call_count == 1
 
 
 def test_get_worksheet_caching():
@@ -88,6 +157,32 @@ def test_reraises_permission_error_with_message(call_site):
             call_site()
 
         assert "Spreadsheet access denied" in str(exc_info.value)
+
+
+def test_google_sheets_source_reads_blank_cells_as_null():
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.return_value = [["id", "NumericColumnWithBlanks"]]
+    mock_worksheet.get_all_records.return_value = [
+        {"id": 1, "NumericColumnWithBlanks": 1.5},
+        {"id": 2, "NumericColumnWithBlanks": None},
+    ]
+
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("sheet1", 123)],
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        response = google_sheets_source(config, "sheet1", db_incremental_field_last_value=None)
+        list(cast(Iterable[Any], response.items()))
+
+    mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
 
 
 def test_permission_error_is_non_retryable():

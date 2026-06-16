@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -44,6 +45,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SHOPIFY,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
             caption="""Enter your Shopify credentials to automatically pull your Shopify data into the PostHog Data warehouse.""",
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",

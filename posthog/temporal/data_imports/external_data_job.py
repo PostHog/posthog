@@ -73,7 +73,7 @@ Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
-    "Integration matching query does not exist": None,
+    "Integration matching query does not exist": "The connected account for this source is no longer available — it may have been disconnected. Please reconnect the source's account.",
 }
 
 

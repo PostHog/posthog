@@ -1,16 +1,16 @@
 rules:
     - id: agent-janitor-no-process-env
       message: |
-          Direct `process.env.*` reads aren't allowed in `services/agent-janitor/src/`
+          Direct `process.env.*` reads aren't allowed in `products/agent_platform/services/agent-janitor/src/`
           (outside `config.ts` + tests). Add the env var to `AgentJanitorConfigSchema`
-          in `services/agent-janitor/src/config.ts` and read it from the typed
+          in `products/agent_platform/services/agent-janitor/src/config.ts` and read it from the typed
           `Config` passed into `main()`.
 
-          Why: agent-janitor is the **pilot** for the typed-config-loader pattern
-          (see `docs/agent-platform/plans/typed-config-loader.md`). Defaults live
-          in one place, validation runs at boot, and the generated runbook stays
-          in sync. Other agent services still use ad-hoc `process.env.*` reads —
-          but new code in agent-janitor goes through the loader.
+          Why: agent-janitor is the **pilot** for the typed-config-loader
+          pattern. Defaults live in one place, validation runs at boot, and
+          the generated runbook stays in sync. Other agent services still use
+          ad-hoc `process.env.*` reads — but new code in agent-janitor goes
+          through the loader.
 
           Legitimate exceptions:
           - `NODE_ENV` — universal node convention, fine to read directly.
@@ -22,7 +22,7 @@ rules:
       pattern: process.env.$X
       paths:
           include:
-              - services/agent-janitor/src/**/*.ts
+              - products/agent_platform/services/agent-janitor/src/**/*.ts
           exclude:
-              - services/agent-janitor/src/config.ts
-              - services/agent-janitor/src/**/*.test.ts
+              - products/agent_platform/services/agent-janitor/src/config.ts
+              - products/agent_platform/services/agent-janitor/src/**/*.test.ts

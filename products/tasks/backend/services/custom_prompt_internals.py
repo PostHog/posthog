@@ -46,6 +46,25 @@ STALE_TURN_SALVAGE_SECONDS = 300
 # "Activity task failed" wrapper.
 AGENT_ERROR_METHOD = "_posthog/error"
 
+# Observability side-channels the relay interleaves into the turn log asynchronously
+# (agentsh network-audit dumps and sandbox credential refreshes ride on `_posthog/console`,
+# sandbox stdout/stderr on `_posthog/sandbox_output`, setup steps on `_posthog/progress`).
+# They carry no turn-state and routinely land *after* the agent's closing usage_update, so the
+# dropped-finalization tail check skips them rather than treating one as the decisive tail.
+TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
+    {
+        "_posthog/console",
+        "_posthog/progress",
+        "_posthog/sandbox_output",
+    }
+)
+
+# `_posthog/progress` is normally an informational setup step (status in_progress/completed), but the
+# workflow's failure and cancel handlers emit a progress marker with this status *before* the TaskRun
+# reaches its terminal state. A salvage reread that lands in that window must not skip past it to an
+# earlier finalization fingerprint and report a bogus success, so a failed progress line stays decisive.
+FAILED_PROGRESS_STATUS = "failed"
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -357,14 +376,20 @@ async def _salvage_dropped_finalization(
     if last_message is None or not _ended_on_pending_finalization(full_log):
         return None
     # The fingerprint also matches a mid-turn pause between chunks. The log is append-only, so the only
-    # benign growth since polling is the finalization usage_update itself landing late (+1 line beyond
-    # the high-water mark). Any more than that — a new message chunk, a tool call, etc. — is fresh
-    # activity that has had no silence window and could still be live, so decline rather than truncate.
-    if total_lines - max_total_lines_seen > 1:
+    # benign turn-relevant growth since polling is the finalization usage_update itself landing late
+    # (+1 line beyond the high-water mark). Any more than that — a new message chunk, a tool call, etc.
+    # — is fresh activity that has had no silence window and could still be live, so decline rather than
+    # truncate. Transient relay side-channels (network audits, credential refreshes, stdout) also land
+    # in this post-poll window; they carry no turn-state and must be discounted, or one arriving
+    # alongside the late usage_update would push raw growth past the threshold and wrongly decline the
+    # very dropped-finalization case this path recovers.
+    new_lines = (full_log or "").strip().split("\n")[max_total_lines_seen:]
+    relevant_growth = (total_lines - max_total_lines_seen) - _transient_growth(new_lines)
+    if relevant_growth > 1:
         logger.warning(
-            "custom_prompt - salvage_dropped_finalization: reread grew %d line(s) past the high-water "
-            "mark (%d) — fresh activity, no silence window; declining salvage, run=%s",
-            total_lines - max_total_lines_seen,
+            "custom_prompt - salvage_dropped_finalization: reread grew %d turn-relevant line(s) past "
+            "the high-water mark (%d) — fresh activity, no silence window; declining salvage, run=%s",
+            relevant_growth,
             max_total_lines_seen,
             task_run.id,
         )
@@ -580,13 +605,51 @@ def _check_logs(task_run, skip_lines: int = 0) -> tuple[bool, str | None, str | 
     return agent_finished, latest_text, log_content, total_lines, False
 
 
+def _is_failed_progress(notification: dict) -> bool:
+    """True for a `_posthog/progress` notification carrying the failed/cancelled status the workflow's
+    exception and cancel handlers emit before writing the terminal TaskRun status."""
+    if notification.get("method") != "_posthog/progress":
+        return False
+    params = notification.get("params")
+    return isinstance(params, dict) and params.get("status") == FAILED_PROGRESS_STATUS
+
+
+def _transient_growth(lines: list[str]) -> int:
+    """Count how many of `lines` are transient relay side-channel notifications (network audits,
+    credential refreshes, sandbox stdout, informational progress). A failed progress line is not
+    transient — it must count as real activity so the growth check can't discount a failure away."""
+    count = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            notification = json.loads(line).get("notification")
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(notification, dict) or notification.get("method") not in TRANSIENT_SIDE_CHANNEL_METHODS:
+            continue
+        if _is_failed_progress(notification):
+            continue
+        count += 1
+    return count
+
+
 def _ended_on_pending_finalization(full_log: str | None) -> bool:
-    """True when the log's last notification is a usage_update carrying an explicit null cost —
-    the sandbox ran turn accounting but the closing end_turn was dropped. The cost key must be
-    present and null: older usage_update lines omit it entirely and are not this fingerprint.
-    Any other trailing notification (an end_turn/result, a `_posthog/error`, a mid-turn update)
-    is decisive that this is not the dropped-finalization case, so we don't salvage and let the
-    normal completion / terminal-status drain handle it."""
+    """True when the agent's last turn-relevant notification is a usage_update carrying an explicit
+    null cost — the sandbox ran turn accounting but the closing end_turn was dropped. The cost key
+    must be present and null: older usage_update lines omit it entirely and are not this fingerprint.
+    Any other trailing turn-relevant notification (an end_turn/result, a `_posthog/error`, a mid-turn
+    update) is decisive that this is not the dropped-finalization case, so we don't salvage and let
+    the normal completion / terminal-status drain handle it.
+
+    Observability side-channels (`TRANSIENT_SIDE_CHANNEL_METHODS`) are skipped while walking back:
+    the relay appends agentsh network-audit events and credential-refresh notices to the turn log
+    asynchronously, so one routinely lands after the closing usage_update. Treating such a line as
+    the decisive tail (the prior behavior) masked the fingerprint and made the salvage decline a
+    turn that had genuinely finished — the dominant cause of scout runs hanging out to the poll
+    timeout and being marked failed. The one exception is a failed/cancelled `_posthog/progress`
+    marker: the workflow emits it on its way to a terminal status, so it stays decisive."""
     if not full_log:
         return False
     for line in reversed(full_log.strip().split("\n")):
@@ -598,6 +661,12 @@ def _ended_on_pending_finalization(full_log: str | None) -> bool:
         except json.JSONDecodeError:
             continue
         if not isinstance(notification, dict):
+            continue
+        if notification.get("method") in TRANSIENT_SIDE_CHANNEL_METHODS:
+            # A failed/cancelled progress marker is decisive — the workflow emits it on its way to a
+            # terminal status, so we must not skip it to salvage an earlier finalization fingerprint.
+            if _is_failed_progress(notification):
+                return False
             continue
         params = notification.get("params")
         update = params.get("update") if isinstance(params, dict) else None

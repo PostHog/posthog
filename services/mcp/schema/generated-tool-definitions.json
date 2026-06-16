@@ -352,7 +352,7 @@
         "feature_flag": "agent-platform-mcp"
     },
     "agent-applications-preview-proxy": {
-        "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application. See docs/agent-platform/plans/draft-preview-auth.md.",
+        "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Invoke a draft revision via the Django preview-proxy",
@@ -910,6 +910,21 @@
             "readOnlyHint": false
         }
     },
+    "apm-attribute-breakdown": {
+        "description": "Group spans by one attribute's value — the \"what is different about the bad spans?\" tool.\n\nReturns one row per distinct value of the chosen attribute, across the spans matching the filters:\n\n- `value` — the attribute's value (`''` for spans that don't carry the attribute)\n- `count` — spans with that value\n- `error_count` — of those, spans with OTel status `Error` (status_code = 2)\n- `p50_duration_nano`, `p95_duration_nano` — duration quantiles in nanoseconds\n\nRows are ordered by `count` DESC (or `error_count` DESC via `orderBy`) and capped at 5000.\n\nUse to answer:\n\n- \"Which attribute values are over-represented among the errored/slow spans?\"\n- \"Which downstream destination (`server.address`) is failing?\"\n- \"What `http.response.status_code` values are we getting back, and how often?\"\n- \"Which pod / version / region is the bad traffic concentrated on?\" (resource attributes)\n\nFor aggregates grouped by operation, use `apm-spans-aggregate`. For trends over time, use `apm-spans-sparkline`.\n\nAll parameters must be nested inside a `query` object.\n\n# \"What's different\" workflow\n\n1. Scope to the bad spans with `filterGroup` (e.g. `status_code = Error`) or `serviceNames`.\n2. Discover candidate keys with `apm-attributes-list` (don't guess — keys vary per project).\n3. Run `apm-attribute-breakdown` per candidate key. A value owning most of the `count` is your signature.\n4. To confirm over-representation, re-run without the bad-spans filter (or check `error_count / count` per row): a value at 95% of errors but 10% of all traffic is the smoking gun.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.breakdownKey (required)\n\nThe attribute key to group by (e.g. `server.address`, `http.response.status_code`, `k8s.pod.name`). Discover keys with `apm-attributes-list`.\n\n## query.breakdownType (required)\n\n- `span_attribute` — span-level attributes (e.g. `server.address`, `db.statement`)\n- `span_resource_attribute` — resource-level attributes (e.g. `k8s.pod.name`, `service.version`)\n\n## query.orderBy\n\n`count` (default) or `error_count` — rows are sorted by the chosen column, descending.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Set `compare: true` to also get the breakdown for a previous window under `compare` — useful for \"did this value's share change vs last week?\" (`compare_to: \"-7d\"`).\n\n## query.serviceNames\n\nList of service names to restrict the breakdown to. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters scoping the spans the breakdown runs over. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Which destinations do the errored spans hit?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"server.address\",\n    \"breakdownType\": \"span_attribute\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"Error\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which values drive the most errors overall?\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"http.response.status_code\",\n    \"breakdownType\": \"span_attribute\",\n    \"orderBy\": \"error_count\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Is the bad pod's share new? (compare vs last week)\n\n```json\n{\n  \"query\": {\n    \"breakdownKey\": \"k8s.pod.name\",\n    \"breakdownType\": \"span_resource_attribute\",\n    \"serviceNames\": [\"cdp-worker\"],\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n# Reminders\n\n- `value: ''` groups the spans that don't carry the attribute at all — often itself a signal.\n- Duration values are in nanoseconds (1s = 1,000,000,000).\n- Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys before guessing.\n- `error_count / count` per row is the error rate for that value — compute it when judging over-representation.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Break down spans by attribute value",
+        "title": "Break down spans by attribute value",
+        "required_scopes": ["tracing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "apm-attribute-values-list": {
         "description": "List values for a specific span or resource attribute key. Use to discover what values exist for a given attribute before building filters.",
         "category": "Tracing",
@@ -956,7 +971,7 @@
         "feature_flag": "tracing"
     },
     "apm-spans-aggregate": {
-        "description": "Aggregate trace span statistics grouped by `(service_name, name)` over a date window.\n\nReturns one row per `(service_name, name)` pair with the following metrics:\n\n- `count` — number of spans matched\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds (1 second = 1,000,000,000 ns)\n- `error_count` — spans with OTel status code `Error` (status_code = 2)\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"Which services/operations consume the most time?\"\n- \"What's the p95 latency of `GET /users`?\"\n- \"How many errors did the checkout service emit in the last day?\"\n- \"Did `POST /orders` get slower this week vs last week?\" (with `compareFilter`)\n\nFor per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length (e.g. `dateRange: -1d` → compares vs the day before).\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\nUse `query.filterGroup` to narrow results to spans matching specific attributes. Only include filters that are essential to the user's question.\n\nFilter `type` values:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes (e.g. \"http.method\", \"http.status_code\")\n- `span_resource_attribute` — resource-level attributes (e.g. k8s labels, deployment info)\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values before guessing.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Existence (no value needed): `is_set`, `is_not_set`\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`). Examples: `-1h`, `-6h`, `-1d`, `-7d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Omit when you only need the primary window.\n\n- `compare` (boolean): set to true to enable comparison.\n- `compare_to` (string, optional): relative offset for the comparison window (e.g. `-1d`, `-7d`). Defaults to the immediately previous period of equal length.\n\n## query.serviceNames\n\nList of service names to restrict the aggregation to. Use `apm-services-list` to discover available services.\n\n## query.filterGroup\n\nA flat list of property filters applied to both the primary and comparison windows. See the \"Property filters\" section.\n\n# Examples\n\n## Top operations by total time in the last hour\n\n```json\n{\n  \"query\": {}\n}\n```\n\n## p95 latency by operation in the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\nInspect the `p95_duration_nano` field on each result.\n\n## Compare this hour vs the previous hour\n\n```json\n{\n  \"query\": {\n    \"compareFilter\": { \"compare\": true }\n  }\n}\n```\n\nReturns `results` for the last hour and `compare` for the hour before. Diff `total_duration_nano`, `avg_duration_nano`, etc. to find regressions.\n\n## Compare today vs same time last week\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Aggregate only error spans\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Aggregate within one service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n# Reminders\n\n- Duration values are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attribute keys/values before filtering.\n- Use `apm-services-list` to discover services before filtering by service name.\n- For parent → child breakdowns, use `apm-spans-tree` instead.",
+        "description": "Aggregate trace span statistics grouped by `(service_name, name)` over a date window.\n\nReturns one row per `(service_name, name)` pair with the following metrics:\n\n- `count` — number of spans matched\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds (1 second = 1,000,000,000 ns)\n- `error_count` — spans with OTel status code `Error` (status_code = 2)\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"Which services/operations consume the most time?\"\n- \"What's the p95 latency of `GET /users`?\"\n- \"How many errors did the checkout service emit in the last day?\"\n- \"Did `POST /orders` get slower this week vs last week?\" (with `compareFilter`)\n\nFor per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead. For time-bucketed trends (\"when did it change?\"), use `apm-spans-sparkline` instead — `compareFilter` only contrasts two static windows.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length (e.g. `dateRange: -1d` → compares vs the day before).\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\nUse `query.filterGroup` to narrow results to spans matching specific attributes. Only include filters that are essential to the user's question.\n\nFilter `type` values:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes (e.g. \"http.method\", \"http.status_code\")\n- `span_resource_attribute` — resource-level attributes (e.g. k8s labels, deployment info)\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values before guessing.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Existence (no value needed): `is_set`, `is_not_set`\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`). Examples: `-1h`, `-6h`, `-1d`, `-7d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Omit when you only need the primary window.\n\n- `compare` (boolean): set to true to enable comparison.\n- `compare_to` (string, optional): relative offset for the comparison window (e.g. `-1d`, `-7d`). Defaults to the immediately previous period of equal length.\n\n## query.serviceNames\n\nList of service names to restrict the aggregation to. Use `apm-services-list` to discover available services.\n\n## query.filterGroup\n\nA flat list of property filters applied to both the primary and comparison windows. See the \"Property filters\" section.\n\n# Examples\n\n## Top operations by total time in the last hour\n\n```json\n{\n  \"query\": {}\n}\n```\n\n## p95 latency by operation in the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\nInspect the `p95_duration_nano` field on each result.\n\n## Compare this hour vs the previous hour\n\n```json\n{\n  \"query\": {\n    \"compareFilter\": { \"compare\": true }\n  }\n}\n```\n\nReturns `results` for the last hour and `compare` for the hour before. Diff `total_duration_nano`, `avg_duration_nano`, etc. to find regressions.\n\n## Compare today vs same time last week\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Aggregate only error spans\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Aggregate within one service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n# Reminders\n\n- Duration values are in nanoseconds. Divide by 1,000,000 for ms, 1,000,000,000 for seconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attribute keys/values before filtering.\n- Use `apm-services-list` to discover services before filtering by service name.\n- For parent → child breakdowns, use `apm-spans-tree` instead.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Aggregate span statistics",
@@ -971,7 +986,7 @@
         "feature_flag": "tracing"
     },
     "apm-spans-count": {
-        "description": "Return a scalar count of trace spans matching a filter set. Use this as a cheap pre-flight before `query-apm-spans` — if the count is large, narrow the filters (or set `excludeAttributes`) before pulling rows.\n\nAll parameters must be nested inside a `query` object.\n\n# When to use\n\n- Before `query-apm-spans`, to confirm the filter set returns a tractable number of spans rather than pulling rows blind.\n- When the user asks \"how many X spans are there?\" and you don't need to see individual spans.\n- To check whether a filter combination matches anything at all before committing to a full query.\n\nThis counts **spans**, not traces. A single trace contains many spans, so a count of matching spans will exceed the number of matching traces.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the count. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names. Unlike `query-apm-spans`, an unfiltered count is cheap and useful for sizing up a filter before narrowing. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by HTTP status codes (list of integers).\n\n## query.filterGroup\n\nProperty filters to narrow the count. Same format as `query-apm-spans` filters — each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`.\n\n# Examples\n\n## Count error spans in a service over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"statusCodes\": [500, 503],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Count how many spans match a name before fetching them\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"name\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"redis_cluster.discovery\" }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```",
+        "description": "Return a scalar count of trace spans matching a filter set. Use this as a cheap pre-flight before `query-apm-spans` — if the count is large, narrow the filters (or set `excludeAttributes`) before pulling rows.\n\nAll parameters must be nested inside a `query` object.\n\n# When to use\n\n- Before `query-apm-spans`, to confirm the filter set returns a tractable number of spans rather than pulling rows blind.\n- When the user asks \"how many X spans are there?\" and you don't need to see individual spans.\n- To check whether a filter combination matches anything at all before committing to a full query.\n\nThis counts **spans**, not traces. A single trace contains many spans, so a count of matching spans will exceed the number of matching traces.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the count. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names. Unlike `query-apm-spans`, an unfiltered count is cheap and useful for sizing up a filter before narrowing. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.filterGroup\n\nProperty filters to narrow the count. Same format as `query-apm-spans` filters — each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`.\n\n# Examples\n\n## Count error spans in a service over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"statusCodes\": [2],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Count how many spans match a name before fetching them\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"name\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"redis_cluster.discovery\" }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Count spans",
@@ -985,8 +1000,38 @@
         },
         "feature_flag": "tracing"
     },
+    "apm-spans-duration-histogram": {
+        "description": "Trace counts per logarithmic duration bucket — the latency distribution of requests.\n\nReturns one row per `(duration bucket, service)` pair:\n\n- `bucket_ns` — bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)\n- `service` — service name (top 10 services per bucket)\n- `count` — traces whose ROOT span duration falls in the bucket\n\nBuckets count **traces by their root span's duration** (the request the user experienced), never child spans. Only non-empty buckets are returned.\n\nUse to answer:\n\n- \"What does the latency distribution look like — one population or bimodal?\"\n- \"How many requests took longer than 1 second?\"\n- \"Is the long tail a handful of outliers or a real second mode?\"\n- \"Which duration range should I filter on before pulling slow traces?\"\n\nFor percentiles per operation (p50/p95), use `apm-spans-aggregate`. For counts over time, use `apm-spans-sparkline`.\n\nAll parameters must be nested inside a `query` object.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nList of service names to restrict the histogram to. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.filterGroup\n\nProperty filters applied to the matched spans. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Latency distribution for one service over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Distribution of error traces only\n\n```json\n{\n  \"query\": {\n    \"statusCodes\": [2],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n# Reminders\n\n- `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000.\n- Counts are **traces** (one per root span), so they line up with request counts — not with `apm-spans-count`, which counts every span.\n- Buckets follow the 1-2-5 series; a trace of 3.5ms lands in the 2ms bucket (bucket floor).\n- To fetch the actual slow traces after spotting a tail, use `query-apm-spans` with a `duration` filter (nanoseconds) and `orderBy: \"duration\"`.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Trace duration distribution (histogram)",
+        "title": "Trace duration distribution (histogram)",
+        "required_scopes": ["tracing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
+    "apm-spans-sparkline": {
+        "description": "Span counts over time — a zero-filled time series for trend and spike analysis.\n\nReturns one row per `(time bucket, service)` pair:\n\n- `time` — ISO 8601 bucket start (UTC)\n- `service` — service name (top 10 services per bucket)\n- `count` — spans in that bucket matching the filters\n\nBuckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~hour buckets). Quiet stretches return zero-count rows, so the series is continuous — read spike timing straight off the `time` values.\n\nUse to answer:\n\n- \"When did the error rate spike?\" (see the error-trend workflow below)\n- \"Is traffic to service X growing, flat, or bursty?\"\n- \"Did span volume change after the deploy at 14:00?\"\n- \"Which time window should I zoom into before pulling raw spans?\"\n\nFor a single aggregate number per operation, use `apm-spans-aggregate` instead. For latency distribution, use `apm-spans-duration-histogram`.\n\nAll parameters must be nested inside a `query` object.\n\n# Error-trend workflow\n\nTwo calls, then divide per bucket:\n\n1. `apm-spans-sparkline` with your filters → total counts per bucket.\n2. The same call with `statusCodes: [2]` added → error counts per bucket.\n\nError rate per bucket = errors / total. The bucket where the ratio jumps is when the spike started.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the series. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nList of service names to restrict the series to. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.filterGroup\n\nProperty filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## Span volume per service over the last 6 hours\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Error spans only, one service, last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"statusCodes\": [2],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Request (root span) volume trend\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"is_root_span\", \"operator\": \"exact\", \"type\": \"span\", \"value\": true }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n# Reminders\n\n- Counts are **spans**, not traces — filter `is_root_span = true` to count requests/traces.\n- Zero-count rows are bucket filler; read non-zero rows for activity and zero rows for gaps.\n- Only the top 10 services per bucket are returned — narrow with `serviceNames` when a busy project drowns out the service you care about.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Span counts over time (sparkline)",
+        "title": "Span counts over time (sparkline)",
+        "required_scopes": ["tracing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
     "apm-spans-tree": {
-        "description": "Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` — the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` — the child span identity\n- `count` — number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds\n- `error_count` — child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` — DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
+        "description": "Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` — the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` — the child span identity\n- `count` — number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds\n- `error_count` — child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start\n- `calls_per_parent_invocation` — how many times this child runs per parent invocation (null for root edges). A child can top `total_duration_nano` purely by fan-out volume; divide by this to compare per-call cost\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` — DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Aggregate span call tree",
@@ -1001,7 +1046,7 @@
         "feature_flag": "tracing"
     },
     "apm-trace-get": {
-        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
+        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Each span carries self_time_nano — its duration not covered by child spans — so \"where did the wall-clock go\" is answered by sorting on it: a large self_time_nano on a parent span is an uninstrumented gap, not time in any child. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Retrieve trace spans",
@@ -1892,7 +1937,7 @@
         }
     },
     "desktop-file-system-create": {
-        "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the update-instructions tool to fill it in.",
+        "description": "Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are created automatically) and `type: folder`. A blank instruction set is created for the channel automatically; use the desktop-file-system-instructions-partial-update tool to fill it in.",
         "category": "Core",
         "feature": "core",
         "summary": "Create desktop channel",
@@ -2480,7 +2525,7 @@
         }
     },
     "experiment-end": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nEnd a running experiment without shipping a variant. Sets end_date to now and transitions status to stopped. The feature flag is NOT modified — users continue seeing their assigned variants and exposure events ($feature_flag_called) continue to fire, but only data up to end_date is included in results.\n\nOptionally provide conclusion (\"won\", \"lost\", \"inconclusive\", \"stopped_early\", \"invalid\") and conclusion_comment.\n\nReturns 400 if the experiment is in draft (\"Experiment has not been launched yet.\") or already stopped (\"Experiment has already ended.\").\n\nOther options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate the flag without ending.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "End experiment",
@@ -2704,7 +2749,7 @@
         }
     },
     "experiment-update": {
-        "description": "RULES (follow before calling):\n1. If changing rollout or variants on a RUNNING\n   experiment, you MUST warn the user about user\n   experience AND statistical implications BEFORE\n   making the change and get explicit confirmation.\n   Load the configuring-experiment-rollout skill for\n   the full warning. Do NOT silently apply the change\n   — even if the user asked directly.\n\n2. If the user mentions a percentage, clarify whether\n   they mean variant split or overall rollout BEFORE\n   calling.\n\n3. If adding or changing metrics, load the\n   configuring-experiment-analytics skill first. Call\n   read-data-schema to discover available events BEFORE\n   suggesting or using any event name. Never suggest\n   event names you haven't confirmed exist.\n\n4. For running experiments, set\n   update_feature_flag_params=true when changing\n   parameters — without it, changes save but do NOT\n   sync to the feature flag.\n\n5. Setting allow_unknown_events=true REQUIRES EXPLICIT\n   USER CONFIRMATION. When the API returns\n   \"Event(s) '...' not found\", do NOT silently retry\n   with allow_unknown_events=true. Default to\n   course-correcting: surface the missing event names\n   and ask whether the user meant a different (existing)\n   event. Only set allow_unknown_events=true when the\n   user explicitly confirms the event is intentional\n   (e.g. about to be instrumented). Course-correcting\n   to a known event is the expected default; flipping\n   the flag is the exception.\n\n\nUpdate an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Metrics can be changed at any time including while running. Cannot add/remove variants on non-draft experiments (changing percentages between existing variants is allowed). Cannot change holdout on non-draft experiments.\n\nDo NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or ship_variant tools instead.",
+        "description": "RULES (follow before calling):\n1. If changing rollout or variants on a RUNNING\n   experiment, you MUST warn the user about user\n   experience AND statistical implications BEFORE\n   making the change and get explicit confirmation.\n   Load the configuring-experiment-rollout skill for\n   the full warning. Do NOT silently apply the change\n   — even if the user asked directly.\n\n2. If the user mentions a percentage, clarify whether\n   they mean variant split or overall rollout BEFORE\n   calling.\n\n3. If adding or changing metrics, load the\n   configuring-experiment-analytics skill first. Call\n   read-data-schema to discover available events BEFORE\n   suggesting or using any event name. Never suggest\n   event names you haven't confirmed exist.\n\n4. For running experiments, set\n   update_feature_flag_params=true when changing\n   parameters — without it, changes save but do NOT\n   sync to the feature flag.\n\n5. Setting allow_unknown_events=true REQUIRES EXPLICIT\n   USER CONFIRMATION. When the API returns\n   \"Event(s) '...' not found\", do NOT silently retry\n   with allow_unknown_events=true. Default to\n   course-correcting: surface the missing event names\n   and ask whether the user meant a different (existing)\n   event. Only set allow_unknown_events=true when the\n   user explicitly confirms the event is intentional\n   (e.g. about to be instrumented). Course-correcting\n   to a known event is the expected default; flipping\n   the flag is the exception.\n\n\nUpdate an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Metrics can be changed at any time including while running. Cannot add/remove variants on non-draft experiments (changing percentages between existing variants is allowed). Cannot change holdout on non-draft experiments.\n\nDo NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or experiment-ship-variant tools instead.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Update experiment",
@@ -3442,7 +3487,7 @@
         "feature_flag": "heatmaps-mcp"
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -4310,146 +4355,6 @@
             "readOnlyHint": false
         }
     },
-    "llma-skill-archive": {
-        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Archive skill",
-        "title": "Archive skill",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-skill-create": {
-        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Create skill",
-        "title": "Create skill",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-skill-duplicate": {
-        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Duplicate skill",
-        "title": "Duplicate skill",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-skill-file-create": {
-        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use llma-skill-update with files to replace, or llma-skill-file-delete followed by llma-skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Create skill file",
-        "title": "Create skill file",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-skill-file-delete": {
-        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete skill file",
-        "title": "Delete skill file",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-skill-file-get": {
-        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from llma-skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get skill file",
-        "title": "Get skill file",
-        "required_scopes": ["llm_skill:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-skill-file-rename": {
-        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Rename skill file",
-        "title": "Rename skill file",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get skill",
-        "title": "Get skill",
-        "required_scopes": ["llm_skill:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-skill-list": {
-        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List skills",
-        "title": "List skills",
-        "required_scopes": ["llm_skill:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "llma-skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nllma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update skill",
-        "title": "Update skill",
-        "required_scopes": ["llm_skill:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "llma-summarization-create": {
         "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.",
         "category": "AI observability",
@@ -5270,7 +5175,7 @@
         }
     },
     "query-apm-spans": {
-        "description": "Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, is_root_span, matched_filter, and attributes (the span-level OTel attribute map, e.g. db.statement, http.url).\n\nUse 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.\n\n# Return shape\n\nResults are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:\n\n- `matched_filter` — `1` if **this span** satisfies your `filterGroup`/`serviceNames`/`statusCodes`, `0` if it's only included because it shares a trace with a match (e.g. a prefetched sibling or the trace's root). When you filter by a child span's name, the matching child has `matched_filter: 1` and its root/siblings have `matched_filter: 0`.\n- `is_root_span` — `true` for the trace's entry span.\n\nTo collapse each matching trace to a **single row — its root span**, set `rootSpans: true` — see below. (The row is the trace's entry span, which may itself carry `matched_filter: 0` when the match was on a child.) To inspect a single trace's full tree, take a `trace_id` from the results and call `apm-trace-get`.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Span property types are:\n  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).\n  - `span_attribute` — filters span-level attributes (e.g. \"http.method\", \"http.status_code\").\n  - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `apm-attributes-list` to discover available attribute keys** before building filters.\n- **Use `apm-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.serviceNames\n\nFilter by service names. Use `apm-services-list` to discover available services.\n\n## query.statusCodes\n\nFilter by HTTP status codes (list of integers).\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.traceId\n\nFilter to a specific trace ID (hex string). Use this when you already know the trace ID.\n\n## query.rootSpans\n\nSet `true` to return **only root spans** — one entry span per matching trace, which collapses each trace to a single row. Useful for \"list the traces matching X\" without sifting through `matched_filter`. Leave unset (or `false`) to get all spans of matching traces, where you read `matched_filter` to find the ones that matched. The frontend leaves this unset.\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.prefetchSpans\n\nNumber of spans to return per matching trace (1-100), root span first. Useful to preview trace structure without a separate `apm-trace-get`. With the default (1) you get one span per trace (the root); raise it to also pull the matching children and their siblings (check `matched_filter` to tell them apart). Ignored when `rootSpans: true`, which always returns just the root.\n\n## query.excludeAttributes\n\nSet `true` to drop the per-span `attributes` map from results (the map stays present but empty). The attribute map holds multi-KB values like `db.statement`, so excluding it keeps large result sets compact — set it when you only need span structure/timing (`name`, `service_name`, `duration_nano`, `parent_span_id`) and not the OTel attributes. Defaults to false.\n\n# Examples\n\n## List recent error spans\n\n```json\n{\n  \"query\": {\n    \"statusCodes\": [500, 503]\n  }\n}\n```\n\n## Search spans from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a span attribute\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"http.method\", \"operator\": \"exact\", \"type\": \"span_attribute\", \"value\": \"POST\" }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Find slow spans\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"duration\", \"operator\": \"gt\", \"type\": \"span\", \"value\": \"1000000000\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine service and attribute filters\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"web-server\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"gt\", \"type\": \"span_attribute\", \"value\": \"399\" }],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Check if a resource attribute exists\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"k8s.pod.name\", \"operator\": \"is_set\", \"type\": \"span_resource_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Use `apm-services-list` to discover available services before filtering by service name.\n- Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).",
+        "description": "Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, is_root_span, matched_filter, and attributes (the span-level OTel attribute map, e.g. db.statement, http.url).\n\nUse 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.\n\n# Return shape\n\nResults are **grouped by trace**, not a flat list of matching spans. For each trace that contains at least one span matching your filters, the response includes spans from that trace (up to `prefetchSpans` per trace, root span first). Two fields tell you which spans actually matched:\n\n- `matched_filter` — `1` if **this span** satisfies your `filterGroup`/`serviceNames`/`statusCodes`, `0` if it's only included because it shares a trace with a match (e.g. a prefetched sibling or the trace's root). When you filter by a child span's name, the matching child has `matched_filter: 1` and its root/siblings have `matched_filter: 0`.\n- `is_root_span` — `true` for the trace's entry span.\n\nTo collapse each matching trace to a **single row — its root span**, set `rootSpans: true` — see below. (The row is the trace's entry span, which may itself carry `matched_filter: 0` when the match was on a child.) To inspect a single trace's full tree, take a `trace_id` from the results and call `apm-trace-get`.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Span property types are:\n  - `span` — filters built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span).\n  - `span_attribute` — filters span-level attributes (e.g. \"http.method\", \"http.status_code\").\n  - `span_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `apm-attributes-list` to discover available attribute keys** before building filters.\n- **Use `apm-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.serviceNames\n\nFilter by service names. Use `apm-services-list` to discover available services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.traceId\n\nFilter to a specific trace ID (hex string). Use this when you already know the trace ID.\n\n## query.rootSpans\n\nSet `true` to return **only root spans** — one entry span per matching trace, which collapses each trace to a single row. Useful for \"list the traces matching X\" without sifting through `matched_filter`. Leave unset (or `false`) to get all spans of matching traces, where you read `matched_filter` to find the ones that matched. The frontend leaves this unset.\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.prefetchSpans\n\nNumber of spans to return per matching trace (1-100), root span first. Useful to preview trace structure without a separate `apm-trace-get`. With the default (1) you get one span per trace (the root); raise it to also pull the matching children and their siblings (check `matched_filter` to tell them apart). Ignored when `rootSpans: true`, which always returns just the root.\n\n## query.excludeAttributes\n\nSet `true` to drop the per-span `attributes` map from results (the map stays present but empty). The attribute map holds multi-KB values like `db.statement`, so excluding it keeps large result sets compact — set it when you only need span structure/timing (`name`, `service_name`, `duration_nano`, `parent_span_id`) and not the OTel attributes. Defaults to false.\n\n# Examples\n\n## List recent error spans\n\n```json\n{\n  \"query\": {\n    \"statusCodes\": [2]\n  }\n}\n```\n\n## Search spans from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a span attribute\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"http.method\", \"operator\": \"exact\", \"type\": \"span_attribute\", \"value\": \"POST\" }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Find slow spans\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"duration\", \"operator\": \"gt\", \"type\": \"span\", \"value\": \"1000000000\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine service and attribute filters\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"web-server\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"gt\", \"type\": \"span_attribute\", \"value\": \"399\" }],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Check if a resource attribute exists\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"k8s.pod.name\", \"operator\": \"is_set\", \"type\": \"span_resource_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `apm-attributes-list` and `apm-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Use `apm-services-list` to discover available services before filtering by service name.\n- Duration values are in nanoseconds (1 second = 1,000,000,000 nanoseconds).",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Query tracing spans",
@@ -5805,7 +5710,7 @@
         }
     },
     "signals-scout-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get the project profile",
@@ -5900,6 +5805,146 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "skill-archive": {
+        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use skill-get first if you need to inspect the skill before archiving it.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Archive skill",
+        "title": "Archive skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-create": {
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill",
+        "title": "Create skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-duplicate": {
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Duplicate skill",
+        "title": "Duplicate skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-create": {
+        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill file",
+        "title": "Create skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-delete": {
+        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Delete skill file",
+        "title": "Delete skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-get": {
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill file",
+        "title": "Get skill file",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-file-rename": {
+        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Rename skill file",
+        "title": "Rename skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-get": {
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill",
+        "title": "Get skill",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-list": {
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "List skills",
+        "title": "List skills",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-update": {
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Update skill",
+        "title": "Update skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "sql-variables-create": {
@@ -7213,7 +7258,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
+        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",

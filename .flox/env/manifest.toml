@@ -154,7 +154,7 @@ fish = '''
   set -gx GOCACHE "$FLOX_ENV_CACHE/go-build"
   set -gx GOMODCACHE "$GOPATH/pkg/mod"
   # Ensure flox binaries (especially Node.js) take precedence over system binaries
-  fish_add_path "$FLOX_ENV/bin"
+  fish_add_path -g "$FLOX_ENV/bin"
   # Recreate venv if it was deleted (on-activate only runs on first activation)
   if not test -f "$UV_PROJECT_ENVIRONMENT/bin/activate.fish"
     uv sync

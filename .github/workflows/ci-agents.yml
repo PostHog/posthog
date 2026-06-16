@@ -49,10 +49,13 @@ jobs:
                   filters: |
                       agents:
                         - .github/workflows/ci-agents.yml
+                        - 'products/agent_platform/services/**'
+                        - 'products/agent_platform/packages/**'
+                        # Transitional: in-flight branches still have these at the
+                        # old paths. Drop once they've rebased onto the move.
                         - 'services/agent-ingress/**'
                         - 'services/agent-runner/**'
                         - 'services/agent-janitor/**'
-                        - 'services/agent-migrations/**'
                         - 'services/agent-shared/**'
                         - 'services/agent-tools/**'
                         - 'services/agent-tests/**'
@@ -79,7 +82,6 @@ jobs:
                     - '@posthog/agent-janitor'
                     - '@posthog/agent-tools'
                     - '@posthog/agent-tests'
-                    - '@posthog/agent-migrations'
                     - '@posthog/agent-sandbox-host'
                     - '@posthog/agents-image'
                     - '@posthog/agent-chat'
@@ -144,7 +146,6 @@ jobs:
                     - '@posthog/agent-runner'
                     - '@posthog/agent-janitor'
                     - '@posthog/agent-tools'
-                    - '@posthog/agent-migrations'
                     - '@posthog/agent-sandbox-host'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

@@ -115,7 +115,7 @@ capabilities:
         docker_profiles: []
 
     agent_runtime:
-        description: 'Agent platform runtime (services/agent-{core,ingress,runner,janitor})'
+        description: 'Agent platform runtime (products/agent_platform/services/agent-{ingress,runner,janitor})'
         requires: [core_infra]
         docker_profiles: []
 

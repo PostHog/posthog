@@ -46,6 +46,10 @@ jobs:
                   filters: |
                       console:
                         - .github/workflows/ci-agent-console.yml
+                        - 'products/agent_platform/services/agent-console/**'
+                        - 'products/agent_platform/packages/agent-chat/**'
+                        # Transitional: in-flight branches still have these at the
+                        # old paths. Drop once they've rebased onto the move.
                         - 'services/agent-console/**'
                         - 'packages/agent-chat/**'
                         - 'packages/quill/**'
