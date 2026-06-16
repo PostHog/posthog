@@ -24,7 +24,7 @@ canonical query recipes live in the shared MCP data reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 That reference is the single source of truth for the `$mcp_*` schema and the
 effective-tool-name idiom used below — this skill inlines only the headline
-"highest-error tool" query for convenience; pull the matrix, latency, and
+"which tool errors most" query for convenience; pull the matrix, latency, and
 harness recipes from the reference rather than re-deriving them. Read it before
 writing queries.
 
@@ -45,8 +45,8 @@ Always set a time range — these queries scan `events` otherwise.
 
 ## Workflow: which tool has the highest error rate
 
-This is the canonical "highest-error tool" question. Rank tools by error rate,
-but guard against tiny-sample noise with a `HAVING` floor on call volume:
+This is the canonical "which tool errors most" question. Rank tools by error
+rate, but guard against small-sample noise with a `HAVING` floor on call volume:
 
 ```sql
 posthog:execute-sql
@@ -109,7 +109,7 @@ Always surface a UI link so the user can verify visually.
 ## Tips
 
 - Report error rate **and** call volume together; a `HAVING total_calls >= N`
-  floor keeps tiny-sample tools from topping the list spuriously
+  floor stops tools with very few calls from topping the list spuriously
 - Exclude errored calls from latency percentiles only when asked — failed calls
   are often the slow ones, and dropping them hides the problem
 - `$mcp_client_name` lets you cut quality by harness (Claude Code vs Cursor vs

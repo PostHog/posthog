@@ -2,7 +2,7 @@
 name: exploring-mcp-intent-clusters
 description: >
   Explore PostHog MCP intent clusters — agent goals grouped by semantic
-  similarity, with per-cluster tool distribution and error rates. Use when the
+  similarity, with each cluster's tool distribution and error rates. Use when the
   user asks "what are agents trying to do with the MCP?", "group the intents",
   "which goals fail most?", "what does each cluster route to?", wants to
   recompute the clustering, or pastes an MCP analytics intent-clustering URL.
@@ -13,7 +13,7 @@ description: >
 Intent clustering takes the free-text `$mcp_intent` values agents attach to
 their tool calls, embeds them, and groups semantically similar goals into
 clusters. Each cluster carries its tool distribution, call counts, and error
-rates — answering "what are people *trying* to do, and does it work?" rather
+rates — answering "what are people _trying_ to do, and does it work?" rather
 than "which tool was called".
 
 Unlike tool quality and sessions (which are plain HogQL over `mcp_tool_call`),
@@ -22,10 +22,10 @@ two typed tools backed by a stored snapshot.
 
 ## Tools
 
-| Tool                                            | Purpose                                                        |
-| ----------------------------------------------- | -------------------------------------------------------------- |
-| `posthog:mcp-analytics-intent-clusters-retrieve`  | Fetch the latest cluster snapshot for the project            |
-| `posthog:mcp-analytics-intent-clusters-recompute` | Trigger an async recompute of the snapshot                   |
+| Tool                                              | Purpose                                           |
+| ------------------------------------------------- | ------------------------------------------------- |
+| `posthog:mcp-analytics-intent-clusters-retrieve`  | Fetch the latest cluster snapshot for the project |
+| `posthog:mcp-analytics-intent-clusters-recompute` | Trigger an async recompute of the snapshot        |
 
 ## Workflow: read the current clusters
 

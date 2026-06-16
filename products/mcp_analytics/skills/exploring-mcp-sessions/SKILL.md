@@ -17,15 +17,15 @@ a session's tool calls are both plain HogQL over `events`; the full property
 schema and recipes are in the shared reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 
-The one thing SQL cannot do is summarise the agent's *goal* in prose — that is
+The one thing SQL cannot do is summarise the agent's _goal_ in prose — that is
 the typed tool `posthog:mcp-analytics-sessions-generate-intent`.
 
 ## Tools
 
-| Tool                                          | Purpose                                                           |
-| --------------------------------------------- | ----------------------------------------------------------------- |
-| `posthog:execute-sql`                         | List sessions and read a session's tool-call sequence (HogQL)     |
-| `posthog:mcp-analytics-sessions-generate-intent` | Generate (or fetch cached) LLM summary of a session's goal     |
+| Tool                                             | Purpose                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| `posthog:execute-sql`                            | List sessions and read a session's tool-call sequence (HogQL) |
+| `posthog:mcp-analytics-sessions-generate-intent` | Generate (or fetch cached) LLM summary of a session's goal    |
 
 ## Workflow: list recent sessions
 
@@ -77,7 +77,7 @@ resolve to the real tool. Read these top to bottom to reconstruct the run.
 
 ## Workflow: summarise the agent's goal
 
-When the user wants the *intent* of a session in prose (not the raw tool list),
+When the user wants the _intent_ of a session in prose (not the raw tool list),
 call the typed tool — the first call summarises the recorded `$mcp_intent`
 values via an LLM and persists the result; later calls return the cached summary:
 
