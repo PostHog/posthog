@@ -177,21 +177,6 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
-def _is_recovery_conflict_error(error: BaseException) -> bool:
-    """True if `error` is a Postgres standby recovery conflict.
-
-    A read replica cancels an in-flight query when WAL replay needs to remove row
-    versions the query might still read ("canceling statement due to conflict with
-    recovery", SQLSTATE 40001 -> psycopg SerializationFailure). It's transient and
-    expected on replicas — the row-streaming reader already retries it in-process and
-    `get_non_retryable_errors` deliberately keeps the raw message retryable — so
-    best-effort probes should degrade quietly rather than alert on a handled condition.
-    """
-    return isinstance(error, psycopg.errors.SerializationFailure) and "conflict with recovery" in " ".join(
-        str(arg) for arg in error.args
-    )
-
-
 def _connect_with_dropped_retry(
     connect: Callable[[], psycopg.Connection],
     logger: FilteringBoundLogger,
@@ -1539,21 +1524,21 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
         return None
     except Exception as e:
-        # Partition sizing is best-effort: on failure we return None and the sync proceeds
-        # unpartitioned. Two handled conditions must not flood error tracking:
-        #   - A read replica can cancel this sizing query with a recovery conflict
-        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
-        #     replicas, and the row-streaming reader retries it in-process.
-        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
-        #     partition detection) can hit that transient condition and leave the transaction in
-        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
-        #     downstream symptom.
-        # Both resurface (and are classified through the normal retryable/non-retryable path) via
-        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
-        # captured.
-        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
-            capture_exception(e)
-        logger.debug(f"_get_partition_settings: returning None due to error: {e}")
+        # Partition sizing is a best-effort optimization: returning None just falls back to
+        # default partition settings and the sync proceeds. This query shares its FROM with the
+        # real extraction query, so any genuine problem (missing table, permissions, upstream
+        # extension state, read-replica recovery conflict, or an earlier best-effort query in this
+        # same transaction having left it `InFailedSqlTransaction`) resurfaces there and is
+        # classified through the normal retryable/non-retryable path. Capturing it here too only
+        # floods error tracking with handled duplicates of user/upstream conditions we already
+        # tolerate, so log at debug and fall back — mirroring `_get_rows_to_sync`.
+        logger.debug(f"_get_partition_settings: returning None due to error: {e}", exc_info=e)
+
+        if "temporary file size exceeds temp_file_limit" in str(e):
+            raise TemporaryFileSizeExceedsLimitException(
+                f"Error: {e}. Please ensure your incremental field has an appropriate index created"
+            )
+
         return None
 
     result = cursor.fetchone()
