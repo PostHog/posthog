@@ -501,16 +501,12 @@ class ExperimentService:
     def _resolved_variant_keys(cls, experiment: Experiment, update_data: dict) -> list[str]:
         """Variant keys the experiment will have after this update.
 
-        Prefer the variants the PATCH sets; otherwise fall back to the experiment's
-        current variants (its parameters first, then the linked flag's multivariate set).
+        Prefer the variants the PATCH sets; otherwise resolve from the linked flag,
+        which is the source of truth for variants.
         """
         update_variants = (update_data.get("parameters") or {}).get("feature_flag_variants")
         if update_variants is None:
-            update_variants = (experiment.parameters or {}).get("feature_flag_variants") or (
-                experiment.feature_flag.filters.get("multivariate", {}).get("variants", [])
-                if experiment.feature_flag
-                else []
-            )
+            update_variants = experiment.feature_flag.variants if experiment.feature_flag else []
         return cls._variant_keys(update_variants)
 
     @staticmethod
@@ -2163,14 +2159,20 @@ class ExperimentService:
 
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Reuse variants from an existing flag in the target project.
+        # Variants come from the source experiment's feature flag (the source of truth),
+        # not the stale copy denormalized into parameters.
+        source_variants = source_experiment.feature_flag.variants
+        if source_variants:
+            parameters["feature_flag_variants"] = deepcopy(source_variants)
+
+        # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
         # clones we only check when the key differs from the source flag.
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
-            if existing_flag and existing_flag.filters.get("multivariate", {}).get("variants"):
-                parameters["feature_flag_variants"] = deepcopy(existing_flag.filters["multivariate"]["variants"])
+            if existing_flag and existing_flag.variants:
+                parameters["feature_flag_variants"] = deepcopy(existing_flag.variants)
 
         self.validate_experiment_parameters(parameters)
         self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
