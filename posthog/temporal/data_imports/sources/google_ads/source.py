@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -12,6 +13,7 @@ from posthog.schema import (
     SuggestedTable,
 )
 
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
@@ -135,6 +137,8 @@ class GoogleAdsSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["adwords"],
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
             releaseStatus=ReleaseStatus.GA,
@@ -263,6 +267,11 @@ class GoogleAdsSource(
                     f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
                 )
             return True, None
+        except Integration.DoesNotExist:
+            return (
+                False,
+                "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",
+            )
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:

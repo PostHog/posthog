@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -46,6 +47,7 @@ class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyR
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SURVEY_MONKEY,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SurveyMonkey",
             caption="""Enter a SurveyMonkey access token to pull your surveys, responses, and collectors into the PostHog Data warehouse.
 
