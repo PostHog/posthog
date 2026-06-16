@@ -297,6 +297,39 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             4,
         ]
 
+    def test_activity_log_nested_detail_property_resolves_to_nested_chain(self):
+        # `detail` is a nested object on `$activity_log_entry_created`, so a `detail.name` filter
+        # must match against `properties.detail.name`, not a flat `properties["detail.name"]` key.
+        filters = {
+            "events": [{"id": "$activity_log_entry_created", "type": "events", "order": 0}],
+            "properties": [{"key": "detail.name", "value": "cheese", "operator": "icontains", "type": "event"}],
+        }
+        bytecode = self.filters_to_bytecode(filters=filters)
+
+        globals_with_match = {
+            "event": "$activity_log_entry_created",
+            "properties": {"scope": "Experiment", "activity": "created", "detail": {"name": "cheese wheel"}},
+        }
+        assert execute_bytecode(bytecode, globals_with_match).result is True
+
+        globals_without_match = {
+            "event": "$activity_log_entry_created",
+            "properties": {"scope": "Experiment", "activity": "created", "detail": {"name": "bananas"}},
+        }
+        assert execute_bytecode(bytecode, globals_without_match).result is False
+
+    def test_dotted_event_property_unchanged_for_regular_events(self):
+        # Outside internal events, a dotted key stays a single flat property lookup so existing
+        # destinations keep matching properties whose names literally contain a dot.
+        filters = {
+            "events": [{"id": "$pageview", "type": "events", "order": 0}],
+            "properties": [{"key": "foo.bar", "value": "baz", "operator": "exact", "type": "event"}],
+        }
+        bytecode = self.filters_to_bytecode(filters=filters)
+
+        assert execute_bytecode(bytecode, {"event": "$pageview", "properties": {"foo.bar": "baz"}}).result is True
+        assert execute_bytecode(bytecode, {"event": "$pageview", "properties": {"foo": {"bar": "baz"}}}).result is False
+
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_build_behavioral_event_expr_supported_with_event_filters(self):

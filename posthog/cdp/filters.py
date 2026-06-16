@@ -6,7 +6,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.models.team.team import Team
 
@@ -14,6 +14,39 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
+
+# Internal events (e.g. activity logs) carry real nested JSON objects in their properties — such as
+# `detail` on `$activity_log_entry_created`, which the activity log filter UI exposes as `detail.name`
+# and `detail.changes`. Unlike analytics events (whose properties are a flat map), these need dotted
+# keys resolved into nested field chains so the HogVM matches against the nested object.
+INTERNAL_NESTED_PROPERTY_EVENTS = frozenset({"$activity_log_entry_created"})
+
+
+class _NestedPropertyKeyResolver(CloningVisitor):
+    """Resolve dotted event-property keys into nested field chains.
+
+    A property key like `detail.name` is otherwise compiled into a single flat lookup
+    (`properties["detail.name"]`) that never matches the nested global. Splitting it into the
+    chain `properties.detail.name` lets it resolve against the nested object at runtime.
+    Only `properties.*` chains are touched, so person/group property filters are left as-is.
+    """
+
+    def visit_field(self, node: ast.Field) -> ast.Field:
+        field = super().visit_field(node)
+        if not field.chain or field.chain[0] != "properties":
+            return field
+        resolved: list[str | int] = [field.chain[0]]
+        for element in field.chain[1:]:
+            if isinstance(element, str) and "." in element:
+                resolved.extend(element.split("."))
+            else:
+                resolved.append(element)
+        field.chain = resolved
+        return field
+
+
+def _targets_internal_nested_event(filters: dict) -> bool:
+    return any(event.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS for event in filters.get("events", []))
 
 
 class CohortInlineError(Exception):
@@ -219,6 +252,13 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
     # Build expressions for each event/action filter
     event_action_exprs = [_build_single_filter_expr(filter, actions, team) for filter in all_filters]
+
+    # Resolve dotted property keys (e.g. `detail.name`) into nested chains for internal events
+    # whose properties are nested JSON objects rather than a flat map.
+    if _targets_internal_nested_event(filters):
+        resolver = _NestedPropertyKeyResolver()
+        global_property_filters = [resolver.visit(expr) for expr in global_property_filters]
+        event_action_exprs = [resolver.visit(expr) for expr in event_action_exprs]
 
     # Combine event/action filters with OR (match any of these events/actions)
     combined_events_expr = ast.Or(exprs=event_action_exprs) if len(event_action_exprs) > 1 else event_action_exprs[0]
