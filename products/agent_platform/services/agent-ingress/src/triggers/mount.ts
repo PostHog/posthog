@@ -15,7 +15,15 @@ import { asyncHandler } from '../routing/http-utils'
 import { ResolvedAgent } from '../routing/resolver'
 import { hasTrigger, resolveAgent } from './resolve'
 import { verifySlackSignature } from './slack-signature'
-import type { RouteCtx, TriggerDeps, TriggerModule, TriggerRoute, TriggerType } from './types'
+import type {
+    AuthedRouteCtx,
+    CustomAuthRouteCtx,
+    RouteCtx,
+    TriggerDeps,
+    TriggerModule,
+    TriggerRoute,
+    TriggerType,
+} from './types'
 
 /** Build an Express router that mounts every route of a module behind its guard. */
 export function mountTrigger(deps: TriggerDeps, module: TriggerModule): Router {
@@ -52,12 +60,16 @@ async function runGuardedRoute(
         }
         return
     }
-    const base: RouteCtx = { req, res, deps, resolved }
+    const base: RouteCtx = { req, res, deps, resolved, parsed: undefined }
 
+    // Resolve the auth-specific context (or respond + return on failure). The
+    // body/query parse happens after this, so a malformed payload never short-
+    // circuits the auth gate.
+    let ctx: RouteCtx | AuthedRouteCtx | CustomAuthRouteCtx
     switch (route.auth) {
         case 'public': {
-            await route.handler(base)
-            return
+            ctx = base
+            break
         }
         case 'slack_signing': {
             if (!hasTrigger(resolved, type)) {
@@ -76,8 +88,8 @@ async function runGuardedRoute(
                 res.status(401).json({ error: 'invalid_signature' })
                 return
             }
-            await route.handler(base)
-            return
+            ctx = base
+            break
         }
         case 'custom': {
             const authConfig = authConfigFor(resolved, type)
@@ -85,13 +97,13 @@ async function runGuardedRoute(
                 res.status(404).json({ error: `no_${type}_trigger` })
                 return
             }
-            await route.handler({
+            ctx = {
                 ...base,
                 authConfig,
                 authorize: () =>
                     authorize(req, resolved.application, authConfig, deps.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER),
-            })
-            return
+            }
+            break
         }
         case 'agent_spec': {
             const authConfig = authConfigFor(resolved, type)
@@ -109,8 +121,22 @@ async function runGuardedRoute(
                 res.status(auth.status).json({ error: auth.reason })
                 return
             }
-            await route.handler({ ...base, authConfig, principal: auth.principal, credentials: auth.credentials })
-            return
+            ctx = { ...base, authConfig, principal: auth.principal, credentials: auth.credentials }
+            break
         }
     }
+
+    // Validate the declared payload schema (body for POST, query for GET) and
+    // hand the handler a typed `ctx.parsed`. Centralized here so no handler can
+    // skip validation or drift from its declared schema.
+    if (route.schema) {
+        const source = route.method === 'GET' ? req.query : req.body
+        const result = route.schema.safeParse(source)
+        if (!result.success) {
+            res.status(400).json({ error: 'invalid_body', issues: result.error.issues })
+            return
+        }
+        ctx.parsed = result.data
+    }
+    await route.handler(ctx as never)
 }
