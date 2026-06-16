@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class OracleFusionSource(SimpleSource[OracleFusionSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ORACLE_FUSION,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
+            keywords=["oracle erp", "fusion"],
             label="Oracle Fusion",
             iconPath="/static/services/oracle.png",
             fields=cast(list[FieldType], []),

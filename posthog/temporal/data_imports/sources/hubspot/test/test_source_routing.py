@@ -235,3 +235,21 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
     assert any(pattern in error_msg for pattern in patterns), (
         f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
     )
+
+
+@pytest.mark.parametrize(
+    "error_msg",
+    [
+        # Raised by fetch_data when a token refresh succeeds but the retried request is still rejected
+        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
+        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
+        "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
+    ],
+)
+def test_unauthorized_error_is_non_retryable(error_msg: str) -> None:
+    """A 401/403 from the HubSpot API means the credentials/OAuth grant can't access the data —
+    retrying can't recover, so it must match a non-retryable pattern."""
+    patterns = HubspotSource().get_non_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
+    )

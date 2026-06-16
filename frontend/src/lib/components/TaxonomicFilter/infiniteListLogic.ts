@@ -33,6 +33,7 @@ import {
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
+    partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -738,7 +739,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = searchQuery.trim()
                     const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
-                    return hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
+                    return hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                 }
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
                 const realMatches = promoteMatchingProperties(results, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
@@ -898,7 +899,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // stale match from the previous query producing a shortcut for the new one.
                     const remoteIsFresh = (remoteItems.searchQuery ?? '').trim() === trimmed
                     const hasMatch = trimmed.length > 0 && remoteIsFresh && remoteItems.results.length > 0
-                    const results = hasMatch ? [buildUrlContainsShortcut(trimmed)] : []
+                    const results = hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                     return {
                         results,
                         count: results.length,
@@ -928,8 +929,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     ...remoteItems.results,
                     ...topMatches,
                 ]
+                const orderedBase = searchQuery
+                    ? promoteMatchingProperties(combinedResults, searchQuery)
+                    : combinedResults
+                // The "URL contains <query>" shortcut leads the aggregated SuggestedFilters list —
+                // ahead of recents/pinned/top-matches — so a URL search surfaces the contains
+                // suggestion first. Everything else keeps its existing order.
+                const [shortcutItems, otherItems] = partitionContainsShortcuts(orderedBase, (item) => item)
+                const orderedResults = shortcutItems.length ? [...shortcutItems, ...otherItems] : orderedBase
                 return {
-                    results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
+                    results: orderedResults,
                     count:
                         keywordShortcutItems.length +
                         recentPrefix.length +
