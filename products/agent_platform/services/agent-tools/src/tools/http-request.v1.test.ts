@@ -243,6 +243,17 @@ describe('@posthog/http-request', () => {
             await expect(httpRequestV1.run({ url: 'not a url' }, makeCtx({ http }))).rejects.toThrow(/invalid_url/)
         })
 
+        it('rejects non-http(s) schemes before fetching', async () => {
+            const fetch = vi.fn(async () => {
+                throw new Error('should not be called')
+            })
+            const http = { fetch } as unknown as HttpFetcher
+            await expect(httpRequestV1.run({ url: 'file:///etc/passwd' }, makeCtx({ http }))).rejects.toThrow(
+                /unsupported_url_scheme/
+            )
+            expect(fetch).not.toHaveBeenCalled()
+        })
+
         it('surfaces fetch failures as http_request_failed', async () => {
             const http: HttpFetcher = {
                 fetch: vi.fn(async () => {

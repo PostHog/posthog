@@ -28,6 +28,8 @@
 
 import { defineNativeTool, type ToolContext, Type } from '@posthog/agent-shared'
 
+import { parseFetchableUrl } from './http-url'
+
 const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
 
 /**
@@ -162,13 +164,10 @@ export const httpRequestV1 = defineNativeTool({
         const maxBytes = args.max_response_bytes ?? DEFAULT_MAX_RESPONSE_BYTES
         const timeoutMs = args.timeout_ms ?? DEFAULT_TIMEOUT_MS
 
-        // Sanity check the URL parses; the runtime fetch would throw anyway,
-        // but a clear error here helps the model retry.
-        try {
-            new URL(url)
-        } catch {
-            throw new Error(`invalid_url: ${url}`)
-        }
+        // Validate the URL parses and uses an http/https scheme. SSRF host
+        // filtering is smokescreen's job; this guards the scheme so a model
+        // can't point the tool at file://, gopher://, etc.
+        parseFetchableUrl(url)
 
         const controller = new AbortController()
         const abortTimer = setTimeout(() => controller.abort(), timeoutMs)
