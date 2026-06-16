@@ -24,11 +24,11 @@ _REDIS_GLOB_METACHARS = re.compile(r"([\\*?\[\]])")
 
 
 # Mirrors the cache key built by _UserCostThrottleBase._get_cache_key in
-# rate_limiting/cost_throttles.py (with the outer "ratelimit:" added by
-# redis_limiter). Update both ends if the key shape changes.
+# rate_limiting/cost_throttles.py (with the outer "costlimit:" added by
+# CostRateLimiter). Update both ends if the key shape changes.
 def _patterns_for(user_id: str | None) -> tuple[str, ...]:
     if user_id is None:
-        return tuple(f"ratelimit:cost:user:{scope}:{POSTHOG_CODE_PRODUCT}:*" for scope in SCOPES)
+        return tuple(f"costlimit:cost:user:{scope}:{POSTHOG_CODE_PRODUCT}:*" for scope in SCOPES)
     # Escape glob metachars so a user_id like "10*" cannot expand the SCAN
     # match and delete unrelated users' counters.
     safe_id = _REDIS_GLOB_METACHARS.sub(r"\\\1", user_id)
@@ -36,7 +36,7 @@ def _patterns_for(user_id: str | None) -> tuple[str, ...]:
     # variants. The trailing ':' prevents user "100" from matching user "1000".
     patterns: list[str] = []
     for scope in SCOPES:
-        base = f"ratelimit:cost:user:{scope}:{POSTHOG_CODE_PRODUCT}:{safe_id}"
+        base = f"costlimit:cost:user:{scope}:{POSTHOG_CODE_PRODUCT}:{safe_id}"
         patterns.append(base)
         patterns.append(f"{base}:*")
     return tuple(patterns)

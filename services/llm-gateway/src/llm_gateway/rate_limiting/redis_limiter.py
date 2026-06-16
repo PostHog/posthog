@@ -12,6 +12,25 @@ logger = structlog.get_logger(__name__)
 
 IN_MEMORY_LIMIT_DIVIDER = 10  # When Redis unavailable, use limit / 10
 
+# Cost accumulates as integer micro-USD (1e-6 USD): a cluster-wide INCRBY is
+# exact where repeated float addition drifts. Six decimals match the ai-gateway
+# ledger's numeric(20, 6) scale; the public surface stays float USD.
+MICRO_USD = 1_000_000
+
+
+def _usd_to_micro(usd: float) -> int:
+    """Scale a USD amount to integer micro-USD, rounding to the nearest
+    micro-USD. A positive charge below half a micro-USD rounds up to 1 so a
+    stream of sub-micro charges accumulates instead of vanishing to zero."""
+    micro = round(usd * MICRO_USD)
+    if micro == 0 and usd > 0:
+        return 1
+    return micro
+
+
+def _micro_to_usd(micro: int) -> float:
+    return micro / MICRO_USD
+
 
 class RateLimiter:
     """
@@ -184,40 +203,54 @@ class TokenRateLimiter:
 
 
 class CostAccumulator:
-    """In-memory cost accumulator with TTL-based expiration for fallback rate limiting."""
+    """In-memory cost accumulator with TTL-based expiration for fallback rate
+    limiting. Cost is held as integer micro-USD to match the Redis path; the
+    public surface still accepts and returns float USD."""
 
     def __init__(self, limit: float, window_seconds: int):
-        self._buckets: dict[str, tuple[float, float]] = {}  # key -> (cost, start_time)
-        self._limit = limit
+        self._buckets: dict[str, tuple[int, float]] = {}  # key -> (micro_usd, start_time)
+        self._limit_micro = round(limit * MICRO_USD)
         self._window = window_seconds
 
-    def _get_bucket(self, key: str) -> tuple[float, float]:
+    def _get_bucket(self, key: str) -> tuple[int, float]:
         """Get or create bucket, expiring old ones."""
         now = time.monotonic()
         if key in self._buckets:
-            cost, start_time = self._buckets[key]
+            micro, start_time = self._buckets[key]
             if now - start_time < self._window:
-                return cost, start_time
-        self._buckets[key] = (0.0, now)
-        return 0.0, now
+                return micro, start_time
+        self._buckets[key] = (0, now)
+        return 0, now
 
     def get_current(self, key: str) -> float:
-        cost, _ = self._get_bucket(key)
-        return cost
+        micro, _ = self._get_bucket(key)
+        return _micro_to_usd(micro)
 
     def incr(self, key: str, cost: float) -> bool:
         current, start_time = self._get_bucket(key)
-        new_val = current + cost
+        new_val = current + _usd_to_micro(cost)
         self._buckets[key] = (new_val, start_time)
-        return new_val <= self._limit
+        return new_val <= self._limit_micro
 
 
 class CostRateLimiter:
     """
     Redis-backed cost rate limiter with local fallback.
 
-    Uses Redis for cluster-wide cost limits with float values.
-    Falls back to in-memory with limit / IN_MEMORY_LIMIT_DIVIDER.
+    Cost accumulates in Redis as integer micro-USD via incrby, so the
+    cluster-wide counter is exact instead of drifting through repeated float
+    addition. The public surface is float USD; scaling to and from micro-USD
+    happens only at the Redis boundary. Falls back to in-memory with
+    limit / IN_MEMORY_LIMIT_DIVIDER.
+
+    Cost keys live under the ``costlimit:`` prefix, separate from the
+    ``ratelimit:`` token/request counters, so the integer INCRBY never lands
+    on a key still holding a float string from the previous format.
+
+    DEPLOY NOTE: the ``costlimit:`` prefix is a one-time cutover from the old
+    ``ratelimit:cost:*`` float keys (which integer INCRBY can't read). In-flight
+    windows reset to zero once on the deploy that introduces it. Rollback is safe:
+    old code reads the old prefix, so it resumes from a clean window.
     """
 
     def __init__(
@@ -228,21 +261,29 @@ class CostRateLimiter:
     ):
         self.redis = redis
         self.limit = limit
+        self._limit_micro = round(limit * MICRO_USD)
         self.window = window_seconds
         self._fallback_limit = limit / IN_MEMORY_LIMIT_DIVIDER
         self._fallback = CostAccumulator(self._fallback_limit, window_seconds)
 
+    def at_or_over_limit(self, current_usd: float) -> bool:
+        """Decide the threshold in integer micro-USD so it matches the stored
+        counter exactly; a descaled-float compare can disagree by one micro at
+        the edge for a non-exact-micro limit."""
+        return _usd_to_micro(current_usd) >= self._limit_micro
+
     async def get_current(self, key: str) -> float:
-        """Get current accumulated cost for a key."""
+        """Get current accumulated cost for a key, in USD."""
         if self.redis is None:
             return self._fallback.get_current(key)
 
         try:
-            redis_key = f"ratelimit:{key}"
+            redis_key = f"costlimit:{key}"
             current = await self.redis.get(redis_key)
-            return float(current or 0)
+            return _micro_to_usd(int(current or 0))
         except Exception:
             logger.exception("redis_get_current_failed", key=key)
+            REDIS_FALLBACK.inc()
             return self._fallback.get_current(key)
 
     async def incr(self, key: str, cost: float) -> bool:
@@ -250,21 +291,20 @@ class CostRateLimiter:
         if self.redis is None:
             return self._fallback.incr(key, cost)
 
+        charge = _usd_to_micro(cost)
         try:
-            redis_key = f"ratelimit:{key}"
-            script = """
-            local current = redis.call('GET', KEYS[1])
-            local new_val = tonumber(current or 0) + tonumber(ARGV[1])
-            local ttl = redis.call('TTL', KEYS[1])
-            if ttl < 0 then
-                redis.call('SET', KEYS[1], new_val, 'EX', ARGV[2])
-            else
-                redis.call('SET', KEYS[1], new_val, 'KEEPTTL')
-            end
-            return new_val
-            """
-            new_val = await self.redis.eval(script, 1, redis_key, str(cost), self.window)
-            return float(new_val) <= self.limit
+            redis_key = f"costlimit:{key}"
+            # Seed the TTL and increment atomically: SET NX EX stamps the window
+            # expiry only on the first charge (fixed window, never extended), and
+            # pairing it with INCRBY means a charge can't strand a key with no
+            # TTL. The short-window token limiters above tolerate that gap; a
+            # 30-day cost window does not.
+            async with self.redis.pipeline(transaction=True) as pipe:
+                pipe.set(redis_key, 0, ex=self.window, nx=True)
+                pipe.incrby(redis_key, charge)
+                results = await pipe.execute()
+            new_val = int(results[-1])
+            return new_val <= self._limit_micro
         except Exception:
             logger.exception("redis_cost_incr_failed", key=key)
             REDIS_FALLBACK.inc()
@@ -276,10 +316,12 @@ class CostRateLimiter:
             return self.window
 
         try:
-            redis_key = f"ratelimit:{key}"
+            redis_key = f"costlimit:{key}"
             ttl = await self.redis.ttl(redis_key)
             if ttl < 0:
                 return self.window
             return ttl
         except Exception:
+            logger.exception("redis_get_ttl_failed", key=key)
+            REDIS_FALLBACK.inc()
             return self.window

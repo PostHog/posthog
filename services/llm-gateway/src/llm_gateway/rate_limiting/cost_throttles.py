@@ -92,7 +92,7 @@ class CostThrottle(Throttle):
             ttl_seconds=ttl,
             remaining=limit - current,
         )
-        if current >= limit:
+        if limiter.at_or_over_limit(current):
             retry_after = await limiter.get_ttl(key)
             logger.error(
                 "cost_throttle_exceeded",
@@ -154,7 +154,7 @@ class CostThrottle(Throttle):
             limit_usd=limit,
             remaining_usd=remaining,
             resets_in_seconds=ttl,
-            exceeded=current >= limit,
+            exceeded=limiter.at_or_over_limit(current),
         )
 
 
@@ -214,7 +214,7 @@ class ProductCostThrottle(CostThrottle):
             limit_usd=limit,
             remaining_usd=max(0.0, limit - current),
             resets_in_seconds=ttl,
-            exceeded=current >= limit,
+            exceeded=limiter.at_or_over_limit(current),
         )
 
 

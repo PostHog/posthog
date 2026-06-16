@@ -587,7 +587,9 @@ class TestRetryAfterHeader:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         mock_redis = MagicMock()
-        mock_redis.get = AsyncMock(return_value=b"1000.0")
+        # $1000 of accumulated cost, stored as integer micro-USD, exceeds the
+        # burst limit so the request is denied and surfaces the TTL.
+        mock_redis.get = AsyncMock(return_value=b"1000000000")
         mock_redis.ttl = AsyncMock(return_value=600)
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
@@ -637,23 +639,22 @@ class TestCostAccumulation:
 
 class TestCostRateLimiterRedisIntegration:
     @pytest.mark.asyncio
-    async def test_redis_incr_called_with_correct_args(self) -> None:
-        from unittest.mock import AsyncMock, MagicMock
+    async def test_record_cost_stores_integer_micro_under_costlimit_key(self) -> None:
+        from fakeredis import aioredis as fakeredis
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
-        mock_redis = MagicMock()
-        mock_redis.eval = AsyncMock(return_value=0.5)
-        mock_redis.get = AsyncMock(return_value=b"0.0")
-
-        throttle = UserCostBurstThrottle(redis=mock_redis)
+        fake = fakeredis.FakeRedis()
+        throttle = UserCostBurstThrottle(redis=fake)
         context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 0.5)
 
-        mock_redis.eval.assert_called_once()
-        call_args = mock_redis.eval.call_args
-        assert "ratelimit:cost:user:user_cost_burst:posthog_code:1" in call_args[0]
+        # $0.50 -> 500000 micro-USD, stored as an exact integer under the
+        # costlimit: prefix, with the window TTL stamped on the first charge.
+        key = "costlimit:cost:user:user_cost_burst:posthog_code:1"
+        assert await fake.get(key) == b"500000"
+        assert await fake.ttl(key) > 0
 
     @pytest.mark.asyncio
     async def test_redis_get_current_returns_accumulated_cost(self) -> None:
@@ -662,7 +663,8 @@ class TestCostRateLimiterRedisIntegration:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         mock_redis = MagicMock()
-        mock_redis.get = AsyncMock(return_value=b"1.5")
+        # Redis holds integer micro-USD; get_current descales back to USD.
+        mock_redis.get = AsyncMock(return_value=b"1500000")
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
         context = make_context(product="posthog_code")
@@ -681,7 +683,9 @@ class TestCostRateLimiterRedisIntegration:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         mock_redis = MagicMock()
-        mock_redis.get = AsyncMock(return_value=b"1000.0")
+        # $1000 of accumulated cost, stored as integer micro-USD, exceeds the
+        # burst limit so the request is denied.
+        mock_redis.get = AsyncMock(return_value=b"1000000000")
         mock_redis.ttl = AsyncMock(return_value=1800)
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
@@ -695,21 +699,196 @@ class TestCostRateLimiterRedisIntegration:
 
     @pytest.mark.asyncio
     async def test_falls_back_to_local_on_redis_error(self) -> None:
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         mock_redis = MagicMock()
-        mock_redis.eval = AsyncMock(side_effect=Exception("Redis error"))
+        # incr accumulates through a transaction pipeline; a Redis outage makes
+        # pipeline()/get raise, and both must degrade to the in-memory fallback.
+        mock_redis.pipeline = MagicMock(side_effect=Exception("Redis error"))
         mock_redis.get = AsyncMock(side_effect=Exception("Redis error"))
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
         context = make_context(product="posthog_code")
 
-        await throttle.record_cost(context, 0.1)
+        with patch("llm_gateway.rate_limiting.redis_limiter.REDIS_FALLBACK") as metric:
+            await throttle.record_cost(context, 0.1)
+        # The charge must actually land in the in-memory fallback, not silently
+        # vanish: the fallback path ran (metric fired) and the accumulator holds it.
+        metric.inc.assert_called()
+        limiter = throttle._get_limiter(context)
+        assert limiter._fallback.get_current(throttle._get_cache_key(context)) == 0.1
 
         result = await throttle.allow_request(context)
         assert result.allowed is True
+
+
+class TestCostRateLimiterRedisExecution:
+    """Exercises the real Redis cost path against fakeredis so the integer
+    storage contract and the limit boundary are pinned, not just call args."""
+
+    @pytest.fixture
+    def fake_redis(self):
+        from fakeredis import aioredis as fakeredis
+
+        return fakeredis.FakeRedis()
+
+    @pytest.mark.asyncio
+    async def test_incr_stores_exact_integer_micro_usd(self, fake_redis) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
+
+        limiter = CostRateLimiter(redis=fake_redis, limit=10.0, window_seconds=60)
+
+        # 0.1 summed ten times is 0.9999999999999999 in float; the stored
+        # counter must be an exact integer micro-USD total.
+        for _ in range(10):
+            await limiter.incr("k", 0.1)
+
+        assert await fake_redis.get("costlimit:k") == b"1000000"
+        assert await limiter.get_current("k") == 1.0
+        # First charge set the window TTL; later charges don't extend it.
+        assert 0 < await fake_redis.ttl("costlimit:k") <= 60
+
+    @pytest.mark.asyncio
+    async def test_incr_allow_then_deny_at_limit_boundary(self, fake_redis) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
+
+        # limit = 3 micro-USD; charge 1 micro-USD each time so the boundary is
+        # exercised exactly on the Redis path (not the in-memory fallback).
+        limiter = CostRateLimiter(redis=fake_redis, limit=0.000003, window_seconds=60)
+
+        assert await limiter.incr("k", 0.000001) is True  # 1 <= 3
+        assert await limiter.incr("k", 0.000001) is True  # 2 <= 3
+        assert await limiter.incr("k", 0.000001) is True  # 3 <= 3
+        assert await limiter.incr("k", 0.000001) is False  # 4 > 3
+
+    @pytest.mark.asyncio
+    async def test_incr_on_legacy_float_value_falls_back(self, fake_redis) -> None:
+        from unittest.mock import patch
+
+        from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
+
+        # The costlimit: prefix is meant to keep the integer incrby off old float
+        # strings, but if one ever existed under the key the incrby raises; we
+        # must degrade to the in-memory accumulator, never 500.
+        await fake_redis.set("costlimit:k", "1.5")
+        limiter = CostRateLimiter(redis=fake_redis, limit=10.0, window_seconds=60)
+
+        with patch("llm_gateway.rate_limiting.redis_limiter.REDIS_FALLBACK") as metric:
+            result = await limiter.incr("k", 0.5)  # incrby on "1.5" raises
+
+        assert isinstance(result, bool)
+        metric.inc.assert_called_once()  # the fallback path was actually taken
+
+    @pytest.mark.asyncio
+    async def test_window_ttl_not_extended_by_later_charges(self, fake_redis) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
+
+        limiter = CostRateLimiter(redis=fake_redis, limit=10.0, window_seconds=60)
+
+        await limiter.incr("k", 0.1)
+        # Simulate the window partway elapsed, then charge again: a fixed window
+        # must run from the first charge, so a later charge must not push the TTL
+        # back toward the full 60s.
+        await fake_redis.expire("costlimit:k", 5)
+        await limiter.incr("k", 0.1)
+
+        assert await fake_redis.ttl("costlimit:k") <= 5
+
+    @pytest.mark.asyncio
+    async def test_read_failure_increments_fallback_metric(self, fake_redis) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter
+
+        limiter = CostRateLimiter(redis=fake_redis, limit=10.0, window_seconds=60)
+
+        with patch.object(fake_redis, "get", AsyncMock(side_effect=Exception("boom"))):
+            with patch("llm_gateway.rate_limiting.redis_limiter.REDIS_FALLBACK") as metric:
+                await limiter.get_current("k")
+            metric.inc.assert_called_once()
+
+        with patch.object(fake_redis, "ttl", AsyncMock(side_effect=Exception("boom"))):
+            with patch("llm_gateway.rate_limiting.redis_limiter.REDIS_FALLBACK") as metric:
+                await limiter.get_ttl("k")
+            metric.inc.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_allow_request_denies_at_micro_boundary_through_throttle(self) -> None:
+        from fakeredis import aioredis as fakeredis
+
+        from llm_gateway.rate_limiting.cost_throttles import CostThrottle
+
+        class _BoundaryThrottle(CostThrottle):
+            scope = "test_boundary"
+
+            def _get_cache_key(self, context):
+                return "boundary"
+
+            def _get_limit_and_window(self, context):
+                return 100 / 3, 60  # 33.333... USD, not an exact micro-USD multiple
+
+            def _get_limit_exceeded_detail(self):
+                return "over"
+
+        fake = fakeredis.FakeRedis()
+        throttle = _BoundaryThrottle(redis=fake)
+        context = make_context(product="posthog_code")
+        limiter = throttle._get_limiter(context)
+
+        # Seed the counter to exactly the integer-micro boundary. Its descaled
+        # float (33.333333) is < 100/3, so a float `current >= limit` gate would
+        # ADMIT here; the integer at_or_over_limit gate must DENY. This pins the
+        # wiring in allow_request, not just the method in isolation.
+        await fake.set("costlimit:boundary", str(limiter._limit_micro))
+
+        result = await throttle.allow_request(context)
+        assert result.allowed is False
+        # get_status decides exceeded with the same integer gate; pin that site
+        # too (it reverts to the float compare independently of allow_request).
+        status = await throttle.get_status(context)
+        assert status.exceeded is True
+
+    @pytest.mark.asyncio
+    async def test_get_status_for_product_exceeded_at_micro_boundary(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from fakeredis import aioredis as fakeredis
+
+        from llm_gateway.rate_limiting.cost_throttles import ProductCostThrottle
+        from llm_gateway.rate_limiting.redis_limiter import _usd_to_micro
+
+        # A fractional product limit (100/3 USD) so the integer gate and the old
+        # float `current >= limit` diverge at the boundary.
+        monkeypatch.setenv(
+            "LLM_GATEWAY_PRODUCT_COST_LIMITS",
+            '{"boundaryprod": {"limit_usd": 33.333333333333336, "window_seconds": 60}}',
+        )
+        get_settings.cache_clear()
+
+        fake = fakeredis.FakeRedis()
+        throttle = ProductCostThrottle(redis=fake)
+        # Seed the product counter to exactly the integer-micro boundary. Its
+        # descaled float is < the fractional limit, so a float `current >= limit`
+        # gate would report exceeded=False; the integer gate must report True.
+        await fake.set("costlimit:cost:product:boundaryprod", str(_usd_to_micro(33.333333333333336)))
+
+        status = await throttle.get_status_for_product("boundaryprod")
+
+        assert status is not None
+        assert status.exceeded is True  # fails if the site reverts to current >= limit
+        get_settings.cache_clear()
+
+    def test_at_or_over_limit_decides_in_micro_not_float(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostRateLimiter, _micro_to_usd
+
+        # A limit that isn't an exact micro-USD multiple: 100/3 USD.
+        limiter = CostRateLimiter(redis=None, limit=100 / 3, window_seconds=60)
+        at_boundary = _micro_to_usd(limiter._limit_micro)
+
+        # The integer-space decision treats the stored boundary as at-limit,
+        # where the old descaled-float comparison would have admitted it.
+        assert limiter.at_or_over_limit(at_boundary) is True
+        assert (at_boundary >= 100 / 3) is False
 
 
 class TestRateLimitMultiplier:
@@ -1334,3 +1513,42 @@ class TestCostAccumulatorTTL:
 
         assert accumulator.get_current("user1") == 5.0
         assert accumulator.get_current("user2") == 3.0
+
+    def test_many_small_costs_accumulate_without_float_drift(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostAccumulator
+
+        accumulator = CostAccumulator(limit=10.0, window_seconds=60)
+
+        # 0.1 summed ten times is 0.9999999999999999 in float; integer
+        # micro-USD accumulation keeps the running total exactly 1.0.
+        for _ in range(10):
+            accumulator.incr("user1", 0.1)
+        assert accumulator.get_current("user1") == 1.0
+
+    def test_sub_micro_cost_still_counts(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import CostAccumulator
+
+        accumulator = CostAccumulator(limit=10.0, window_seconds=60)
+
+        # A positive charge below half a micro-USD rounds up to one micro-USD
+        # so a stream of tiny charges accumulates instead of vanishing.
+        accumulator.incr("user1", 0.0000001)
+        assert accumulator.get_current("user1") == pytest.approx(0.000001)
+
+
+class TestMicroUsdScaling:
+    def test_round_trips_usd_to_micro_and_back(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import _micro_to_usd, _usd_to_micro
+
+        assert _usd_to_micro(1.5) == 1_500_000
+        assert _micro_to_usd(1_500_000) == 1.5
+
+    def test_positive_sub_micro_bumps_to_one(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import _usd_to_micro
+
+        assert _usd_to_micro(0.0000001) == 1
+
+    def test_zero_stays_zero(self) -> None:
+        from llm_gateway.rate_limiting.redis_limiter import _usd_to_micro
+
+        assert _usd_to_micro(0.0) == 0
