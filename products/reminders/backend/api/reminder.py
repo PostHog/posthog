@@ -23,11 +23,14 @@ from products.reminders.backend.scheduling import compute_next_fire_at, exceeds_
 
 class ReminderSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    organization = serializers.PrimaryKeyRelatedField(
+    # User-scoped endpoint: the user picks the org/team from their own memberships and
+    # _validate_membership enforces access — there is no single org/team in request context
+    # for the scoped PK fields to derive from, so suppress the IDOR scoping rule here.
+    organization = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Organization.objects.all(),
         help_text="ID of the organization this reminder belongs to. You must be a member of it.",
     )
-    team = serializers.PrimaryKeyRelatedField(
+    team = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Team.objects.all(),
         required=False,
         allow_null=True,
