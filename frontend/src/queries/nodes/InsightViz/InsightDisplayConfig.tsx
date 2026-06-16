@@ -120,6 +120,7 @@ export function InsightDisplayConfig(): JSX.Element {
     // alert/annotation overlays, statistical analysis).
     const isSlopeGraph = display === ChartDisplayType.SlopeGraph
 
+    const funnelsCompareEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]
     const showCompare =
         (isTrends &&
             display !== ChartDisplayType.ActionsAreaGraph &&
@@ -127,7 +128,8 @@ export function InsightDisplayConfig(): JSX.Element {
             display !== ChartDisplayType.BoxPlot &&
             !isSlopeGraph) ||
         isStickiness ||
-        isWebAnalyticsInsightQuery(querySource)
+        isWebAnalyticsInsightQuery(querySource) ||
+        (funnelsCompareEnabled && isTrendsFunnel)
     const showInterval =
         isTrendsFunnel ||
         isLifecycle ||

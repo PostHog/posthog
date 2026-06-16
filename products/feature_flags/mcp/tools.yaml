@@ -64,6 +64,12 @@ tools:
             id:
                 cast: string-int
         soft_delete: true
+    environments-evaluation-context-suggestions-create:
+        operation: environments_evaluation_context_suggestions_create
+        enabled: false
+    environments-evaluation-context-suggestions-destroy:
+        operation: environments_evaluation_context_suggestions_destroy
+        enabled: false
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
@@ -311,6 +317,12 @@ tools:
         enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
+        enabled: false
+    organizations-projects-evaluation-context-suggestions-create:
+        operation: organizations_projects_evaluation_context_suggestions_create
+        enabled: false
+    organizations-projects-evaluation-context-suggestions-destroy:
+        operation: organizations_projects_evaluation_context_suggestions_destroy
         enabled: false
     scheduled-changes-create:
         operation: scheduled_changes_create
