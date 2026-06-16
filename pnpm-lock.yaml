@@ -565,9 +565,6 @@ importers:
       '@mathjax/src':
         specifier: ^4.1.2
         version: 4.1.2
-      '@medv/finder':
-        specifier: ^4.0.2
-        version: 4.0.2
       '@memlab/lens':
         specifier: 2.0.0
         version: 2.0.0
@@ -7804,9 +7801,6 @@ packages:
     peerDependencies:
       '@types/react': 18.3.27
       react: 18.3.1
-
-  '@medv/finder@4.0.2':
-    resolution: {integrity: sha512-RraNY9SCcx4KZV0Dh6BEW6XEW2swkqYca74pkFFRw6hHItSHiy+O/xMnpbofjYbzXj0tSpBGthUF1hHTsr3vIQ==}
 
   '@memlab/lens@2.0.0':
     resolution: {integrity: sha512-2aoX/v0PI0qgW65+ZnhbWimFFSGDRTm8p8qQ04zNDTrqtlOWUuugT2yu3XeExVSLhLlrMcqL0PsuZ/SbOcbggw==}
@@ -26863,8 +26857,6 @@ snapshots:
       '@types/mdx': 2.0.6
       '@types/react': 18.3.27
       react: 18.3.1
-
-  '@medv/finder@4.0.2': {}
 
   '@memlab/lens@2.0.0': {}
 

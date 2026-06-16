@@ -1,5 +1,9 @@
+import { useActions } from 'kea'
+
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+
+import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
 import { QuerySchema } from '~/queries/schema/schema-general'
 import { ExporterFormat, InsightLogicProps } from '~/types'
@@ -14,6 +18,7 @@ interface WebAnalyticsExportProps {
 
 export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportProps): JSX.Element | null {
     const adapter = useWebTileExportAdapter(query, insightProps)
+    const { exportTriggered } = useActions(shareNudgeLogic)
 
     if (!adapter) {
         return null
@@ -22,6 +27,7 @@ export function WebAnalyticsExport({ query, insightProps }: WebAnalyticsExportPr
     const handleCopy = (format: ExporterFormat): void => {
         const tableData = adapter.toTableData()
         exportTableData(tableData, format)
+        exportTriggered()
     }
 
     return (
