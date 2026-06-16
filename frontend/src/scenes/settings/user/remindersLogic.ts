@@ -26,7 +26,7 @@ export interface ReminderFormValues {
     scheduleType: ReminderScheduleType
     scheduled_at: string | null
     recurrence_interval: RecurrenceIntervalEnumApi | null
-    cron_expression: string | null
+    cron_expression: string
     timezone: string
     end_date: string | null
 }
@@ -84,7 +84,7 @@ export const remindersLogic = kea<remindersLogicType>([
                 scheduleType: 'one-off',
                 scheduled_at: null,
                 recurrence_interval: null,
-                cron_expression: null,
+                cron_expression: '',
                 timezone: values.timezone || 'UTC',
                 end_date: null,
             } as ReminderFormValues,
@@ -170,7 +170,7 @@ export const remindersLogic = kea<remindersLogicType>([
                 scheduleType: reminder ? scheduleTypeForReminder(reminder) : 'one-off',
                 scheduled_at: reminder?.scheduled_at ?? null,
                 recurrence_interval: (reminder?.recurrence_interval as RecurrenceIntervalEnumApi) || null,
-                cron_expression: reminder?.cron_expression ?? null,
+                cron_expression: reminder?.cron_expression ?? '',
                 timezone: reminder?.timezone || values.timezone || 'UTC',
                 end_date: reminder?.end_date ?? null,
             })
