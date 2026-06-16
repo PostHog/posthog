@@ -42,7 +42,6 @@ export function AccountsTabFilters(): JSX.Element {
         <div className="flex flex-col gap-2">
             <div className="flex flex-wrap gap-2 items-center justify-between">
                 <div className="flex flex-wrap gap-2 items-center">
-                    <AccountsViewSelector />
                     <LemonInput
                         type="search"
                         placeholder="Search by name or ID..."
@@ -52,6 +51,7 @@ export function AccountsTabFilters(): JSX.Element {
                         className="min-w-64"
                         data-attr="accounts-search"
                     />
+                    <AccountsViewSelector />
                 </div>
                 <LemonButton
                     type="secondary"
