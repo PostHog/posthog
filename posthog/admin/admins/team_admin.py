@@ -6,6 +6,7 @@ import asyncio
 import tempfile
 import dataclasses
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from urllib import parse
 
 from django.conf import settings
@@ -32,6 +33,7 @@ from posthog.admin.inlines.team_experiments_config_inline import TeamExperiments
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
+from posthog.llm.gateway_internal_client import LLMGatewayInternalError, LLMGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.remote_config import RemoteConfig
@@ -117,6 +119,7 @@ class TeamAdmin(admin.ModelAdmin):
         "api_token_display",
         "admit_state",
         "ai_gateway_actions",
+        "ai_gateway_wallet",
         "policy_cache_blob",
     ]
 
@@ -244,6 +247,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "llm_gateway_revoked_at",
                     "admit_state",
                     "ai_gateway_actions",
+                    "ai_gateway_wallet",
                     "policy_cache_blob",
                 ],
                 "description": mark_safe(
@@ -454,6 +458,66 @@ class TeamAdmin(admin.ModelAdmin):
         self._refresh_ai_gateway_policy_cache(team)
         return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
+    def add_ai_gateway_credit_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        credit_url = reverse("admin:posthog_team_add_ai_gateway_credit", args=[object_id])
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Add LLM gateway credit - {team.name}",
+                # Tie idempotency to the rendered form so a double-submit replays
+                # the same key and the gateway dedupes the top-up.
+                "idempotency_key": str(uuid.uuid4()),
+            }
+            return render(request, "admin/posthog/team/add_ai_gateway_credit_form.html", context)
+
+        amount_raw = request.POST.get("amount_usd", "").strip()
+        reason = request.POST.get("reason", "").strip()
+        idempotency_key = request.POST.get("idempotency_key", "").strip() or str(uuid.uuid4())
+
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(credit_url)
+        try:
+            amount = Decimal(amount_raw)
+        except InvalidOperation:
+            messages.error(request, "Amount must be a valid decimal")
+            return redirect(credit_url)
+        if amount <= 0:
+            messages.error(request, "Amount must be positive")
+            return redirect(credit_url)
+
+        try:
+            result = add_credit(team.id, str(amount), reason, idempotency_key)
+        except LLMGatewayInternalError as exc:
+            messages.error(request, f"Failed to add credit: {exc}")
+            return redirect(credit_url)
+
+        logger.info(
+            "admin_add_ai_gateway_credit",
+            team_id=team.id,
+            amount_usd=str(amount),
+            entry_id=result.entry_id,
+            duplicate=result.duplicate,
+            triggered_by=request.user.email,
+        )
+        if result.duplicate:
+            messages.info(
+                request,
+                f"Idempotent replay — no new credit. Team '{team.name}' balance: ${result.balance_usd}.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Added ${result.amount_usd} to team '{team.name}'. New balance: ${result.balance_usd}.",
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
     @admin.display(description="Actions")
     def ai_gateway_actions(self, team: Team):
         if not team.pk:
@@ -489,6 +553,27 @@ class TeamAdmin(admin.ModelAdmin):
                 team.llm_gateway_enabled_at.isoformat(),
             )
         return format_html("<em>Not enrolled</em>")
+
+    @admin.display(description="Wallet (LLM gateway credits)")
+    def ai_gateway_wallet(self, team: Team):
+        if not team.pk:
+            return "-"
+        try:
+            wallet = get_wallet(team.id)
+        except LLMGatewayNotConfigured:
+            return format_html("<em>(ai-gateway internal API not configured in this region)</em>")
+        except LLMGatewayInternalError as exc:
+            return format_html("<em>(wallet unavailable: {})</em>", str(exc))
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/ai_gateway_wallet.html",
+                {
+                    "wallet": wallet,
+                    "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+                },
+            )
+        )
 
     @admin.display(description="Policy cache blob (what the gateway sees)")
     def policy_cache_blob(self, team: Team):
@@ -581,6 +666,11 @@ class TeamAdmin(admin.ModelAdmin):
                 "<path:object_id>/clear-ai-gateway-revoke/",
                 self.admin_site.admin_view(self.clear_ai_gateway_revoke_view),
                 name="posthog_team_clear_ai_gateway_revoke",
+            ),
+            path(
+                "<path:object_id>/add-ai-gateway-credit/",
+                self.admin_site.admin_view(self.add_ai_gateway_credit_view),
+                name="posthog_team_add_ai_gateway_credit",
             ),
         ]
         return custom_urls + urls

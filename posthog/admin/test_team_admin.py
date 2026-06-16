@@ -12,6 +12,13 @@ from django.test import RequestFactory
 from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.llm.gateway_internal_client import (
+    CreditResult,
+    LedgerEntry,
+    LLMGatewayInternalError,
+    LLMGatewayNotConfigured,
+    Wallet,
+)
 from posthog.models.team.team import Team
 
 
@@ -309,3 +316,121 @@ class TestTeamAdminLLMGateway(BaseTest):
             rendered = str(self.admin.policy_cache_blob(self.team))
         assert "<script>" not in rendered
         assert "&lt;script&gt;" in rendered
+
+
+class TestTeamAdminAIGatewayWallet(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = TeamAdmin(Team, AdminSite())
+        self.credit_url = f"/admin/posthog/team/{self.team.pk}/add-ai-gateway-credit/"
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
+
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: (
+                self.team_change_url if name == "admin:posthog_team_change" else self.credit_url
+            ),
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+    def _post(self, data: dict):
+        request = self.factory.post("/", data)
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def test_wallet_field_not_configured_degrades_gracefully(self) -> None:
+        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=LLMGatewayNotConfigured()):
+            rendered = str(self.admin.ai_gateway_wallet(self.team))
+        assert "not configured" in rendered
+
+    def test_wallet_field_unavailable_degrades_gracefully(self) -> None:
+        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=LLMGatewayInternalError("boom")):
+            rendered = str(self.admin.ai_gateway_wallet(self.team))
+        assert "wallet unavailable" in rendered
+        assert "boom" in rendered
+
+    def test_wallet_field_renders_balance(self) -> None:
+        wallet = Wallet(
+            team_id=self.team.id,
+            known=True,
+            has_ledger=True,
+            balance="9.500000",
+            recent=[LedgerEntry("2026-06-01", "topup", "funding", "prepaid", "10.000000", "ref-1")],
+        )
+        with patch("posthog.admin.admins.team_admin.get_wallet", return_value=wallet):
+            rendered = str(self.admin.ai_gateway_wallet(self.team))
+        assert "9.500000" in rendered
+        assert "Add credit" in rendered
+
+    def test_add_credit_get_renders_form_with_idempotency_key(self) -> None:
+        request = self.factory.get("/")
+        request.user = self.user
+        _attach_messages(request)
+        with patch("posthog.admin.admins.team_admin.render") as mock_render:
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        template = mock_render.call_args.args[1]
+        context = mock_render.call_args.args[2]
+        assert template == "admin/posthog/team/add_ai_gateway_credit_form.html"
+        assert context["idempotency_key"]
+
+    def test_add_credit_post_valid_calls_client_and_redirects_to_change(self) -> None:
+        request = self._post({"amount_usd": "25.00", "reason": "topup", "idempotency_key": "key-1"})
+        result = CreditResult(
+            team_id=self.team.id, entry_id="e1", amount_usd="25.000000", balance_usd="35.000000", duplicate=False
+        )
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result) as mock_add:
+            response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+        assert mock_add.call_args.args == (self.team.id, "25.00", "topup", "key-1")
+
+    def test_add_credit_post_generates_key_when_absent(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "topup"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=False)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result) as mock_add:
+            self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert mock_add.call_args.args[3]  # idempotency key was generated
+
+    @parameterized.expand(
+        [
+            ("invalid_amount", {"amount_usd": "abc", "reason": "x"}),
+            ("zero_amount", {"amount_usd": "0", "reason": "x"}),
+            ("negative_amount", {"amount_usd": "-5", "reason": "x"}),
+            ("missing_reason", {"amount_usd": "5", "reason": "  "}),
+        ]
+    )
+    def test_add_credit_post_rejected_inputs_redirect_to_form_without_calling_client(
+        self, _name: str, data: dict
+    ) -> None:
+        request = self._post(data)
+        with patch("posthog.admin.admins.team_admin.add_credit") as mock_add:
+            response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.credit_url
+        mock_add.assert_not_called()
+
+    def test_add_credit_post_gateway_error_shows_message_and_redirects_to_form(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "x"})
+        with patch("posthog.admin.admins.team_admin.add_credit", side_effect=LLMGatewayInternalError("nope")):
+            response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.credit_url
+
+    def test_add_credit_duplicate_redirects_to_change(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "x"})
+        result = CreditResult(team_id=self.team.id, entry_id="e1", amount_usd="5", balance_usd="5", duplicate=True)
+        with patch("posthog.admin.admins.team_admin.add_credit", return_value=result):
+            response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
+
+    def test_add_credit_requires_change_permission(self) -> None:
+        request = self._post({"amount_usd": "5", "reason": "x"})
+        with patch.object(self.admin, "has_change_permission", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
