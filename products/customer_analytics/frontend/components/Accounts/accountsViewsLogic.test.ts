@@ -23,7 +23,7 @@ const buildView = (overrides: Partial<ColumnConfigurationApi> = {}): ColumnConfi
         context_key: 'customer_analytics_accounts_columns',
         columns: ['name', 'csm'],
         name: 'Enterprise',
-        filters: { search: 'acme', csm: [1] },
+        filters: { search: 'acme', assignedTo: [1] },
         order_by: ['csm DESC'],
         properties: { tiles: [{ id: 't1', label: 'Accounts', metric: { type: 'count' } }] },
         visibility: 'shared',
@@ -74,9 +74,7 @@ describe('accountsViewsLogic', () => {
                 search: 'acme',
                 tags: ['enterprise'],
                 unassigned: false,
-                csm: [1],
-                accountExecutive: [2],
-                accountOwner: [3],
+                assignedTo: [1, 2, 3],
                 tileFilter: { tileId: 't1', expression: 'mrr > 100' },
             },
         })
@@ -86,9 +84,7 @@ describe('accountsViewsLogic', () => {
         expect(accountsLogic.values.searchQuery).toEqual('acme')
         expect(accountsLogic.values.tagsFilter).toEqual(['enterprise'])
         expect(accountsLogic.values.allRolesUnassigned).toBe(false)
-        expect(accountsLogic.values.csmFilter).toEqual([1])
-        expect(accountsLogic.values.accountExecutiveFilter).toEqual([2])
-        expect(accountsLogic.values.accountOwnerFilter).toEqual([3])
+        expect(accountsLogic.values.assignedToFilter).toEqual([1, 2, 3])
         expect(accountsLogic.values.sortOrder).toEqual({ column: 'csm', direction: 'desc' })
         expect(accountsOverviewTilesLogic.values.tiles).toEqual([
             { id: 't1', label: 'Accounts', metric: { type: 'count' } },

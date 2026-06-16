@@ -9,9 +9,7 @@ export interface AccountsViewFilters {
     search: string
     tags: string[]
     unassigned: boolean
-    csm: RoleFilterValue
-    accountExecutive: RoleFilterValue
-    accountOwner: RoleFilterValue
+    assignedTo: RoleFilterValue
     tileFilter: TileFilter | null
 }
 
@@ -31,7 +29,7 @@ type AccountsViewPayload = Pick<ColumnConfigurationApi, 'columns' | 'order_by'> 
     properties: AccountsViewProperties
 }
 
-// Shared-link URLs persisted a single role id (e.g. `csm: 7`) before the filters
+// A persisted filter may be a single id (e.g. `assignedTo: 7`) from before the filter
 // became multi-select. Coerce any scalar (or malformed value) into a `number[]`
 // so restoring a legacy link/view can't poison the array.
 export function normalizeRoleFilter(value: unknown): RoleFilterValue {
@@ -74,14 +72,8 @@ export function serializeAccountsView(state: AccountsViewState): AccountsViewPay
     if (state.filters.unassigned) {
         filters.unassigned = true
     }
-    if (state.filters.csm.length > 0) {
-        filters.csm = state.filters.csm
-    }
-    if (state.filters.accountExecutive.length > 0) {
-        filters.accountExecutive = state.filters.accountExecutive
-    }
-    if (state.filters.accountOwner.length > 0) {
-        filters.accountOwner = state.filters.accountOwner
+    if (state.filters.assignedTo.length > 0) {
+        filters.assignedTo = state.filters.assignedTo
     }
     if (state.filters.tileFilter) {
         filters.tileFilter = state.filters.tileFilter
@@ -110,9 +102,7 @@ export function deserializeAccountsView(view: Partial<ColumnConfigurationApi>): 
             search: rawFilters.search ?? '',
             tags: rawFilters.tags ?? [],
             unassigned: rawFilters.unassigned ?? false,
-            csm: normalizeRoleFilter(rawFilters.csm),
-            accountExecutive: normalizeRoleFilter(rawFilters.accountExecutive),
-            accountOwner: normalizeRoleFilter(rawFilters.accountOwner),
+            assignedTo: normalizeRoleFilter(rawFilters.assignedTo),
             tileFilter: rawFilters.tileFilter ?? null,
         },
         tiles: rawProperties.tiles && rawProperties.tiles.length > 0 ? rawProperties.tiles : [...DEFAULT_TILES],

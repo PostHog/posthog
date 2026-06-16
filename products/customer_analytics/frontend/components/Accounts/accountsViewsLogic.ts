@@ -38,15 +38,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             accountsColumnConfigLogic,
             ['selectColumns'],
             accountsLogic,
-            [
-                'searchQuery',
-                'tagsFilter',
-                'allRolesUnassigned',
-                'csmFilter',
-                'accountExecutiveFilter',
-                'accountOwnerFilter',
-                'sortOrder',
-            ],
+            ['searchQuery', 'tagsFilter', 'allRolesUnassigned', 'assignedToFilter', 'sortOrder'],
             accountsOverviewTilesLogic,
             ['tiles', 'tileFilter'],
         ],
@@ -54,15 +46,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             accountsColumnConfigLogic,
             ['setSelectColumns'],
             accountsLogic,
-            [
-                'setSearchQuery',
-                'setTagsFilter',
-                'setAllRolesUnassigned',
-                'setCsmFilter',
-                'setAccountExecutiveFilter',
-                'setAccountOwnerFilter',
-                'setSortOrder',
-            ],
+            ['setSearchQuery', 'setTagsFilter', 'setAllRolesUnassigned', 'setAssignedToFilter', 'setSortOrder'],
             accountsOverviewTilesLogic,
             ['setTiles', 'setTileFilter'],
         ],
@@ -144,9 +128,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 s.searchQuery,
                 s.tagsFilter,
                 s.allRolesUnassigned,
-                s.csmFilter,
-                s.accountExecutiveFilter,
-                s.accountOwnerFilter,
+                s.assignedToFilter,
                 s.sortOrder,
                 s.tileFilter,
                 s.tiles,
@@ -156,9 +138,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 searchQuery,
                 tagsFilter,
                 allRolesUnassigned,
-                csmFilter,
-                accountExecutiveFilter,
-                accountOwnerFilter,
+                assignedToFilter,
                 sortOrder,
                 tileFilter,
                 tiles
@@ -169,9 +149,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                     search: searchQuery,
                     tags: tagsFilter,
                     unassigned: allRolesUnassigned,
-                    csm: csmFilter,
-                    accountExecutive: accountExecutiveFilter,
-                    accountOwner: accountOwnerFilter,
+                    assignedTo: assignedToFilter,
                     tileFilter,
                 },
                 tiles,
@@ -229,12 +207,10 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             actions.setSelectColumns(state.columns)
             actions.setSearchQuery(state.filters.search)
             actions.setTagsFilter(state.filters.tags)
-            // accountsLogic cross-clears role filters vs "unassigned only", so set the
-            // unassigned flag first so the role filters below aren't wiped by that cross-listener.
+            // accountsLogic cross-clears the assigned-to filter vs "unassigned only", so set the
+            // unassigned flag first so the assigned-to filter below isn't wiped by that cross-listener.
             actions.setAllRolesUnassigned(state.filters.unassigned)
-            actions.setCsmFilter(state.filters.csm)
-            actions.setAccountExecutiveFilter(state.filters.accountExecutive)
-            actions.setAccountOwnerFilter(state.filters.accountOwner)
+            actions.setAssignedToFilter(state.filters.assignedTo)
             actions.setSortOrder(state.sortOrder)
             actions.setTiles(state.tiles)
             actions.setTileFilter(state.filters.tileFilter)
