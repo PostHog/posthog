@@ -515,6 +515,65 @@ class TestExternalDataSource(APIBaseTest):
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )
+    def test_bulk_update_schemas_validation_error_during_save_does_not_block_later_schemas(self, _mock_workflow_exists):
+        # Some validation runs inside update() (during save()), not the preflight is_valid(). Such a
+        # failure must not abort the batch: later schemas are still attempted and saved, and the
+        # failure is reported per schema with a 400 rather than silently committing some and 500ing.
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        source = self._create_external_data_source()
+        schemas = [
+            ExternalDataSchema.objects.create(
+                name=f"Table{i}",
+                team_id=self.team.pk,
+                source=source,
+                should_sync=True,
+                sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            )
+            for i in range(3)
+        ]
+        original_interval = schemas[1].sync_frequency_interval
+
+        original_update = ExternalDataSchemaSerializer.update
+        attempted = 0
+
+        def _maybe_failing_update(serializer_self, instance, validated_data):
+            nonlocal attempted
+            attempted += 1
+            if attempted == 2:
+                raise DRFValidationError("Table1 cannot be changed")
+            return original_update(serializer_self, instance, validated_data)
+
+        with (
+            patch.object(ExternalDataSchemaSerializer, "update", _maybe_failing_update),
+            patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(s.id), "sync_frequency": "7day"} for s in schemas]},
+                format="json",
+            )
+
+        # Every schema is attempted; the validation error does not stop the schema after it.
+        assert attempted == 3
+        # A batch of only validation failures is a client error, and the failing schema is named.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Table1" in detail
+        assert "cannot be changed" in detail
+
+        for schema in schemas:
+            schema.refresh_from_db()
+        assert sync_frequency_interval_to_sync_frequency(schemas[0].sync_frequency_interval) == "7day"
+        assert sync_frequency_interval_to_sync_frequency(schemas[2].sync_frequency_interval) == "7day"
+        assert schemas[1].sync_frequency_interval == original_interval
+
+    @patch(
+        "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
     def test_bulk_update_schemas_webhook_reconcile_raising_does_not_500(self, _mock_workflow_exists):
         # Webhook reconcile runs as a deferred post-commit hook in the bulk path, AFTER the
         # atomic block. If it raised there it would 500 the request with the rows already

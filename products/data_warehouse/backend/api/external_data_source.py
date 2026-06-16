@@ -498,16 +498,29 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
     )
 
 
+def _validation_error_message(error: ValidationError) -> str:
+    detail = error.detail
+    if isinstance(detail, list):
+        return " ".join(str(item) for item in detail)
+    if isinstance(detail, dict):
+        return " ".join(f"{field}: {value}" for field, value in detail.items())
+    return str(detail)
+
+
 class BulkSchemaSaveError(APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_code = "bulk_schema_save_failed"
 
-    def __init__(self, failed_schema_names: list[str]) -> None:
-        names = ", ".join(failed_schema_names)
+    def __init__(self, failures: dict[str, tuple[str, str]], *, only_validation_errors: bool) -> None:
+        # Pure input problems are the caller's to fix (400). A database/infra error is ours and is
+        # retryable (503); treat a mix as a server problem so it surfaces as retryable.
+        self.status_code = (
+            status.HTTP_400_BAD_REQUEST if only_validation_errors else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        reasons = "; ".join(f"{name} ({reason})" for name, reason in failures.values())
         super().__init__(
             detail=(
-                f"A database error prevented saving these schemas: {names}. "
-                "Any other schemas in the batch were saved — please retry the ones that failed."
+                f"These schemas in the batch could not be saved: {reasons}. "
+                "Any other schemas in the batch were saved successfully — retry the ones listed here."
             )
         )
 
@@ -3318,54 +3331,68 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
         post_commit_actions: list[Callable[[], None]] = []
-        update_serializer_context = {**serializer_context, "post_commit_actions": post_commit_actions}
 
-        # Validate every payload before writing anything, so a bad request rejects the whole
-        # batch up front instead of committing some schemas and then failing.
-        prepared_serializers: list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer]] = []
+        # Validate every payload before writing anything, so a malformed request is rejected up
+        # front. Some checks only run inside the serializer's update() (during save() below), so
+        # this catches the common input errors but not all of them — the save loop handles the rest.
+        prepared: list[tuple[ExternalDataSchema, ExternalDataSchemaSerializer, list[Callable[[], None]]]] = []
         for schema_update in schema_updates:
             schema_id = schema_update["id"]
             schema = source_schemas_by_id[schema_id]
             schema_payload = {key: value for key, value in schema_update.items() if key != "id"}
 
+            schema_post_commit_actions: list[Callable[[], None]] = []
             schema_serializer = ExternalDataSchemaSerializer(
                 schema,
                 data=schema_payload,
                 partial=True,
-                context=update_serializer_context,
+                context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
-            prepared_serializers.append((schema, schema_serializer))
+            prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch
-        # meant one schema's database error — e.g. a connection dropped mid-save — rolled back every
-        # schema and 500'd the request, so the user got nothing applied. Isolating per schema keeps
-        # the ones that did save committed, and reports the rest so they can be retried.
-        failed_schemas: dict[str, str] = {}
-        for schema, schema_serializer in prepared_serializers:
+        # meant one schema's failure rolled back every schema and failed the request, so the user
+        # got nothing applied. Isolating per schema keeps the ones that saved committed, attempts
+        # every schema so a single bad one can't block the rest, and reports the failures together.
+        failed_schemas: dict[str, tuple[str, str]] = {}
+        only_validation_errors = True
+        for schema, schema_serializer, schema_post_commit_actions in prepared:
             try:
                 with transaction.atomic():
                     updated_schemas.append(schema_serializer.save())
-            except ValidationError:
-                raise
             except Exception as e:
-                capture_exception(e)
-                logger.exception(
-                    "bulk_update_schemas failed to persist schema",
-                    source_id=str(source.id),
-                    schema_id=str(schema.id),
-                )
-                failed_schemas[str(schema.id)] = schema.name
-                # A dropped connection leaves Django holding a dead handle; close it so the next
+                if isinstance(e, ValidationError):
+                    reason = _validation_error_message(e)
+                    logger.warning(
+                        "bulk_update_schemas validation error during save",
+                        source_id=str(source.id),
+                        schema_id=str(schema.id),
+                    )
+                else:
+                    only_validation_errors = False
+                    reason = "a database error occurred while saving"
+                    capture_exception(e)
+                    logger.exception(
+                        "bulk_update_schemas failed to persist schema",
+                        source_id=str(source.id),
+                        schema_id=str(schema.id),
+                    )
+                failed_schemas[str(schema.id)] = (schema.name, reason)
+                # A dropped connection leaves Django holding a dead handle; reset it so the next
                 # schema reconnects instead of failing on the same broken connection.
                 if not connection.is_usable():
                     connection.close()
+                continue
+
+            # Only run a schema's Temporal side effects once its own row is committed.
+            post_commit_actions.extend(schema_post_commit_actions)
 
         for post_commit_action in post_commit_actions:
             post_commit_action()
 
         if failed_schemas:
-            raise BulkSchemaSaveError(sorted(failed_schemas.values()))
+            raise BulkSchemaSaveError(failed_schemas, only_validation_errors=only_validation_errors)
 
         return Response(
             ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
