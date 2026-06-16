@@ -36,6 +36,7 @@ from products.posthog_ai.backend.system_prompt import PromptService
 from products.posthog_ai.backend.wire_types import UnknownFrame, is_user_message_params, parse_log_entry
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_cancel
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.temporal.client import execute_task_processing_workflow, signal_task_followup_message
 
 logger = structlog.get_logger(__name__)
@@ -184,7 +185,7 @@ class MessageRoutingService(BaseSandboxService):
                 task_id=str(self.conversation.task_id), run_id=str(run.id), run_status=run.status
             )
 
-        result = send_cancel(run)
+        result = send_cancel(run, auth_token=self._connection_token(run))
         if not result.success:
             # Agent unreachable (no sandbox URL, blocked URL, connection error, timeout) —
             # the run is still live, so a 200 here would falsely tell the frontend it's cancelling.
@@ -285,7 +286,20 @@ class MessageRoutingService(BaseSandboxService):
         if run.status not in self._IN_PROGRESS_STATUSES:
             return
 
-        send_cancel(run)
+        send_cancel(run, auth_token=self._connection_token(run))
+
+    def _connection_token(self, run: TaskRun) -> str | None:
+        """Mint the agent-server connection JWT for an in-process control command.
+
+        The sandbox agent-server authenticates `/command` against this RS256 token; the
+        Modal connect token alone is not accepted, and the Docker provider has no connect
+        token at all. Temporal activities mint this per turn — the in-process cancel path
+        must do the same or the agent rejects the command with 401.
+        """
+        if not self.user.id:
+            return None
+        distinct_id = self.user.distinct_id or f"user_{self.user.id}"
+        return create_sandbox_connection_token(run, user_id=self.user.id, distinct_id=distinct_id)
 
     def _prewarm_first(self, conversation: "Conversation", system_prompt: str) -> tuple[str, str]:
         """First warm — create the Task + Run, mirroring `_handle_first_message`
