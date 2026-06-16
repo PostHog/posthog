@@ -159,7 +159,7 @@ class SdkOutdatedCheck(HealthCheck):
                 "carry known issues. Recommend upgrading to the latest version."
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
-            extra=build_signal_extra(issue, title=title, summary=reason, link="/health/sdk-doctor"),
+            extra=build_signal_extra(issue, title=title, summary=reason, link="/health/sdk-health"),
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
