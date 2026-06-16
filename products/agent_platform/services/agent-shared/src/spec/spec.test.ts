@@ -608,13 +608,6 @@ describe('AgentSpecSchema', () => {
             ).toHaveLength(1)
         })
 
-        it('shared_secret accepts an optional caller_id_header', () => {
-            const [mode] = AuthConfigSchema.parse({
-                modes: [{ type: 'shared_secret', header: 'X', secret_ref: 'K', caller_id_header: 'X-Caller-Id' }],
-            }).modes
-            expect(mode).toMatchObject({ type: 'shared_secret', caller_id_header: 'X-Caller-Id' })
-        })
-
         it('posthog / posthog_internal / jwt parse', () => {
             const parsed = AuthConfigSchema.parse({
                 modes: [{ type: 'posthog' }, { type: 'posthog_internal' }, { type: 'jwt', issuer_secret_ref: 'S' }],
