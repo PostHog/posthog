@@ -5,7 +5,7 @@ and prints the scores. Read-only (writes nothing back). Handy to verify the mode
 loads and predicts in a fresh env, eyeball the score distribution, or reproduce a
 prod scoring failure locally with the same SQL the activity runs.
 
-Requires `SESSION_INTERESTINGNESS_MODEL_S3_URI` (see surfacing_scoring_sweep README).
+Requires `SESSION_SURFACING_MODEL_S3_URI` (see surfacing_scoring_sweep README).
 
 Examples:
     ./bin/python manage.py score_one_chunk

@@ -12840,6 +12840,14 @@ export namespace Schemas {
       has_misconfigured: boolean;
     }
 
+    export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
+
+
+    export const ConversionRateInputType = {
+      Manual: 'manual',
+      Automatic: 'automatic',
+    } as const;
+
     /**
      * * `0` - Disabled
      * * `1` - Stateless
@@ -18452,6 +18460,37 @@ export namespace Schemas {
       rollout_percentage?: number | null;
     }
 
+    export type ManualMetricType = typeof ManualMetricType[keyof typeof ManualMetricType];
+
+
+    export const ManualMetricType = {
+      Funnel: 'funnel',
+      MeanCount: 'mean_count',
+      MeanSumOrAvg: 'mean_sum_or_avg',
+    } as const;
+
+    export interface ExperimentExposureEstimateConfig {
+      /** 'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data. */
+      conversionRateInputType: ConversionRateInputType;
+      /** Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode. */
+      manualBaselineValue?: number | null;
+      /** Manually entered estimate of users exposed to the experiment per day. Only used in manual mode. */
+      manualExposureRate?: number | null;
+      /** Metric type the manual baseline value refers to. Only used in manual mode. */
+      manualMetricType?: ManualMetricType | null;
+    }
+
+    export interface ExperimentRunningTimeCalculation {
+      /** How the exposure estimate is configured: manual user-entered values or automatic from live experiment data. */
+      exposure_estimate_config?: ExperimentExposureEstimateConfig | null;
+      /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. */
+      minimum_detectable_effect?: number | null;
+      /** Estimated number of days needed to reach the recommended sample size. */
+      recommended_running_time?: number | null;
+      /** Recommended number of exposed users needed for statistical significance. */
+      recommended_sample_size?: number | null;
+    }
+
     export interface ExperimentToSavedMetric {
       readonly id: number;
       experiment: number;
@@ -18619,8 +18658,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
       /**
@@ -21091,6 +21132,8 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
       /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
       fold?: HeatmapFoldSummary | null;
+      /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
+      has_more?: boolean;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -32157,8 +32200,10 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
       /**
@@ -47431,6 +47476,18 @@ export namespace Schemas {
      */
     hide_zero_coordinates?: boolean;
     /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -53521,6 +53578,18 @@ export namespace Schemas {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean;
+    /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1

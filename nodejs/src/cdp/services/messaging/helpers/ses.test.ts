@@ -108,6 +108,54 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0]).toMatchObject({ functionId: 'abc123', invocationId: 'inv456' })
     })
 
+    // The `if (metricName && !isTest)` guard applies to every metric-emitting event type, so
+    // suppression must hold for all of them — not just Delivery.
+    it.each([
+        ['Open', { open: { timestamp: 't' } }],
+        ['Click', { click: { link: 'l', timestamp: 't' } }],
+        ['Delivery', { delivery: { timestamp: 't' } }],
+    ])('skips metrics for test sends on a %s event (isTest tracking code)', async (eventType, eventFields) => {
+        const testMail = {
+            ...baseMail,
+            // isTest rides on the signed header code (preferred by the webhook); the short tag
+            // code stays legacy-shaped without it.
+            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
+            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
+        }
+        const body = [{ eventType, mail: testMail, ...eventFields }]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.status).toBe(200)
+        expect(result.metrics).toEqual([])
+    })
+
+    it('still opts out recipients on a permanent bounce even for test sends', async () => {
+        const testMail = {
+            ...baseMail,
+            // isTest rides on the signed header code (preferred by the webhook); the short tag
+            // code stays legacy-shaped without it.
+            headers: [{ name: TRACKING_CODE_HEADER, value: generateEmailTrackingCode(baseInvocation, true) }],
+            tags: { ph_id: [generateShortEmailTrackingCode(baseInvocation)] },
+        }
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: testMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [
+                        { emailAddress: 'to@example.com', action: 'failed', status: '5.1.1', diagnosticCode: 'bad' },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                    reportingMTA: 'mta',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        // No metric recorded for the test send, but the hard bounce still triggers an opt-out.
+        expect(result.metrics).toEqual([])
+        expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
+    })
+
     it('parses a raw Delivery event', async () => {
         const body = [
             {
