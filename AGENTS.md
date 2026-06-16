@@ -69,6 +69,10 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 - Description should be lowercase and not end with a period
 - Keep the first line under 72 characters
 
+### Opening a pull request
+
+When the user asks you to open a PR — especially a draft — commit the work to a branch and open the PR _first_, then run any verification (or let CI do it). Do not gate PR creation on slow local checks such as a full `tsc`, jest, or a fresh dependency install: a draft PR is a safety net, not a reward for green checks, and committing early is what makes the work durable if the session ends unexpectedly before the checks finish. If the user says to skip checks or "just open the PR", do so immediately without further local verification.
+
 ### Pushing to remote
 
 Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
