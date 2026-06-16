@@ -499,12 +499,11 @@ class ExternalDataSourceBulkUpdateSchemasSerializer(serializers.Serializer):
 
 
 def _validation_error_message(error: ValidationError) -> str:
+    # DRF normalizes ValidationError.detail to a list or dict (never a bare string).
     detail = error.detail
-    if isinstance(detail, list):
-        return " ".join(str(item) for item in detail)
     if isinstance(detail, dict):
         return " ".join(f"{field}: {value}" for field, value in detail.items())
-    return str(detail)
+    return " ".join(str(item) for item in detail)
 
 
 class BulkSchemaSaveError(APIException):
