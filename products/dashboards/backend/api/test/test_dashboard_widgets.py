@@ -922,13 +922,30 @@ class TestDashboardWidgets(APIBaseTest):
         assert tiles[1]["layouts"]["sm"]["y"] == 5
         assert tiles[1]["layouts"]["sm"]["x"] == 0
 
+    @parameterized.expand(
+        [
+            # (persisted_sm_layouts, layoutless_count, expected_y)
+            # Insights added to a dashboard get `layouts = {}` until a layout save; the backend
+            # must still count them so a new widget lands below, not in a mid-page gap.
+            # Layout-less tiles pack two-per-row at 6×5 (y boundaries every 2 tiles).
+            ("one_layoutless", [], 1, 5),
+            ("two_layoutless", [], 2, 5),
+            ("three_layoutless", [], 3, 10),
+            ("five_layoutless", [], 5, 15),
+            # Persisted full-width header (h=2) + one layout-less tile packed below it (y=2,h=5 → 7).
+            ("mixed_persisted_and_layoutless", [{"x": 0, "y": 0, "w": 12, "h": 2}], 1, 7),
+        ]
+    )
     @override_settings(IN_UNIT_TESTING=True)
-    def test_widget_lands_below_tiles_with_no_persisted_layout(self) -> None:
-        # Insights added to a dashboard get `layouts = {}` until a layout save; the backend
-        # must still count them so a new widget lands below, not in a mid-page gap.
+    def test_widget_lands_below_tiles_with_no_persisted_layout(
+        self, _name: str, persisted_sm_layouts: list[dict], layoutless_count: int, expected_y: int
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         dashboard = Dashboard.objects.get(id=dashboard_id)
-        for _ in range(3):
+        for sm in persisted_sm_layouts:
+            insight = Insight.objects.create(team=self.team, name="persisted")
+            DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={"sm": sm})
+        for _ in range(layoutless_count):
             insight = Insight.objects.create(team=self.team, name="layoutless")
             DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight, layouts={})
 
@@ -938,10 +955,9 @@ class TestDashboardWidgets(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-        # 3 layout-less tiles pack two-per-row at 6×5 → bottom row at y=5 (height 10);
-        # the widget must land below the tallest column, not at the top.
+        # The widget must land below the tallest column, not in a mid-page gap.
         sm = response.json()["tiles"][0]["layouts"]["sm"]
-        assert sm["y"] == 10
+        assert sm["y"] == expected_y
         assert sm["x"] == 0
 
     @override_settings(IN_UNIT_TESTING=True)
