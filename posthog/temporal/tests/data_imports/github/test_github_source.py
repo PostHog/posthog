@@ -889,6 +889,7 @@ class TestGithubSourceNonRetryableErrors:
             ("bad_credentials",),
             ("client_id_not_configured",),
             ("private_key_not_configured",),
+            ("installation_token_not_found",),
         ]
     )
     def test_non_retryable_errors_contains_key(self, _name: str) -> None:
@@ -899,6 +900,7 @@ class TestGithubSourceNonRetryableErrors:
             "bad_credentials": "Bad credentials",
             "client_id_not_configured": "GITHUB_APP_CLIENT_ID is not configured",
             "private_key_not_configured": "GITHUB_APP_PRIVATE_KEY is not configured",
+            "installation_token_not_found": 'Failed to refresh installation token: {"message":"Not Found"',
         }
         assert expected_keys[_name] in self.source.get_non_retryable_errors()
 
