@@ -210,8 +210,7 @@ class TestAssistantContextManager(BaseTest):
     async def test_format_ui_context_hydrates_dashboard_reference_respecting_access(
         self, _name, has_access, expected_insight_count, MockDashboardContext, MockUserAccessControl
     ):
-        # Eager reference: the frontend sent only the dashboard id (tiles still loading client-side).
-        # The insights are hydrated from the DB, but only when the user may read the dashboard.
+        # Reference-only dashboard (id, no insights): hydrate from the DB, but only if access allows.
         dashboard = await self._create_db_dashboard_with_insight()
         MockUserAccessControl.return_value.check_access_level_for_object.return_value = has_access
         MockDashboardContext.return_value.execute_and_format = AsyncMock(return_value="results")
@@ -249,7 +248,6 @@ class TestAssistantContextManager(BaseTest):
     async def test_format_ui_context_does_not_hydrate_when_insights_already_present(
         self, MockDashboardContext, MockUserAccessControl
     ):
-        # When the client already sent the dashboard's insights, the DB is not touched.
         dashboard = await self._create_db_dashboard_with_insight()
         MockDashboardContext.return_value.execute_and_format = AsyncMock(return_value="results")
 

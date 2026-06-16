@@ -1857,14 +1857,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         maxContext: [
             (s, p) => [s.dashboard, p.id],
             (dashboard, id): MaxContextInput[] => {
-                // Full context once the dashboard and its tiles have loaded.
                 if (dashboard) {
                     return [createMaxContextHelpers.dashboard(dashboard)]
                 }
 
-                // Before that, emit just the dashboard reference so the first message to Max still
-                // carries which dashboard is open — the backend hydrates its insights from the id.
-                // This is what lets us send immediately instead of gating on a slow dashboard load.
+                // Before the dashboard loads, send just the id so the first message isn't gated on
+                // the load — the backend hydrates the rest.
                 if (Number.isFinite(id)) {
                     return [createMaxContextHelpers.dashboardReference(id)]
                 }

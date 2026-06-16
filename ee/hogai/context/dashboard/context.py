@@ -46,10 +46,8 @@ async def build_dashboard_insights(
 ) -> list[DashboardInsightContext]:
     """Build DashboardInsightContext models from a dashboard's non-deleted tiles + insight queries.
 
-    Shared by the read_data tool and the UI-context builder so a dashboard can be hydrated from the
-    DB — the source of truth — rather than from a (possibly still-loading) client snapshot. Call
-    only after the caller has confirmed access to the dashboard. `additional_properties` is attached
-    to any query-validation exception captured here so the caller keeps its error context.
+    Call only after the caller has confirmed access to the dashboard. `additional_properties` is
+    attached to any query-validation exception captured here so the caller keeps its error context.
     """
     insights_data: list[DashboardInsightContext] = []
     async for tile in dashboard.tiles.exclude(insight__deleted=True).exclude(deleted=True).select_related("insight"):

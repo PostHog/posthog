@@ -228,8 +228,7 @@ class AssistantContextManager(AssistantContextMixin):
                         )
                     )
 
-                # Hydrate from the DB when the client sent a reference-only dashboard (id, no insights
-                # yet) — see _hydrate_dashboard_from_db.
+                # Client sent a reference-only dashboard (id, no insights) — hydrate from the DB.
                 db_name: str | None = None
                 db_description: str | None = None
                 if not insights_data and dashboard.id is not None:
@@ -383,8 +382,7 @@ class AssistantContextManager(AssistantContextMixin):
         except (Dashboard.DoesNotExist, ValueError):
             return [], None, None
 
-        # Access-check the loaded record before the heavier tile/insight load — a client-supplied id
-        # the user can't read should cost a single lookup, not a full tile scan.
+        # Access-check the record before the heavier tile load — a denied id should cost one lookup.
         access_control = UserAccessControl(
             user=self._user, team=self._team, organization_id=str(self._team.organization_id)
         )

@@ -699,8 +699,7 @@ describe('maxContextLogic', () => {
         })
 
         it('createMaxContextHelpers.dashboardReference emits just the id (used before the dashboard loads)', () => {
-            // While dashboardLogic.dashboard is still null, the scene exposes only the dashboard id so
-            // the first message to Max still says which dashboard is open; the backend hydrates insights.
+            // Before the dashboard loads, the scene exposes only the id; the backend hydrates the rest.
             const ref = createMaxContextHelpers.dashboardReference(mockDashboard.id)
             expect(dashboardToMaxContext(ref.data)).toEqual(
                 partial({ id: mockDashboard.id, type: 'dashboard', insights: [] })
