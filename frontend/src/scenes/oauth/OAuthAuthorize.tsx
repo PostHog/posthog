@@ -126,6 +126,7 @@ const InlineCreateForm = ({
 export const OAuthAuthorize = (): JSX.Element => {
     const {
         scopeRows,
+        allScopesRequired,
         identityScopeDescriptions,
         showReadOnlyToggle,
         readOnlyMode,
@@ -402,23 +403,35 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             ))}
                                         </ul>
                                     )}
-                                    {scopeRows.length > 0 && (
-                                        <div className="flex flex-col gap-2">
-                                            {scopeRows.map((row) => (
-                                                <LemonCheckbox
-                                                    key={row.key}
-                                                    checked={row.granted}
-                                                    onChange={() => row.toggleKey && toggleDeniedScope(row.toggleKey)}
-                                                    label={row.description}
-                                                    disabledReason={
-                                                        row.required
-                                                            ? `Required by ${oauthApplication.name}`
-                                                            : undefined
-                                                    }
-                                                />
-                                            ))}
-                                        </div>
-                                    )}
+                                    {scopeRows.length > 0 &&
+                                        (allScopesRequired ? (
+                                            <ul className="space-y-2">
+                                                {scopeRows.map((row) => (
+                                                    <li key={row.key} className="flex items-center space-x-2">
+                                                        <IconCheck color="var(--success)" />
+                                                        <span className="font-medium">{row.description}</span>
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        ) : (
+                                            <div className="flex flex-col gap-2">
+                                                {scopeRows.map((row) => (
+                                                    <LemonCheckbox
+                                                        key={row.key}
+                                                        checked={row.granted}
+                                                        onChange={() =>
+                                                            row.toggleKey && toggleDeniedScope(row.toggleKey)
+                                                        }
+                                                        label={row.description}
+                                                        disabledReason={
+                                                            row.required
+                                                                ? `Required by ${oauthApplication.name}`
+                                                                : undefined
+                                                        }
+                                                    />
+                                                ))}
+                                            </div>
+                                        ))}
                                 </>
                             )}
                         </div>

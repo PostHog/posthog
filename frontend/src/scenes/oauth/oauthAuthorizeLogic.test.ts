@@ -132,6 +132,19 @@ describe('oauthAuthorizeLogic', () => {
         expect(row).toMatchObject({ required: true, granted: true })
     })
 
+    it('marks all scopes required when every requested scope is required', () => {
+        logic.actions.setScopes(['experiment:read', 'dashboard:write'])
+        withRequiredScopes(['experiment:read', 'dashboard:write'])
+        expect(logic.values.allScopesRequired).toBe(true)
+        expect(logic.values.showReadOnlyToggle).toBe(false)
+    })
+
+    it('does not mark all required when a requested scope is declinable', () => {
+        logic.actions.setScopes(['experiment:read', 'dashboard:write'])
+        withRequiredScopes(['experiment:read'])
+        expect(logic.values.allScopesRequired).toBe(false)
+    })
+
     it('renders a locked row for required scopes the client did not request and grants them', () => {
         logic.actions.setScopes(['openid', 'insight:read'])
         withRequiredScopes(['feature_flag:read'])

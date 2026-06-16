@@ -571,6 +571,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 })
             },
         ],
+        // When every row is required the user has nothing to toggle, so the consent screen
+        // renders a plain locked list instead of disabled checkboxes that imply a choice.
+        allScopesRequired: [
+            (s) => [s.scopeRows],
+            (scopeRows: { required: boolean }[]): boolean =>
+                scopeRows.length > 0 && scopeRows.every((row) => row.required),
+        ],
         effectiveScopes: [
             (s) => [
                 s.scopes,
