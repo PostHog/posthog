@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
 from django.db import connection as django_connection
 
 import psycopg
@@ -3268,3 +3269,71 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+
+class TestOffsetChunkingFallbackRealDb:
+    """Regression: the offset-chunking fallback must work on non-read-replica connections.
+
+    On a primary (not a read replica) `get_connection` sets `cursor_factory=psycopg.ServerCursor`.
+    When the streaming server cursor drops mid-sync, `get_rows` falls back to `offset_chunking`,
+    which used to open an unnamed `connection.cursor()`. Because the client cursor factory was
+    ServerCursor, that raised `TypeError: ServerCursor.__init__() missing 1 required positional
+    argument: 'name'`, so the fallback crashed instead of resuming.
+    """
+
+    @pytest.mark.django_db
+    def test_dropped_server_cursor_falls_back_to_offset_chunking(self):
+        table_name = "test_offset_chunking_fallback"
+        conn = psycopg.connect(
+            host=settings.PG_HOST,
+            port=int(settings.PG_PORT),
+            dbname=settings.PG_DATABASE,
+            user=settings.PG_USER,
+            password=settings.PG_PASSWORD,
+        )
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+                cursor.execute(f'CREATE TABLE "{table_name}" (id INTEGER PRIMARY KEY, val TEXT)')
+                cursor.execute(
+                    f"INSERT INTO \"{table_name}\" (id, val) SELECT g, 'row-' || g FROM generate_series(1, 5) g"
+                )
+                conn.commit()
+
+            @contextmanager
+            def tunnel():
+                yield (settings.PG_HOST, int(settings.PG_PORT))
+
+            # Force the streaming server-cursor read to look like a dropped connection so
+            # `get_rows` falls back to `offset_chunking`. `_is_read_replica` returns False against
+            # this primary, so the fallback connection carries `cursor_factory=ServerCursor` —
+            # exactly the shape that used to crash the fallback.
+            with patch.object(
+                psycopg.ServerCursor,
+                "fetchmany",
+                side_effect=psycopg.OperationalError("server closed the connection unexpectedly"),
+            ):
+                response = postgres_source(
+                    tunnel=tunnel,
+                    user=settings.PG_USER,
+                    password=settings.PG_PASSWORD,
+                    database=settings.PG_DATABASE,
+                    sslmode="prefer",
+                    schema="public",
+                    table_names=[table_name],
+                    should_use_incremental_field=True,
+                    logger=structlog.get_logger(),
+                    incremental_field="id",
+                    incremental_field_type=IncrementalFieldType.Integer,
+                    db_incremental_field_last_value=0,
+                    chunk_size_override=2,
+                    team_id=1,
+                )
+                tables = list(response.items())
+
+            assert sum(t.num_rows for t in tables) == 5
+        finally:
+            with conn.cursor() as cursor:
+                cursor.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+                conn.commit()
+            conn.close()
