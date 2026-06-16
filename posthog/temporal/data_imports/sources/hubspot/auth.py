@@ -2,6 +2,7 @@ from django.conf import settings
 
 import requests
 import structlog
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -22,6 +23,12 @@ def _error_message_from_response(res: requests.Response) -> str:
         return res.text
 
 
+@retry(
+    retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
 def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
     res = make_tracked_session().post(
         "https://api.hubapi.com/oauth/v1/token",
@@ -31,13 +38,15 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
             "client_secret": settings.HUBSPOT_APP_CLIENT_SECRET,
             "refresh_token": refresh_token,
         },
+        timeout=60,
     )
 
     if res.status_code != 200:
         err_message = _error_message_from_response(res)
-        # A 429 (rate limit) or 5xx from the OAuth token endpoint is transient. Surface it as a
-        # retryable error so the calling fetch loop backs off and retries instead of failing the
-        # whole sync on a momentary rate limit.
+        # HubSpot rate-limits the OAuth token endpoint too (429 "You have reached your rate limit."),
+        # and 5xx is transient. Back off and retry rather than crashing the sync. The @retry above
+        # retries this call site (e.g. source.py's setup path, which has no surrounding retry loop);
+        # callers in hubspot.py also treat HubspotRetryableError as retryable.
         if res.status_code == 429 or res.status_code >= 500:
             raise HubspotRetryableError(err_message)
         raise Exception(err_message)
