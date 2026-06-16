@@ -13,6 +13,7 @@ import type { ExperimentStatus } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { captureCreateExperimentClicked } from './experimentWidgetAnalytics'
 
 export type ExperimentResultsWidgetMetricEntry = {
     uuid: string | null
@@ -105,6 +106,7 @@ function ExperimentResultsLoadingSkeleton(): JSX.Element {
 }
 
 export function ExperimentResultsWidget({
+    tileId,
     result,
     loading,
     onUpdateConfig,
@@ -123,7 +125,13 @@ export function ExperimentResultsWidget({
                     title="No experiments yet"
                     message="Run A/B tests to measure the impact of changes on your product."
                     cta={
-                        <LemonButton type="primary" size="small" to={urls.experiment('new')} targetBlank>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.experiment('new')}
+                            targetBlank
+                            onClick={() => captureCreateExperimentClicked('experiment_results', tileId)}
+                        >
                             New experiment
                         </LemonButton>
                     }

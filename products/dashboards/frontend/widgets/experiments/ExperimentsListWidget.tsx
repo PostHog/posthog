@@ -21,6 +21,7 @@ import {
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseExperimentsListWidgetConfig } from './experimentsListWidgetConfigValidation'
+import { captureCreateExperimentClicked } from './experimentWidgetAnalytics'
 
 export type ExperimentsListWidgetRow = {
     id: number
@@ -103,7 +104,7 @@ function ExperimentsListLoadingSkeleton(): JSX.Element {
     )
 }
 
-export function ExperimentsListWidget({ config, result, loading }: DashboardWidgetComponentProps): JSX.Element {
+export function ExperimentsListWidget({ tileId, config, result, loading }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ExperimentsListWidgetResult | null | undefined
     const experiments = payload?.results ?? []
     const parsedConfig = parseExperimentsListWidgetConfig(config)
@@ -139,7 +140,13 @@ export function ExperimentsListWidget({ config, result, loading }: DashboardWidg
                                 <p className="m-0 text-sm text-muted">
                                     Run A/B tests to measure the impact of changes on your product.
                                 </p>
-                                <LemonButton type="primary" size="small" to={urls.experiment('new')} targetBlank>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    to={urls.experiment('new')}
+                                    targetBlank
+                                    onClick={() => captureCreateExperimentClicked('experiments_list', tileId)}
+                                >
                                     New experiment
                                 </LemonButton>
                             </>
