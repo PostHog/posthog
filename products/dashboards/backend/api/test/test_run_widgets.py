@@ -310,7 +310,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         )
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id, widget_type=ACTIVITY_EVENTS_LIST_WIDGET_TYPE, config={"limit": 10}
+            dashboard_id, widget_type="activity_events_list", config={"limit": 10}
         )
         tile_id = dashboard_json["tiles"][0]["id"]
 
