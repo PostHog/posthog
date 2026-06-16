@@ -717,17 +717,22 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         mock_delay.assert_called_with(self.team.id)
 
+    @parameterized.expand([("set", None, Decimal("5")), ("clear", Decimal("5"), None)])
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
-    def test_team_overspend_allowance_change_reprojects(self, mock_delay, mock_settings, mock_transaction):
-        # llm_gateway_overspend_allowance_usd projects into every credential blob on the team;
-        # a change must rebuild them rather than waiting out the TTL.
+    def test_team_overspend_allowance_change_reprojects(
+        self, _name, initial, new, mock_delay, mock_settings, mock_transaction
+    ):
+        # Both transitions between the two observable states (unset and set) reproject every
+        # credential blob on the team, rather than waiting out the TTL.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
-        team = Team.objects.get(pk=self.team.pk)  # snapshot allowance under patched setting
-        team.llm_gateway_overspend_allowance_usd = Decimal("5")
+        if initial is not None:
+            Team.objects.filter(pk=self.team.pk).update(llm_gateway_overspend_allowance_usd=initial)
+        team = Team.objects.get(pk=self.team.pk)  # snapshot allowance at pre_save under patched setting
+        team.llm_gateway_overspend_allowance_usd = new
         team.save()
 
         mock_delay.assert_called_with(self.team.id)
