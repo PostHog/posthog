@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class PaylocitySource(SimpleSource[PaylocitySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PAYLOCITY,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Paylocity",
             iconPath="/static/services/paylocity.png",
             fields=cast(list[FieldType], []),

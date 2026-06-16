@@ -362,6 +362,35 @@ def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
     assert table.schema.equals(expected_schema)
 
 
+def test_table_from_py_list_int_column_exceeding_int64_promoted_to_decimal():
+    # Python ints are unbounded; a value past int64 overflows pyarrow's inferred int64 type with
+    # "Python int too large to convert to C long". It should be promoted to decimal instead.
+    over_int64 = 2**63 + 1
+
+    table = table_from_py_list([{"column": over_int64}, {"column": 1}, {"column": None}])
+
+    assert pa.types.is_decimal(table.schema.field("column").type)
+    assert table.column("column").to_pylist() == [decimal.Decimal(over_int64), decimal.Decimal(1), None]
+
+
+def test_table_from_py_list_huge_int_column_falls_back_to_string():
+    # A value too large even for decimal256 (76 digits) must not crash the sync — keep it as text.
+    enormous = int("1" * 340)
+
+    table = table_from_py_list([{"column": enormous}, {"column": 5}])
+
+    assert table.schema.field("column").type == pa.string()
+    assert table.column("column").to_pylist() == [str(enormous), "5"]
+
+
+def test_table_from_py_list_normal_int_column_stays_int64():
+    # Values within int64 are unaffected by the overflow handling.
+    table = table_from_py_list([{"column": 1}, {"column": 2}, {"column": None}])
+
+    assert table.schema.field("column").type == pa.int64()
+    assert table.column("column").to_pylist() == [1, 2, None]
+
+
 @pytest.mark.parametrize(
     "data, schema, expected_type",
     [
