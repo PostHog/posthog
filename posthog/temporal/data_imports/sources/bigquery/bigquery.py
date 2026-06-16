@@ -552,8 +552,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
 
         try:
-            # Submitting the job triggers the lazy service-account token refresh, so an
-            # auth failure surfaces here rather than at `result()`.
+            # `conn.query()` eagerly creates the BigQuery job (POST .../jobs) and triggers the
+            # lazy service-account token refresh, so a `Forbidden` (e.g. missing
+            # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
+            # Both calls must sit inside the try so a permission-denied account degrades to
+            # "no new schemas" instead of crashing schema discovery.
             query = conn.query(
                 f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
                 project=_resolve_query_project(config),
