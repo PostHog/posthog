@@ -23,6 +23,37 @@ fn default_install_dir() -> Option<PathBuf> {
     Some(dirs::home_dir()?.join(".posthog"))
 }
 
+fn adjacent_bundle_dir() -> Option<PathBuf> {
+    Some(env::current_exe().ok()?.parent()?.to_path_buf())
+}
+
+fn bundle_candidates(
+    executable_dir: Option<&Path>,
+    install_dir: Option<&Path>,
+    development_dir: &Path,
+) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(bundle_dir) = executable_dir {
+        candidates.extend([
+            bundle_dir.join("lib").join(API_CLI_BUNDLE),
+            bundle_dir.join(API_CLI_BUNDLE),
+        ]);
+    }
+
+    if let Some(install_dir) = install_dir {
+        candidates.extend([
+            install_dir.join("lib").join(API_CLI_BUNDLE),
+            install_dir.join("cli/lib").join(API_CLI_BUNDLE),
+            install_dir.join("api-cli").join(API_CLI_BUNDLE),
+            install_dir.join(API_CLI_BUNDLE),
+        ]);
+    }
+
+    candidates.push(development_dir.join("lib").join(API_CLI_BUNDLE));
+    candidates
+}
+
 fn find_script() -> Result<PathBuf> {
     if let Some(path) = env::var_os("POSTHOG_API_CLI_PATH") {
         if path.is_empty() {
@@ -44,24 +75,16 @@ fn find_script() -> Result<PathBuf> {
         return Ok(resolved);
     }
 
-    if let Some(install_dir) = default_install_dir() {
-        for candidate in [
-            install_dir.join("lib").join(API_CLI_BUNDLE),
-            install_dir.join("cli/lib").join(API_CLI_BUNDLE),
-            install_dir.join("api-cli").join(API_CLI_BUNDLE),
-            install_dir.join(API_CLI_BUNDLE),
-        ] {
-            if let Some(resolved) = canonicalize_file(&candidate) {
-                return Ok(resolved);
-            }
+    let executable_dir = adjacent_bundle_dir();
+    let install_dir = default_install_dir();
+    for candidate in bundle_candidates(
+        executable_dir.as_deref(),
+        install_dir.as_deref(),
+        Path::new(env!("CARGO_MANIFEST_DIR")),
+    ) {
+        if let Some(resolved) = canonicalize_file(&candidate) {
+            return Ok(resolved);
         }
-    }
-
-    let development_bundle = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("lib")
-        .join(API_CLI_BUNDLE);
-    if let Some(resolved) = canonicalize_file(&development_bundle) {
-        return Ok(resolved);
     }
 
     bail!(
@@ -144,4 +167,70 @@ pub fn run(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn bundle_candidates_prefer_the_bundle_next_to_the_executable() {
+        let executable_dir = PathBuf::from("node_modules").join(".bin_real");
+        let install_dir = PathBuf::from("home").join(".posthog");
+        let development_dir = PathBuf::from("repo").join("cli");
+
+        let candidates =
+            bundle_candidates(Some(&executable_dir), Some(&install_dir), &development_dir);
+
+        assert_eq!(
+            candidates[0],
+            executable_dir.join("lib").join(API_CLI_BUNDLE)
+        );
+        assert_eq!(candidates[1], executable_dir.join(API_CLI_BUNDLE));
+        assert_eq!(candidates[2], install_dir.join("lib").join(API_CLI_BUNDLE));
+        assert_eq!(
+            candidates.last(),
+            Some(&development_dir.join("lib").join(API_CLI_BUNDLE))
+        );
+    }
+
+    #[test]
+    fn canonicalize_file_rejects_directories() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+
+        assert_eq!(canonicalize_file(temp_dir.path()), None);
+    }
+
+    #[test]
+    fn adjacent_bundle_path_is_usable_without_a_home_install() {
+        let temp_dir = tempfile::tempdir().expect("create temp dir");
+        let executable_dir = temp_dir.path().join("node_modules").join(".bin_real");
+        let install_dir = temp_dir.path().join("home").join(".posthog");
+        let development_dir = temp_dir.path().join("repo").join("cli");
+        let adjacent_bundle = executable_dir.join("lib").join(API_CLI_BUNDLE);
+        let legacy_bundle = install_dir.join("lib").join(API_CLI_BUNDLE);
+
+        fs::create_dir_all(adjacent_bundle.parent().expect("adjacent parent"))
+            .expect("create adjacent lib dir");
+        fs::create_dir_all(legacy_bundle.parent().expect("legacy parent"))
+            .expect("create legacy lib dir");
+        fs::write(&adjacent_bundle, "adjacent").expect("write adjacent bundle");
+        fs::write(&legacy_bundle, "legacy").expect("write legacy bundle");
+
+        let resolved =
+            bundle_candidates(Some(&executable_dir), Some(&install_dir), &development_dir)
+                .into_iter()
+                .find_map(|candidate| canonicalize_file(&candidate));
+
+        assert_eq!(
+            resolved,
+            Some(
+                adjacent_bundle
+                    .canonicalize()
+                    .expect("canonicalize adjacent bundle")
+            )
+        );
+    }
 }

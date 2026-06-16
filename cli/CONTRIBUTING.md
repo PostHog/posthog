@@ -36,6 +36,18 @@ To reproduce that release bundle locally, run:
 pnpm --dir services/mcp run build:cli:release
 ```
 
+To smoke-test the packaged CLI before cutting a release, build the same cargo-dist archive locally,
+unpack it into a temporary directory, and run the packaged `posthog-cli api` command:
+
+```bash
+flox activate -- bash -c 'cargo install cargo-dist --version 0.32.0 --locked'
+DIST_BIN="$HOME/.cargo/bin/dist" flox activate -- bash -c './cli/scripts/smoke-release-artifact.sh'
+```
+
+If you are testing uncommitted local changes, set `CLI_RELEASE_SMOKE_ALLOW_DIRTY=1` for the second command.
+The smoke test verifies that the archive includes `lib/posthog-api-cli.mjs` and that `posthog-cli api --agent-help` works from the unpacked artifact without relying on a PostHog repo checkout.
+It does not replace any `posthog-cli` already on your `PATH`; to manually test the built artifact, run `target/distrib/posthog-cli-$(rustc -vV | sed -n 's/^host: //p')/posthog-cli api --agent-help`.
+
 We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
 
 ## Running a local build

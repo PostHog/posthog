@@ -171,6 +171,21 @@ jobs:
                   # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
                   echo "dist ran successfully"
+            - name: Verify API CLI bundle in local artifacts
+              shell: bash
+              run: |
+                  shopt -s nullglob
+                  bundles=(target/distrib/posthog-cli-*/lib/posthog-api-cli.mjs)
+                  if [ "${#bundles[@]}" -eq 0 ]; then
+                      echo "::error::No API CLI bundle found in cargo-dist local artifacts"
+                      exit 1
+                  fi
+                  for bundle in "${bundles[@]}"; do
+                      if [ ! -s "$bundle" ]; then
+                          echo "::error::API CLI bundle is empty: $bundle"
+                          exit 1
+                      fi
+                  done
             - id: cargo-dist
               name: Post-build
               # We force bash here just because github makes it really hard to get values up
