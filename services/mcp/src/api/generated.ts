@@ -7976,11 +7976,14 @@ export namespace Schemas {
          */
       max_output_tokens?: number;
       /**
-         * @maximum 2147483647
+         * @maximum 16384
          * @exclusiveMinimum 0
          */
       max_memory_mb: number;
-      /** @exclusiveMinimum 0 */
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
       max_cpu_cores: number;
     };
 
@@ -30972,11 +30975,14 @@ export namespace Schemas {
          */
       max_output_tokens?: number;
       /**
-         * @maximum 2147483647
+         * @maximum 16384
          * @exclusiveMinimum 0
          */
       max_memory_mb: number;
-      /** @exclusiveMinimum 0 */
+      /**
+         * @maximum 8
+         * @exclusiveMinimum 0
+         */
       max_cpu_cores: number;
     };
 

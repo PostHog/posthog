@@ -234,10 +234,11 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax = 
 
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault = 512
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
-export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax = 2147483647
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax = 16384
 
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault = 0.25
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresMax = 8
 
 export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_turns: 50,
@@ -660,6 +661,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                     max_cpu_cores: zod
                         .number()
                         .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresMax)
                         .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
@@ -850,10 +852,11 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputToken
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault = 512
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
-export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax = 2147483647
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax = 16384
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault = 0.25
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresMax = 8
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_turns: 50,
@@ -1294,6 +1297,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                     max_cpu_cores: zod
                         .number()
                         .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresMax)
                         .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
