@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockIsFeatureEnabled = vi.fn()
 const mockGetAllFlags = vi.fn()
-vi.mock('posthog-node', () => ({
-    PostHog: vi.fn().mockImplementation(function () {
-        return {
-            isFeatureEnabled: mockIsFeatureEnabled,
-            getAllFlags: mockGetAllFlags,
-        }
+// Mock the client `flags.ts` consumes, not posthog-node directly: `getPostHogClient()`
+// returns a `PostHogMCP` (a posthog-node subclass) from the externalized
+// `@posthog/mcp-analytics`, whose internal posthog-node import a `vi.mock('posthog-node')`
+// here would not intercept.
+vi.mock('@/lib/posthog/client', () => ({
+    getPostHogClient: () => ({
+        isFeatureEnabled: mockIsFeatureEnabled,
+        getAllFlags: mockGetAllFlags,
     }),
 }))
 

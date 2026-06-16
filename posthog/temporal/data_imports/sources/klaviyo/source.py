@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -34,6 +35,7 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.KLAVIYO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Klaviyo",
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Klaviyo API key to automatically pull your Klaviyo data into the PostHog Data warehouse.

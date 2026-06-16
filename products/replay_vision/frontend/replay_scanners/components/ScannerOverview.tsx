@@ -105,16 +105,20 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
         if (ranked.length === 0) {
             return <div className="text-muted text-sm">{emptyMessage}</div>
         }
-        const maxCount = ranked[0][1]
+        // Cap at the 5 most common so the panels stay compact.
+        const top = ranked.slice(0, 5)
+        const maxCount = top[0][1]
         return (
             <div className="space-y-1.5">
-                {ranked.map(([tag, count]) => (
+                {top.map(([tag, count]) => (
                     <div key={tag} className="flex items-center gap-2">
                         <LemonTag type="option" className="shrink-0">
                             {tag}
                         </LemonTag>
-                        <LemonProgress percent={Math.round((count / maxCount) * 100)} />
-                        <span className="text-xs text-muted tabular-nums w-8 text-right">{count}</span>
+                        <LemonProgress percent={Math.round((count / maxCount) * 100)} className="flex-1" />
+                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                            {count.toLocaleString()}
+                        </span>
                     </div>
                 ))}
             </div>

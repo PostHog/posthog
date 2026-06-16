@@ -428,6 +428,33 @@ export interface NotificationSettings {
     pipeline_notifications_disabled?: Record<string, boolean>
 }
 
+export interface WebAnalyticsDigestMetricChange {
+    percent: number
+    direction: 'Up' | 'Down'
+    is_good: boolean
+}
+
+export interface WebAnalyticsDigestMetric {
+    key: string
+    label: string
+    value: string
+    change: WebAnalyticsDigestMetricChange | null
+}
+
+export interface WebAnalyticsDigestListItem {
+    label: string
+    value: string
+}
+
+export interface WebAnalyticsDigestMetadata {
+    period_label: string
+    project_name: string
+    dashboard_url: string
+    metrics: WebAnalyticsDigestMetric[]
+    top_pages: WebAnalyticsDigestListItem[]
+    top_sources: WebAnalyticsDigestListItem[]
+}
+
 export interface InAppNotification {
     id: string
     team_id: number | null
@@ -444,6 +471,7 @@ export interface InAppNotification {
     source_url: string
     source_type: string | null
     source_id: string | null
+    metadata: WebAnalyticsDigestMetadata | null
     created_at: string
 }
 
@@ -712,6 +740,7 @@ export interface ConversationsSettings {
     github_enabled?: boolean
     github_integration_id?: number | null
     github_repos?: string[] | null
+    ai_suggestions_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -5459,6 +5488,7 @@ export type APIScopeObject =
     | 'access_control'
     | 'account'
     | 'activity_log'
+    | 'agents'
     | 'alert'
     | 'annotation'
     | 'approvals'
@@ -5503,6 +5533,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'
