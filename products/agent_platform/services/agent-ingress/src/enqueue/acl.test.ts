@@ -139,6 +139,26 @@ describe('applyElevationGrant', () => {
         expect(new Date(result.aclEntry.expires_at!).getTime()).toBeGreaterThan(Date.now())
     })
 
+    it('a second grant on the same request is rejected from committed DB state, not the stale snapshot', async () => {
+        // Replays the concurrent-double-apply scenario sequentially: both calls
+        // hold the same in-memory `session` snapshot where the request is still
+        // pending. The first commits the grant; the second must read the now
+        // -granted DB state (under the row lock) and refuse — otherwise it would
+        // append the proposed message into pending_inputs a second time.
+        const queue = new PgSessionQueue(pool)
+        const session = makeSession({ pending: [makePendingRequest({ content: 'bob says hi' })] })
+        await queue.enqueue(session)
+
+        await applyElevationGrant(queue, session, { requestId: 'req-1', granter: ALICE })
+        await expect(applyElevationGrant(queue, session, { requestId: 'req-1', granter: ALICE })).rejects.toThrow(
+            /not pending/
+        )
+
+        const after = await queue.get(session.id)
+        expect(after!.acl).toHaveLength(1)
+        expect(after!.pending_inputs).toHaveLength(1)
+    })
+
     it('throws when applied to a non-pending request (idempotency stop)', async () => {
         const queue = new PgSessionQueue(pool)
         const decided = { ...makePendingRequest(), state: 'granted' as const, decision_at: 'now', decision_by: ALICE }

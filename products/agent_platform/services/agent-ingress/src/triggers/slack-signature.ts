@@ -15,7 +15,11 @@ export function verifySlackSignature(req: Request, signingSecret: string): boole
         return false
     }
     const now = Math.floor(Date.now() / 1000)
-    if (Math.abs(now - parseInt(ts, 10)) > 60 * 5) {
+    const tsNum = parseInt(ts, 10)
+    // A non-numeric timestamp parses to NaN, and `Math.abs(now - NaN) > 300`
+    // is false — which would silently SKIP the staleness window. Reject
+    // non-finite timestamps explicitly before the freshness check.
+    if (!Number.isFinite(tsNum) || Math.abs(now - tsNum) > 60 * 5) {
         return false
     }
     const raw = ((req as Request & { rawBody?: string }).rawBody ?? JSON.stringify(req.body)) as string
