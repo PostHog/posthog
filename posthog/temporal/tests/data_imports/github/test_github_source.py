@@ -666,7 +666,9 @@ class TestGetRowsResume:
         manager = _make_manager(can_resume=False)
         other_409 = _make_response(status=409, body={"message": "Merge conflict"})
         other_409.text = '{"message": "Merge conflict"}'
-        other_409.raise_for_status.side_effect = requests.HTTPError("409 Client Error: Conflict for url: ...")
+        other_409.raise_for_status.side_effect = requests.HTTPError(
+            "409 Client Error: Conflict for url: ...", response=other_409
+        )
 
         with (
             self._patch_batcher(),
