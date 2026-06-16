@@ -4946,6 +4946,26 @@ First paragraph
         expect(aiRequest.markdownWithResponse).toContain('</ref> paragraph\n\nThinking...')
     })
 
+    it('collapses an idle prompt beside a selection prompt from the formatting toolbar', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: 'First paragraph\n\n<Prompt question="" />',
+                onChange,
+                onAskAI: jest.fn(),
+                createAIChatId: () => TEST_AI_CHAT_ID,
+            })
+        )
+        const textBlock = container.querySelector(NOTEBOOK_TEST_EDITABLE_SELECTOR) as HTMLElement
+
+        selectTextNode(getFirstTextNode(textBlock), 0, 'First'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Ask AI"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls.at(-1)?.[0] as string
+        expect(markdown.match(/<Prompt/g) ?? []).toHaveLength(1)
+        expect(markdown).toContain('<Prompt question="" source="selection"')
+    })
+
     it('adds a link from the formatting toolbar', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs', onChange }))

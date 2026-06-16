@@ -41,6 +41,7 @@ import {
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
+    collapseAdjacentEmptyPromptNodes,
     ensureEditableNotebookDocument,
     getAskAIInlineNotebookQuery,
     getAskAISelectionQuery,
@@ -2395,9 +2396,16 @@ export function MarkdownNotebook({
             options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
         ): void => {
             onInteractionStateChange?.(true)
-            updateNode(nodeId, (currentNode) => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            let didUpdate = false
+            const nextNodes = nodes.flatMap((currentNode): NotebookBlockNode[] => {
+                if (didUpdate || currentNode.id !== nodeId) {
+                    return [currentNode]
+                }
+                didUpdate = true
                 if (!isTextBlockNode(currentNode) && currentNode.type !== 'component') {
-                    return currentNode
+                    return [currentNode]
                 }
                 const promptProps: NotebookComponentProps = { question: '' }
                 if (options?.source === 'selection') {
@@ -2407,13 +2415,26 @@ export function MarkdownNotebook({
                         promptProps.ref = options.selectedRefId
                     }
                 }
-                return {
-                    id: currentNode.id,
-                    type: 'component',
-                    tagName: 'Prompt',
-                    props: promptProps,
-                }
+                return [
+                    {
+                        id: currentNode.id,
+                        type: 'component',
+                        tagName: 'Prompt',
+                        props: promptProps,
+                    },
+                ]
             })
+            if (didUpdate) {
+                commitDocument({
+                    ...currentDocument,
+                    nodes: collapseAdjacentEmptyPromptNodes(nextNodes, nodeId),
+                })
+            } else {
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nextNodes,
+                })
+            }
             setInsertMenu({
                 nodeId,
                 query: '',
@@ -2424,7 +2445,7 @@ export function MarkdownNotebook({
                 selectedRefId: options?.selectedRefId,
             })
         },
-        [onInteractionStateChange, updateNode]
+        [commitDocument, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -3339,7 +3360,7 @@ export function MarkdownNotebook({
         }
         commitDocument({
             ...currentDocument,
-            nodes: nextNodes,
+            nodes: collapseAdjacentEmptyPromptNodes(nextNodes, promptNode.id),
         })
 
         floatingToolbarPositionLockRef.current = null

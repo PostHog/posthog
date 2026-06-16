@@ -133,6 +133,63 @@ export function isPromptComponentNode(node: NotebookBlockNode): node is Notebook
     return node.type === 'component' && node.tagName === 'Prompt'
 }
 
+function isDisposablePromptNode(node: NotebookBlockNode): boolean {
+    if (!isPromptComponentNode(node)) {
+        return false
+    }
+
+    return (
+        !(getNotebookStringProp(node.props.question) ?? '').trim() &&
+        !(getNotebookStringProp(node.props.selectedMarkdown) ?? '').trim() &&
+        !(getNotebookStringProp(node.props.ref) ?? '').trim()
+    )
+}
+
+function getPromptSpecificity(node: NotebookComponentBlockNode): number {
+    return [
+        (getNotebookStringProp(node.props.question) ?? '').trim(),
+        (getNotebookStringProp(node.props.selectedMarkdown) ?? '').trim(),
+        (getNotebookStringProp(node.props.ref) ?? '').trim(),
+    ].filter(Boolean).length
+}
+
+export function collapseAdjacentEmptyPromptNodes(
+    nodes: NotebookBlockNode[],
+    preferredPromptNodeId?: string
+): NotebookBlockNode[] {
+    if (nodes.length < 2) {
+        return nodes
+    }
+
+    const collapsedNodes: NotebookBlockNode[] = []
+    for (const node of nodes) {
+        const previousNode = collapsedNodes.at(-1)
+        if (
+            previousNode &&
+            isPromptComponentNode(previousNode) &&
+            isPromptComponentNode(node) &&
+            (isDisposablePromptNode(previousNode) || isDisposablePromptNode(node))
+        ) {
+            const previousSpecificity = getPromptSpecificity(previousNode)
+            const currentSpecificity = getPromptSpecificity(node)
+            const shouldKeepCurrent =
+                currentSpecificity > previousSpecificity ||
+                (currentSpecificity === previousSpecificity &&
+                    node.id === preferredPromptNodeId &&
+                    previousNode.id !== preferredPromptNodeId)
+
+            if (shouldKeepCurrent) {
+                collapsedNodes[collapsedNodes.length - 1] = node
+            }
+            continue
+        }
+
+        collapsedNodes.push(node)
+    }
+
+    return collapsedNodes.length === nodes.length ? nodes : collapsedNodes
+}
+
 export function isDividerComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG
 }
