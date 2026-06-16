@@ -98,6 +98,7 @@ ALLOWED_TRIGGER_CONFIG: dict[str, set[str]] = {
         "auto_resume_threads",
         "allow_workspace_participants",
         "ack_reaction",
+        "allow_direct_messages",
         "trusted_workspaces",
     },
     "cron": {"name", "schedule", "timezone", "prompt", "external_key", "catch_up", "max_catch_up_age_seconds"},
