@@ -68,7 +68,7 @@
                   toString(person_id) AS customer_id,
                   NULL AS status,
                   min_timestamp AS started_at,
-                  if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+                  if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,
@@ -414,7 +414,7 @@
                   toString(person_id) AS customer_id,
                   NULL AS status,
                   min_timestamp AS started_at,
-                  if(ifNull(greater(max_timestamp_plus_dropoff_days, today()), 0), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
+                  if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp_plus_dropoff_days) AS ended_at,
                   NULL AS metadata
            FROM
              (SELECT events__person.id AS person_id,

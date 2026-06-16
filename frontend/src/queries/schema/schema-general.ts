@@ -54,6 +54,7 @@ import {
     SessionRecordingType,
     SimpleIntervalType,
     SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -62,9 +63,10 @@ import {
 import { integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
-// Re-exported so the codegen picks it up and emits `class SlackIntegrationScope(StrEnum)` in
-// posthog/schema.py. The matching runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
-export { SlackIntegrationScope }
+// Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
+// The runtime consts live in `~/types` as `SLACK_INTEGRATION_SCOPES` (always-on) and
+// `SLACK_INTEGRATION_SCOPES_IN_REVIEW` (DEV-instance only until Slack approves them).
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
@@ -112,6 +114,7 @@ export enum NodeKind {
     TraceSpansQuery = 'TraceSpansQuery',
     TraceSpansAggregationQuery = 'TraceSpansAggregationQuery',
     TraceSpansTreeQuery = 'TraceSpansTreeQuery',
+    TraceSpansAttributeBreakdownQuery = 'TraceSpansAttributeBreakdownQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
 
     // Interface nodes
@@ -237,6 +240,7 @@ export type AnyDataNode =
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
     | CalendarHeatmapQuery
@@ -339,6 +343,7 @@ export type QuerySchema =
     | TraceSpansQuery
     | TraceSpansAggregationQuery
     | TraceSpansTreeQuery
+    | TraceSpansAttributeBreakdownQuery
 
     // AI
     | SuggestedQuestionsQuery
@@ -400,6 +405,7 @@ export type AnyResponseType =
     | TraceSpansQueryResponse
     | TraceSpansAggregationQueryResponse
     | TraceSpansTreeQueryResponse
+    | TraceSpansAttributeBreakdownQueryResponse
 
 /** Tags that will be added to the Query log comment  **/
 export interface QueryLogTags {
@@ -1680,6 +1686,12 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean
+    /**
+     * Whether to show a legend describing the series. The legend only renders when the funnel has
+     * multiple series. Only applies to historical-trends funnels.
+     * @default false
+     */
+    showLegend?: boolean
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1707,6 +1719,8 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilter
+    /** Compare to date range */
+    compareFilter?: CompareFilter
 }
 
 /** @asType integer */
@@ -2320,6 +2334,8 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     accountExecutive?: integer[]
     /** Match accounts whose account owner is any of these user ids (OR semantics). */
     accountOwner?: integer[]
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: integer[]
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -2786,12 +2802,12 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
+    /** @deprecated Ignored — V2 query path was removed. Kept so requests from older clients still validate. */
     useQueryV2?: boolean
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
+    /** @deprecated Ignored — V3 is the only query path. Kept so requests from older clients still validate. */
     useQueryV3?: boolean
     /**
-     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only).
+     * Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery.
      * The backend caps the list at 50 entries; extras are dropped silently.
      * @type array
      */
@@ -3281,6 +3297,13 @@ export interface SpanTreeNode {
      * flame graph.
      */
     avg_start_offset_nano: number
+    /**
+     * How many times this child runs per parent invocation (edge count / parent span
+     * count). Separates fan-out volume from per-call cost: a child can dominate
+     * total_duration_nano purely by running many times per parent. Null for root edges
+     * (no parent invocation to ratio against).
+     */
+    calls_per_parent_invocation?: number | null
 }
 
 export interface TraceSpansTreeQuery extends DataNode<TraceSpansTreeQueryResponse> {
@@ -3311,6 +3334,45 @@ export interface TraceSpansTreeQueryResponse extends AnalyticsQueryResponseBase 
 }
 
 export type CachedTraceSpansTreeQueryResponse = CachedQueryResponse<TraceSpansTreeQueryResponse>
+
+/**
+ * One row of a span attribute breakdown: the spans matching the filters, grouped by one
+ * attribute's value. Spans without the attribute group under `value = ''`.
+ */
+export interface AttributeBreakdownRow {
+    value: string
+    count: integer
+    error_count: integer
+    p50_duration_nano: number
+    p95_duration_nano: number
+}
+
+export type TraceSpanBreakdownType = 'span_attribute' | 'span_resource_attribute'
+export type TraceSpanBreakdownOrderBy = 'count' | 'error_count'
+
+export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAttributeBreakdownQueryResponse> {
+    kind: NodeKind.TraceSpansAttributeBreakdownQuery
+    dateRange: DateRange
+    /** Attribute key to group by (e.g. `http.response.status_code`, `server.address`). */
+    breakdownKey: string
+    /** Where the key lives: span-level attributes or resource-level attributes. */
+    breakdownType: TraceSpanBreakdownType
+    /** Order rows by span count or error count, descending. Defaults to count. */
+    orderBy?: TraceSpanBreakdownOrderBy
+    /** Optional comparison window — when `compare` is true, the runner returns an extra `compare` result set. */
+    compareFilter?: CompareFilter
+    filterGroup?: PropertyGroupFilter
+    serviceNames?: string[]
+}
+
+export interface TraceSpansAttributeBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: AttributeBreakdownRow[]
+    /** Result rows for the comparison period when `compareFilter.compare` is true. */
+    compare?: AttributeBreakdownRow[]
+}
+
+export type CachedTraceSpansAttributeBreakdownQueryResponse =
+    CachedQueryResponse<TraceSpansAttributeBreakdownQueryResponse>
 
 export interface FileSystemCount {
     count: number
@@ -5883,6 +5945,25 @@ export interface SuggestedTable {
     tooltip?: string | null
 }
 
+export const dataWarehouseSourceCategories = [
+    'Databases',
+    'File storage',
+    'Advertising',
+    'Marketing & email',
+    'CRM',
+    'Sales',
+    'Customer support',
+    'Payments & billing',
+    'Finance & accounting',
+    'Analytics',
+    'Engineering & monitoring',
+    'Productivity',
+    'HR & recruiting',
+    'Communication',
+    'E-commerce',
+] as const
+export type DataWarehouseSourceCategory = (typeof dataWarehouseSourceCategories)[number]
+
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
@@ -5925,6 +6006,19 @@ export interface SourceConfig {
      * @default false
      */
     supportsColumnSelection?: boolean
+
+    /**
+     * Catalog bucket this source is grouped under in the new-source wizard. Optional at the
+     * type level so partial/in-progress sources don't break, but every registered source must
+     * set one (enforced by a test). See `dataWarehouseSourceCategories`.
+     */
+    category?: DataWarehouseSourceCategory
+
+    /**
+     * Extra search terms (alternate spellings, acronyms) for the catalog search, e.g.
+     * GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category.
+     */
+    keywords?: string[]
 }
 
 export const externalDataSources = [
@@ -6154,6 +6248,12 @@ export const externalDataSources = [
     'SapSuccessFactors',
     'OracleEbs',
     'OracleFusion',
+    'AmazonSNS',
+    'AmazonEventBridge',
+    'AmazonSQS',
+    'AmazonKinesis',
+    'AmazonCloudWatch',
+    'OpenAIAds',
     'Custom',
 ] as const
 
@@ -6669,6 +6769,7 @@ export enum ProductKey {
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',
     ENDPOINTS = 'endpoints',
+    ENGINEERING_ANALYTICS = 'engineering_analytics',
     ERROR_TRACKING = 'error_tracking',
     EXPERIMENTS = 'experiments',
     FEATURE_FLAGS = 'feature_flags',
@@ -6699,6 +6800,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     REPLAY_VISION = 'replay_vision',
     SITE_APPS = 'site_apps',
+    SKILLS = 'skills',
     SUBSCRIPTIONS = 'subscriptions',
     STREAMLIT_APPS = 'streamlit_apps',
     SURVEYS = 'surveys',

@@ -163,14 +163,18 @@ that have already been fixed in the working tree.
       `hog_corpus_diagnostic.py` (the hog corpus has been at 100% for
       a while — usually skip);
     + PBT (`pbt_diagnostic.py --rule expr|select|program`);
-    + thinking hard about edge cases the grammar surface invites.
+    + thinking hard about edge cases the grammar surface invites —
+      pipe each candidate through `shrink_query.py` to confirm it
+      diverges and get the minimal form.
 
     For everything other than regression tests, start with a small
     budget (lower `--n`, less thinking time) and increase until at
     least one divergence surfaces.
-2. **Reduce + pin.** Shrink each divergence to its minimal form and
-   add it as a regression test in `_test_parser.py`'s factory so
-   it runs on all three backends.
+2. **Reduce + pin.** Shrink each divergence to its minimal form via
+   shrinkray — pipe one query through `shrink_query.py`, or use
+   `--shrink-failures` on the corpus runners — and add it as a
+   regression test in `_test_parser.py`'s factory so it runs on all
+   three backends.
 3. **Read before fixing.** Read the grammar AND the cpp visitor for
    the rule. 100% identical behaviour means knowing exactly what cpp
    does — guessing leads to fixes that resurface on a deeper PBT
@@ -190,7 +194,8 @@ in the background:
 + `pbt_diagnostic.py --rule program`
 + `log_corpus_diagnostic.py` (real query corpus)
 + a research subagent grepping for cpp-vs-rust visitor differences
-+ a research subagent brainstorming adversarial edge cases
++ a research subagent brainstorming adversarial edge cases, each
+  confirmed + minimised through `shrink_query.py`
 
 Most of these can stream divergences as they're found. Once at least
 one known divergence is in hand, start fixing it while the parallel
@@ -233,8 +238,9 @@ PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py \
 
 Generates ~5 000 random grammar surface examples per rule, parses with
 oracle and candidate, buckets divergences by AST shape, and prints
-shrunk reproducers. Use `--shrink-failures` to auto-reduce each
-divergence to a minimal example.
+reproducers. Use `--shrink-failures` to reduce each divergence to a
+minimal example via shrinkray (needs the optional `hogql-parser-parity`
+group — `uv sync --group hogql-parser-parity`).
 
 ### Real-query corpora via `log_corpus_diagnostic.py` / `hog_corpus_diagnostic.py`
 
@@ -250,7 +256,41 @@ PYTHONPATH=. python posthog/hogql/scripts/hog_corpus_diagnostic.py
 Both auto-download via `hogli metabase:query` and cache locally under
 `posthog/hogql/scripts/.local/`. Pass `--skip-download` to reuse the
 existing dump while iterating. Failures are written one block per
-divergence to a `.sql` / `.hog` file the agent can chew through.
+divergence to a `.sql` / `.hog` file the agent can chew through. Add
+`--shrink-failures` to reduce each failing query to a minimal repro via
+shrinkray before it's written.
+
+### Shrink one query via `shrink_query.py`
+
+```bash
+# Pipe in a query that diverges (or that you think might); get the
+# minimal repro back on stdout:
+echo '<query>' | PYTHONPATH=. python posthog/hogql/scripts/shrink_query.py --rule select
+```
+
+The "think hard about edge cases" arm of the loop, and the reducer for
+any single divergence. Reads one query on stdin, writes the smallest
+variant that still triggers the same divergence to stdout (chatter goes
+to stderr, so stdout is exactly the repro). Doubles as a divergence
+check: a query the backends agree on exits non-zero with the reason on
+stderr. An agent brainstorming edge cases pipes each candidate through
+it and keeps the ones that come back shrunk.
+
+### The diagnostics need the optional parity group
+
+Shrinking is powered by [shrinkray](https://github.com/DRMacIver/shrinkray),
+which lives in the `hogql-parser-parity` group rather than the default dev
+install (its transitive deps — textual, libcst, black — are heavy). The
+parity scripts in `posthog/hogql/scripts/` import it at module level, so
+they require that group:
+
+```bash
+uv sync --group hogql-parser-parity
+```
+
+Without it they fail fast at startup with a `ModuleNotFoundError` — these
+are parity-work-only tools, so they just require the parity dependency
+rather than degrading to a no-shrink mode.
 
 ### Perf bench via `posthog/hogql/scripts/parser_bench.py`
 
