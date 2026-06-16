@@ -67,11 +67,16 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 
 logger = structlog.get_logger(__name__)
 
-# Variable TTL for experiment exposure lazy computation
-# Current day refreshes frequently (data arriving), old data cached long
+# Variable TTL for experiment exposure lazy computation. Days 2-4 stay
+# recomputable (18h, just under the ~24h warmer cadence) so the daily warmer
+# folds in late-arriving exposure events before a window freezes. Freezing too
+# early keeps a stale first_exposure_time and undercounts the metric window.
 DEFAULT_EXPOSURE_TTL_SECONDS = {
     "0d": 15 * 60,  # 15 min
     "1d": 60 * 60,  # 1 hour
+    "2d": 18 * 60 * 60,  # 18 hours
+    "3d": 18 * 60 * 60,  # 18 hours
+    "4d": 18 * 60 * 60,  # 18 hours
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
 
