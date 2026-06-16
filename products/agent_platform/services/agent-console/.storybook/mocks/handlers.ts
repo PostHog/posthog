@@ -16,10 +16,13 @@ import type { Turn } from '@posthog/agent-chat'
 import {
     getAgentBySlugStore,
     getAgentStatsStore,
+    getApprovalStore,
     getBundleRawStore,
     getFleetStatsStore,
     getSessionStore,
+    listAgentApprovalsStore,
     listAgentsStore,
+    listFleetApprovalsStore,
     listLiveSessionsStore,
     listLogsForSessionStore,
     listRevisionsStore,
@@ -195,5 +198,36 @@ export const handlers = [
 
     http.get(`${PROJECT_PREFIX}/agent_fleet/live_sessions/`, () => {
         return HttpResponse.json({ results: listLiveSessionsStore() })
+    }),
+
+    /* Approvals — fleet inbox + per-agent tab + single-request detail.
+     * Mirrors the admin-only read surface in `backend/presentation/views.py`. */
+    http.get(`${PROJECT_PREFIX}/agent_fleet/approvals/`, () => {
+        return HttpResponse.json({ results: listFleetApprovalsStore() })
+    }),
+
+    http.get(`${PROJECT_PREFIX}/agent_applications/:slug/approvals/`, ({ params }) => {
+        const slug = params.slug as string
+        if (!getAgentBySlugStore(slug)) {
+            return HttpResponse.json({ error: 'not_found' }, { status: 404 })
+        }
+        return HttpResponse.json({ results: listAgentApprovalsStore(slug) })
+    }),
+
+    http.get(`${PROJECT_PREFIX}/agent_applications/:slug/approvals/:id/`, ({ params }) => {
+        const approval = getApprovalStore(params.slug as string, params.id as string)
+        if (!approval) {
+            return HttpResponse.json({ error: 'approval_not_found' }, { status: 404 })
+        }
+        return HttpResponse.json(approval)
+    }),
+
+    /* The one write the console issues. Mocked so the approve / reject flow
+     * completes in stories; the store is read-only, so a decided row keeps
+     * its fixture state on refetch (see the decided-state fixtures for those
+     * outcomes). Janitor flips the real row + writes the wake marker. */
+    http.post(`${PROJECT_PREFIX}/agent_applications/:slug/approvals/:id/decide/`, async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as { decision?: string }
+        return HttpResponse.json({ ok: true, state: body.decision === 'reject' ? 'rejected' : 'approving' })
     }),
 ]

@@ -9,6 +9,7 @@
  */
 
 export * from './agents'
+export * from './approvals'
 export * from './bundles'
 export * from './logs'
 export * from './scripts'

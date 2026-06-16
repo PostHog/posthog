@@ -1,174 +1,212 @@
 /**
- * `<ApprovalDetail />` — slide-out drawer rendering a single approval
- * request. Loaded lazily by id; parent owns open/close + which row is
- * selected.
+ * `<ApprovalDetail />` — embeddable detail panel for a single approval
+ * request. Lives in the right pane of the approvals master-detail layout
+ * (parent owns which row is selected via the `?request=` URL param).
  *
- * Decision controls only render when the row is still `queued`. The form
+ * Two tabs: **Approval** (model reasoning, proposed args, decision
+ * controls) and **Session** (the agent runtime session that proposed the
+ * gated call, rendered with the shared `<SessionDetail>` so the approver
+ * gets the full conversation + logs for context).
+ *
+ * Decision controls only render while the row is still `queued`. The form
  * disables submit while a request is in flight, surfaces server errors
  * inline, and on success calls `onDecided(state)` so the parent can
- * optimistically remove the row from the list.
+ * refetch the list. The panel stays open afterwards so the approver can
+ * watch the decided outcome (state, dispatch result) land via polling.
  */
 
-import { Loader2Icon, LockIcon } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { Loader2Icon, LockIcon, XIcon } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
+import type { ChatSession } from '@posthog/agent-chat'
+import type { LogEntry } from '@posthog/agent-chat/fixtures'
 import {
     Badge,
     Button,
-    Drawer,
-    DrawerBackdrop,
-    DrawerClose,
-    DrawerContent,
-    DrawerDescription,
-    DrawerFooter,
-    DrawerHeader,
-    DrawerPortal,
-    DrawerTitle,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
     Textarea,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
 
-import { ApiError, ApprovalRequest, decideApproval, DecideApprovalInput, getApproval } from '@/lib/apiClient'
+import { usePosthogBaseUrl, useSessionTeamId } from '@/components/session-context'
+import {
+    ApiError,
+    ApprovalRequest,
+    decideApproval,
+    DecideApprovalInput,
+    getApproval,
+    getSession,
+    listLogsForSession,
+} from '@/lib/apiClient'
+import { aiObservabilityTraceUrl } from '@/lib/posthogLinks'
+import { type ResourceState, useResource } from '@/lib/useResource'
+import { SessionDetail } from '@/screens/SessionDetail'
 
-import { useSessionTeamId } from './session-context'
+/** Sessions + approvals change while an agent is running, so the detail polls. */
+const POLL_MS = 10_000
+
+type Agent = { id: string; name: string; slug: string }
 
 export interface ApprovalDetailProps {
-    /** Closed when null; opens when set. */
+    /** Null renders nothing — the parent only mounts this when a row is selected. */
     approvalId: string | null
-    /** Used to build the API URL — every approval is scoped to one agent. */
-    agentSlug: string | null
-    /** Display name for the header. */
-    agentName?: string | null
+    /** The agent that owns this approval — used for the API URL and to hydrate its session. */
+    agent: Agent | null
+    /** Clears the host's `?request=` param. */
     onClose: () => void
-    /**
-     * Fires after a successful approve / reject so the parent list can
-     * remove the row optimistically and refetch.
-     */
+    /** Fires after a successful approve / reject so the parent list can refetch. */
     onDecided?: (next: 'approving' | 'rejected') => void
 }
 
 export function ApprovalDetail({
     approvalId,
-    agentSlug,
-    agentName,
+    agent,
     onClose,
     onDecided,
-}: ApprovalDetailProps): React.ReactElement {
-    return (
-        <Drawer open={approvalId !== null} onOpenChange={(open) => !open && onClose()}>
-            <DrawerPortal>
-                <DrawerBackdrop />
-                <DrawerContent className="!w-full !max-w-2xl">
-                    {approvalId && agentSlug ? (
-                        <DetailBody
-                            key={approvalId}
-                            approvalId={approvalId}
-                            agentSlug={agentSlug}
-                            agentName={agentName ?? null}
-                            onClose={onClose}
-                            onDecided={onDecided}
-                        />
-                    ) : null}
-                </DrawerContent>
-            </DrawerPortal>
-        </Drawer>
-    )
+}: ApprovalDetailProps): React.ReactElement | null {
+    if (!approvalId || !agent) {
+        return null
+    }
+    return <DetailBody key={approvalId} approvalId={approvalId} agent={agent} onClose={onClose} onDecided={onDecided} />
 }
 
 interface DetailBodyProps {
     approvalId: string
-    agentSlug: string
-    agentName: string | null
+    agent: Agent
     onClose: () => void
     onDecided?: (next: 'approving' | 'rejected') => void
 }
 
-function DetailBody({ approvalId, agentSlug, agentName, onClose, onDecided }: DetailBodyProps): React.ReactElement {
+function DetailBody({ approvalId, agent, onClose, onDecided }: DetailBodyProps): React.ReactElement {
     const teamId = useSessionTeamId()!
-    const [approval, setApproval] = useState<ApprovalRequest | null>(null)
-    const [loadError, setLoadError] = useState<string | null>(null)
 
-    useEffect(() => {
-        let cancelled = false
-        setApproval(null)
-        setLoadError(null)
-        ;(async () => {
-            try {
-                const row = await getApproval(teamId, agentSlug, approvalId)
-                if (!cancelled) {
-                    setApproval(row)
-                }
-            } catch (err) {
-                if (cancelled) {
-                    return
-                }
-                setLoadError(
-                    err instanceof ApiError && err.status === 404
-                        ? 'This approval no longer exists.'
-                        : err instanceof Error
-                          ? err.message
-                          : String(err)
-                )
-            }
-        })()
-        return () => {
-            cancelled = true
-        }
-    }, [teamId, agentSlug, approvalId])
+    const approvalRes = useResource(
+        () => getApproval(teamId, agent.slug, approvalId),
+        [teamId, agent.slug, approvalId],
+        { pollMs: POLL_MS }
+    )
+    const approval = approvalRes.data
+    const sessionId = approval?.session_id ?? null
 
-    if (loadError) {
+    const sessionRes = useResource(
+        () => (sessionId ? getSession(teamId, agent.slug, sessionId, agent).catch(() => null) : Promise.resolve(null)),
+        [teamId, agent.slug, sessionId, agent.id],
+        { pollMs: POLL_MS }
+    )
+    const logsRes = useResource(
+        () => (sessionId ? listLogsForSession(teamId, agent.slug, sessionId).catch(() => []) : Promise.resolve([])),
+        [teamId, agent.slug, sessionId],
+        { pollMs: POLL_MS }
+    )
+
+    if (approvalRes.error) {
+        const message =
+            approvalRes.error instanceof ApiError && approvalRes.error.status === 404
+                ? 'This approval no longer exists.'
+                : approvalRes.error.message
         return (
-            <>
-                <DrawerHeader>
-                    <DrawerTitle>Approval request</DrawerTitle>
-                    <DrawerDescription>Couldn't load this approval.</DrawerDescription>
-                </DrawerHeader>
-                <div className="px-6 py-4 text-sm text-destructive-foreground">{loadError}</div>
-                <DrawerFooter>
-                    <DrawerClose render={<Button variant="outline" type="button" onClick={onClose} />}>
-                        Close
-                    </DrawerClose>
-                </DrawerFooter>
-            </>
+            <PanelShell title="Approval request" onClose={onClose}>
+                <div className="px-4 py-4 text-sm text-destructive-foreground">{message}</div>
+            </PanelShell>
         )
     }
+
     if (!approval) {
         return (
-            <>
-                <DrawerHeader>
-                    <DrawerTitle>Loading approval…</DrawerTitle>
-                </DrawerHeader>
-                <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+            <PanelShell title="Loading approval…" onClose={onClose}>
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                     <Loader2Icon className="h-4 w-4 animate-spin" />
                 </div>
-            </>
+            </PanelShell>
         )
     }
 
     return (
         <Loaded
             approval={approval}
-            agentSlug={agentSlug}
-            agentName={agentName}
+            agent={agent}
+            sessionState={sessionRes}
+            logs={logsRes.data ?? []}
             onClose={onClose}
             onDecided={onDecided}
+            reloadApproval={approvalRes.reload}
         />
+    )
+}
+
+/** Header chrome shared by the loading / error / loaded states. */
+function PanelShell({
+    title,
+    subtitle,
+    onClose,
+    children,
+}: {
+    title: React.ReactNode
+    subtitle?: React.ReactNode
+    onClose: () => void
+    children: React.ReactNode
+}): React.ReactElement {
+    return (
+        <div className="flex h-full min-h-0 flex-col">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm">{title}</div>
+                    {subtitle ? <div className="mt-0.5 text-xs text-muted-foreground">{subtitle}</div> : null}
+                </div>
+                <Tooltip>
+                    <TooltipTrigger
+                        render={
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                aria-label="Close approval"
+                                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                            >
+                                <XIcon className="h-4 w-4" />
+                            </button>
+                        }
+                    />
+                    <TooltipContent side="left">Close approval</TooltipContent>
+                </Tooltip>
+            </header>
+            {children}
+        </div>
     )
 }
 
 interface LoadedProps {
     approval: ApprovalRequest
-    agentSlug: string
-    agentName: string | null
+    agent: Agent
+    sessionState: ResourceState<ChatSession | null>
+    logs: LogEntry[]
     onClose: () => void
     onDecided?: (next: 'approving' | 'rejected') => void
+    reloadApproval: () => void
 }
 
-function Loaded({ approval, agentSlug, agentName, onClose, onDecided }: LoadedProps): React.ReactElement {
+type Pane = 'approval' | 'session'
+
+function Loaded({
+    approval,
+    agent,
+    sessionState,
+    logs,
+    onClose,
+    onDecided,
+    reloadApproval,
+}: LoadedProps): React.ReactElement {
     const teamId = useSessionTeamId()!
+    const posthogBaseUrl = usePosthogBaseUrl()
     const scope = approval.approver_scope as ApproverScope
     const allowEdit = scope?.allow_edit === true
     const isQueued = approval.state === 'queued'
 
+    const [pane, setPane] = useState<Pane>('approval')
     const [reason, setReason] = useState('')
     const [editMode, setEditMode] = useState(false)
     const [editedArgsText, setEditedArgsText] = useState<string>(() => JSON.stringify(approval.proposed_args, null, 2))
@@ -195,9 +233,10 @@ function Loaded({ approval, agentSlug, agentName, onClose, onDecided }: LoadedPr
         setSubmitting(decision)
         setServerError(null)
         try {
-            const res = await decideApproval(teamId, agentSlug, approval.id, body)
+            const res = await decideApproval(teamId, agent.slug, approval.id, body)
             onDecided?.(res.state)
-            onClose()
+            // Stay open and refetch so the approver sees the decided outcome land.
+            reloadApproval()
         } catch (err) {
             setServerError(err instanceof Error ? err.message : String(err))
         } finally {
@@ -205,144 +244,195 @@ function Loaded({ approval, agentSlug, agentName, onClose, onDecided }: LoadedPr
         }
     }
 
+    const sessionId = approval.session_id
+    const obsUrl = posthogBaseUrl && sessionId ? aiObservabilityTraceUrl(posthogBaseUrl, teamId, sessionId) : undefined
+
     return (
-        <>
-            <DrawerHeader>
-                <DrawerTitle className="flex items-center gap-2">
-                    <LockIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
-                    <code className="font-mono text-sm">{approval.tool_name}</code>
-                    <StateBadge state={approval.state} />
-                </DrawerTitle>
-                <DrawerDescription>
-                    {agentName ? <span className="text-foreground">{agentName}</span> : null}
-                    {agentName ? <span className="px-1.5 text-muted-foreground/60">·</span> : null}
-                    <span>{relativeAge(approval.created_at)} ago</span>
-                    {isQueued ? (
-                        <>
-                            <span className="px-1.5 text-muted-foreground/60">·</span>
-                            <span>expires {relativeDelta(approval.expires_at)}</span>
-                        </>
-                    ) : null}
-                </DrawerDescription>
-            </DrawerHeader>
+        <div className="flex h-full min-h-0 flex-col">
+            <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3">
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm">
+                        <LockIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                        <code className="truncate font-mono text-sm font-medium text-foreground">
+                            {approval.tool_name}
+                        </code>
+                        <StateBadge state={approval.state} />
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                        <span className="text-foreground">{agent.name}</span>
+                        <span className="px-1.5 text-muted-foreground/60">·</span>
+                        <span>{relativeAge(approval.created_at)} ago</span>
+                        {isQueued ? (
+                            <>
+                                <span className="px-1.5 text-muted-foreground/60">·</span>
+                                <span>expires {relativeDelta(approval.expires_at)}</span>
+                            </>
+                        ) : null}
+                    </div>
+                </div>
+                <Tooltip>
+                    <TooltipTrigger
+                        render={
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                aria-label="Close approval"
+                                className="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                            >
+                                <XIcon className="h-4 w-4" />
+                            </button>
+                        }
+                    />
+                    <TooltipContent side="left">Close approval</TooltipContent>
+                </Tooltip>
+            </header>
 
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 text-sm">
-                <AssistantSnapshot message={approval.assistant_message} />
+            <Tabs
+                value={pane}
+                onValueChange={(v) => setPane(v as Pane)}
+                className="flex min-h-0 flex-1 flex-col gap-0 overflow-hidden"
+            >
+                <div className="flex shrink-0 items-center border-b border-border px-4">
+                    <TabsList variant="line">
+                        <TabsTrigger value="approval">Approval</TabsTrigger>
+                        <TabsTrigger value="session">Session</TabsTrigger>
+                    </TabsList>
+                </div>
 
-                <Section title="Proposed arguments" hint="Frozen at intercept time.">
-                    <JsonView value={approval.proposed_args} />
-                </Section>
+                <TabsContent value="approval" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                    <div className="flex-1 space-y-6 overflow-y-auto px-4 py-4 text-sm">
+                        <AssistantSnapshot message={approval.assistant_message} />
 
-                {!isQueued ? <DecidedFooter approval={approval} /> : null}
+                        <Section title="Proposed arguments" hint="Frozen at intercept time.">
+                            <JsonView value={approval.proposed_args} />
+                        </Section>
 
-                {isQueued ? (
-                    <Section title="Decision">
-                        <div className="space-y-3">
-                            {allowEdit ? (
-                                <div className="rounded-md border border-border bg-muted/20 p-3">
-                                    <label className="flex items-center gap-2 text-xs font-medium text-foreground">
-                                        <input
-                                            type="checkbox"
-                                            checked={editMode}
-                                            onChange={(e) => {
-                                                setEditMode(e.currentTarget.checked)
-                                                setArgsParseError(null)
-                                            }}
-                                            disabled={submitting !== null}
-                                        />
-                                        Approve with edits
-                                    </label>
-                                    {editMode ? (
-                                        <div className="mt-2 space-y-1.5">
-                                            <Textarea
-                                                value={editedArgsText}
-                                                onChange={(e) => {
-                                                    setEditedArgsText(e.currentTarget.value)
-                                                    setArgsParseError(null)
-                                                }}
-                                                rows={8}
-                                                spellCheck={false}
-                                                className="font-mono text-[0.75rem]"
-                                                disabled={submitting !== null}
-                                            />
-                                            <div className="flex items-center justify-between">
-                                                <Button
-                                                    type="button"
-                                                    variant="link-muted"
-                                                    size="sm"
-                                                    disabled={submitting !== null}
-                                                    onClick={() => {
-                                                        setEditedArgsText(
-                                                            JSON.stringify(approval.proposed_args, null, 2)
-                                                        )
+                        {!isQueued ? <DecidedFooter approval={approval} /> : null}
+
+                        {isQueued ? (
+                            <Section title="Decision">
+                                <div className="space-y-3">
+                                    {allowEdit ? (
+                                        <div className="rounded-md border border-border bg-muted/20 p-3">
+                                            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editMode}
+                                                    onChange={(e) => {
+                                                        setEditMode(e.currentTarget.checked)
                                                         setArgsParseError(null)
                                                     }}
-                                                >
-                                                    Reset to proposed
-                                                </Button>
-                                                {argsParseError ? (
-                                                    <span className="text-[0.6875rem] text-destructive-foreground">
-                                                        {argsParseError}
-                                                    </span>
-                                                ) : null}
-                                            </div>
+                                                    disabled={submitting !== null}
+                                                />
+                                                Approve with edits
+                                            </label>
+                                            {editMode ? (
+                                                <div className="mt-2 space-y-1.5">
+                                                    <Textarea
+                                                        value={editedArgsText}
+                                                        onChange={(e) => {
+                                                            setEditedArgsText(e.currentTarget.value)
+                                                            setArgsParseError(null)
+                                                        }}
+                                                        rows={8}
+                                                        spellCheck={false}
+                                                        className="font-mono text-[0.75rem]"
+                                                        disabled={submitting !== null}
+                                                    />
+                                                    <div className="flex items-center justify-between">
+                                                        <Button
+                                                            type="button"
+                                                            variant="link-muted"
+                                                            size="sm"
+                                                            disabled={submitting !== null}
+                                                            onClick={() => {
+                                                                setEditedArgsText(
+                                                                    JSON.stringify(approval.proposed_args, null, 2)
+                                                                )
+                                                                setArgsParseError(null)
+                                                            }}
+                                                        >
+                                                            Reset to proposed
+                                                        </Button>
+                                                        {argsParseError ? (
+                                                            <span className="text-[0.6875rem] text-destructive-foreground">
+                                                                {argsParseError}
+                                                            </span>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+                                            ) : null}
                                         </div>
+                                    ) : (
+                                        <p className="text-[0.6875rem] text-muted-foreground">
+                                            This tool's spec doesn't allow editing arguments — approval dispatches with
+                                            the model's exact args.
+                                        </p>
+                                    )}
+
+                                    <div className="space-y-1.5">
+                                        <label
+                                            className="text-xs font-medium text-foreground"
+                                            htmlFor="approval-reason"
+                                        >
+                                            Reason (optional)
+                                        </label>
+                                        <Textarea
+                                            id="approval-reason"
+                                            value={reason}
+                                            onChange={(e) => setReason(e.currentTarget.value)}
+                                            rows={2}
+                                            disabled={submitting !== null}
+                                            placeholder="Why are you approving / rejecting?"
+                                        />
+                                    </div>
+
+                                    {serverError ? (
+                                        <p className="text-xs text-destructive-foreground">{serverError}</p>
                                     ) : null}
                                 </div>
-                            ) : (
-                                <p className="text-[0.6875rem] text-muted-foreground">
-                                    This tool's spec doesn't allow editing arguments — approval dispatches with the
-                                    model's exact args.
-                                </p>
-                            )}
-
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-foreground" htmlFor="approval-reason">
-                                    Reason (optional)
-                                </label>
-                                <Textarea
-                                    id="approval-reason"
-                                    value={reason}
-                                    onChange={(e) => setReason(e.currentTarget.value)}
-                                    rows={2}
-                                    disabled={submitting !== null}
-                                    placeholder="Why are you approving / rejecting?"
-                                />
-                            </div>
-
-                            {serverError ? <p className="text-xs text-destructive-foreground">{serverError}</p> : null}
-                        </div>
-                    </Section>
-                ) : null}
-            </div>
-
-            <DrawerFooter className="flex-row justify-between">
-                <DrawerClose render={<Button variant="outline" type="button" disabled={submitting !== null} />}>
-                    Close
-                </DrawerClose>
-                {isQueued ? (
-                    <div className="flex gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => submit('reject')}
-                            disabled={submitting !== null}
-                            aria-busy={submitting === 'reject' ? 'true' : undefined}
-                        >
-                            {submitting === 'reject' ? 'Rejecting…' : 'Reject'}
-                        </Button>
-                        <Button
-                            type="button"
-                            onClick={() => submit('approve')}
-                            disabled={submitting !== null}
-                            aria-busy={submitting === 'approve' ? 'true' : undefined}
-                        >
-                            {submitting === 'approve' ? 'Approving…' : editMode ? 'Approve with edits' : 'Approve'}
-                        </Button>
+                            </Section>
+                        ) : null}
                     </div>
-                ) : null}
-            </DrawerFooter>
-        </>
+
+                    {isQueued ? (
+                        <div className="flex shrink-0 justify-end gap-2 border-t border-border px-4 py-3">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => submit('reject')}
+                                disabled={submitting !== null}
+                                aria-busy={submitting === 'reject' ? 'true' : undefined}
+                            >
+                                {submitting === 'reject' ? 'Rejecting…' : 'Reject'}
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={() => submit('approve')}
+                                disabled={submitting !== null}
+                                aria-busy={submitting === 'approve' ? 'true' : undefined}
+                            >
+                                {submitting === 'approve' ? 'Approving…' : editMode ? 'Approve with edits' : 'Approve'}
+                            </Button>
+                        </div>
+                    ) : null}
+                </TabsContent>
+
+                <TabsContent value="session" className="min-h-0 flex-1 overflow-hidden">
+                    {sessionState.data ? (
+                        <SessionDetail session={sessionState.data} logs={logs} aiObservabilityTraceUrl={obsUrl} />
+                    ) : sessionState.loading ? (
+                        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                            <Loader2Icon className="h-4 w-4 animate-spin" />
+                        </div>
+                    ) : (
+                        <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                            Couldn't load the session that proposed this call.
+                        </div>
+                    )}
+                </TabsContent>
+            </Tabs>
+        </div>
     )
 }
 
