@@ -19,7 +19,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricFilter
+from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy
 from products.metrics.backend.facade.enums import FilterOp
 
 AttributeScope = Literal["resource", "attribute", "auto"]
@@ -89,7 +89,7 @@ def _aggregation_expr(name: str) -> ast.Expr:
     raise ValueError(f"Unsupported aggregation: {name!r}")
 
 
-_ALLOWED_AGGREGATIONS: frozenset[str] = frozenset({"sum", "avg", "count", "p95"})
+_ALLOWED_AGGREGATIONS: frozenset[str] = frozenset({"sum", "avg", "count", "p95", "rate", "increase"})
 
 # Target ~60 buckets across the requested range — feels right for a chart.
 _TARGET_BUCKET_COUNT = 60
@@ -162,11 +162,15 @@ class MetricQueryRunner:
         date_from: dt.datetime,
         date_to: dt.datetime,
         filters: Sequence[MetricFilter] = (),
+        group_by: Sequence[MetricGroupBy] = (),
+        interval: str | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
         if date_to <= date_from:
             raise ValueError("date_to must be after date_from")
+        if interval is not None and interval not in {name for name, _, _ in _INTERVAL_LADDER}:
+            raise ValueError(f"Unknown interval: {interval!r}")
 
         self.team = team
         self.metric_name = metric_name
@@ -174,9 +178,46 @@ class MetricQueryRunner:
         self.date_from = date_from
         self.date_to = date_to
         self.filters = tuple(filters)
-        self.interval = _pick_interval(date_from, date_to)
+        self.group_by = tuple(group_by)
+        self.interval = interval or _pick_interval(date_from, date_to)
 
     def run(self) -> list[dict[str, Any]]:
+        """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
+        entry per group_by key (always `{}` without group_by)."""
+        if self.aggregation in ("rate", "increase"):
+            query = self._build_counter_query()
+        else:
+            query = self._build_simple_query()
+
+        response = execute_hogql_query(
+            query_type="MetricQuery",
+            query=query,
+            team=self.team,
+            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+        )
+
+        group_count = len(self.group_by)
+        rows: list[dict[str, Any]] = []
+        for row in response.results:
+            rows.append(
+                {
+                    "time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0],
+                    "value": row[1 + group_count],
+                    "labels": {group.key: row[1 + index] for index, group in enumerate(self.group_by)},
+                }
+            )
+        return rows
+
+    def _splice_group_columns(self, query: ast.SelectQuery) -> None:
+        """Insert the group_by label columns between `time` and `value` —
+        parse_select placeholders can't express a variable column count."""
+        assert query.group_by is not None
+        for index, group in enumerate(self.group_by):
+            label_expr = ast.Call(name="toString", args=[attribute_field(group.key, scope=group.scope.value)])
+            query.select.insert(1 + index, ast.Alias(alias=f"group_{index}", expr=label_expr))
+            query.group_by.append(ast.Field(chain=[f"group_{index}"]))
+
+    def _build_simple_query(self) -> ast.SelectQuery:
         # `metrics` is only registered under the `posthog.` HogQL namespace
         # (see posthog/hogql/database/database.py).
         query = parse_select(
@@ -203,15 +244,76 @@ class MetricQueryRunner:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+        self._splice_group_columns(query)
+        return query
 
-        response = execute_hogql_query(
-            query_type="MetricQuery",
-            query=query,
-            team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+    def _build_counter_query(self) -> ast.SelectQuery:
+        """rate/increase: per-underlying-series deltas, then aggregate.
+
+        Each physical series (service_name, resource_fingerprint, datapoint
+        attributes) gets its samples diffed in timestamp order via a window
+        function, Prometheus-style:
+
+        - cumulative temporality: contribution = value - prev, clamped for
+          counter resets (value < prev means the counter restarted, so the
+          post-reset absolute value IS the increase); the first sample of a
+          series contributes 0 (its history is unknown).
+        - delta temporality: each sample already is the increase, so it
+          contributes its own value.
+
+        `increase` sums contributions per bucket; `rate` divides by the
+        bucket length in seconds.
+        """
+        step_seconds = next(step.total_seconds() for name, step, _ in _INTERVAL_LADDER if name == self.interval)
+        divisor = step_seconds if self.aggregation == "rate" else 1.0
+        query = parse_select(
+            """
+                SELECT
+                    toStartOfInterval(sample_timestamp, {interval}) AS time,
+                    sum(contribution) / {divisor} AS value
+                FROM (
+                    SELECT
+                        timestamp AS sample_timestamp,
+                        attributes AS attributes,
+                        resource_attributes AS resource_attributes,
+                        multiIf(
+                            aggregation_temporality = 'delta', value,
+                            isNull(prev_value), 0.0,
+                            value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),
+                            value
+                        ) AS contribution
+                    FROM (
+                        SELECT
+                            timestamp,
+                            value,
+                            aggregation_temporality,
+                            attributes,
+                            resource_attributes,
+                            lagInFrame(toNullable(value)) OVER (
+                                PARTITION BY service_name, resource_fingerprint, toString(attributes)
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
+                            ) AS prev_value
+                        FROM posthog.metrics
+                        WHERE metric_name = {metric_name}
+                          AND timestamp >= {date_from}
+                          AND timestamp < {date_to}
+                          AND {filters}
+                    )
+                )
+                GROUP BY time
+                ORDER BY time ASC
+                LIMIT 10000
+            """,
+            placeholders={
+                "interval": _interval_expr(self.interval),
+                "divisor": ast.Constant(value=divisor),
+                "metric_name": ast.Constant(value=self.metric_name),
+                "date_from": ast.Constant(value=self.date_from),
+                "date_to": ast.Constant(value=self.date_to),
+                "filters": _filters_expr(self.filters),
+            },
         )
-
-        return [
-            {"time": row[0].isoformat() if isinstance(row[0], dt.datetime) else row[0], "value": row[1]}
-            for row in response.results
-        ]
+        assert isinstance(query, ast.SelectQuery)
+        self._splice_group_columns(query)
+        return query

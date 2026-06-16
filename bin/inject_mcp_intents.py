@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Inject synthetic intents on MCPSession rows for local clustering tests.
 
 Bypasses OpenAI by picking from a curated pool of phrasings grouped into
@@ -9,7 +11,7 @@ checkout-failure spike", multiple phrasings of "confirm a flag rollout", etc.
 — so clustering has clear signal to detect.
 
 Usage:
-  flox activate -- python scripts/inject_mcp_intents.py [--team-id N] [--seed N]
+  bin/inject_mcp_intents.py [--team-id N] [--seed N]
 """
 
 import os
@@ -121,6 +123,7 @@ def main() -> None:
     updated = 0
     for session_id in qs.values_list("id", flat=True):
         intent = rng.choice(pool)
+        # nosemgrep: idor-lookup-without-team -- local-dev seed script intentionally spans all teams
         MCPSession.objects.unscoped().filter(id=session_id).update(intent=intent)
         updated += 1
         if updated % 100 == 0:

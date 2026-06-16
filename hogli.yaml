@@ -1054,3 +1054,7 @@ environment:
         bin_script: send-dev-metrics.sh
         description: 'Send a synthetic OTLP counter/gauge/histogram through the metrics ingest chain'
         hidden: true
+    inject_mcp_intents:
+        bin_script: inject_mcp_intents.py
+        description: 'Used when developing MCP Analytics locally and trying to load some intents'
+        hidden: true
