@@ -4,18 +4,6 @@
 #
 # To enable a tool, set enabled: true and add required scopes + annotations.
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
-#
-# Alpha product: every enabled tool is gated behind the mcp-analytics feature flag
-# (matching the UI and the REST viewsets). The dashboard, tool-quality, and sessions
-# *list* views are answered SQL-first via skills over the mcp_tool_call event table,
-# so their list/read operations stay disabled here — only the bespoke, non-SQL
-# capabilities (intent clusters, LLM session intent, feedback writes) are exposed.
-#
-# Cross-layer sync (enforced in different places — keep in lockstep): each tool's
-# `feature_flag: mcp-analytics` must match the viewset's `posthog_feature_flag`, and
-# its `scopes:` (mcp_analytics:read|write — underscore) must match the viewset's
-# `scope_object` ("mcp_analytics") and read/write action mapping. The flag/url use a
-# hyphen (mcp-analytics); the scope object uses an underscore (mcp_analytics).
 category: MCP analytics
 feature: mcp_analytics
 url_prefix: /mcp-analytics

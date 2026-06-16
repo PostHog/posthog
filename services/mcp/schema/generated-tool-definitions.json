@@ -4853,6 +4853,36 @@
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
     },
+    "mcp-feedback-submit": {
+        "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Submit MCP feedback",
+        "title": "Submit MCP feedback",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-missing-capability-report": {
+        "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Report missing capability",
+        "title": "Report missing capability",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "mcp-analytics"
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
         "category": "Notebooks",
