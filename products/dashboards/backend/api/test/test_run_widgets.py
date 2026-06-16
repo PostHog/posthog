@@ -9,15 +9,18 @@ from django.test.utils import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import RecordingOrder, RecordingOrderDirection
+
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.clickhouse.client.execute import UntaggedQueryError
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.models import Person
+from posthog.models import Person, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.slo.types import SloOperation, SloOutcome
 
 from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
@@ -347,6 +350,132 @@ class TestDashboardRunWidgets(APIBaseTest):
         assert query.properties[0].operator == "exact"
         assert query.properties[0].value == ["Chrome"]
 
+    @staticmethod
+    def _saved_filter_for_browser(team: Team, browser: str) -> SessionRecordingPlaylist:
+        return SessionRecordingPlaylist.objects.create(
+            team=team,
+            name="My saved filter",
+            type="filters",
+            filters={
+                "date_from": "-14d",
+                "filter_group": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"type": "person", "key": "$browser", "value": [browser], "operator": "exact"}],
+                        }
+                    ],
+                },
+                "order": "start_time",
+            },
+        )
+
+    @staticmethod
+    def _widget_browser_filter(browser: str) -> dict[str, Any]:
+        return {
+            "filter-1": {
+                "filterId": "filter-1",
+                "propertyName": "$browser",
+                "optionId": "opt-1",
+                "operator": "exact",
+                "value": browser,
+            }
+        }
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_uses_saved_filter_as_source_of_truth(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        saved_filter = self._saved_filter_for_browser(self.team, "Firefox")
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "orderBy": "click_count",
+                "orderDirection": "ASC",
+                "savedFilterId": saved_filter.short_id,
+                # The widget's own date range and property filters must be ignored.
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # Saved filter drives the date range and property filters...
+        assert query.date_from == "-14d"
+        assert query.properties is not None
+        assert len(query.properties) == 1
+        assert query.properties[0].key == "$browser"
+        assert query.properties[0].value == ["Firefox"]
+        # ...while the widget still layers its own sort and limit on top.
+        assert query.limit == 5
+        assert query.order == RecordingOrder.CLICK_COUNT
+        assert query.order_direction == RecordingOrderDirection.ASC
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_falls_back_when_saved_filter_missing(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "savedFilterId": "does_not_exist",
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_ignores_saved_filter_from_other_team(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        saved_filter = self._saved_filter_for_browser(other_team, "Firefox")
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "savedFilterId": saved_filter.short_id,
+                "dateRange": {"date_from": "-7d"},
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # A saved filter owned by another team must not be reachable; fall back to the widget's filters.
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_does_not_persist_legacy_filter_conversion(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        # A legacy-format playlist (no filter_group) — rendering must not write the converted filters back.
+        legacy_filters = {"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
+        saved_filter = SessionRecordingPlaylist.objects.create(
+            team=self.team, name="Legacy filter", type="filters", filters=legacy_filters
+        )
+
+        run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "savedFilterId": saved_filter.short_id},
+            user=self.user,
+        )
+
+        saved_filter.refresh_from_db()
+        assert saved_filter.filters == legacy_filters
+        assert "filter_group" not in saved_filter.filters
+
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
         person = Person.objects.create(team=self.team, properties={"email": "widget-test@example.com"})
@@ -370,12 +499,12 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertIsNone(body["results"][0]["error"])
         self.assertEqual(body["results"][0]["result"]["results"][0]["person"]["name"], "widget-test@example.com")
 
-    @patch("products.dashboards.backend.widgets.session_replay_list._run_session_replay_list_query")
+    @patch("products.dashboards.backend.widgets.session_replay_list._run_recordings_query")
     def test_session_replay_widget_returns_total_count_when_page_has_more(self, mock_run_query: MagicMock) -> None:
         recording = {"id": "recording-1"}
 
-        def run_side_effect(_team: object, config: dict[str, object], _user: object) -> dict[str, object]:
-            limit = config["limit"]
+        def run_side_effect(_team: object, query: object, _user: object) -> dict[str, object]:
+            limit = query.limit  # type: ignore[attr-defined]
             if limit == 1:
                 return {"results": [recording, {**recording, "id": "recording-2"}], "has_next": True}
             return {
@@ -399,8 +528,8 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertFalse(result["totalCountCapped"])
         self.assertEqual(len(result["results"]), 1)
         self.assertEqual(mock_run_query.call_count, 2)
-        count_call_config = mock_run_query.call_args_list[1].args[1]
-        self.assertEqual(count_call_config["limit"], MAX_WIDGET_RESULT_LIMIT)
+        count_call_query = mock_run_query.call_args_list[1].args[1]
+        self.assertEqual(count_call_query.limit, MAX_WIDGET_RESULT_LIMIT)
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_requests_listing_volume_resolution(self, mock_runner_cls: MagicMock) -> None:
