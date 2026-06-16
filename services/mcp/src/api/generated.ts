@@ -4009,6 +4009,8 @@ export namespace Schemas {
       orderBy?: SessionReplayListWidgetConfigOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: SessionReplayListWidgetConfigOrderDirection;
+      /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+      savedFilterId?: string | null;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -18805,6 +18807,121 @@ export namespace Schemas {
       Numeric: 'numeric',
       Boolean: 'boolean',
     } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `in_progress` - In Progress
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type ExperimentMetricsRecalculationStatusEnum = typeof ExperimentMetricsRecalculationStatusEnum[keyof typeof ExperimentMetricsRecalculationStatusEnum];
+
+
+    export const ExperimentMetricsRecalculationStatusEnum = {
+      Pending: 'pending',
+      InProgress: 'in_progress',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `manual` - Manual
+     * * `experiment_launch` - Experiment Launch
+     * * `experiment_stop` - Experiment Stop
+     * * `experiment_update` - Experiment Update
+     */
+    export type ExperimentMetricsRecalculationTriggerEnum = typeof ExperimentMetricsRecalculationTriggerEnum[keyof typeof ExperimentMetricsRecalculationTriggerEnum];
+
+
+    export const ExperimentMetricsRecalculationTriggerEnum = {
+      Manual: 'manual',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+    } as const;
+
+    /**
+     * * `pending` - pending
+     * * `completed` - completed
+     * * `failed` - failed
+     */
+    export type MetricRecalculationResultStatusEnum = typeof MetricRecalculationResultStatusEnum[keyof typeof MetricRecalculationResultStatusEnum];
+
+
+    export const MetricRecalculationResultStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * One metric's recalculated result row, read back from ExperimentMetricResult.
+     */
+    export interface MetricRecalculationResult {
+      /** UUID of the metric this result belongs to */
+      readonly metric_uuid: string;
+      /** Status of this metric's calculation in the run
+       *
+       * * `pending` - pending
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: MetricRecalculationResultStatusEnum;
+      /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+      readonly result: unknown;
+      /**
+         * Error message when status is failed; otherwise null
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    /**
+     * Serializer for metrics recalculation status responses.
+     */
+    export interface ExperimentMetricsRecalculation {
+      /** Unique identifier for this recalculation job */
+      readonly id: string;
+      /** ID of the experiment being recalculated */
+      readonly experiment_id: number;
+      /** Current status of the recalculation job
+       *
+       * * `pending` - Pending
+       * * `in_progress` - In Progress
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ExperimentMetricsRecalculationStatusEnum;
+      /** Total number of metrics to recalculate */
+      readonly total_metrics: number;
+      /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
+      readonly completed_metrics: number;
+      /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
+      readonly failed_metrics: number;
+      /** Map of metric_uuid to error details */
+      readonly metric_errors: unknown;
+      /** What triggered this recalculation
+       *
+       * * `manual` - Manual
+       * * `experiment_launch` - Experiment Launch
+       * * `experiment_stop` - Experiment Stop
+       * * `experiment_update` - Experiment Update */
+      readonly trigger: ExperimentMetricsRecalculationTriggerEnum;
+      /** When the job was created */
+      readonly created_at: string;
+      /**
+         * When processing started
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When processing completed
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /** True if returning an existing job rather than a newly created one */
+      readonly is_existing: boolean;
+      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      readonly results: readonly MetricRecalculationResult[];
+    }
 
     /**
      * Mixin for serializers to add user access control fields
@@ -41132,6 +41249,35 @@ export namespace Schemas {
          * @nullable
          */
       suggested_integration: string | null;
+    }
+
+    /**
+     * * `manual` - manual
+     * * `experiment_launch` - experiment_launch
+     * * `experiment_stop` - experiment_stop
+     * * `experiment_update` - experiment_update
+     */
+    export type RecalculateMetricsRequestTriggerEnum = typeof RecalculateMetricsRequestTriggerEnum[keyof typeof RecalculateMetricsRequestTriggerEnum];
+
+
+    export const RecalculateMetricsRequestTriggerEnum = {
+      Manual: 'manual',
+      ExperimentLaunch: 'experiment_launch',
+      ExperimentStop: 'experiment_stop',
+      ExperimentUpdate: 'experiment_update',
+    } as const;
+
+    /**
+     * Request body for triggering a metrics recalculation.
+     */
+    export interface RecalculateMetricsRequest {
+      /** What triggered this recalculation (manual is the default for user-initiated runs)
+       *
+       * * `manual` - manual
+       * * `experiment_launch` - experiment_launch
+       * * `experiment_stop` - experiment_stop
+       * * `experiment_update` - experiment_update */
+      trigger?: RecalculateMetricsRequestTriggerEnum;
     }
 
     export interface RecomputeResult {
