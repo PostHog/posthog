@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     remindersCreate,
@@ -34,6 +33,15 @@ export interface ReminderFormValues {
 // Sentinel id used while creating a brand-new reminder (mirrors the personalAPIKeysLogic pattern).
 const NEW = 'new'
 
+// Personal reminders default to the user's own timezone, not the project's.
+function getLocalTimezone(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    } catch {
+        return 'UTC'
+    }
+}
+
 function scheduleTypeForReminder(reminder: ReminderApi): ReminderScheduleType {
     if (reminder.cron_expression) {
         return 'advanced'
@@ -47,7 +55,7 @@ function scheduleTypeForReminder(reminder: ReminderApi): ReminderScheduleType {
 export const remindersLogic = kea<remindersLogicType>([
     path(['scenes', 'settings', 'user', 'remindersLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization'], teamLogic, ['timezone']],
+        values: [organizationLogic, ['currentOrganization']],
     })),
     actions({
         setEditingReminderId: (id: string | null) => ({ id }),
@@ -85,7 +93,7 @@ export const remindersLogic = kea<remindersLogicType>([
                 scheduled_at: null,
                 recurrence_interval: null,
                 cron_expression: '',
-                timezone: values.timezone || 'UTC',
+                timezone: getLocalTimezone(),
                 end_date: null,
             } as ReminderFormValues,
             errors: ({
@@ -171,7 +179,7 @@ export const remindersLogic = kea<remindersLogicType>([
                 scheduled_at: reminder?.scheduled_at ?? null,
                 recurrence_interval: (reminder?.recurrence_interval as RecurrenceIntervalEnumApi) || null,
                 cron_expression: reminder?.cron_expression ?? '',
-                timezone: reminder?.timezone || values.timezone || 'UTC',
+                timezone: reminder?.timezone || getLocalTimezone(),
                 end_date: reminder?.end_date ?? null,
             })
         },
