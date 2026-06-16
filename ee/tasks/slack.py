@@ -79,7 +79,7 @@ def _handle_slack_event(event_payload: Any) -> None:
             logger.warning(
                 "slack_legacy_image_unfurl.invoked",
                 team_id=team_id,
-                share_token=share_token,
+                sharing_configuration_id=sharing_config.id,
             )
 
             insights, assets = generate_assets(sharing_config, 1)
