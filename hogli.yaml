@@ -1041,5 +1041,5 @@ environment:
         hidden: true
     inject_mcp_intents:
         bin_script: inject_mcp_intents.py
-        description: 'TODO: add description for inject_mcp_intents.py'
+        description: 'Used when developing MCP Analytics locally and trying to load some intents'
         hidden: true
