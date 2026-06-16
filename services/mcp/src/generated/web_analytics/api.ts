@@ -23,6 +23,12 @@ export const heatmapsListQueryAggregationDefault = `total_count`
 export const heatmapsListQueryDateFromDefault = `-7d`
 
 export const heatmapsListQueryHideZeroCoordinatesDefault = true
+export const heatmapsListQueryLimitDefault = 500
+export const heatmapsListQueryLimitMax = 1000000
+
+export const heatmapsListQueryOffsetDefault = 0
+export const heatmapsListQueryOffsetMin = 0
+
 export const heatmapsListQueryTypeDefault = `click`
 
 export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
@@ -58,6 +64,21 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .boolean()
         .default(heatmapsListQueryHideZeroCoordinatesDefault)
         .describe('When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(heatmapsListQueryLimitMax)
+        .default(heatmapsListQueryLimitDefault)
+        .describe(
+            "Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Raise it (up to 1,000,000) to fetch the full set needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket."
+        ),
+    offset: zod
+        .number()
+        .min(heatmapsListQueryOffsetMin)
+        .default(heatmapsListQueryOffsetDefault)
+        .describe(
+            "Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type."
+        ),
     type: zod
         .string()
         .min(1)

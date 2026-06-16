@@ -21086,6 +21086,8 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
       /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
       fold?: HeatmapFoldSummary | null;
+      /** True when more coordinate points exist beyond the returned page. Raise 'limit' or page with 'offset' to fetch them. Always false for scrolldepth, which returns every bucket. */
+      has_more?: boolean;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -47422,6 +47424,17 @@ export namespace Schemas {
      */
     hide_zero_coordinates?: boolean;
     /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Raise it (up to 1,000,000) to fetch the full set needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 1
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
      */
@@ -53510,6 +53523,17 @@ export namespace Schemas {
      * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
      */
     hide_zero_coordinates?: boolean;
+    /**
+     * Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. Raise it (up to 1,000,000) to fetch the full set needed to render a complete heatmap overlay. Ignored for the 'scrolldepth' type, which always returns every bucket.
+     * @minimum 1
+     * @maximum 1000000
+     */
+    limit?: number;
+    /**
+     * Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type.
+     * @minimum 0
+     */
+    offset?: number;
     /**
      * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
      * @minLength 1
