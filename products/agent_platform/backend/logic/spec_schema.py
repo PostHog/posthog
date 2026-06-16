@@ -144,6 +144,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "auto_resume_threads": {"default": False, "type": "boolean"},
                                     "allow_workspace_participants": {"default": False, "type": "boolean"},
                                     "ack_reaction": {"type": "string"},
+                                    "allow_direct_messages": {"default": False, "type": "boolean"},
                                     "trusted_workspaces": {
                                         "anyOf": [
                                             {"minItems": 1, "type": "array", "items": {"type": "string"}},
@@ -155,6 +156,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                                     "mention_only",
                                     "auto_resume_threads",
                                     "allow_workspace_participants",
+                                    "allow_direct_messages",
                                     "trusted_workspaces",
                                 ],
                                 "additionalProperties": False,

@@ -80,6 +80,50 @@ describe('example: sre-slack-bot bundle', () => {
         expect(files['agent.md'].length).toBeGreaterThan(200)
     })
 
+    it('routes a Slack DM into a session — allow_direct_messages bypasses mention_only', async () => {
+        const { spec, files } = await loadBundle()
+        c.setScript([fauxText('On it — pulling up the ingestion alert now.')])
+        // Signing secret must live in the agent's encrypted_env: the slack guard
+        // resolves SLACK_SIGNING_SECRET there (the cluster `resolveSecrets` path
+        // is session-time, for ${SLACK_BOT_TOKEN} substitution on the runner).
+        await c.deployAgent({
+            slug: 'sre-slack-bot',
+            spec,
+            files,
+            encrypted_env: { SLACK_SIGNING_SECRET: 'test-signing-secret' },
+        })
+
+        // A 1:1 DM (channel_type "im"), no @-mention. The bundle sets
+        // mention_only: true, so without allow_direct_messages this would be
+        // dropped — a DM is inherently directed at the bot. `team` must match
+        // the bundle's trusted_workspaces or the workspace gate 403s.
+        const dm = {
+            type: 'event_callback',
+            event_id: 'Ev_dm_1',
+            event: {
+                type: 'message',
+                channel: 'D01',
+                channel_type: 'im',
+                user: 'U_oncall',
+                team: 'TSS5W8YQZ',
+                text: "what's the status of the ingestion alert?",
+                ts: '1700000100.000100',
+            },
+        }
+        const res = await c.slackPost('sre-slack-bot', 'events', dm, 'test-signing-secret')
+        expect(res.status).toBe(200)
+        expect(res.body.dropped).toBeUndefined()
+        expect(res.body.session_id).toBeTruthy()
+
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id as string)
+        // DMs key per-channel — one rolling session per conversation.
+        expect(session!.external_key).toBe('slack:D01')
+        const userMsg = session!.conversation.find((m) => m.role === 'user') as { content: string } | undefined
+        expect(userMsg?.content).toMatch(/^dm: true$/m)
+        expect(userMsg?.content).toContain('ingestion alert')
+    })
+
     it('deploys end-to-end and runs through a webhook-driven triage flow using bring-your-own Slack token', async () => {
         const { spec, files } = await loadBundle()
 
