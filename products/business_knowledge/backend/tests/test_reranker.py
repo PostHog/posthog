@@ -150,18 +150,15 @@ class TestBuildRerankUserPrompt(unittest.TestCase):
 class TestRerankChunksSync(unittest.TestCase):
     team_id = 12345
 
-    @parameterized.expand(
-        [
-            ("empty_results", [], 5, 0),
-            ("fewer_than_top_k", 3, 5, 3),
-        ]
-    )
-    def test_no_llm_call_needed(self, _name: str, num_results: int | list, top_k: int, expected_len: int) -> None:
-        results = [] if num_results == [] else [_make_result() for _ in range(num_results)]
-        result = rerank_chunks(self.team_id, "query", results, top_k=top_k)
-        assert len(result) == expected_len
-        if results:
-            assert result == results
+    def test_empty_results_returns_empty(self) -> None:
+        result = rerank_chunks(self.team_id, "query", [], top_k=5)
+        assert result == []
+
+    def test_fewer_than_top_k_returns_all(self) -> None:
+        results = [_make_result() for _ in range(3)]
+        result = rerank_chunks(self.team_id, "query", results, top_k=5)
+        assert len(result) == 3
+        assert result == results
 
     @patch("posthog.llm.gateway_client.get_llm_client")
     def test_successful_rerank_reorders(self, mock_get_client: MagicMock) -> None:
