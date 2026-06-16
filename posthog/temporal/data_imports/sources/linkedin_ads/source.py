@@ -57,6 +57,11 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # never succeeds, so fail fast and tell the user to fix the configured Account ID. Match on
             # the stable prefix only — the offending value that follows varies per source.
             "Array parameter 'accounts' value 'urn:li:sponsoredAccount:": "The LinkedIn Ads Account ID is invalid. Please check the Account ID in your source configuration — it should be the numeric account ID from your LinkedIn Campaign Manager.",
+            # LinkedIn returns a 401 with this stable error code when the member who authorized the
+            # integration has been restricted by LinkedIn. The restriction sits on the member account,
+            # not on anything PostHog controls, so retrying just replays the 401 — fail fast and tell
+            # the user to resolve it with LinkedIn or re-authorize with an unrestricted account.
+            "RESTRICTED_MEMBER": "LinkedIn has restricted the member account that authorized this integration, so it can no longer access the LinkedIn Ads API. Resolve the restriction with LinkedIn, then re-authorize the LinkedIn Ads integration (or reconnect using an account in good standing).",
         }
 
     @property
