@@ -14,7 +14,7 @@ use crate::merge::bucket_align::align_and_sum;
 use crate::merge::compressed_concat::union_by_day;
 use crate::observability::metrics::MERGE_LEAVES_DROPPED_TOTAL;
 use crate::stage1::bucket_tz::daily_bucket_len;
-use crate::stage1::compressed_history::compressed_eviction_deadline;
+use crate::stage1::compressed_history::{compressed_eviction_deadline, slide_window_forward};
 use crate::stage1::daily::daily_eviction_deadline;
 use crate::stage1::state::{AppliedOffsets, Stage1State, StateVariant, StatefulRecord};
 use crate::stage1::transition::TransitionKind;
@@ -192,8 +192,24 @@ fn merge_behavioral_pair(
                 ..
             },
         ) => {
-            let (entries, window_start_day) =
-                union_by_day(old_entries, *old_start, new_entries, *new_start);
+            // The merged state is evaluated immediately by `compressed_predicate`, which sums every
+            // entry with no window bound. Slide both sides to the merged anchor (the more-recent of
+            // the two starts) first so out-of-window entries are dropped before the union — mirroring
+            // the daily arm's `align_and_sum`. Without this the count is inflated until the next sweep.
+            let (entries, window_start_day) = match meta.window_days {
+                Some(window_days) => {
+                    let target_now_day = (*old_start).max(*new_start) + window_days as i32;
+                    let mut old_entries = old_entries.clone();
+                    let mut old_start = *old_start;
+                    slide_window_forward(&mut old_entries, &mut old_start, window_days, target_now_day);
+                    let mut new_entries = new_entries.clone();
+                    let mut new_start = *new_start;
+                    slide_window_forward(&mut new_entries, &mut new_start, window_days, target_now_day);
+                    union_by_day(&old_entries, old_start, &new_entries, new_start)
+                }
+                // Meta desync (no finite window to slide to): union as-is.
+                None => union_by_day(old_entries, *old_start, new_entries, *new_start),
+            };
             let earliest_eviction_at_ms = match meta.window_days {
                 Some(window_days) => compressed_eviction_deadline(&entries, window_days, tz),
                 // Meta desync: fail safe (never evict); next event-path fold recomputes.
@@ -225,6 +241,7 @@ mod tests {
     use chrono_tz::UTC;
 
     use crate::stage1::pick_state::{EvictionWindow, PredicateOp};
+    use crate::stage1::predicate::compressed_predicate;
 
     const TZ: Tz = UTC;
 
@@ -444,6 +461,49 @@ mod tests {
             }
             other => panic!("expected compressed, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn compressed_drops_entries_below_the_merged_anchor_before_counting() {
+        // Old is anchored older (start 0, window 10 ⇒ window [0..=10]) with a heavy day-4 entry that
+        // is in-window for old but falls below the merged anchor (5, the more-recent/new start). New
+        // (start 5, window [5..=15]) has a light day-12 entry. The merge is evaluated immediately, so
+        // the day-4 entry must be sliced out before the union — otherwise its count inflates the sum.
+        let op = PredicateOp::Gte(6);
+        let meta = compressed_meta(10, op);
+        let merged = merge_records(
+            uuid(1),
+            &compressed(vec![(4, 5), (8, 1)], 0),
+            Some(&compressed(vec![(12, 1)], 5)),
+            &meta,
+            TZ,
+        );
+        match &merged.record.as_ref().unwrap().state {
+            Stage1State::BehavioralCompressedHistory {
+                entries,
+                window_start_day,
+                ..
+            } => {
+                assert_eq!(
+                    *entries,
+                    vec![(8, 1), (12, 1)],
+                    "the day-4 entry is below the merged anchor (5) and is dropped",
+                );
+                assert_eq!(*window_start_day, 5, "the more recent anchor");
+                // Sum over the in-window entries is 2; the dropped day-4 (count 5) does not push it to
+                // the Gte(6) threshold. Without the slide the entries would be [(4,5),(8,1),(12,1)],
+                // sum 7 ≥ 6 ⇒ a (wrong) member.
+                assert!(
+                    !compressed_predicate(entries, op),
+                    "the out-of-window day-4 count must not contribute to membership",
+                );
+            }
+            other => panic!("expected compressed, got {other:?}"),
+        }
+        assert_eq!(
+            merged.flip, None,
+            "new alone (count 1) was not a member and the slid merge (count 2) is still under Gte(6)",
+        );
     }
 
     #[test]
