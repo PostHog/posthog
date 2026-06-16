@@ -26,6 +26,14 @@
  * The Modal sandbox idles waiting for `exec()` calls — no foreground command
  * is set. `timeoutMs` upper-bounds the session lifetime so a wedged session
  * doesn't leak compute.
+ *
+ * Egress: the sandbox runs untrusted-ish author-supplied tool code, which by
+ * design computes and returns — it does not reach out (the runner makes any
+ * outbound call, through smokescreen). So we default-deny the sandbox's
+ * outbound internet (`blockNetwork`), closing the open-egress exfil vector. An
+ * operator can open specific CIDRs via `outboundCidrAllowlist` if a custom tool
+ * ever genuinely needs direct egress. Modal's control plane (exec / filesystem)
+ * is unaffected — that isn't the sandbox's own internet egress.
  */
 
 import type { App, Image, ModalClient as ModalClientType, Sandbox as ModalSandboxHandle } from 'modal'
@@ -100,6 +108,27 @@ interface ModalSandboxPoolOpts {
      * unset. Default 512.
      */
     defaultMemoryMiB?: number
+    /**
+     * CIDRs the sandbox is allowed to reach outbound. Empty / unset →
+     * `blockNetwork: true` (the secure default — see the module docstring).
+     * Set only to open specific egress for a custom-tool use case.
+     */
+    outboundCidrAllowlist?: string[]
+}
+
+/**
+ * The Modal egress policy for the sandbox. Default-deny (`blockNetwork`) unless
+ * an operator supplied a CIDR allowlist. `blockNetwork` and `outboundCidrAllowlist`
+ * are mutually exclusive in the Modal SDK, so this returns exactly one.
+ * Exported for unit tests.
+ */
+export function resolveEgressOpts(
+    outboundCidrAllowlist?: string[]
+): { blockNetwork: true } | { outboundCidrAllowlist: string[] } {
+    if (outboundCidrAllowlist && outboundCidrAllowlist.length > 0) {
+        return { outboundCidrAllowlist }
+    }
+    return { blockNetwork: true }
 }
 
 interface ModalSandboxState {
@@ -255,6 +284,8 @@ export class ModalSandboxPool implements SandboxPool {
                 cpuLimit: cpu,
                 memoryMiB,
                 memoryLimitMiB: memoryMiB,
+                // Default-deny outbound internet (or the configured allowlist).
+                ...resolveEgressOpts(this.opts.outboundCidrAllowlist),
                 tags: {
                     posthog_session_id: opts.sessionId,
                     posthog_team_id: String(opts.teamId),

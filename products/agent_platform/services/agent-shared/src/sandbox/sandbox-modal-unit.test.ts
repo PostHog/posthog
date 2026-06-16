@@ -12,7 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AcquireOpts } from './sandbox'
-import { ModalSandboxPool, resolveRegion } from './sandbox-modal'
+import { ModalSandboxPool, resolveEgressOpts, resolveRegion } from './sandbox-modal'
 
 const ACQUIRE_INPUT: AcquireOpts = {
     sessionId: 'unit-test-session',
@@ -175,5 +175,51 @@ describe('ModalSandboxPool: client-init failure recovery', () => {
         const sandbox = await pool.acquireForSession(ACQUIRE_INPUT)
         expect(sandbox.providerSandboxId).toBe('sb-unit-test-handle')
         expect(clientCtor).toHaveBeenCalledTimes(2)
+    })
+
+    it('resolveEgressOpts default-denies, allowlists when CIDRs are given', () => {
+        // No allowlist → block all outbound (the secure default).
+        expect(resolveEgressOpts()).toEqual({ blockNetwork: true })
+        expect(resolveEgressOpts([])).toEqual({ blockNetwork: true })
+        // Allowlist → pass it through, and DON'T also set blockNetwork (Modal
+        // rejects the two together).
+        expect(resolveEgressOpts(['10.0.0.0/8', '192.168.0.0/16'])).toEqual({
+            outboundCidrAllowlist: ['10.0.0.0/8', '192.168.0.0/16'],
+        })
+    })
+
+    async function captureCreateOpts(poolOpts: { outboundCidrAllowlist?: string[] }): Promise<Record<string, unknown>> {
+        const createMock = vi.fn().mockResolvedValue({
+            sandboxId: 'sb-egress-test',
+            filesystem: {
+                makeDirectory: vi.fn().mockResolvedValue(undefined),
+                writeText: vi.fn().mockResolvedValue(undefined),
+            },
+            poll: vi.fn().mockResolvedValue(null),
+            terminate: vi.fn().mockResolvedValue(undefined),
+        })
+        vi.doMock('modal', () => ({
+            ModalClient: vi.fn(() => ({
+                apps: { fromName: vi.fn().mockResolvedValue({}) },
+                images: { fromRegistry: vi.fn().mockReturnValue({}) },
+                sandboxes: { create: createMock },
+            })),
+        }))
+        const pool = new ModalSandboxPool({ appName: 'unit-test-app', ...poolOpts })
+        await pool.acquireForSession(ACQUIRE_INPUT)
+        // create(app, image, opts) — opts is the third arg.
+        return createMock.mock.calls[0][2] as Record<string, unknown>
+    }
+
+    it('sandboxes.create blocks the network by default (no allowlist)', async () => {
+        const opts = await captureCreateOpts({})
+        expect(opts.blockNetwork).toBe(true)
+        expect(opts).not.toHaveProperty('outboundCidrAllowlist')
+    })
+
+    it('sandboxes.create uses the configured CIDR allowlist instead of blocking', async () => {
+        const opts = await captureCreateOpts({ outboundCidrAllowlist: ['10.1.0.0/16'] })
+        expect(opts.outboundCidrAllowlist).toEqual(['10.1.0.0/16'])
+        expect(opts).not.toHaveProperty('blockNetwork')
     })
 })

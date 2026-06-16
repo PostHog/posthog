@@ -1,8 +1,14 @@
 /**
  * Per-session nonce broker. Custom tools receive opaque nonces, never raw
- * secret values. The sandbox runtime substitutes nonces back to values when
- * the tool actually reaches out — handled inside the Modal/Docker boundary
- * in prod, and via `ctx.secrets.value(name)` in the in-process pool.
+ * secret values — the secret stays in the runner.
+ *
+ * `substitute`/`scrub` are the intended egress seam (swap a nonce back to its
+ * value when the *runner* makes an outbound call on a tool's behalf), but that
+ * seam is NOT wired yet — they're currently unused. Until it is, a nonce never
+ * resolves to its secret outside this process, and the sandbox is run with no
+ * outbound network (Modal `block_network` / Docker `--network=none`), so a
+ * nonce can't leave the sandbox either. The in-process pool resolves nonces via
+ * `ctx.secrets.value(name)` as a test-only escape hatch.
  *
  * Lifetime is session-scoped: nonces expire when the sandbox is released.
  */

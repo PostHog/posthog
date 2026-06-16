@@ -29,6 +29,8 @@ export interface SandboxSelectionConfig {
     modalAppName?: string
     /** Modal region pin (e.g. `us-east`, `eu-west`). */
     modalRegion?: string
+    /** CIDRs the Modal sandbox may reach outbound. Empty → no egress (block_network). */
+    sandboxOutboundCidrAllowlist?: string[]
 }
 
 export function selectSandboxPool(config: SandboxSelectionConfig): SandboxPool {
@@ -49,6 +51,7 @@ export function selectSandboxPool(config: SandboxSelectionConfig): SandboxPool {
                 appName: config.modalAppName,
                 image: resolveImage(config.sandboxModalImage),
                 region: config.modalRegion,
+                outboundCidrAllowlist: config.sandboxOutboundCidrAllowlist,
             })
     }
 }

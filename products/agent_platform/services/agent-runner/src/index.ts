@@ -273,6 +273,7 @@ async function main(): Promise<void> {
             sandboxModalImage: config.sandboxModalImage,
             modalAppName: config.modalAppName,
             modalRegion: config.modalRegion,
+            sandboxOutboundCidrAllowlist: config.sandboxOutboundCidrAllowlist,
         }),
         sandboxInstances: new PgSandboxInstanceStore(agentDb),
         broker: new SecretBroker(),
