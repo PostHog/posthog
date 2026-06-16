@@ -3,14 +3,16 @@
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useCallback } from 'react'
 
-import { useAgent, useAgentReload, useRevisions } from '@/components/agent-context'
+import { useAgent, useAgentRefresh, useAgentReload, useRevisions } from '@/components/agent-context'
 import { AgentConfigView } from '@/components/AgentConfigView'
 import { useDockStore, useSetDockPage } from '@/components/dock-context'
+import { RefreshIndicator } from '@/components/RefreshIndicator'
 
 export function ConfigurationSegment(): React.ReactElement {
     const agent = useAgent()
     const revisions = useRevisions()
     const reload = useAgentReload()
+    const refresh = useAgentRefresh()
     const router = useRouter()
     const searchParams = useSearchParams()
     const { enterPlayground } = useDockStore()
@@ -93,6 +95,7 @@ export function ConfigurationSegment(): React.ReactElement {
                 onMutated={reload}
                 onTryDraft={onTryDraft}
                 onOpenSession={(id) => router.push(`/agents/${agent.slug}/sessions?session=${encodeURIComponent(id)}`)}
+                refreshSlot={<RefreshIndicator resource={refresh} intervalMs={0} />}
             />
         </div>
     )

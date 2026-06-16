@@ -60,6 +60,8 @@ export interface AgentConfigViewProps {
     onTryDraft?: (revisionId: string) => void
     /** Navigate to a session — used to jump to the session a manual cron fire creates. */
     onOpenSession?: (sessionId: string) => void
+    /** Refresh control rendered in the revision bar. */
+    refreshSlot?: React.ReactNode
 }
 
 interface PendingAction {
@@ -116,6 +118,7 @@ export function AgentConfigView({
     onMutated,
     onTryDraft,
     onOpenSession,
+    refreshSlot,
 }: AgentConfigViewProps): React.ReactElement {
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
@@ -217,6 +220,7 @@ export function AgentConfigView({
                 onSelectRevision={onSelectRevision}
                 onAction={requestAction}
                 onTryDraft={onTryDraft}
+                refreshSlot={refreshSlot}
             />
 
             <div className="min-h-0 flex-1">

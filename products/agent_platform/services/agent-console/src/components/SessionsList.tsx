@@ -58,6 +58,8 @@ export interface SessionsListProps {
     onLoadMore?: () => void
     /** Disable the load-more button + show a spinner-style label while a page is in flight. */
     loadingMore?: boolean
+    /** Optional refresh control rendered in the list header. */
+    refreshSlot?: React.ReactNode
 }
 
 const LIVE_STATES = new Set(['idle', 'streaming', 'awaiting_user_input', 'awaiting_client_tool', 'disconnected'])
@@ -71,6 +73,7 @@ export function SessionsList({
     hasMore,
     onLoadMore,
     loadingMore,
+    refreshSlot,
 }: SessionsListProps): React.ReactElement {
     const [filter, setFilter] = useState<Filter>('all')
     const [source, setSource] = useState<SourceFilter>('all')
@@ -89,8 +92,11 @@ export function SessionsList({
 
     if (sessions.length === 0 && !hasMore) {
         return (
-            <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                No sessions yet.
+            <div className="flex h-full min-h-0 flex-col">
+                {refreshSlot ? <div className="flex shrink-0 justify-end pb-3">{refreshSlot}</div> : null}
+                <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+                    No sessions yet.
+                </div>
             </div>
         )
     }
@@ -112,7 +118,10 @@ export function SessionsList({
                         onChange={setFilter}
                         labels={{ all: 'All', live: 'Live', completed: 'Completed', failed: 'Failed' }}
                     />
-                    <span className="text-[0.6875rem] text-muted-foreground">{loadedLabel}</span>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[0.6875rem] text-muted-foreground">{loadedLabel}</span>
+                        {refreshSlot}
+                    </div>
                 </div>
                 <FilterChips
                     className="self-start"

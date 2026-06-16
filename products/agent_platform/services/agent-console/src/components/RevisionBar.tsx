@@ -43,6 +43,8 @@ export interface RevisionBarProps {
     onAction: (action: LifecycleAction, revision: AgentRevisionFixture) => void
     /** Open the playground against a non-live revision via the preview-proxy. */
     onTryDraft?: (revisionId: string) => void
+    /** Optional refresh control rendered alongside the lifecycle actions. */
+    refreshSlot?: React.ReactNode
 }
 
 export function RevisionBar({
@@ -52,6 +54,7 @@ export function RevisionBar({
     onSelectRevision,
     onAction,
     onTryDraft,
+    refreshSlot,
 }: RevisionBarProps): React.ReactElement | null {
     const [query, setQuery] = useState('')
     const [activeFilters, setActiveFilters] = useState<Set<StateFilter>>(() => new Set(DEFAULT_STATE_FILTERS))
@@ -154,7 +157,8 @@ export function RevisionBar({
                 <span>updated {formatRelative(selected.updated_at)}</span>
             </div>
 
-            <div className="ml-auto">
+            <div className="ml-auto flex items-center gap-3">
+                {refreshSlot}
                 <RevisionActions
                     revision={selected}
                     isLive={isLive}

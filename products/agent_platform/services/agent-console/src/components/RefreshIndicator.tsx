@@ -31,6 +31,8 @@ interface RefreshIndicatorProps<T> {
     paused?: boolean
     /** Optional label rendered before the timestamp. */
     label?: string
+    /** Drop the relative-timestamp text, leaving just the button — for tight headers. */
+    compact?: boolean
 }
 
 const DEFAULT_INTERVAL_MS = 10_000
@@ -40,6 +42,7 @@ export function RefreshIndicator<T>({
     intervalMs = DEFAULT_INTERVAL_MS,
     paused = false,
     label,
+    compact = false,
 }: RefreshIndicatorProps<T>): React.ReactElement {
     useAutoRefresh(resource, { intervalMs, paused })
     const timestamp = useRelativeTimestamp(resource.lastFetchedAt)
@@ -47,13 +50,13 @@ export function RefreshIndicator<T>({
     return (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {label && <span>{label}</span>}
-            <span aria-live="polite">{timestamp}</span>
+            {compact ? null : <span aria-live="polite">{timestamp}</span>}
             <button
                 type="button"
                 onClick={() => resource.reload()}
                 disabled={resource.loading}
                 aria-label="Refresh"
-                title="Refresh"
+                title={compact && resource.lastFetchedAt !== null ? `Refresh · updated ${timestamp}` : 'Refresh'}
                 className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
             >
                 <RefreshCwIcon className={`h-3.5 w-3.5 ${resource.loading ? 'animate-spin' : ''}`} />
