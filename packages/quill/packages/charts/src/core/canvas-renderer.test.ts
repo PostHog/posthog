@@ -299,6 +299,50 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawLine — fractional tail dash (stroke.partial.fromFraction)', () => {
+        it.each([
+            // A two-point line: solid first half, dashed second half. One subpath each.
+            { name: 'two points, 0.5 → solid half + dashed half', data: [10, 90], labels: ['a', 'b'], fraction: 0.5 },
+            // Leading points stay solid; only the final segment's tail dashes.
+            {
+                name: 'three points, 0.5 → leading solid, final-segment tail dashed',
+                data: [10, 20, 30],
+                labels: ['a', 'b', 'c'],
+                fraction: 0.5,
+            },
+        ])('$name: two subpaths, solid then dashed', ({ data, labels, fraction }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data, stroke: { partial: { fromFraction: fraction } } })
+            drawLine(makeDrawContext(ctx, labels), series)
+            expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+            expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+        })
+
+        it('dashes the tail with the partial pattern override', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 90],
+                stroke: { partial: { fromFraction: 0.5, pattern: [2, 8] } },
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b']), series)
+            expect(dashCalls(ctx)).toEqual([[], [2, 8], []])
+        })
+
+        it('takes precedence over fromIndex', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 90],
+                stroke: { partial: { fromFraction: 0.5, fromIndex: 0 } },
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b']), series)
+            // fromIndex 0 alone would be a single whole-line dashed stroke; the fraction path splits it.
+            expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+            expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+        })
+    })
+
     describe('drawArea — stacked bands', () => {
         it('traces bottom values in reverse when bottomValues is provided', () => {
             const ctx = mockCanvasContext()

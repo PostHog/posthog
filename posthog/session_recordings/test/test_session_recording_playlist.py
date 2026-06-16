@@ -8,7 +8,8 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 
 from boto3 import resource
 from botocore.config import Config
@@ -224,6 +225,26 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
                 "type": "collection",
             },
         ]
+
+    def test_list_does_not_issue_redundant_db_count(self) -> None:
+        self._create_playlist({"name": "test", "type": "collection"})
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_200_OK
+
+        playlist_count_queries = [
+            q
+            for q in ctx.captured_queries
+            if "count(" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylist" in q["sql"].lower()
+            and "posthog_sessionrecordingplaylistitem" not in q["sql"].lower()
+        ]
+        assert len(playlist_count_queries) == 1, (
+            f"expected a single COUNT on the playlists table, saw {len(playlist_count_queries)}: "
+            f"{[q['sql'] for q in playlist_count_queries]}"
+        )
 
     @parameterized.expand(
         [

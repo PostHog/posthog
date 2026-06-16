@@ -62,6 +62,15 @@ PostgresErrors = {
     "SSL/TLS connection is required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "server does not support SSL, but SSL was required": "SSL/TLS connection is required but your database does not support it. Please enable SSL/TLS on your PostgreSQL server.",
     "SSL connection has been closed unexpectedly": "The SSL/TLS connection to your database was closed unexpectedly. Check your database's SSL configuration and that the port is correct.",
+    # libpq reports a server-side socket close during the startup handshake with this wording. During
+    # credential validation it almost always means the host/port points at something that isn't (or
+    # won't accept) a Postgres connection — a wrong port, a service that requires SSL/TLS, or a
+    # pooler/firewall/SSH tunnel that drops the connection. Map it to an actionable message so
+    # validation stops surfacing this expected user/upstream condition as captured error noise.
+    # NB: this is intentionally NOT added to `get_non_retryable_errors` — the same wording is a
+    # transient mid-stream drop in the streaming path (`_CONNECTION_DROPPED_ERROR_SUBSTRINGS`) and
+    # must stay retryable there.
+    "server closed the connection unexpectedly": "Your database closed the connection unexpectedly while connecting. This usually means the host or port is wrong, the server requires SSL/TLS, or a connection pooler, firewall, or SSH tunnel dropped the connection. Check your host, port, and SSL settings.",
 }
 
 
@@ -232,6 +241,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Surfaced by a connection pooler (e.g. PgBouncer) as a psycopg ProtocolViolation when
+            # the pooler has *repeatedly* failed to log in to the backend database within its
+            # server_login_retry window (full message: "server login has been failing, cached
+            # error: <reason> (server_login_retry)"). By the time this is returned the backend is in
+            # a sustained failure state — unreachable, refusing connections, or rejecting the
+            # pooler's credentials — so it is not a one-off transient blip; retrying the whole sync
+            # just hits the same wall. Matches the stable pooler signature; the cached <reason>
+            # ("connect timeout", etc.) and the trailing "(server_login_retry)" suffix vary and are
+            # excluded.
+            "server login has been failing": (
+                "Your database's connection pooler (for example PgBouncer) reported that it has "
+                'repeatedly failed to connect to the backend database ("server login has been '
+                'failing"). This usually means the database is unreachable, refusing connections, or '
+                "the pooler's credentials for the database are wrong. Check that the database is "
+                "running and reachable from your pooler, then re-enable the sync."
+            ),
             # `offset_chunking` retries a Postgres standby recovery conflict ("canceling statement
             # due to conflict with recovery") 30 times in-process with backoff + chunk-size
             # reduction before raising this. The conflict comes from the customer's read replica
@@ -280,6 +305,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '(PostgreSQL reported "has not been populated"). Run REFRESH MATERIALIZED VIEW on it in '
                 "your database so it contains data, then re-enable the sync."
             ),
+            # Raised by Postgres while reading a view/materialized view whose own definition calls
+            # `jsonb_each()` (or `jsonb_each_text()`) on a jsonb value that isn't an object for some
+            # rows (a JSON array, scalar, or `'null'`). We only ever run `SELECT ... FROM <relation>`;
+            # the function lives in the customer's view definition. The failure is deterministic
+            # against the source data, so retrying re-evaluates the same view and hits the same row.
+            "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
         }
 
     def reconcile_schema_metadata(
