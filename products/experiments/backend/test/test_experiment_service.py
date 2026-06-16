@@ -17,7 +17,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -2166,6 +2166,55 @@ class TestExperimentService(APIBaseTest):
         flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
         assert flag.active is True
         assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_flag_for_user_without_real_access(self):
+        # Exercises the real _user_can_edit_flag check (no patching): a user with no access to
+        # the flag is refused, so an inverted/broken access check would fail this test.
+        experiment = self._create_ended_experiment(name="Real No Access", feature_flag_key="real-no-access-flag")
+        outsider = User.objects.create_user("outsider@example.com", None, "Outsider")
+        service = ExperimentService(team=self.team, user=outsider)
+
+        with self.assertRaises(PermissionDenied):
+            service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_skips_flag_cleanup_without_feature_flag_write_scope(self):
+        # A token scoped only to experiments must not archive the linked flag as a side effect.
+        experiment = self._create_ended_experiment(name="No FF Scope", feature_flag_key="no-ff-scope-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self._service().archive_experiment(experiment, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is True
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
+        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
+        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
+        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.refresh_from_db()
+        assert experiment.feature_flag_auto_archived is True
+
+        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
 
     def test_archive_experiment_denies_disabling_flag_when_approval_required(self):
         experiment = self._create_ended_experiment(name="Approval Gated", feature_flag_key="approval-gated-flag")

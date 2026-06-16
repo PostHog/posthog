@@ -22,6 +22,19 @@ class FeatureFlagStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) -> QuerySet:
+    """Hide archived flags unless the caller explicitly asked for them.
+
+    This is the API's default for the list, `matching_ids`, and filter-based `bulk_delete`
+    paths — archived flags stay out of "select all" / bulk-delete sets unless `archived` is
+    passed. `requested` is whether the caller provided an `archived` param (the value filter
+    itself is applied separately). The frontend `flagMatchesFilters` keeps its own mirror.
+    """
+    if not requested:
+        return queryset.filter(archived=False)
+    return queryset
+
+
 def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> QuerySet:
     """
     Filter a FeatureFlag queryset by the `active` param (STALE / true / false).

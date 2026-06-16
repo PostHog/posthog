@@ -1300,7 +1300,12 @@ class ExperimentService:
 
     @transaction.atomic
     def archive_experiment(
-        self, experiment: Experiment, *, disable_feature_flag: bool = False, request: Any | None = None
+        self,
+        experiment: Experiment,
+        *,
+        disable_feature_flag: bool = False,
+        can_write_feature_flag: bool = True,
+        request: Any | None = None,
     ) -> Experiment:
         """Archive an ended experiment: validate it has ended, set archived=True.
 
@@ -1308,6 +1313,9 @@ class ExperimentService:
         ``disable_feature_flag`` is set — an enabled flag may still be serving traffic
         (e.g. rolling out the winning variant), so archiving it is an explicit choice.
         An already-disabled flag is archived regardless.
+
+        ``can_write_feature_flag`` reflects whether the caller's token carries
+        ``feature_flag:write`` — touching the linked flag is skipped when it doesn't.
         """
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
@@ -1317,7 +1325,9 @@ class ExperimentService:
         experiment.archived = True
         experiment.save()
 
-        self._archive_linked_feature_flag(experiment, disable_if_active=disable_feature_flag)
+        self._archive_linked_feature_flag(
+            experiment, disable_if_active=disable_feature_flag, can_write_feature_flag=can_write_feature_flag
+        )
 
         self._report_experiment_archived(experiment, request=request)
 
@@ -1337,7 +1347,9 @@ class ExperimentService:
         )
         return policy is not None
 
-    def _archive_linked_feature_flag(self, experiment: Experiment, *, disable_if_active: bool = False) -> None:
+    def _archive_linked_feature_flag(
+        self, experiment: Experiment, *, disable_if_active: bool = False, can_write_feature_flag: bool = True
+    ) -> None:
         """Archive the experiment's flag along with it, so it stops cluttering the flag list.
 
         An already-disabled flag is archived. An enabled flag is left untouched unless
@@ -1346,7 +1358,8 @@ class ExperimentService:
         Never touches a flag still used by another live experiment.
 
         Mutating the linked flag is gated by the same authorization the flag API enforces:
-        the caller must have editor access to the flag, and disabling an active flag is
+        the caller's token must carry ``feature_flag:write`` (``can_write_feature_flag``)
+        and the user must have editor access to the flag, and disabling an active flag is
         refused when an approval policy would gate it (a side-effect mutation can't be
         routed through the change-request flow). The implicit archive-only cleanup is
         skipped silently when the caller lacks access — the experiment still archives.
@@ -1390,9 +1403,9 @@ class ExperimentService:
                     "Please update or disable the dependent flags first."
                 )
             feature_flag.active = False
-        elif not can_edit:
+        elif not can_edit or not can_write_feature_flag:
             # Implicit cleanup of an already-disabled flag — skip silently when the caller
-            # can't edit the flag; the experiment still archives.
+            # lacks flag editor access or feature_flag:write scope; the experiment still archives.
             return
 
         feature_flag.archived = True
@@ -1425,32 +1438,37 @@ class ExperimentService:
     # ------------------------------------------------------------------
 
     @transaction.atomic
-    def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
-        """Unarchive an archived experiment: validate it is archived, set archived=False."""
+    def unarchive_experiment(
+        self, experiment: Experiment, *, can_write_feature_flag: bool = True, request: Any | None = None
+    ) -> Experiment:
+        """Unarchive an archived experiment: validate it is archived, set archived=False.
+
+        ``can_write_feature_flag`` reflects whether the caller's token carries
+        ``feature_flag:write`` — un-archiving the linked flag is skipped when it doesn't.
+        """
         if not experiment.archived:
             raise ValidationError("Experiment is not archived.")
 
         experiment.archived = False
         experiment.save()
 
-        self._unarchive_linked_feature_flag(experiment)
+        self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag)
 
         self._report_experiment_unarchived(experiment, request=request)
 
         return experiment
 
-    def _unarchive_linked_feature_flag(self, experiment: Experiment) -> None:
+    def _unarchive_linked_feature_flag(self, experiment: Experiment, *, can_write_feature_flag: bool = True) -> None:
         """Mirror of _archive_linked_feature_flag: bring the flag back with the experiment.
 
         Only undoes an archive this experiment performed — a flag the user archived
         manually stays archived. The flag stays disabled either way; re-enabling it is
-        an explicit user decision.
+        an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
+        skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
+        when the caller lacks feature_flag:write scope or editor access to the flag.
         """
         if not experiment.feature_flag_auto_archived:
             return
-
-        experiment.feature_flag_auto_archived = False
-        experiment.save(update_fields=["feature_flag_auto_archived"])
 
         feature_flag = (
             FeatureFlag.objects.select_for_update()
@@ -1458,10 +1476,19 @@ class ExperimentService:
             .first()
         )
         if feature_flag is None or feature_flag.deleted or not feature_flag.archived:
+            # Flag is gone or already un-archived — clear the now-stale bookkeeping.
+            experiment.feature_flag_auto_archived = False
+            experiment.save(update_fields=["feature_flag_auto_archived"])
+            return
+
+        if not can_write_feature_flag or not self._user_can_edit_flag(feature_flag):
             return
 
         feature_flag.archived = False
         feature_flag.save(update_fields=["archived"])
+
+        experiment.feature_flag_auto_archived = False
+        experiment.save(update_fields=["feature_flag_auto_archived"])
 
     def _report_experiment_unarchived(
         self,

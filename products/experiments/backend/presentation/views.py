@@ -28,6 +28,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.approvals.mixins import ApprovalHandlingMixin
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -271,6 +272,23 @@ class EnterpriseExperimentsViewSet(
             return scopes
         return None
 
+    def _token_can_write_feature_flag(self, request: Request) -> bool:
+        """Whether the request's token carries feature_flag:write.
+
+        Archiving/unarchiving an experiment can touch the linked flag's archived/active
+        state as a side effect; that is a feature_flag write and must not be reachable with
+        only experiment:write. Session and other non-token auth aren't scope-limited (gated by
+        access control instead), mirroring APIScopePermission.
+        """
+        authenticator = request.successful_authenticator
+        if isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scopes = authenticator.personal_api_key.scopes or []
+        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scopes = (authenticator.access_token.scope or "").split()
+        else:
+            return True
+        return "*" in scopes or "feature_flag:write" in scopes
+
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation
     #
@@ -329,6 +347,7 @@ class EnterpriseExperimentsViewSet(
         archived_experiment = service.archive_experiment(
             experiment,
             disable_feature_flag=request_serializer.validated_data["disable_feature_flag"],
+            can_write_feature_flag=self._token_can_write_feature_flag(request),
             request=request,
         )
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
@@ -347,7 +366,11 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        unarchived_experiment = service.unarchive_experiment(experiment, request=request)
+        unarchived_experiment = service.unarchive_experiment(
+            experiment,
+            can_write_feature_flag=self._token_can_write_feature_flag(request),
+            request=request,
+        )
         return Response(ExperimentSerializer(unarchived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(

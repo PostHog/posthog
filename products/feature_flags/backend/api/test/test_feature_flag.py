@@ -10871,6 +10871,34 @@ class TestFeatureFlagMatchingIds(APIBaseTest):
         assert data["total"] == 1
         assert data["ids"] == [active_flag.id]
 
+    def test_matching_ids_excludes_archived_by_default(self):
+        visible_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="visible_flag",
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived_flag",
+            archived=True,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        # Default: archived flag is absent from the "select all matching" set.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/")
+        assert response.status_code == 200
+        ids = response.json()["ids"]
+        assert visible_flag.id in ids
+        assert archived_flag.id not in ids
+
+        # ?archived=true returns only archived flags.
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/matching_ids/?archived=true")
+        assert response.status_code == 200
+        assert response.json()["ids"] == [archived_flag.id]
+
     def test_matching_ids_excludes_deleted_flags(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -11027,6 +11055,36 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
         active_flag.refresh_from_db()
         inactive_flag.refresh_from_db()
         assert active_flag.deleted is False
+        assert inactive_flag.deleted is True
+
+    def test_bulk_delete_by_filter_excludes_archived_by_default(self):
+        """An archived flag must not be deleted by a filter-based bulk delete, even when it
+        matches the filter (archived flags are inactive, so an active=false filter matches them)."""
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="archived_inactive_flag",
+            archived=True,
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+        inactive_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="plain_inactive_flag",
+            active=False,
+            filters={"groups": [{"rollout_percentage": 50, "properties": []}]},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+            {"filters": {"active": "false"}},
+        )
+
+        assert response.status_code == 200
+        archived_flag.refresh_from_db()
+        inactive_flag.refresh_from_db()
+        assert archived_flag.deleted is False
         assert inactive_flag.deleted is True
 
     def test_bulk_delete_by_ids_no_limit(self):

@@ -1933,6 +1933,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag(featureFlagActiveUpdate)
             }
         },
+        updateFeatureFlagArchivedFailure: ({ errorObject }) => {
+            // Archiving an enabled flag also disables it, which can trip the approval gate (409).
+            // Surface the change-request flow instead of silently doing nothing.
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                return
+            }
+            // For non-approval errors, let the global error handler show the toast to avoid duplicates
+        },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
             actions.updateFlag(featureFlag)

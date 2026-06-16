@@ -57,6 +57,7 @@ import {
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
+import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
@@ -300,28 +301,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                                 })
                                             return
                                         }
-                                        LemonDialog.open({
-                                            title: 'Archive this flag?',
-                                            description: featureFlag.active
-                                                ? 'This flag is currently enabled — archiving will disable it and immediately roll it back from users matching the release conditions. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data.'
-                                                : 'Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive it at any time.',
-                                            primaryButton: {
-                                                children: 'Archive',
-                                                type: 'primary',
-                                                onClick: () => {
-                                                    featureFlag.id &&
-                                                        updateFeatureFlag({
-                                                            id: featureFlag.id,
-                                                            payload: { archived: true, active: false },
-                                                        })
-                                                },
-                                                size: 'small',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                                type: 'tertiary',
-                                                size: 'small',
-                                            },
+                                        openFeatureFlagArchiveDialog(featureFlag, () => {
+                                            featureFlag.id &&
+                                                updateFeatureFlag({
+                                                    id: featureFlag.id,
+                                                    payload: { archived: true, active: false },
+                                                })
                                         })
                                     }}
                                     fullWidth

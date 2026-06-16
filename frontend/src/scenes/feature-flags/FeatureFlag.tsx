@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconArchive, IconCopy, IconPlusSmall, IconRewind, IconTrash } from '@posthog/icons'
-import { LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -78,6 +78,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
@@ -362,23 +363,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             if (featureFlag.archived) {
                                                 updateFeatureFlagArchived(false)
                                             } else {
-                                                LemonDialog.open({
-                                                    title: 'Archive this flag?',
-                                                    description: featureFlag.active
-                                                        ? 'This flag is currently enabled — archiving will disable it and immediately roll it back from users matching the release conditions. Archived flags are hidden from the flag list, but linked experiments and surveys keep their data.'
-                                                        : 'Archived flags are hidden from the flag list, but linked experiments and surveys keep their data. You can unarchive it at any time.',
-                                                    primaryButton: {
-                                                        children: 'Archive',
-                                                        type: 'primary',
-                                                        onClick: () => updateFeatureFlagArchived(true),
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
+                                                openFeatureFlagArchiveDialog(featureFlag, () =>
+                                                    updateFeatureFlagArchived(true)
+                                                )
                                             }
                                         }}
                                         disabledReasons={{

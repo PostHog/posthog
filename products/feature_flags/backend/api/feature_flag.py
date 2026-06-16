@@ -72,7 +72,11 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.flag_analytics import increment_request_count
-from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker, filter_flags_by_active_param
+from products.feature_flags.backend.flag_status import (
+    FeatureFlagStatusChecker,
+    exclude_archived_unless_requested,
+    filter_flags_by_active_param,
+)
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import (
@@ -2522,9 +2526,7 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
-            # Archived flags are hidden unless explicitly requested via the `archived` param
-            if "archived" not in self.request.GET:
-                queryset = queryset.filter(archived=False)
+            queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
@@ -2940,9 +2942,7 @@ class FeatureFlagViewSet(
         ).values_list("internal_targeting_flag_id", flat=True)
         queryset = queryset.exclude(Q(id__in=survey_flag_ids)).exclude(Q(id__in=product_tour_internal_targeting_flags))
 
-        # Archived flags are hidden unless explicitly requested (same as list endpoint)
-        if "archived" not in self.request.GET:
-            queryset = queryset.filter(archived=False)
+        queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
 
         # Apply client filters (same filtering as list endpoint)
         queryset = self._filter_request(self.request, queryset)
@@ -3044,8 +3044,7 @@ class FeatureFlagViewSet(
         if filters:
             # Match the list endpoint's semantics: archived flags are not deleted by
             # filter-based bulk deletion unless explicitly requested.
-            if "archived" not in filters:
-                queryset = queryset.filter(archived=False)
+            queryset = exclude_archived_unless_requested(queryset, requested="archived" in filters)
             # Apply filters from request body (same logic as _filter_request but from dict)
             queryset = self._apply_filters(filters, queryset)
         else:
