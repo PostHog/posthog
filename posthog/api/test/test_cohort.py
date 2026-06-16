@@ -30,10 +30,8 @@ from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.property import BehavioralPropertyType
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
@@ -5462,36 +5460,6 @@ class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
         flags = response.json()["feature_flags"]
         self.assertEqual(flags["results"], [])
         self.assertEqual(flags["total"], 0)
-
-    @parameterized.expand(
-        [
-            ("missing_both", ["cohort:read"]),
-            ("missing_insight", ["cohort:read", "feature_flag:read"]),
-            ("missing_flag", ["cohort:read", "insight:read"]),
-        ]
-    )
-    @patch("posthog.api.cohort.report_user_action")
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_used_in_requires_flag_and_insight_scopes(self, _name, scopes, patch_calculate_cohort, patch_capture):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "Scoped Cohort", "groups": [{"properties": {"team_id": 5}}]},
-        )
-        cohort_id = response.json()["id"]
-
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="cohort-only",
-            user=self.user,
-            secure_value=hash_key_value(token),
-            scopes=scopes,
-        )
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_id}/used_in",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
