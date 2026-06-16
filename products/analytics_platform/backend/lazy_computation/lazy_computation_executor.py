@@ -19,7 +19,11 @@ from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings, get_default_hogql_global_settings
+from posthog.hogql.constants import (
+    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+    HogQLQuerySettings,
+    get_default_hogql_global_settings,
+)
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -146,6 +150,13 @@ def _get_insert_settings(team_id: int) -> dict:
             # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
             # for version compatibility.
             "insert_distributed_sync": 1,
+            # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
+            # *threshold*, not a memory reservation — it lowers peak RAM (vs.
+            # holding the whole hash table in memory), so it's safe to apply to
+            # every insert without over-committing the cluster. High-traffic teams'
+            # breakdown inserts (e.g. frustration metrics) otherwise build hash
+            # tables past the cluster memory limit and fail with MEMORY_LIMIT_EXCEEDED.
+            "max_bytes_before_external_group_by": MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
             **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
         }
     )
