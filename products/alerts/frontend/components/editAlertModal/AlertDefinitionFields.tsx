@@ -59,6 +59,40 @@ export function TrendsDefinitionFields({
     )
 }
 
+/** Funnels: pick the conversion metric and step. */
+export function FunnelsDefinitionFields({ funnelStepCount }: { funnelStepCount: number }): JSX.Element {
+    return (
+        <div className="flex flex-wrap gap-3 items-center">
+            <div>Alert on</div>
+            <Group name={['config']}>
+                <LemonField name="metric" className="flex-auto">
+                    <LemonSelect
+                        fullWidth
+                        data-attr="alertForm-funnel-metric"
+                        options={[
+                            { label: 'conversion from first step', value: 'conversion_from_start' },
+                            { label: 'conversion from previous step', value: 'conversion_from_previous' },
+                        ]}
+                    />
+                </LemonField>
+                <LemonField name="funnel_step" className="flex-auto">
+                    <LemonSelect
+                        fullWidth
+                        data-attr="alertForm-funnel-step"
+                        options={[
+                            { label: 'overall (last step)', value: null },
+                            ...Array.from({ length: funnelStepCount }, (_, index) => ({
+                                label: `step ${index + 1}`,
+                                value: index,
+                            })),
+                        ]}
+                    />
+                </LemonField>
+            </Group>
+        </div>
+    )
+}
+
 /** SQL: pick the evaluation mode and (when the result is multi-column) the value/label columns,
  * plus the live preview of what the alert would evaluate. */
 export function HogQLDefinitionFields({

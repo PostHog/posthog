@@ -80,7 +80,7 @@ export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): bool
 }
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */
-export type InsightAlertKind = 'trends' | 'hogql'
+export type InsightAlertKind = 'trends' | 'hogql' | 'funnels'
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
@@ -96,6 +96,9 @@ const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']):
     if (kind === 'hogql') {
         // last_row is the default — the most common SQL alert shape is a chronological series.
         return { type: 'HogQLAlertConfig', evaluation: 'last_row' }
+    }
+    if (kind === 'funnels') {
+        return { type: 'FunnelsAlertConfig', funnel_step: null, metric: 'conversion_from_start' }
     }
     return {
         type: 'TrendsAlertConfig',

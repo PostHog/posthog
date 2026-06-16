@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AlertCalculationInterval, AlertState } from '~/queries/schema/schema-general'
-import { containsHogQLQuery } from '~/queries/utils'
+import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/editAlertModal/AlertAdvancedOptionsSection'
@@ -80,7 +80,13 @@ export function EditAlertModal({
 
     const { query } = useValues(insightVizDataLogic(insightLogicProps ?? { dashboardItemId: insightShortId }))
 
-    const insightAlertKind: 'hogql' | 'trends' = containsHogQLQuery(query) ? 'hogql' : 'trends'
+    const funnelSource = !!query && isInsightVizNode(query) && isFunnelsQuery(query.source) ? query.source : null
+    const isFunnelInsight = funnelSource !== null
+    const insightAlertKind: 'hogql' | 'funnels' | 'trends' = containsHogQLQuery(query)
+        ? 'hogql'
+        : isFunnelInsight
+          ? 'funnels'
+          : 'trends'
 
     const formLogicProps = {
         alert,
@@ -263,6 +269,7 @@ export function EditAlertModal({
                                         isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                                         alertSeries={alertSeries}
                                         formulaNodes={formulaNodes}
+                                        funnelStepCount={funnelSource?.series?.length ?? 0}
                                         hogqlPreview={hogqlAlertPreview}
                                         hogqlColumns={hogqlResultColumns}
                                         hogqlValueColumnOptions={hogqlValueColumnOptions}
