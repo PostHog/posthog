@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,7 @@ class AmazonAdsSource(SimpleSource[AmazonAdsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Amazon Ads",
             caption="""Connect your Amazon Ads account to pull your advertising entity data into the PostHog Data warehouse.
 

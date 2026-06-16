@@ -10,7 +10,13 @@ from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryImplementation,
     _bq_select_clause,
     _get_query,
+    _resolve_dataset_id,
+    _resolve_dataset_project_id,
+    _resolve_project_id,
+    _resolve_query_project,
+    _resolve_region,
     delete_all_temp_destination_tables,
+    validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
@@ -19,6 +25,7 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryKeyFileConfig,
     BigQuerySourceConfig,
     BigQueryTemporaryDatasetConfig,
+    BigQueryUseCustomRegionConfig,
 )
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -45,18 +52,20 @@ def _make_inputs(**overrides) -> SourceInputs:
 
 def _make_config(
     *,
+    project_id: str = "project-id",
+    dataset_id: str = "dataset-id",
     dataset_project: BigQueryDatasetProjectConfig | None = None,
     temporary_dataset: BigQueryTemporaryDatasetConfig | None = None,
 ) -> BigQuerySourceConfig:
     return BigQuerySourceConfig(
         key_file=BigQueryKeyFileConfig(
-            project_id="project-id",
+            project_id=project_id,
             private_key="private-key",
             private_key_id="private-key-id",
             client_email="client-email",
             token_uri="token-uri",
         ),
-        dataset_id="dataset-id",
+        dataset_id=dataset_id,
         dataset_project=dataset_project,
         temporary_dataset=temporary_dataset,
     )
@@ -177,6 +186,49 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     assert "WHERE `updated_at` > 42" in query
 
 
+def test_bigquery_get_query_datetime_initial_value_has_no_timezone_offset():
+    """BigQuery DATETIME columns are timezone-naive; a literal with a UTC offset (the shared
+    tz-aware initial cursor value) fails with "Could not cast literal ... to type DATETIME"."""
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.DateTime,
+    )
+    assert "WHERE `updated_at` > '1970-01-01T00:00:00'" in query
+    assert "+00:00" not in query
+
+
+def test_bigquery_get_query_datetime_strips_offset_from_stored_value():
+    """A stored tz-aware cursor value must also lose its offset for DATETIME columns."""
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    last_value = parser.parse("2024-03-11T09:26:04+00:00")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=last_value,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.DateTime,
+    )
+    assert "WHERE `updated_at` > '2024-03-11T09:26:04'" in query
+    assert "+00:00" not in query
+
+
+def test_bigquery_get_query_timestamp_keeps_timezone_offset():
+    """BigQuery TIMESTAMP columns are timezone-aware, so the UTC offset must be preserved."""
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        incremental_field="created_at",
+        incremental_field_type=IncrementalFieldType.Timestamp,
+    )
+    assert "WHERE `created_at` > '1970-01-01T00:00:00+00:00'" in query
+
+
 @pytest.mark.parametrize(
     "malicious_column",
     [
@@ -191,6 +243,35 @@ def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
     """`enabled_columns` flows from user config — must be allowlisted before backtick quoting."""
     with pytest.raises(InvalidIdentifierError):
         _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Rotated/revoked service account private key.
+        "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+        # Deleted service account.
+        "('invalid_grant: Invalid grant: account not found', {'error': 'invalid_grant', 'error_description': 'Invalid grant: account not found'})",
+    ],
+)
+def test_non_retryable_errors_match_rejected_credentials(observed_error):
+    """A `RefreshError` carrying the OAuth2 `invalid_grant` code means Google rejected the
+    service account grant — retrying can't recover, so the sync must be disabled."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "transient_error",
+    [
+        # A token refresh that failed for a transient reason must stay retryable.
+        "RefreshError: ('Failed to retrieve token', {'error': 'internal_failure'})",
+        "RefreshError: HTTPError 503 Service Unavailable",
+    ],
+)
+def test_non_retryable_errors_does_not_match_transient_refresh_failures(transient_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert not any(key in transient_error for key in non_retryable_errors)
 
 
 def _run_delete_all_temp_destination_tables(side_effect, logger):
@@ -243,3 +324,135 @@ def test_delete_all_temp_destination_tables_captures_unexpected_errors():
     mock_capture = _run_delete_all_temp_destination_tables(RuntimeError("boom"), logger)
 
     mock_capture.assert_called_once()
+
+
+# Regression: a stray leading/trailing space in a hand-entered project or dataset ID made
+# every BigQuery request fail with an opaque `BadRequest: Invalid project ID ' ...'` /
+# `Invalid dataset ID ' ...'`. The identifiers must be trimmed before reaching BigQuery.
+
+
+@pytest.mark.parametrize(
+    "resolver,field,raw,expected",
+    [
+        (_resolve_project_id, "project_id", " 524098457564", "524098457564"),
+        (_resolve_project_id, "project_id", "project-id\n", "project-id"),
+        (_resolve_dataset_id, "dataset_id", " bigquery_aloalo ", "bigquery_aloalo"),
+        (_resolve_dataset_id, "dataset_id", "\tdataset-id", "dataset-id"),
+    ],
+)
+def test_bigquery_resolvers_trim_whitespace(resolver, field, raw, expected):
+    config = _make_config(**{field: raw})
+    assert resolver(config) == expected
+
+
+def test_bigquery_resolve_region_trims_and_treats_whitespace_as_unset():
+    assert (
+        _resolve_region(_make_config(dataset_project=None)) is None  # no custom region configured
+    )
+
+    config = _make_config()
+    config.use_custom_region = BigQueryUseCustomRegionConfig(region="  us-east1 ", enabled=True)
+    assert _resolve_region(config) == "us-east1"
+
+    config.use_custom_region = BigQueryUseCustomRegionConfig(region="   ", enabled=True)
+    assert _resolve_region(config) is None
+
+
+def test_bigquery_resolve_dataset_project_id_trims_and_treats_whitespace_as_unset():
+    config = _make_config(
+        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="  other-project ", enabled=True)
+    )
+    assert _resolve_dataset_project_id(config) == "other-project"
+
+    config = _make_config(dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="   ", enabled=True))
+    assert _resolve_dataset_project_id(config) is None
+
+
+def test_bigquery_resolve_query_project_prefers_dataset_project():
+    config = _make_config(
+        project_id=" service-account-project ",
+        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id=" dataset-project ", enabled=True),
+    )
+    assert _resolve_query_project(config) == "dataset-project"
+
+    config = _make_config(project_id=" service-account-project ")
+    assert _resolve_query_project(config) == "service-account-project"
+
+
+def test_bigquery_get_columns_trims_whitespace_in_identifiers():
+    """`get_columns` must not embed a leading space into the INFORMATION_SCHEMA query
+    or the `project` it runs against."""
+    fake_client = mock.MagicMock()
+    fake_client.query.return_value.result.return_value = []
+
+    config = _make_config(project_id=" 524098457564", dataset_id=" bigquery_aloalo ")
+    BigQueryImplementation().get_columns(fake_client, config, names=None)
+
+    sql = fake_client.query.call_args.args[0]
+    assert "`bigquery_aloalo.INFORMATION_SCHEMA.COLUMNS`" in sql
+    assert " bigquery_aloalo" not in sql
+    assert fake_client.query.call_args.kwargs["project"] == "524098457564"
+
+
+def test_bigquery_get_primary_keys_trims_whitespace_in_identifiers():
+    fake_client = mock.MagicMock()
+    fake_client.query.return_value.result.return_value = []
+
+    config = _make_config(project_id=" my-project ", dataset_id=" my_dataset ")
+    BigQueryImplementation().get_primary_keys(fake_client, config, tables=["t"])
+
+    sql = fake_client.query.call_args.args[0]
+    assert "`my_dataset`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS" in sql
+    assert " my_dataset`" not in sql
+    assert fake_client.query.call_args.kwargs["project"] == "my-project"
+
+
+def test_bigquery_validate_credentials_trims_whitespace_before_calling_bigquery():
+    bq = mock.MagicMock()
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.return_value = bq
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_client", return_value=client_cm
+    ) as mock_client:
+        validate_bigquery_credentials(
+            dataset_id=" my_dataset ",
+            key_file={
+                "project_id": " 524098457564",
+                "private_key": "private-key",
+                "private_key_id": "private-key-id",
+                "client_email": "client-email",
+                "token_uri": "token-uri",
+            },
+            dataset_project_id=None,
+            location=None,
+        )
+
+    assert mock_client.call_args.args[0] == "524098457564"
+    bq.dataset.assert_called_once_with("my_dataset", project="524098457564")
+
+
+def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
+    """Whitespace in project/dataset IDs must not leak into the fully-qualified
+    destination table name passed to BigQuery during a sync."""
+    config = _make_config(project_id=" 524098457564", dataset_id=" bigquery_aloalo ")
+    expected_table_id = (
+        f"524098457564.bigquery_aloalo.__posthog_import_schema_id_job_id_"
+        f"{str(parser.parse('2025-01-01T12:00:00.000Z').timestamp()).replace('.', '')}"
+    )
+
+    with (
+        freeze_time("2025-01-01T12:00:00.000Z"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.delete_all_temp_destination_tables",
+        ) as mock_delete_all,
+        mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=mock.MagicMock()),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.bigquery.bigquery.delete_table",
+        ) as mock_delete,
+    ):
+        BigQuerySource().source_for_pipeline(config, _make_inputs())
+
+    assert mock_delete_all.call_args.kwargs["project_id"] == "524098457564"
+    assert mock_delete_all.call_args.kwargs["dataset_id"] == "bigquery_aloalo"
+    assert mock_delete.call_args.kwargs["table_id"] == expected_table_id

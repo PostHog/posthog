@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class DocusignSource(SimpleSource[DocusignSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DOCUSIGN,
+            category=DataWarehouseSourceCategory.SALES,
             label="DocuSign",
             iconPath="/static/services/docusign.png",
             fields=cast(list[FieldType], []),

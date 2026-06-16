@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AdjustSource(SimpleSource[AdjustSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ADJUST,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Adjust",
             iconPath="/static/services/adjust.png",
             fields=cast(list[FieldType], []),

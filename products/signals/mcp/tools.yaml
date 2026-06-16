@@ -261,6 +261,9 @@ tools:
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-runs-emission-reports:
+        operation: signals_scout_runs_emission_reports
+        enabled: false
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
