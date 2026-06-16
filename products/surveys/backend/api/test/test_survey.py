@@ -6907,6 +6907,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         "type": "popover",
         "questions": [{"type": "open", "question": "Q?"}],
     }
+    TARGETING_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 50}]}
 
     def setUp(self):
         super().setUp()
@@ -6929,9 +6930,9 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             headers=self.auth_headers,
         )
 
-    def test_create_with_survey_write_only_logs_warning(self):
+    def test_create_with_targeting_flag_filters_and_survey_write_only_logs_warning(self):
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         events = self._warning_events(mock_logger)
         assert len(events) == 1
@@ -6943,11 +6944,19 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert extra["auth_id"] == self.key.id
         assert extra["user_id"] == self.user.id
 
+    def test_create_without_targeting_flag_filters_does_not_log(self):
+        # The auto-managed internal targeting flag is not a user-facing flag, so a plain
+        # survey create must not warn (or, once enforced, be blocked).
+        with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
+            response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert self._warning_events(mock_logger) == []
+
     def test_create_with_feature_flag_write_does_not_log(self):
         self.key.scopes = ["survey:write", "feature_flag:write"]
         self.key.save()
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
@@ -6955,7 +6964,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         self.key.scopes = ["*"]
         self.key.save()
         with patch("products.feature_flags.backend.api.feature_flag.scope_audit_logger") as mock_logger:
-            response = self._create_survey()
+            response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
 
@@ -7039,7 +7048,9 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
         assert len(events) == 1
         assert events[0].kwargs["action"] == "survey.destroy"
 
-    def test_destroy_with_only_internal_targeting_flag_logs_warning(self):
+    def test_destroy_with_only_internal_targeting_flag_does_not_log(self):
+        # The internal targeting flag is PostHog-managed, so deleting a survey that only has
+        # one must not warn (or be blocked once enforced).
         survey_id = self._create_survey().json()["id"]
         survey = Survey.objects.get(pk=survey_id)
         assert survey.targeting_flag_id is None
@@ -7051,10 +7062,7 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
                 headers=self.auth_headers,
             )
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        events = self._warning_events(mock_logger)
-        assert len(events) == 1
-        assert events[0].kwargs["action"] == "survey.destroy"
-        assert events[0].kwargs["feature_flag_id"] == survey.internal_targeting_flag_id
+        assert self._warning_events(mock_logger) == []
 
     def test_destroy_without_any_flag_does_not_log(self):
         survey = Survey.objects.create(
@@ -7081,3 +7089,125 @@ class TestSurveyFeatureFlagScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestSurveyFeatureFlagScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    SURVEY_PAYLOAD = {
+        "name": "Scope enforcement survey",
+        "type": "popover",
+        "questions": [{"type": "open", "question": "Q?"}],
+    }
+    TARGETING_FILTERS = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_survey(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_survey_with_targeting_flag_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        survey_id = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS).json()["id"]
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+        self.key.scopes = ["survey:write"]
+        self.key.save()
+        return survey_id
+
+    def test_create_with_targeting_flag_filters_is_denied(self):
+        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "feature_flag:write" in response.json()["detail"]
+        assert Survey.objects.filter(name=self.SURVEY_PAYLOAD["name"]).count() == 0
+
+    def test_create_without_targeting_flag_filters_is_allowed(self):
+        # Regression guard: plain survey create only touches the internal flag, which stays ungated.
+        response = self._create_survey()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_with_feature_flag_write_is_allowed(self):
+        self.key.scopes = ["survey:write", "feature_flag:write"]
+        self.key.save()
+        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_with_wildcard_scope_is_allowed(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        response = self._create_survey(targeting_flag_filters=self.TARGETING_FILTERS)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_update_targeting_flag_filters_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"targeting_flag_filters": {"groups": [{"properties": [], "rollout_percentage": 75}]}},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_remove_targeting_flag_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"remove_targeting_flag": True},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Survey.objects.get(pk=survey_id).targeting_flag_id is not None
+
+    def test_update_payload_only_is_allowed(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            data={"name": "renamed"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_destroy_with_targeting_flag_is_denied(self):
+        survey_id = self._create_survey_with_targeting_flag_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Survey.objects.filter(pk=survey_id).exists()
+
+    def test_destroy_with_only_internal_targeting_flag_is_allowed(self):
+        survey_id = self._create_survey().json()["id"]
+        survey = Survey.objects.get(pk=survey_id)
+        assert survey.targeting_flag_id is None
+        assert survey.internal_targeting_flag_id is not None
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/surveys/{survey_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={**self.SURVEY_PAYLOAD, "targeting_flag_filters": self.TARGETING_FILTERS},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()

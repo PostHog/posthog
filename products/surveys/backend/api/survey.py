@@ -64,7 +64,7 @@ from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
-    warn_if_missing_feature_flag_write_scope,
+    assert_feature_flag_write_scope,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -1549,12 +1549,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             validated_data.pop("remove_targeting_flag")
 
         validated_data["team_id"] = self.context["team_id"]
-        warn_if_missing_feature_flag_write_scope(
-            self.context["request"],
-            action="survey.create",
-            team_id=self.context["team_id"],
-        )
         if validated_data.get("targeting_flag_filters"):
+            assert_feature_flag_write_scope(
+                self.context["request"],
+                action="survey.create",
+                team_id=self.context["team_id"],
+            )
             targeting_feature_flag = self._create_or_update_targeting_flag(
                 None, validated_data["targeting_flag_filters"], validated_data["name"]
             )
@@ -1591,7 +1591,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
-                warn_if_missing_feature_flag_write_scope(
+                assert_feature_flag_write_scope(
                     self.context["request"],
                     action="survey.update.remove_targeting_flag",
                     team_id=self.context["team_id"],
@@ -1612,7 +1612,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         # if the target flag filters come back with data, update the targeting feature flag if there is one, otherwise create a new one
         if validated_data.get("targeting_flag_filters"):
-            warn_if_missing_feature_flag_write_scope(
+            assert_feature_flag_write_scope(
                 self.context["request"],
                 action="survey.update.targeting_flag_filters",
                 team_id=self.context["team_id"],
@@ -2062,12 +2062,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         instance = self.get_object()
         related_targeting_flag = instance.targeting_flag
         related_internal_targeting_flag = instance.internal_targeting_flag
-        if related_targeting_flag or related_internal_targeting_flag:
-            warn_if_missing_feature_flag_write_scope(
+        # Only the user-defined targeting flag is gated; the internal targeting flag is a
+        # PostHog-managed implementation detail, so deleting a survey that only has one
+        # must not require `feature_flag:write`.
+        if related_targeting_flag:
+            assert_feature_flag_write_scope(
                 request,
                 action="survey.destroy",
                 team_id=self.team_id,
-                feature_flag_id=(related_targeting_flag or related_internal_targeting_flag).id,
+                feature_flag_id=related_targeting_flag.id,
             )
         if related_targeting_flag:
             related_targeting_flag.delete()

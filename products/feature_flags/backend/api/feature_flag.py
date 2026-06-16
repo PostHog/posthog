@@ -104,6 +104,12 @@ REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
 EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
+# Gates enforcement of `feature_flag:write` on cross-resource flag mutations
+# (Survey / Early Access Feature endpoints). Kept off during the migration grace
+# period so we can notify affected customers before flipping it on per-org, then
+# to 100%. Remove the gate and make enforcement unconditional once fully rolled out.
+ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
+
 # Fields that Rust's FeatureFlag struct expects for historical evaluation
 RUST_FLAG_FIELDS = (
     "name",
@@ -118,19 +124,39 @@ RUST_FLAG_FIELDS = (
 )
 
 
-def warn_if_missing_feature_flag_write_scope(
+def _is_enforce_feature_flag_write_scope_enabled(request) -> bool:
+    # Rollout gate for the cross-resource `feature_flag:write` enforcement below.
+    # Fails open (returns False) on anonymous users or any evaluation error, so a
+    # flag-service outage mid-migration degrades to warn-only rather than blocking writes.
+    try:
+        user = getattr(request, "user", None)
+        if user is None or user.is_anonymous:
+            return False
+        return posthoganalytics.feature_enabled(
+            ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG,
+            user.distinct_id,
+            groups={"organization": str(user.organization.id)},
+            group_properties={"organization": {"id": str(user.organization.id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        return False
+
+
+def assert_feature_flag_write_scope(
     request,
     *,
     action: str,
     team_id: int | None = None,
     feature_flag_id: int | None = None,
+    resource_scope: str = "survey:write",
 ) -> None:
-    # Temporary observability for a cross-resource scope bypass: SurveyViewSet and
-    # EarlyAccessFeatureViewSet mutate FeatureFlag rows under their own scope
-    # (`survey:write` / `early_access_feature:write`). Before enforcing
-    # `feature_flag:write` on these paths we want to know which customers rely on
-    # the transitive access so we can notify them. Remove this helper and its
-    # call sites once the scope is enforced.
+    # Cross-resource scope enforcement: SurveyViewSet and EarlyAccessFeatureViewSet
+    # mutate FeatureFlag rows under their own scope (`survey:write` /
+    # `early_access_feature:write`). Without `feature_flag:write`, that is a privilege
+    # escalation (VERIA-268). We always emit an audit log when the scope is missing, and
+    # raise once enforcement is enabled for the org (see the rollout gate above).
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, PersonalAPIKeyAuthentication):
         scopes = list(authenticator.personal_api_key.scopes or [])
@@ -145,6 +171,7 @@ def warn_if_missing_feature_flag_write_scope(
         auth_id = str(raw_id) if raw_id is not None else None
         auth_label = None
     else:
+        # Session / cookie auth has no scope concept; access control is handled elsewhere.
         return
 
     if "*" in scopes or "feature_flag:write" in scopes:
@@ -161,6 +188,13 @@ def warn_if_missing_feature_flag_write_scope(
         auth_label=auth_label,
         user_id=getattr(getattr(request, "user", None), "id", None),
     )
+
+    if _is_enforce_feature_flag_write_scope_enabled(request):
+        raise exceptions.PermissionDenied(
+            f"This action also modifies a feature flag, which requires the `feature_flag:write` scope "
+            f"in addition to `{resource_scope}`. Add `feature_flag:write` to your API key, or use a key "
+            f"with the `*` scope."
+        )
 
 
 def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:

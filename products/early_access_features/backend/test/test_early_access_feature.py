@@ -1318,3 +1318,94 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    CREATE_PAYLOAD = {
+        "name": "Scope enforcement feature",
+        "description": "x",
+        "stage": "concept",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_feature(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={**self.CREATE_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_feature_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        return feature_id
+
+    def test_create_is_denied(self):
+        response = self._create_feature()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert "feature_flag:write" in response.json()["detail"]
+
+    def test_create_with_feature_flag_write_is_allowed(self):
+        self.key.scopes = ["early_access_feature:write", "feature_flag:write"]
+        self.key.save()
+        response = self._create_feature()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_create_with_wildcard_scope_is_allowed(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        response = self._create_feature()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_update_stage_change_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"stage": "beta"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_without_stage_change_is_allowed(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"description": "updated"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_destroy_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data=self.CREATE_PAYLOAD,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
