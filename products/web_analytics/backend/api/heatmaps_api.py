@@ -216,10 +216,10 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False,
         default=500,
-        min_value=1,
+        min_value=0,
         max_value=MAX_SELECT_HEATMAPS_LIMIT,
         help_text="Maximum number of coordinate points to return, ordered hottest-first by count. Defaults to 500. "
-        "Raise it (up to 1,000,000) to fetch the full set needed to render a complete heatmap overlay. "
+        "Pass 0 to fetch the full set (every coordinate) needed to render a complete heatmap overlay. "
         "Ignored for the 'scrolldepth' type, which always returns every bucket.",
     )
     offset = serializers.IntegerField(
@@ -458,13 +458,16 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
             exprs.append(self._build_test_accounts_filter(date_from, date_to))
 
+        unbounded = limit == 0
         query_placeholders: dict[str, Expr] = {
             "aggregation_count": aggregation_count,
             "predicates": ast.And(exprs=exprs),
         }
         if not is_scrolldepth_query:
-            # Fetch one extra row so we can report has_more without a second count query.
-            query_placeholders["limit"] = Constant(value=limit + 1)
+            # Unbounded fetches everything up to the hard cap; otherwise fetch one extra row so we can
+            # report has_more without a second count query.
+            fetch_limit = MAX_SELECT_HEATMAPS_LIMIT if unbounded else limit + 1
+            query_placeholders["limit"] = Constant(value=fetch_limit)
             query_placeholders["offset"] = Constant(value=offset)
 
         stmt = parse_select(raw_query, query_placeholders)
@@ -475,8 +478,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_scrolldepth_query:
             return self._return_scroll_depth_response(results)
 
-        has_more = len(results.results or []) > limit
-        results.results = (results.results or [])[:limit]
+        has_more = not unbounded and len(results.results or []) > limit
+        if not unbounded:
+            results.results = (results.results or [])[:limit]
 
         fold = self._compute_fold_summary(exprs)
         return self._return_heatmap_coordinates_response(results, fold, has_more)

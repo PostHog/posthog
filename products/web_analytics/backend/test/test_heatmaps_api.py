@@ -241,6 +241,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     @parameterized.expand(
         [
             ("default_returns_all", None, None, [3, 2, 1], False),
+            ("limit_zero_is_unbounded", 0, None, [3, 2, 1], False),
             ("limit_truncates_hottest_first", 2, None, [3, 2], True),
             ("limit_equal_to_total", 3, None, [3, 2, 1], False),
             ("offset_pages_into_cooler_points", 2, 1, [2, 1], False),
