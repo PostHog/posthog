@@ -66,6 +66,19 @@ class TestTemporalIONonRetryableErrors:
     @pytest.mark.parametrize(
         "error_message",
         [
+            'RuntimeError: Failed client connect: `get_system_info` call error after connection: Status { code: Unauthenticated, message: "Jwt is missing", metadata: MetadataMap { headers: {"www-authenticate": "Bearer realm=\\"https://us-east4.gcp.api.temporal.io/temporal.api.workflowservice.v1.WorkflowService/GetSystemInfo\\"", "content-type": "application/grpc", "server": "temporal"} }, source: None }',
+        ],
+    )
+    def test_authentication_failures_are_non_retryable(self, error_message):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+
+        assert any(pattern in error_message for pattern in non_retryable_errors), (
+            f"Expected '{error_message}' to match a non-retryable pattern"
+        )
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
             "activity Heartbeat timeout",
             'RuntimeError: Failed client connect: `get_system_info` call error after connection: Status { code: Unknown, message: "transport error", source: Some(tonic::transport::Error(Transport, hyper::Error(Io, Os { code: 60, kind: TimedOut, message: "Operation timed out" }))) }',
         ],
