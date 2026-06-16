@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class OracleEbsSource(SimpleSource[OracleEbsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ORACLE_EBS,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
+            keywords=["oracle e-business suite", "ebs"],
             label="Oracle EBS",
             iconPath="/static/services/oracle.png",
             fields=cast(list[FieldType], []),
