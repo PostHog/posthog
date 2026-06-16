@@ -1,5 +1,7 @@
+import re
 import json
 from collections.abc import AsyncGenerator, Callable, Iterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,6 +36,7 @@ from posthog.temporal.tests.session_replay.session_summary.conftest import Async
 
 from products.replay.backend.models.session_summaries import SingleSessionSummary
 
+from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS, SESSION_SUMMARY_EVENT_BLOCKLIST
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
 
@@ -54,6 +57,22 @@ def test_set_phase_updates_phase_and_step() -> None:
 
     assert progress["phase"] == "uploading_to_gemini"
     assert progress["step"] == 3
+
+
+def test_frontend_summary_gate_constants_match_backend() -> None:
+    # The Summarize button gate in playerMetaLogic.tsx hardcodes copies of the backend summary
+    # event filters. Guard against the two drifting apart (there is no shared source).
+    repo_root = Path(__file__).resolve().parents[5]
+    ts = (repo_root / "frontend/src/scenes/session-recordings/player/player-meta/playerMetaLogic.tsx").read_text()
+
+    cutoff_match = re.search(r"SUMMARY_EVENTS_REPLAY_CUTOFF_MS\s*=\s*(\d+)", ts)
+    assert cutoff_match, "SUMMARY_EVENTS_REPLAY_CUTOFF_MS not found in playerMetaLogic.tsx"
+    assert int(cutoff_match.group(1)) == SESSION_EVENTS_REPLAY_CUTOFF_MS
+
+    blocklist_match = re.search(r"SUMMARY_EVENT_BLOCKLIST\s*=\s*\[(.*?)\]", ts, re.DOTALL)
+    assert blocklist_match, "SUMMARY_EVENT_BLOCKLIST not found in playerMetaLogic.tsx"
+    frontend_blocklist = set(re.findall(r"""['"]([^'"]+)['"]""", blocklist_match.group(1)))
+    assert frontend_blocklist == set(SESSION_SUMMARY_EVENT_BLOCKLIST)
 
 
 class TestFetchSessionDataActivity:
@@ -576,6 +595,54 @@ class TestExecuteSummarizeSessionVideoStream:
         mock_prepare.assert_not_called()
         mock_start.assert_not_called()
         mock_connect.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_length_precheck_fails_open_when_metadata_read_errors(
+        self,
+        cap_mocks: SimpleNamespace,
+        mock_session_id: str,
+        mock_user: MagicMock,
+        mock_team: MagicMock,
+        mock_enriched_llm_json_response: dict[str, Any],
+    ):
+        # A failing get_metadata read must not block summarization: skip the length
+        # precheck and proceed to start the workflow as normal.
+        cap_mocks.get_metadata.side_effect = Exception("clickhouse unavailable")
+        completed_summary = MagicMock()
+        completed_summary.id = "completed-summary-id"
+        completed_summary.summary = mock_enriched_llm_json_response
+        handle = self._make_handle([(WorkflowExecutionStatus.COMPLETED, None)])
+
+        with (
+            patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(side_effect=[None, completed_summary])),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
+                return_value=(None, None, None, MagicMock(), "workflow-id"),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
+                AsyncMock(return_value=handle),
+            ) as mock_start,
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.async_connect",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch(
+                "posthog.temporal.session_replay.session_summary.workflow.asyncio.sleep",
+                AsyncMock(),
+            ),
+        ):
+            events = await self._collect(
+                execute_summarize_session_video_stream(
+                    session_id=mock_session_id,
+                    user=mock_user,
+                    team=mock_team,
+                )
+            )
+
+        mock_start.assert_awaited_once()
+        assert not any("event: session-summary-error" in event for event in events)
+        assert events[-1].startswith("event: session-summary-stream\n")
 
     @pytest.mark.asyncio
     async def test_get_progress_query_failure_retries_next_iteration(
