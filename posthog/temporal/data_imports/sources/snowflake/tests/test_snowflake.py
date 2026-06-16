@@ -623,13 +623,13 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "View definition for 'RECCE.PUBLIC.INT_AMP_EVENTS_EXCLUDE_DEMO_AND_CI' declared 42 column(s), "
-            "but view query produces 43 column(s).",
-            # The real shape from production: the query id, view name, and column counts vary, but the
+            "View definition for 'MY_DB.PUBLIC.MY_VIEW' declared 5 column(s), "
+            "but view query produces 6 column(s).",
+            # The production shape: the query id, view name, and column counts vary, but the
             # message template substring is stable.
-            "002057 (42601): 01c51640-0009-abe9-0001-40ae09621046: SQL compilation error: "
-            "View definition for 'RECCE.PUBLIC.INT_AMP_EVENTS_EXCLUDE_DEMO_AND_CI' declared 42 column(s), "
-            "but view query produces 43 column(s).",
+            "002057 (42601): 00000000-0000-0000-0000-000000000000: SQL compilation error: "
+            "View definition for 'MY_DB.PUBLIC.MY_VIEW' declared 5 column(s), "
+            "but view query produces 6 column(s).",
         ],
     )
     def test_view_column_mismatch_is_non_retryable(self, source, error_msg):
