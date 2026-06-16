@@ -681,10 +681,47 @@ class TestHasDuplicatePrimaryKeys:
 
     def test_fails_safe_to_true_on_clickhouse_error(self):
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("Code: 241. Memory limit exceeded")
+        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
         # On error we must assume duplicates exist so the incremental merge is
         # blocked. Returning False here would silently corrupt the Delta table.
         assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+    def test_captures_unexpected_clickhouse_error(self):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+        mock_capture.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # max_memory_usage cap (code 241)
+            "HTTPDriver received ClickHouse error code 241\n Code: 241. DB::Exception: Query memory limit "
+            "exceeded: would use 958.14 MiB, maximum: 953.67 MiB: While executing AggregatingInOrderTransform. "
+            "(MEMORY_LIMIT_EXCEEDED)\n",
+            # max_execution_time cap (code 159)
+            "HTTPDriver received ClickHouse error code 159\n Code: 159. DB::Exception: Timeout exceeded: "
+            "elapsed 53343.4 ms, maximum: 30000 ms. (TIMEOUT_EXCEEDED)\n",
+        ],
+    )
+    def test_probe_budget_exhaustion_not_captured(self, error_msg):
+        from posthog.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(error_msg)
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            # Still assumes duplicates (safe append mode), but the probe hitting
+            # its own memory/time budget is the designed fallback — not error
+            # tracking noise.
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is True
+
+        mock_capture.assert_not_called()
 
     def test_passes_bounded_settings(self):
         client = MagicMock()
