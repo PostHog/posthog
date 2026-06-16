@@ -3227,6 +3227,14 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     statusCodes?: integer[]
     traceId?: string
     rootSpans?: boolean
+    /**
+     * Return the matching spans themselves, one row per span (root and child), instead of the
+     * whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every
+     * matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays
+     * bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace
+     * waterfall never sets this.
+     */
+    flatSpans?: boolean
     /** Cursor for fetching the next page of results */
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
