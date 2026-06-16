@@ -26,11 +26,13 @@ from __future__ import annotations
 import os
 import re
 import sys
+import json
 import shutil
 import zipfile
 import argparse
 import textwrap
 from pathlib import Path
+from typing import Literal, cast
 
 import yaml
 from jinja2 import Environment, StrictUndefined, TemplateSyntaxError
@@ -45,6 +47,146 @@ _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _BINARY_CHECK_SIZE = 8192
 _ALLOWED_SUBDIRS = {"references", "scripts"}
+
+# Tool/skill reference linting: skills must only reference MCP tools and skills that exist.
+# The valid tool names come from the checked-in MCP schema registries (kept in sync with the
+# sources by the schema drift check in ci-mcp.yml). Mirrors lint-tool-names.ts in services/mcp.
+_MCP_SCHEMA_FILES = (
+    "services/mcp/schema/tool-definitions.json",
+    "services/mcp/schema/generated-tool-definitions.json",
+)
+# Hyphenated/underscored prose that reads like a tool/skill reference but isn't one.
+_REFERENCE_ALLOWLIST = {
+    "per-file",  # "a per-file tool"
+    "follow-up",  # "a follow-up tool"
+    "pre-approved",  # "list of pre-approved tools"
+    "built-in",  # "a built-in tool"
+    "heavily-used",  # "a heavily-used tool"
+    "harness-level",  # "a harness-level tool"
+    "product-specific",  # "a product-specific tool"
+    "time-to-merge",  # "there is no aggregate time-to-merge tool"
+    "web-search",  # LLM web search, not a PostHog MCP tool
+    "comma-separated",
+    "skills-store",  # the Skills store feature ("the skills-store tools")
+    "llma-alerts",  # skills-store skill, not in this repo
+    "text-embedding-3-small-1536",  # embedding model name
+    "deep-dive",  # "a deep-dive skill"
+    "team-shared",
+    "per-team",
+    "per-session",  # adjective in "per-session tool calls", not a tool name
+    "multi-file",
+    "document-window",  # shorthand for the business-knowledge-document-window-retrieve tool
+    # SDK / HogQL functions legitimately shown with call syntax in skills:
+    "feature_enabled",
+    "get_feature_flag",
+    "get_feature_flag_payload",
+    "get_feature_flag_result",
+    "get_all_flags",
+    "get_all_flags_and_payloads",
+    "apply_path_cleaning",
+    "emit_signal",
+}
+# "use the X tool", "load the `X` skill" — kebab or snake candidate followed by tool/skill.
+_PHRASE_REFERENCE_RE = re.compile(r"(?<![A-Za-z0-9_`-])`?([a-z0-9]+(?:[_-][a-z0-9]+)+)`?\s+(tools?|skills?)\b")
+# "via `X`", "use `X`" — kebab-only (snake here is usually a field/SDK name, not a tool).
+_INVOCATION_REFERENCE_RE = re.compile(
+    r"\b(?:via|use|using|call|calling)\s+(?:the\s+)?`([a-z0-9]+(?:-[a-z0-9]+)+)`(?!\s*(?:tools?|skills?)\b)"
+)
+# A noun right after the backticked name means it's not a tool reference ("via the `x` feature flag").
+_ENTITY_NOUN_RE = re.compile(r"\s+(?:feature|flag|event|property|properties|column|field|table|key|filter)s?\b")
+# Backticked call syntax, e.g. `read_data("experiments", id)` — tool invocations written as calls.
+# Deliberately skills-only (no equivalent in tool-references.ts): call-style references occur only
+# in skill prose, and the SDK/HogQL allowlist entries above exist to absorb this rule's false positives.
+_CALL_REFERENCE_RE = re.compile(r"`([a-z0-9]+(?:[_-][a-z0-9]+)+)\(")
+# Backticked snake_case whose kebab form is a real tool — wrong casing.
+_SNAKE_CASE_REFERENCE_RE = re.compile(r"`([a-z0-9]+(?:_[a-z0-9]+)+)`")
+
+
+def _load_mcp_tool_names(repo_root: Path) -> set[str] | None:
+    """Load valid MCP tool names from the checked-in schema registries.
+
+    Returns None if no registry is available so the reference check can be skipped
+    (keeps the lint runnable in checkouts without the MCP service).
+    """
+    names: set[str] = set()
+    found = False
+    for rel_path in _MCP_SCHEMA_FILES:
+        schema_file = repo_root / rel_path
+        if not schema_file.is_file():
+            continue
+        found = True
+        names.update(json.loads(schema_file.read_text()).keys())
+    return names if found else None
+
+
+# The kinds produced by the phrase regex alternation `(tools?|skills?)`.
+ReferenceKind = Literal["tool", "tools", "skill", "skills"]
+
+
+def _find_phrase_references(text: str) -> list[tuple[str, ReferenceKind]]:
+    # kind is guaranteed by the `(tools?|skills?)` alternation
+    return [(m.group(1), cast("ReferenceKind", m.group(2))) for m in _PHRASE_REFERENCE_RE.finditer(text)]
+
+
+def _find_invocation_references(text: str) -> list[str]:
+    return [m.group(1) for m in _INVOCATION_REFERENCE_RE.finditer(text) if not _ENTITY_NOUN_RE.match(text, m.end())]
+
+
+def _find_call_references(text: str) -> list[str]:
+    return [m.group(1) for m in _CALL_REFERENCE_RE.finditer(text)]
+
+
+def _find_backticked_snake_case(text: str) -> list[str]:
+    return [m.group(1) for m in _SNAKE_CASE_REFERENCE_RE.finditer(text)]
+
+
+def _is_valid_reference(name: str, kind: ReferenceKind, tool_names: set[str], skill_names: set[str]) -> bool:
+    if name in _REFERENCE_ALLOWLIST:
+        return True
+    registry = skill_names if kind in ("skill", "skills") else tool_names
+    if name in registry:
+        return True
+    # Shorthand suffix, e.g. "the partial-update tool" for external-data-schemas-partial-update.
+    if any(known.endswith(f"-{name}") for known in registry):
+        return True
+    # Plural family reference, e.g. "the feature-flag tools".
+    if kind in ("tools", "skills") and any(known.startswith(f"{name}-") for known in registry):
+        return True
+    return False
+
+
+def _did_you_mean(name: str, tool_names: set[str]) -> str:
+    kebab = name.replace("_", "-")
+    matches = sorted(t for t in tool_names if t == kebab or t.endswith(f"-{kebab}"))
+    return f" — did you mean {' or '.join(matches)}?" if matches else ""
+
+
+def _check_tool_references(text: str, source_label: str, tool_names: set[str], skill_names: set[str]) -> list[str]:
+    # Dedupe by name within this text only: one name tripping two rules (e.g. wrong casing inside
+    # a phrase) is one mistake, but the same stale name in another skill file needs its own report.
+    errors: list[str] = []
+    reported: set[str] = set()
+
+    def report(name: str, reason: str) -> None:
+        if name not in reported:
+            reported.add(name)
+            errors.append(f"{source_label}: '{name}' {reason}")
+
+    for name, kind in _find_phrase_references(text):
+        if not _is_valid_reference(name, kind, tool_names, skill_names):
+            report(name, f"references a nonexistent {kind.rstrip('s')}{_did_you_mean(name, tool_names)}")
+    # "via `X`" names one concrete thing but not whether it's a tool or skill: check tools with
+    # singular kind (a family prefix like `feature-flag` is not invocable), plus exact skill names.
+    for name in _find_invocation_references(text):
+        if not _is_valid_reference(name, "tool", tool_names, skill_names) and name not in skill_names:
+            report(name, f"references a nonexistent tool{_did_you_mean(name, tool_names)}")
+    for name in _find_call_references(text):
+        if not _is_valid_reference(name, "tool", tool_names, skill_names):
+            report(name, f"references a nonexistent tool{_did_you_mean(name, tool_names)}")
+    for name in _find_backticked_snake_case(text):
+        if name not in tool_names and name.replace("_", "-") in tool_names:
+            report(name, f"has wrong casing — the tool is named {name.replace('_', '-')}")
+    return errors
 
 
 def _create_jinja_env(**extra_globals: object) -> Environment:
@@ -366,6 +508,7 @@ class SkillBuilder:
         - Duplicate skill name detection (across products)
         - Jinja2 syntax validation via parse-only (all .j2 files)
         - Frontmatter validation for static .md entry points (required: name, description)
+        - Tool/skill reference validation in markdown (against the MCP schema registries)
 
         Returns True if all checks pass, False otherwise.
         """
@@ -383,6 +526,14 @@ class SkillBuilder:
                 )
             else:
                 seen[skill.name] = skill
+
+        tool_names = _load_mcp_tool_names(self.repo_root)
+        if tool_names is None:
+            print("WARNING: MCP schema registries not found; skipping tool reference checks.", file=sys.stderr)
+        skill_names = set(seen)
+        agents_skills_dir = self.repo_root / ".agents" / "skills"
+        if agents_skills_dir.is_dir():
+            skill_names.update(entry.name for entry in agents_skills_dir.iterdir() if entry.is_dir())
 
         jinja_env = _create_jinja_env()
 
@@ -404,6 +555,9 @@ class SkillBuilder:
                         jinja_env.parse(raw)
                     except TemplateSyntaxError as e:
                         errors.append(f"Jinja2 syntax error in {source_label}: {e}")
+
+                if tool_names is not None and (file_path.name.endswith(".md") or file_path.name.endswith(".md.j2")):
+                    errors.extend(_check_tool_references(file_path.read_text(), source_label, tool_names, skill_names))
 
             if skill.source_file.suffix != ".j2":
                 raw = skill.source_file.read_text()

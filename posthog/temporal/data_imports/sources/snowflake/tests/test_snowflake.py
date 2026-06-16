@@ -580,6 +580,35 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "No active warehouse selected in the current session.  Select an active warehouse with the 'use warehouse' command.",
+            # The real shape from production: the query id varies, but the warehouse substring is stable.
+            "000606 (57P03): 01c51211-0105-f139-0002-113a46e58fba: No active warehouse selected in the current "
+            "session.  Select an active warehouse with the 'use warehouse' command.",
+        ],
+    )
+    def test_no_active_warehouse_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"No-active-warehouse error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "invalid identifier 'PROPERTIES_HS_DATE_ENTERED_2698018010'",
+            # The real shape from production: the error code and identifier vary, but the
+            # "invalid identifier" substring is stable. Newlines are normalized to spaces upstream.
+            "000904 (42000): 01c5127d-0107-1b91-0002-d576110f85ca: SQL compilation error: error line 64 at position 36 "
+            "invalid identifier 'PROPERTIES_HS_DATE_ENTERED_2698018010'",
+        ],
+    )
+    def test_invalid_identifier_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid-identifier error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "250003 (08001): Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. Connection timed out",
             "Operation timed out while waiting for the warehouse to resume",
         ],

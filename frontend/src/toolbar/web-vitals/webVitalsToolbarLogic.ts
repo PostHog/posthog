@@ -71,9 +71,16 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
                     const params = { pathname: window.location.pathname }
 
-                    const response = await toolbarFetch(
-                        `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
-                    )
+                    let response: Response
+                    try {
+                        response = await toolbarFetch(
+                            `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
+                        )
+                    } catch {
+                        // Network-level failures (origin unreachable, CORS, aborted) throw a TypeError.
+                        // Degrade the same way we do for a non-OK response — the UI already handles null metrics.
+                        return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
+                    }
                     breakpoint()
 
                     if (!response.ok) {
