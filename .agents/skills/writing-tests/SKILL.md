@@ -4,7 +4,7 @@ description: >
   Gates whether a new test should exist and forces it to be efficient, protecting CI from low-value test bloat.
   Use before adding or substantially changing any pytest, Jest, or Playwright test — whenever an agent or engineer is about to write tests for a new feature, bugfix, or PR.
   Front-loads the value bar (every test must catch a realistic regression no existing test already catches; test behavior through the public interface, not implementation details; collapse near-duplicates into parameterized cases) and the efficiency bar (deterministic, isolated, fast; pick the cheapest test level; Django TestCase over TransactionTestCase; no sleeps, no real network).
-  Includes a "don't write it" decision tree. For fixing an existing flaky test use fixing-flaky-tests; for authoring a non-flaky Playwright test use playwright-test.
+  Includes a "don't write it" decision tree. For fixing an existing flaky test use `/fixing-flaky-tests`; for authoring a non-flaky Playwright test use `/playwright-test`.
 ---
 
 # Writing tests worth keeping
@@ -122,7 +122,7 @@ If you find yourself unable to write that line, you've found a test that shouldn
 
 ## When this skill does not apply
 
-- **Fixing an existing flaky test** → use `fixing-flaky-tests` (reproduce, root-cause, validate).
-- **Authoring a non-flaky Playwright test** → use `playwright-test` for the mechanics.
+- **Fixing an existing flaky test** → use `/fixing-flaky-tests` (reproduce, root-cause, validate).
+- **Authoring a non-flaky Playwright test** → use `/playwright-test` for the mechanics.
 - This skill is about _whether and how cheaply_ to add a test; those are about a specific kind of
   test you've already decided to write or fix.
