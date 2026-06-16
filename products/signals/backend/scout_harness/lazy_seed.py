@@ -46,6 +46,10 @@ _MAX_SKILL_FILE_COUNT = 50
 # Matches `LLMSkillFile.path` model `max_length` — checked at parse time so an oversized
 # canonical path fails with a clear error instead of a Postgres `value too long` DataError.
 _MAX_SKILL_FILE_PATH_LENGTH = 500
+# The agentskills.io spec caps `description` at 1024 characters. Skill loaders that copy
+# `.agents/` (e.g. Claude Code) flag or silently drop a skill whose description overruns, so
+# check at parse time — `test_in_repo_canonical_set_parses_cleanly` turns this into a CI lock.
+_MAX_SKILL_DESCRIPTION_LENGTH = 1024
 
 # Stamped on `LLMSkill.metadata.seeded_by` for every harness-managed scout row. Its presence
 # is the single source of truth for "the harness owns this row": it gates which rows
@@ -143,6 +147,11 @@ def _parse_canonical_skill(skill_dir: Path) -> CanonicalSkill:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'name': {skill_file}")
     if not isinstance(description, str) or not description:
         raise CanonicalSkillParseError(f"SKILL.md frontmatter missing 'description': {skill_file}")
+    if len(description.strip()) > _MAX_SKILL_DESCRIPTION_LENGTH:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'description' is {len(description.strip())} characters, exceeding the "
+            f"{_MAX_SKILL_DESCRIPTION_LENGTH}-character agentskills.io spec limit: {skill_file}"
+        )
     if not name.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
         raise CanonicalSkillParseError(
             f"Canonical skill name must start with '{SIGNALS_SCOUT_SKILL_PREFIX}': got {name!r} in {skill_file}"

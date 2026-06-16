@@ -26,7 +26,7 @@ runs as a scout.
 ```yaml
 ---
 name: signals-scout-<scope>
-description: >
+description: > # hard cap: keep under 1024 characters (the agentskills.io spec limit)
   One paragraph, third person. State the surface it watches, the specific shapes it
   looks for (bursts, regressions, clusters, drops), that it emits only above the
   confidence bar and otherwise writes memory and closes out empty, and that it's a
@@ -52,6 +52,15 @@ The `description` does double duty: beyond skill discovery, it is surfaced verba
 scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update`
 responses) — it's how the fleet roster reads to agents and the UI without opening each
 scout's body. Write it to stand alone in that listing.
+
+**Keep it under 1024 characters** — the [agentskills.io spec](https://agentskills.io/specification)
+caps `description` at 1024, and skill loaders that copy `.agents/` (e.g. Claude Code) flag or
+silently drop scouts whose description overruns. The fleet's descriptions run ~400–950 chars;
+aim there with margin to spare. If you can't fit the surface, the discriminator, the
+emit-or-close-empty behavior, and the self-contained-peer note inside the cap, cut adjectives and
+parenthetical asides first — the discriminator sentence is the one line worth its length. The
+config-list path also exposes the full scout body, so anything that doesn't fit the description
+lives in the body, not crammed into the frontmatter.
 
 ## Body structure
 

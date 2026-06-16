@@ -4,16 +4,15 @@ description: >
   Focused Signals scout for PostHog projects using Customer analytics (the Accounts
   product — `system.accounts`, where an account is a customer organization keyed by a
   group). Watches per-account product engagement for churn-risk shapes — an engagement
-  cliff on a named account, dormancy onset, single-threaded champion departure — and the
-  positive inverse, an expansion signal worth an upsell, scoring each account against its
-  own trailing baseline and weighting by whether a human has staked commercial ownership
-  on it (assigned CSM / AE / owner, or a CRM link). Its discriminator is a per-account
-  engagement regression while the fleet holds: one staked account sliding is signal, the
-  whole fleet moving together is someone else's baseline problem. Curates a durable
-  watchlist of commercially-meaningful accounts and balances re-scoring known ones
-  (exploit) against discovering new ones (explore) across runs. Emits findings only when
-  they clear the confidence bar; otherwise writes durable memory and closes out empty.
-  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  cliff, dormancy onset, single-threaded champion departure — and the positive inverse,
+  an expansion signal worth an upsell, scoring each account against its own trailing
+  baseline and weighting by staked commercial ownership (assigned CSM / AE / owner, or a
+  CRM link). Its discriminator is a per-account regression while the fleet holds: one
+  staked account sliding is signal, the whole fleet moving together is someone else's
+  baseline problem. Curates a durable watchlist and balances re-scoring known accounts
+  against discovering new ones. Emits findings only when they clear the confidence bar;
+  otherwise writes durable memory and closes out empty. Self-contained peer in the
+  signals-scout-* fleet.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes

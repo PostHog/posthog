@@ -1,18 +1,17 @@
 ---
 name: signals-scout-product-analytics
 description: >
-  Focused Signals scout for the core product-analytics surface — the behavioral primitives
-  the product-analytics product is built on: funnels, retention, lifecycle, stickiness, and
-  paths. It watches the team's saved funnel / retention / lifecycle insights (and, where the
-  team hasn't built one, a single inferred activation flow) for behavioral regression — a
-  step-to-step conversion rate dropping, a retention curve sliding, or a lifecycle/stickiness
-  composition shifting away from that flow's own trailing, seasonality-matched baseline —
-  while the flow's entrant volume holds. Its discriminator is a derived-rate regression with a
-  steady denominator, which is what separates a real product regression from a capture or
-  volume problem (those belong to other scouts). It curates a durable watchlist and balances
-  re-scoring known flows (exploit) against discovering new ones (explore) across runs. Emits
-  findings only when they clear the confidence bar; otherwise writes durable memory and closes
-  out empty. Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Focused Signals scout for the core product-analytics surface — funnels, retention,
+  lifecycle, stickiness, and paths. Watches the team's saved funnel / retention / lifecycle
+  insights (or, where the team hasn't built one, a single inferred activation flow) for
+  behavioral regression — a step-to-step conversion rate dropping, a retention curve sliding,
+  or a lifecycle/stickiness composition shifting away from that flow's own trailing,
+  seasonality-matched baseline — while the flow's entrant volume holds. Its discriminator is a
+  derived-rate regression with a steady denominator, which separates a real product regression
+  from a capture or volume problem (those belong to other scouts). Curates a durable watchlist
+  and balances re-scoring known flows against discovering new ones. Emits findings only when
+  they clear the confidence bar; otherwise writes durable memory and closes out empty.
+  Self-contained peer in the signals-scout-* fleet.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes the
