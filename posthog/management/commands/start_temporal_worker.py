@@ -640,9 +640,13 @@ class Command(BaseCommand):
             logger.info("Starting Temporal Worker")
 
             if task_queue == settings.SURFACING_SCORING_SWEEP_TASK_QUEUE:
-                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup
+                from posthog.temporal.session_replay.surfacing_scoring_sweep.scorer import warmup_best_effort
 
-                warmup()
+                # Best-effort: surfacing shares this queue with the rest of the
+                # session-replay worker, so a model problem must not crash the
+                # pod. It logs and continues; scoring activities retry until the
+                # model is fixed.
+                warmup_best_effort()
 
             worker = runner.run(
                 create_worker(
