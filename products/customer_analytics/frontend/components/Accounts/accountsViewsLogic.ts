@@ -270,6 +270,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             posthog.captureException(error)
         },
         loadViewsSuccess: ({ views }) => {
+            let migratedView: ColumnConfigurationApi | null = null
             if (!objectsEqual(values.tiles, DEFAULT_TILES)) {
                 const candidate = views.find(
                     (view) =>
@@ -278,12 +279,18 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 )
                 if (candidate) {
                     actions.patchViewProperties({ id: candidate.id, properties: { tiles: values.tiles } })
+                    // The async patch hasn't landed in `views` yet; restoring the stale row below
+                    // would make applyView reset the working tiles to defaults and lose the migration.
+                    migratedView = { ...candidate, properties: { tiles: values.tiles } }
                 }
             }
 
             const hashHasView = !!router.values.hashParams?.view
             if (values.currentViewId && !hashHasView) {
-                const view = views.find((v) => v.id === values.currentViewId)
+                const view =
+                    migratedView?.id === values.currentViewId
+                        ? migratedView
+                        : views.find((v) => v.id === values.currentViewId)
                 if (view) {
                     actions.applyView(view)
                 }

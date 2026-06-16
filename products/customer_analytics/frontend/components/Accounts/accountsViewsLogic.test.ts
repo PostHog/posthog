@@ -56,6 +56,10 @@ describe('accountsViewsLogic', () => {
         userLogic.mount()
     })
 
+    afterEach(() => {
+        localStorage.clear()
+    })
+
     it('lists views on mount', async () => {
         useMocks({ get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } } })
         mountAll()
@@ -220,5 +224,36 @@ describe('accountsViewsLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadViewsSuccess']).toFinishAllListeners()
         expect(logic.values.views[0].properties).toEqual({})
+    })
+
+    it('preserves migrated tiles when the migrated row is the restored current view', async () => {
+        const customTiles = [{ id: 'mine', label: 'Mine', metric: { type: 'count' as const } }]
+        localStorage.setItem(
+            `customerAnalytics.accounts.accountsViewsLogic.${MOCK_DEFAULT_TEAM.id}.currentViewId`,
+            JSON.stringify('view-1')
+        )
+        useMocks({
+            get: {
+                '/api/environments/:team_id/column_configurations/': {
+                    count: 1,
+                    results: [buildView({ properties: {} })],
+                },
+            },
+            patch: {
+                '/api/environments/:team_id/column_configurations/:id/': async (req: any) => {
+                    const body = await req.json()
+                    return [200, buildView({ properties: body.properties })]
+                },
+            },
+        })
+        accountsColumnConfigLogic().mount()
+        accountsOverviewTilesLogic().mount()
+        accountsOverviewTilesLogic.actions.setTiles(customTiles)
+        accountsLogic().mount()
+        logic = accountsViewsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess', 'patchViewProperties', 'applyView'])
+        expect(accountsOverviewTilesLogic.values.tiles).toEqual(customTiles)
     })
 })
