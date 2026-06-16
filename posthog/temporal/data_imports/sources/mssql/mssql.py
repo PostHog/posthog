@@ -598,6 +598,13 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             # sp_spaceused returns: name, rows, reserved, data, index_size, unused
             _, total_rows, _, data_size, _, _ = result
 
+            # Views (and other storage-less objects) return NULL for rows/data
+            # from sp_spaceused. Treat that as "no stats available" and fall
+            # back to safe defaults rather than crashing on int(None).
+            if total_rows is None or data_size is None:
+                logger.debug("fetch_table_stats: sp_spaceused returned NULL row count or data size")
+                return None
+
             total_rows = int(total_rows)
 
             # Parse size with unit (e.g. "1024.45 MB" -> 1024.45, "MB")
