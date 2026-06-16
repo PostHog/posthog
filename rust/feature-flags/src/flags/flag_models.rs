@@ -837,6 +837,7 @@ mod skip_serializing_if_tests {
         let filters: FlagFilters = serde_json::from_value(serde_json::json!({})).unwrap();
         let output = serde_json::to_value(&filters).unwrap();
         assert_absent(&output, "multivariate");
+        assert_absent(&output, "aggregation_group_type_index");
         assert_absent(&output, "payloads");
         assert_absent(&output, "feature_enrollment");
         assert_absent(&output, "holdout");
@@ -848,6 +849,7 @@ mod skip_serializing_if_tests {
         let input = serde_json::json!({
             "groups": [],
             "multivariate": {"variants": []},
+            "aggregation_group_type_index": 2,
             "payloads": {"true": "p"},
             "feature_enrollment": true,
             "holdout": {"id": 42, "exclusion_percentage": 10.0},
@@ -856,6 +858,7 @@ mod skip_serializing_if_tests {
         let filters: FlagFilters = serde_json::from_value(input).unwrap();
         let output = serde_json::to_value(&filters).unwrap();
         assert!(output["multivariate"].is_object());
+        assert_eq!(output["aggregation_group_type_index"], 2);
         assert_eq!(output["payloads"]["true"], "p");
         assert_eq!(output["feature_enrollment"], true);
         assert_eq!(output["holdout"]["id"], 42);
