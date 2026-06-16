@@ -1,6 +1,8 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
@@ -427,6 +429,18 @@ class TestBotDefinitionsDataStructure:
                     )
 
 
+# Bot-lookup macros whose builders duplicate their argument and so expand under the re-entrancy
+# guard in Resolver._expand_duplicating_macro. Parameterized over so a malformed dispatch line for
+# any one of them (missing guard, wrong flag reset) is caught.
+DUPLICATING_MACROS = [
+    "__preview_getTrafficType",
+    "__preview_getTrafficCategory",
+    "__preview_getBotType",
+    "__preview_getBotName",
+    "__preview_getBotOperator",
+]
+
+
 class TestMacroExpansionGuard(BaseTest):
     def _print(self, select: str) -> str:
         return prepare_and_print_ast(
@@ -435,16 +449,18 @@ class TestMacroExpansionGuard(BaseTest):
             "clickhouse",
         )[0]
 
-    def test_single_level_traffic_type_expands(self):
+    @parameterized.expand(DUPLICATING_MACROS)
+    def test_single_level_macro_expands(self, macro: str):
         # A non-nested call resolves and expands to the multiMatchAnyIndex lookup.
-        printed = self._print("SELECT __preview_getTrafficType(toString(properties.x)) FROM events")
+        printed = self._print(f"SELECT {macro}(toString(properties.x)) FROM events")
         assert "multiMatchAnyIndex" in printed
 
-    def test_nested_duplicating_macro_is_rejected(self):
+    @parameterized.expand(DUPLICATING_MACROS)
+    def test_nested_duplicating_macro_is_rejected(self, macro: str):
         # The bot-lookup builders duplicate their argument, so a duplicating macro nested inside
         # another's expansion would blow up ~2^depth during resolution. Reject it instead.
         with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
-            self._print("SELECT __preview_getTrafficType(__preview_getTrafficType(toString(properties.x))) FROM events")
+            self._print(f"SELECT {macro}({macro}(toString(properties.x))) FROM events")
 
     def test_cross_duplicating_macro_nesting_is_rejected(self):
         # Nesting two *different* duplicating macros is the same exponential vector.
