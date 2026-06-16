@@ -18,6 +18,15 @@ class Migration(migrations.Migration):
                     name="cross_account_role_arn",
                 ),
             ],
-            database_operations=[],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                    ALTER TABLE posthog_ducklakecatalog
+                        ALTER COLUMN cross_account_external_id DROP NOT NULL,
+                        ALTER COLUMN cross_account_role_arn DROP NOT NULL;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
         ),
     ]
