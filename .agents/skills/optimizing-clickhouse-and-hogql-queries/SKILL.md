@@ -7,7 +7,7 @@ description: Workflow for optimizing ClickHouse and HogQL queries. Use when a Ho
 
 Optimizes **ClickHouse and HogQL queries** (HogQL compiles to ClickHouse), not Postgres / Django ORM. For an app-DB query (`Model.objects.filter(...)`), stop and use pganalyze plus the Postgres section of [`query-performance-optimization.md`](../../../docs/published/handbook/engineering/databases/query-performance-optimization.md); Step 0 has the full triage.
 
-**Work from the SQL, not the HogQL.** Get the ClickHouse SQL the query produces, optimize that, then translate the change back into the HogQL query, query runner, printer, or a migration. Reasoning about HogQL alone hides what ClickHouse executes.
+**Work from the ClickHouse SQL, not the HogQL.** Get the ClickHouse SQL the query produces, optimize that, then translate the change back into the HogQL query, query runner, printer, or a migration. Reasoning about HogQL alone hides what ClickHouse executes.
 
 Assumes you can write HogQL. For new queries from scratch use `/writing-clickhouse-queries`; for migration mechanics, `/clickhouse-migrations`.
 
@@ -77,12 +77,12 @@ Cluster topology (shards, replicas, ingestion vs data nodes): [`posthog/clickhou
 **Raw ClickHouse query?** You already have the SQL; skip to Step 2. For HogQL, three ways:
 
 - **Python:** `execute_hogql_query()` ([`query.py`](../../../posthog/hogql/query.py)) gives `response.clickhouse`. SQL only, no execute: `prepare_and_print_ast(..., dialect="clickhouse")` ([`utils.py`](../../../posthog/hogql/printer/utils.py)); for a prepared AST, `print_prepared_ast`.
-- **Snapshots:** `.ambr` files under `posthog/hogql_queries/test/__snapshots__/` (and per-product test dirs) hold generated SQL for representative inputs.
+- **Snapshots:** `.ambr` files under `posthog/hogql_queries/test/__snapshots__/` (and per-product test dirs) hold generated ClickHouse SQL for representative inputs.
 - **Production** (most informative): `/query-clickhouse-via-metabase` against `clusterAllReplicas(posthog, system, query_log)` (or `posthog.query_log_archive` for rows older than ~4h; ~22 day retention, typed `lc_*` columns, so prefer it). Filter `is_initial_query`, `type = 'QueryFinish'`, `query_duration_ms > <threshold>`.
 
 ## Step 2: scan for the common smells
 
-Eyeball the SQL for these before reaching for tools. To instead work backwards from a specific slow query's runtime cost (bytes vs CPU vs duration, high-cardinality breakdowns, function-wrapped sort keys, ratio-metric double scans, tracing to source code, EXPLAIN), see [`references/investigation-playbook.md`](references/investigation-playbook.md).
+Eyeball the ClickHouse SQL for these before reaching for tools. To instead work backwards from a specific slow query's runtime cost (bytes vs CPU vs duration, high-cardinality breakdowns, function-wrapped sort keys, ratio-metric double scans, tracing to source code, EXPLAIN), see [`references/investigation-playbook.md`](references/investigation-playbook.md).
 
 ### `FROM <table> FINAL`
 
@@ -148,7 +148,7 @@ ClickHouse `WITH name AS (SELECT ...)` CTEs are **inlined, not materialized**: r
 
 ## Step 5: apply the optimization
 
-Make HogQL emit the faster SQL at the lowest-blast-radius layer:
+Make HogQL emit the faster ClickHouse SQL at the lowest-blast-radius layer:
 
 - **Query runner** (cheapest): if the rewrite is a different HogQL query (aggregation, join order, CTE to conditional aggregation), edit the runner under `posthog/hogql_queries/` or `products/*/backend/`; snapshot via `.ambr`.
 - **New HogQL function**: add to [`aggregations.py`](../../../posthog/hogql/functions/aggregations.py) (or the right file in [`functions/`](../../../posthog/hogql/functions/)) with `HogQLFunctionMeta(name, min_args, max_args, aggregate=True)`.
@@ -161,7 +161,7 @@ Some rewrites help one team and hurt another (a funnels rewrite was great with a
 
 ## Test discipline
 
-When you change a printer rule / query runner / add a function, snapshot the generated SQL in `.ambr` and add an `EXPLAIN`-based assertion if the win depends on a specific index or rewrite. Green-after-fix isn't proof; flip the change off to confirm the test exercises your path.
+When you change a printer rule / query runner / add a function, snapshot the generated ClickHouse SQL in `.ambr` and add an `EXPLAIN`-based assertion if the win depends on a specific index or rewrite. Green-after-fix isn't proof; flip the change off to confirm the test exercises your path.
 
 ## Learnings log
 
