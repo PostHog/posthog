@@ -262,6 +262,14 @@ class TestBingAdsSource:
             # Integration deleted/disconnected — OAuthMixin.get_oauth_integration raises
             # `ValueError("Integration not found: <id>")`; match only the volatile-id-free prefix.
             ("Integration not found", "Integration not found: 160672"),
+            # Generic Microsoft Advertising client-side SOAP fault. suds drops the inner auth codes
+            # from str(WebFault), leaving only this faultstring, so we match it directly. The
+            # raised_message mimics the raw WebFault str() seen for GetCampaignsByAccountId.
+            (
+                "Invalid client data. Check the SOAP fault details for more information",
+                "Server raised fault: 'Invalid client data. Check the SOAP fault details for more information. "
+                "TrackingId: 004a5499-9b6e-4dcb-8b21-37fbadf5fdcf.'",
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             ("Bing Ads access token not found", "Bing Ads access token not found for job abc"),
             ("Bing Ads refresh token not found", "Bing Ads refresh token not found for job abc"),
@@ -273,6 +281,22 @@ class TestBingAdsSource:
 
         assert pattern in non_retryable_errors
         assert pattern in raised_message
+
+    def test_invalid_client_data_webfault_is_non_retryable_with_friendly_message(self):
+        # A raw suds WebFault from GetCampaignsByAccountId stringifies to only the generic faultstring;
+        # the specific auth codes live in the (dropped) detail XML. The volatile TrackingId must not
+        # be part of the matched key, so a fault with a different TrackingId still resolves.
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        webfault_message = (
+            "Server raised fault: 'Invalid client data. Check the SOAP fault details for more information. "
+            "TrackingId: f2ca8055-bc8b-4cf1-a4db-6afad3335a2e.'"
+        )
+
+        friendly_errors = [msg for pattern, msg in non_retryable_errors.items() if pattern in webfault_message]
+
+        assert len(friendly_errors) >= 1
+        assert friendly_errors[0] is not None
+        assert "reconnect your Bing Ads integration" in friendly_errors[0]
 
     @pytest.mark.parametrize(
         "transient_message",

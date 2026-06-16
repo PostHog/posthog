@@ -74,6 +74,18 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
             # the customer has to reconnect.
             "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
+            # Generic Microsoft Advertising client-side SOAP fault. The specific cause (e.g. the
+            # InvalidCredentials / AuthenticationTokenExpired codes above) lives in the WebFault's
+            # `detail` XML, which suds drops from `str(WebFault)` — so those keys never match a raw
+            # WebFault and it retries forever. The faultstring itself is always a client-data validity
+            # problem (revoked/expired credentials, lost account access, or a request the account isn't
+            # permitted to make), never a transient server error, so retrying can't recover. Match the
+            # stable faultstring (the trailing "TrackingId: <uuid>" is volatile and excluded).
+            "Invalid client data. Check the SOAP fault details for more information": (
+                "Microsoft Advertising rejected the request as invalid client data. This usually means "
+                "the connected account's credentials or permissions changed, or it no longer has access "
+                "to the configured Account ID. Please verify the Account ID and reconnect your Bing Ads integration."
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
