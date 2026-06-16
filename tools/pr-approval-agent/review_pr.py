@@ -523,11 +523,14 @@ class Pipeline:
             "author": self.pr.author,
             "head_sha": self.pr.head_sha,
             "classification": {
-                "tier": self.classification["tier"],
+                # .get() not [] — the bot-author REFUSE returns before _classify(),
+                # so classification is empty {} on that path; --output-json must
+                # still serialize cleanly rather than KeyError.
+                "tier": self.classification.get("tier", ""),
                 "t1_subclass": self.classification.get("t1_subclass", ""),
                 "lines_total": self.pr.lines_total,
                 "files_changed": len(self.pr.files),
-                "breadth": self.classification["breadth"],
+                "breadth": self.classification.get("breadth", ""),
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),

@@ -169,3 +169,10 @@ def test_bot_author_refuses_before_classification(monkeypatch: pytest.MonkeyPatc
     assert pipeline.reviewer_output is not None
     assert pipeline.reviewer_output["verdict"] == "REFUSE"
     assert "bot" in pipeline.reviewer_output["reasoning"].lower()
+
+    # The workflow always runs with --output-json, so to_dict() must serialize
+    # cleanly even though classification was never populated on this path.
+    output = pipeline.to_dict()
+    assert output["final_verdict"] == "REFUSED"
+    assert output["classification"]["tier"] == ""
+    assert output["classification"]["breadth"] == ""
