@@ -1,0 +1,72 @@
+name: PR freshness
+
+# Stamps a "PR freshness" check on open PRs that turns red once a PR has gone
+# untouched for longer than a per-PR staleness budget. The scheduled run is what
+# makes the check go red as a PR ages without a push; the pull_request trigger
+# stamps a freshly-pushed PR immediately. The budget is assigned by a cheap LLM
+# from the PR's content and cached on the head SHA, so the cron does only clock
+# arithmetic. See tools/pr-freshness/freshness.py. Advisory until "PR freshness"
+# is added to branch protection's required checks.
+
+on:
+    schedule:
+        # Every 6h — at most 6h of slop on the staleness budgets.
+        - cron: '17 */6 * * *'
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: pr-freshness-${{ github.event_name }}-${{ github.event.pull_request.number || 'all' }}
+    # Cancel superseded PR runs on a new push, but let a scheduled full sweep of
+    # all open PRs always run to completion.
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    freshness:
+        name: Stamp PR freshness check
+        # Fork PRs can't mint the app token (secrets are withheld from
+        # fork-triggered runs); the scheduled run re-stamps them instead.
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            - name: Get app token
+              id: app-token
+              # continue-on-error: stamping freshness is auxiliary — a transient
+              # token-mint failure must not redden this workflow. On failure the
+              # token output is empty and the steps below are skipped.
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
+            - name: Checkout freshness tool
+              if: steps.app-token.outputs.token != ''
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: tools/pr-freshness
+                  sparse-checkout-cone-mode: false
+
+            - name: Install uv
+              if: steps.app-token.outputs.token != ''
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
+
+            - name: Evaluate and stamp PR freshness
+              if: steps.app-token.outputs.token != ''
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  # Dedicated CI Anthropic key (shared with stamphog). If absent,
+                  # freshness falls back to a flat default budget — no hard dep.
+                  ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
+                  PR_FRESHNESS_MODEL: claude-haiku-4-5
+              run: uv run tools/pr-freshness/freshness.py
