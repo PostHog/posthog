@@ -604,29 +604,24 @@ class TestSignalReportListAPI(APIBaseTest):
 
     # --- has_implementation_pr filter ---
 
-    def test_filter_has_implementation_pr_true_keeps_only_pr_reports(self):
+    @parameterized.expand(
+        [
+            ("true_keeps_pr_reports", "true", "with_pr"),
+            ("false_keeps_non_pr_reports", "false", "without_pr"),
+        ]
+    )
+    def test_filter_has_implementation_pr(self, _name, query_value, expected):
         report_with_pr = self._create_report(title="Report with PR")
         report_without_pr = self._create_report(title="Report without PR")
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
+        expected_id = str(report_with_pr.id if expected == "with_pr" else report_without_pr.id)
 
-        response = self.client.get(self._list_url(has_implementation_pr="true"))
+        response = self.client.get(self._list_url(has_implementation_pr=query_value))
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        ids = {r["id"] for r in body["results"]}
-        assert ids == {str(report_with_pr.id)}
+        assert {r["id"] for r in body["results"]} == {expected_id}
         # `count` is the true total (matches what a limit=1 count query returns).
         assert body["count"] == 1
-        assert str(report_without_pr.id) not in ids
-
-    def test_filter_has_implementation_pr_false_keeps_only_non_pr_reports(self):
-        report_with_pr = self._create_report(title="Report with PR")
-        report_without_pr = self._create_report(title="Report without PR")
-        self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
-
-        response = self.client.get(self._list_url(has_implementation_pr="false"))
-        assert response.status_code == status.HTTP_200_OK
-        ids = {r["id"] for r in response.json()["results"]}
-        assert ids == {str(report_without_pr.id)}
 
     def test_filter_has_implementation_pr_ignores_empty_pr_url(self):
         report_empty_pr = self._create_report(title="Report with empty PR url")
