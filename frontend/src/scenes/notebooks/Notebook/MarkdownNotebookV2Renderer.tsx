@@ -35,7 +35,7 @@ import { getMarkdownNotebookMarkdown, notebookArtifactContentToMarkdown } from '
 import { notebookLogic } from './notebookLogic'
 
 const NOTEBOOK_AI_FOLLOW_UP_PROMPT_MARKDOWN = '<Prompt question="" />'
-const NOTEBOOK_AI_AGENT_DEPARTURE_IDLE_MS = 30_000
+const NOTEBOOK_AI_AGENT_DEPARTURE_IDLE_MS = 5_000
 
 export function MarkdownNotebookV2(): JSX.Element {
     const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =

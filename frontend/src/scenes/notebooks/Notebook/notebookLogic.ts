@@ -30,13 +30,16 @@ import {
     tryApplyTextChanges,
 } from 'lib/components/MarkdownNotebook/collaboration'
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
-import { preserveNotebookAIAgentNode } from 'lib/components/MarkdownNotebook/notebookAgents'
+import {
+    normalizeNotebookAIAgentArtifactMarkdown,
+    preserveNotebookAIAgentNode,
+} from 'lib/components/MarkdownNotebook/notebookAgents'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify, uuid } from 'lib/utils'
+import { base64Decode, base64Encode, downloadFile, objectsEqual, slugify } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
@@ -109,6 +112,7 @@ import { notebookCollabLogic } from './notebookCollabLogic'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { notebookLogicType } from './notebookLogicType'
 import {
+    getNotebookMarkdownClientId,
     getNotebookRemoteParticipants,
     type NotebookPresenceState,
     type NotebookRemoteParticipant,
@@ -688,7 +692,7 @@ export const notebookLogic = kea<notebookLogicType>([
                             return values.notebook
                         }
 
-                        cache.markdownClientId = cache.markdownClientId || uuid()
+                        cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
                         try {
                             const response = await api.notebooks.markdownSave(values.notebook.short_id, {
                                 client_id: cache.markdownClientId,
@@ -1205,6 +1209,7 @@ export const notebookLogic = kea<notebookLogicType>([
             if (!values.markdownRealtimeEnabled) {
                 return
             }
+            cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
 
             cache.disposables.add(
                 () => {
@@ -1348,7 +1353,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
 
-            cache.markdownClientId = cache.markdownClientId || uuid()
+            cache.markdownClientId = cache.markdownClientId || getNotebookMarkdownClientId()
             try {
                 await notebooksCollabPresenceCreate(String(getCurrentTeamId()), values.notebook.short_id, {
                     client_id: cache.markdownClientId,
@@ -1619,7 +1624,10 @@ export const notebookLogic = kea<notebookLogicType>([
                 mode === 'insert-after-chat'
                     ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
                     : preserveNotebookAIAgentNode(
-                          preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId),
+                          normalizeNotebookAIAgentArtifactMarkdown(
+                              preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId),
+                              currentMarkdown
+                          ),
                           currentMarkdown
                       )
             if (nextMarkdown === currentMarkdown) {

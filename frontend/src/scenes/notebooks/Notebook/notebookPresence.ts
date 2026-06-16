@@ -1,4 +1,8 @@
+import { uuid } from 'lib/utils'
+
 import type { UserType } from '~/types'
+
+const NOTEBOOK_MARKDOWN_CLIENT_ID_SESSION_STORAGE_KEY = 'posthog_notebook_markdown_client_id'
 
 export type NotebookPresenceState = {
     clientId: string
@@ -66,4 +70,35 @@ export function pruneNotebookRemotePresence<T extends NotebookPresenceState>(
     return freshPresence.length === Object.keys(presenceByClientId).length
         ? presenceByClientId
         : (Object.fromEntries(freshPresence) as Record<string, T>)
+}
+
+export function getNotebookMarkdownClientId(): string {
+    const nextClientId = uuid()
+    if (typeof window === 'undefined') {
+        return nextClientId
+    }
+
+    try {
+        const storedClientId = window.sessionStorage.getItem(NOTEBOOK_MARKDOWN_CLIENT_ID_SESSION_STORAGE_KEY)
+        if (storedClientId && getNavigationType() === 'reload') {
+            return storedClientId
+        }
+        window.sessionStorage.setItem(NOTEBOOK_MARKDOWN_CLIENT_ID_SESSION_STORAGE_KEY, nextClientId)
+    } catch {
+        // Storage can be unavailable in private or embedded contexts. Presence is best effort.
+    }
+
+    return nextClientId
+}
+
+function getNavigationType(): PerformanceNavigationTiming['type'] | null {
+    if (typeof window.performance?.getEntriesByType !== 'function') {
+        return null
+    }
+
+    const navigation = window.performance?.getEntriesByType('navigation')[0]
+    if (!navigation || !('type' in navigation)) {
+        return null
+    }
+    return navigation.type
 }
