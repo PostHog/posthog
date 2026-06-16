@@ -1448,6 +1448,50 @@ describe('the feature flag release conditions logic', () => {
             expect(logic.values.getDistinctIdName('distinct-1')).toBe('distinct-1 (alice@example.com)')
         })
 
+        it('does not re-fetch names for ids already in the cache', async () => {
+            logic?.unmount()
+
+            let callCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 10, total: 100 }],
+                    '/api/environments/:team/persons/batch_by_distinct_ids/': () => {
+                        callCount += 1
+                        return [200, { results: { 'distinct-1': { name: 'alice@example.com' } } }]
+                    },
+                },
+            })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'distinct-id-no-refetch',
+                filters: distinctIdFilters(['distinct-1']),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['loadDistinctIdNames', 'setDistinctIdNames'])
+                .toFinishAllListeners()
+
+            expect(callCount).toBe(1)
+
+            // Re-adding the same id re-triggers resolution, but the cache filter should skip the fetch.
+            await expectLogic(logic, () => {
+                logic.actions.updateConditionSet(0, undefined, [
+                    {
+                        key: 'distinct_id',
+                        type: PropertyFilterType.Person,
+                        value: ['distinct-1'],
+                        operator: PropertyOperator.Exact,
+                    },
+                ])
+            })
+                .toDispatchActions(['loadDistinctIdNames'])
+                .toFinishAllListeners()
+
+            expect(callCount).toBe(1)
+        })
+
         it('does not fetch names when there are no distinct_id filters', async () => {
             logic?.unmount()
 
