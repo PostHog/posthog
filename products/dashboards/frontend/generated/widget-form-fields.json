@@ -22,7 +22,7 @@
             "configSchemaExport": "experimentsWidgetConfigSchema",
             "configTypeExport": "ExperimentsWidgetConfig",
             "formSchemaExport": "experimentsWidgetFormSchema",
-            "formFields": ["limit", "status", "createdBy"]
+            "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"]
         },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",

@@ -30,7 +30,6 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
     } as EditExperimentResultsWidgetModalLogicProps),
 
     actions({
-        setExperimentId: (experimentId: number | null) => ({ experimentId }),
         ...widgetEditModalTileActions,
         setFieldErrors: (fieldErrors: ExperimentResultsWidgetFieldErrors) => ({ fieldErrors }),
         clearFieldError: (field: keyof ExperimentResultsWidgetFieldErrors) => ({ field }),
@@ -40,12 +39,6 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
     }),
 
     reducers({
-        experimentId: [
-            null as number | null,
-            {
-                setExperimentId: (_: number | null, { experimentId }: { experimentId: number | null }) => experimentId,
-            },
-        ],
         tileName: [
             '',
             {
@@ -91,8 +84,13 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
     selectors({
         ...widgetEditModalPropSelectors,
         validation: [
-            (s) => [s.experimentId],
-            (experimentId) => validateExperimentResultsWidgetConfigInput({ experimentId }),
+            // The experiment is chosen on the tile filter bar; read it from the persisted config so saving
+            // the tile name/description preserves the selection.
+            () => [(_, props) => props.config],
+            (config) =>
+                validateExperimentResultsWidgetConfigInput({
+                    experimentId: parseExperimentResultsWidgetConfig(config).experimentId ?? null,
+                }),
         ],
         activeFieldErrors: [
             (s) => [s.validation, s.fieldErrors],
@@ -117,16 +115,11 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
         ],
     }),
 
-    defaults(({ props }) => {
-        const baseConfig = parseExperimentResultsWidgetConfig(props.config)
-
-        return {
-            experimentId: baseConfig.experimentId ?? null,
-            ...getWidgetEditModalTileDefaults(props),
-            fieldErrors: {},
-            saving: false,
-        }
-    }),
+    defaults(({ props }) => ({
+        ...getWidgetEditModalTileDefaults(props),
+        fieldErrors: {},
+        saving: false,
+    })),
 
     listeners(({ actions, props, values }) => ({
         submit: async () => {

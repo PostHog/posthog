@@ -620,6 +620,18 @@
                                                 "minimum": 1,
                                                 "type": "number"
                                             },
+                                            "orderBy": {
+                                                "default": "created_at",
+                                                "description": "Experiment list sort column.",
+                                                "enum": ["created_at", "name", "start_date"],
+                                                "type": "string"
+                                            },
+                                            "orderDirection": {
+                                                "default": "DESC",
+                                                "description": "Sort direction for orderBy.",
+                                                "enum": ["ASC", "DESC"],
+                                                "type": "string"
+                                            },
                                             "status": {
                                                 "default": "all",
                                                 "description": "Experiment status filter.",

@@ -1,7 +1,10 @@
 import { clsx } from 'clsx'
 
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
@@ -15,9 +18,9 @@ import {
     WidgetCardContent,
     WidgetContentFooter,
     WidgetListCount,
-    WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { parseExperimentsListWidgetConfig } from './experimentsListWidgetConfigValidation'
 
 export type ExperimentsListWidgetRow = {
     id: number
@@ -76,7 +79,7 @@ function ExperimentsListWidgetRowItem({ experiment }: { experiment: ExperimentsL
                     {creatorName ? <span className="truncate">by {creatorName}</span> : null}
                 </div>
             </div>
-            <div className="flex shrink-0 flex-col items-end gap-1">
+            <div className="flex shrink-0 items-center gap-2">
                 <StatusTag status={experiment.status as ExperimentStatus} />
                 {experiment.conclusion ? <ExperimentConclusionLabel conclusion={experiment.conclusion} /> : null}
             </div>
@@ -84,12 +87,34 @@ function ExperimentsListWidgetRowItem({ experiment }: { experiment: ExperimentsL
     )
 }
 
-export function ExperimentsListWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
+function ExperimentsListLoadingSkeleton(): JSX.Element {
+    return (
+        <div className="flex w-full flex-col" aria-busy aria-label="Loading experiments">
+            {Array.from({ length: 5 }, (_, index) => (
+                <div key={index} className="flex items-center justify-between gap-2 border-b px-2 py-2" aria-hidden>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <LemonSkeleton className="h-4 w-[55%] max-w-xs" />
+                        <LemonSkeleton className="h-3 w-[35%] max-w-40" />
+                    </div>
+                    <LemonSkeleton className="h-5 w-16 rounded" />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+export function ExperimentsListWidget({ config, result, loading }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ExperimentsListWidgetResult | null | undefined
     const experiments = payload?.results ?? []
+    const parsedConfig = parseExperimentsListWidgetConfig(config)
+    const hasActiveFilters = (parsedConfig.status ?? 'all') !== 'all' || parsedConfig.createdBy != null
 
     if (loading) {
-        return <WidgetLoadingState rowCount={4} />
+        return (
+            <WidgetCardContent>
+                <ExperimentsListLoadingSkeleton />
+            </WidgetCardContent>
+        )
     }
 
     if (experiments.length === 0) {
@@ -101,8 +126,24 @@ export function ExperimentsListWidget({ result, loading }: DashboardWidgetCompon
                         data-attr="experiments-list-widget-empty-state"
                     >
                         <ExperimentsHog className="size-20 shrink-0" />
-                        <p className="m-0 text-base font-semibold text-primary">No experiments found</p>
-                        <p className="m-0 text-sm text-muted">No experiments matched the status and creator filters.</p>
+                        {hasActiveFilters ? (
+                            <>
+                                <p className="m-0 text-base font-semibold text-primary">No experiments found</p>
+                                <p className="m-0 text-sm text-muted">
+                                    No experiments matched the status and creator filters.
+                                </p>
+                            </>
+                        ) : (
+                            <>
+                                <p className="m-0 text-base font-semibold text-primary">No experiments yet</p>
+                                <p className="m-0 text-sm text-muted">
+                                    Run A/B tests to measure the impact of changes on your product.
+                                </p>
+                                <LemonButton type="primary" size="small" to={urls.experiment('new')} targetBlank>
+                                    New experiment
+                                </LemonButton>
+                            </>
+                        )}
                     </div>
                 </WidgetCardBodyMessage>
             </WidgetCardContent>

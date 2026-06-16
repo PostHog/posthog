@@ -132,6 +132,8 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneThreeOrderDir
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitDefault = 10
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax = 25
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault = `created_at`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault = `DESC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault = `all`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
@@ -498,6 +500,18 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitDefault
                                             )
                                             .describe('Maximum number of experiments to return.'),
+                                        orderBy: zod
+                                            .enum(['created_at', 'name', 'start_date'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault
+                                            )
+                                            .describe('Experiment list sort column.'),
+                                        orderDirection: zod
+                                            .enum(['ASC', 'DESC'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault
+                                            )
+                                            .describe('Sort direction for orderBy.'),
                                         status: zod
                                             .enum(['draft', 'running', 'paused', 'stopped', 'all'])
                                             .default(
@@ -879,6 +893,8 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourNameMax = 400
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault = 10
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax = 25
 
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault = `created_at`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault = `DESC`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault = `all`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax = 400
 
@@ -1407,6 +1423,16 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitMax)
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneLimitDefault)
                                     .describe('Maximum number of experiments to return.'),
+                                orderBy: zod
+                                    .enum(['created_at', 'name', 'start_date'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefault)
+                                    .describe('Experiment list sort column.'),
+                                orderDirection: zod
+                                    .enum(['ASC', 'DESC'])
+                                    .default(
+                                        dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault
+                                    )
+                                    .describe('Sort direction for orderBy.'),
                                 status: zod
                                     .enum(['draft', 'running', 'paused', 'stopped', 'all'])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault)

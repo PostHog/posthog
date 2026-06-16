@@ -13,6 +13,8 @@ import {
     parseExperimentsListWidgetConfig,
     validateExperimentsListWidgetConfigInput,
     type ExperimentsListWidgetFieldErrors,
+    type ExperimentsListWidgetOrderBy,
+    type ExperimentsListWidgetOrderDirection,
 } from './experimentsListWidgetConfigValidation'
 
 export type EditExperimentsListWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
@@ -31,6 +33,8 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
 
     actions({
         setLimit: (limit: number) => ({ limit }),
+        setOrderBy: (orderBy: ExperimentsListWidgetOrderBy) => ({ orderBy }),
+        setOrderDirection: (orderDirection: ExperimentsListWidgetOrderDirection) => ({ orderDirection }),
         ...widgetEditModalTileActions,
         setFieldErrors: (fieldErrors: ExperimentsListWidgetFieldErrors) => ({ fieldErrors }),
         clearFieldError: (field: keyof ExperimentsListWidgetFieldErrors) => ({ field }),
@@ -44,6 +48,22 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
             10,
             {
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
+            },
+        ],
+        orderBy: [
+            'created_at' as ExperimentsListWidgetOrderBy,
+            {
+                setOrderBy: (_: ExperimentsListWidgetOrderBy, { orderBy }: { orderBy: ExperimentsListWidgetOrderBy }) =>
+                    orderBy,
+            },
+        ],
+        orderDirection: [
+            'DESC' as ExperimentsListWidgetOrderDirection,
+            {
+                setOrderDirection: (
+                    _: ExperimentsListWidgetOrderDirection,
+                    { orderDirection }: { orderDirection: ExperimentsListWidgetOrderDirection }
+                ) => orderDirection,
             },
         ],
         tileName: [
@@ -93,11 +113,13 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
         validation: [
             // status + creator live on the tile filter bar; read them from the persisted config so saving
             // the limit/name here preserves the active filters.
-            (s) => [s.limit, (_, props) => props.config],
-            (limit, config) => {
+            (s) => [s.limit, s.orderBy, s.orderDirection, (_, props) => props.config],
+            (limit, orderBy, orderDirection, config) => {
                 const baseConfig = parseExperimentsListWidgetConfig(config)
                 return validateExperimentsListWidgetConfigInput({
                     limit,
+                    orderBy,
+                    orderDirection,
                     status: baseConfig.status ?? 'all',
                     createdBy: baseConfig.createdBy ?? null,
                 })
@@ -131,6 +153,8 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
 
         return {
             limit: baseConfig.limit,
+            orderBy: baseConfig.orderBy ?? 'created_at',
+            orderDirection: baseConfig.orderDirection ?? 'DESC',
             ...getWidgetEditModalTileDefaults(props),
             fieldErrors: {},
             saving: false,

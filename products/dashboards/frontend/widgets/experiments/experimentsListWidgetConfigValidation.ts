@@ -18,6 +18,8 @@ type ExperimentsListWidgetFormField = keyof z.infer<typeof experimentsWidgetForm
 export type ExperimentsListWidgetFieldErrors = Partial<Record<ExperimentsListWidgetFormField, string>>
 
 export type ExperimentsListWidgetStatus = NonNullable<ExperimentsWidgetConfig['status']>
+export type ExperimentsListWidgetOrderBy = NonNullable<ExperimentsWidgetConfig['orderBy']>
+export type ExperimentsListWidgetOrderDirection = NonNullable<ExperimentsWidgetConfig['orderDirection']>
 
 export const EXPERIMENTS_WIDGET_STATUS_OPTIONS: { value: ExperimentsListWidgetStatus; label: string }[] = [
     { value: 'all', label: 'Any status' },
@@ -25,6 +27,20 @@ export const EXPERIMENTS_WIDGET_STATUS_OPTIONS: { value: ExperimentsListWidgetSt
     { value: 'running', label: 'Running' },
     { value: 'paused', label: 'Paused' },
     { value: 'stopped', label: 'Complete' },
+]
+
+export const EXPERIMENTS_WIDGET_ORDER_BY_OPTIONS: { value: ExperimentsListWidgetOrderBy; label: string }[] = [
+    { value: 'created_at', label: 'Created date' },
+    { value: 'name', label: 'Name' },
+    { value: 'start_date', label: 'Start date' },
+]
+
+export const EXPERIMENTS_WIDGET_ORDER_DIRECTION_OPTIONS: {
+    value: ExperimentsListWidgetOrderDirection
+    label: string
+}[] = [
+    { value: 'DESC', label: 'Descending' },
+    { value: 'ASC', label: 'Ascending' },
 ]
 
 const experimentsConfigDefaults = experimentsWidgetConfigSchema.parse({})
@@ -48,6 +64,8 @@ export function patchExperimentsListWidgetConfig(
 
 export function validateExperimentsListWidgetConfigInput(input: {
     limit: number
+    orderBy: ExperimentsListWidgetOrderBy
+    orderDirection: ExperimentsListWidgetOrderDirection
     status: ExperimentsListWidgetStatus
     createdBy: number | null
 }):
@@ -55,6 +73,8 @@ export function validateExperimentsListWidgetConfigInput(input: {
     | { success: false; fieldErrors: ExperimentsListWidgetFieldErrors } {
     const parsed = experimentsWidgetFormSchema.safeParse({
         limit: input.limit,
+        orderBy: input.orderBy,
+        orderDirection: input.orderDirection,
         status: input.status,
         createdBy: input.createdBy,
     })
@@ -81,6 +101,11 @@ export function parseExperimentsListWidgetConfigApiError(
 
     const parsedForm = experimentsWidgetFormSchema.safeParse({
         limit: (config.limit as number) ?? experimentsConfigDefaults.limit ?? 0,
+        orderBy: (config.orderBy as ExperimentsListWidgetOrderBy) ?? experimentsConfigDefaults.orderBy ?? 'created_at',
+        orderDirection:
+            (config.orderDirection as ExperimentsListWidgetOrderDirection) ??
+            experimentsConfigDefaults.orderDirection ??
+            'DESC',
         status: (config.status as ExperimentsListWidgetStatus) ?? experimentsConfigDefaults.status ?? 'all',
         createdBy: (config.createdBy as number | null) ?? null,
     })

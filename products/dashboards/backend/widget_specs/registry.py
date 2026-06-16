@@ -143,7 +143,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             required_product_access="experiment",
             product_access_denied_message="You do not have access to experiments.",
             availability_requirements=(),
-            form_fields=("limit", "status", "createdBy"),
+            form_fields=("limit", "orderBy", "orderDirection", "status", "createdBy"),
             filter_fields=("status", "createdBy"),
         ),
         EXPERIMENT_RESULTS_WIDGET_TYPE: WidgetSpec(

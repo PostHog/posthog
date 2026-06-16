@@ -585,6 +585,29 @@ export interface SessionReplayListWidgetConfigApi {
 }
 
 /**
+ * Experiment list sort column.
+ */
+export type ExperimentsListWidgetConfigApiOrderBy =
+    (typeof ExperimentsListWidgetConfigApiOrderBy)[keyof typeof ExperimentsListWidgetConfigApiOrderBy]
+
+export const ExperimentsListWidgetConfigApiOrderBy = {
+    CreatedAt: 'created_at',
+    Name: 'name',
+    StartDate: 'start_date',
+} as const
+
+/**
+ * Sort direction for orderBy.
+ */
+export type ExperimentsListWidgetConfigApiOrderDirection =
+    (typeof ExperimentsListWidgetConfigApiOrderDirection)[keyof typeof ExperimentsListWidgetConfigApiOrderDirection]
+
+export const ExperimentsListWidgetConfigApiOrderDirection = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+/**
  * Experiment status filter.
  */
 export type ExperimentsListWidgetConfigApiStatus =
@@ -605,6 +628,10 @@ export interface ExperimentsListWidgetConfigApi {
      * @maximum 25
      */
     limit?: number
+    /** Experiment list sort column. */
+    orderBy?: ExperimentsListWidgetConfigApiOrderBy
+    /** Sort direction for orderBy. */
+    orderDirection?: ExperimentsListWidgetConfigApiOrderDirection
     /** Experiment status filter. */
     status?: ExperimentsListWidgetConfigApiStatus
     /** Filter by creator (user id). Omit for any creator. */

@@ -9,6 +9,8 @@ import { z as zod } from 'zod'
 export const experimentsListWidgetConfigLimitDefault = 10
 export const experimentsListWidgetConfigLimitMax = 25
 
+export const experimentsListWidgetConfigOrderByDefault = `created_at`
+export const experimentsListWidgetConfigOrderDirectionDefault = `DESC`
 export const experimentsListWidgetConfigStatusDefault = `all`
 
 export const ExperimentsListWidgetConfig = /* @__PURE__ */ zod.object({
@@ -18,6 +20,14 @@ export const ExperimentsListWidgetConfig = /* @__PURE__ */ zod.object({
         .max(experimentsListWidgetConfigLimitMax)
         .default(experimentsListWidgetConfigLimitDefault)
         .describe('Maximum number of experiments to return.'),
+    orderBy: zod
+        .enum(['created_at', 'name', 'start_date'])
+        .default(experimentsListWidgetConfigOrderByDefault)
+        .describe('Experiment list sort column.'),
+    orderDirection: zod
+        .enum(['ASC', 'DESC'])
+        .default(experimentsListWidgetConfigOrderDirectionDefault)
+        .describe('Sort direction for orderBy.'),
     status: zod
         .enum(['draft', 'running', 'paused', 'stopped', 'all'])
         .default(experimentsListWidgetConfigStatusDefault)

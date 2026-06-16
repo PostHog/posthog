@@ -20,7 +20,7 @@
             "savedFilterId",
             "widgetFilters"
         ],
-        "experiments_list": ["createdBy", "limit", "status"],
+        "experiments_list": ["createdBy", "limit", "orderBy", "orderDirection", "status"],
         "experiment_results": ["experimentId"]
     },
     "configPropertyTrees": {
@@ -261,6 +261,12 @@
         "experiments_list": {
             "limit": {
                 "$type": "integer"
+            },
+            "orderBy": {
+                "$enum": ["created_at", "name", "start_date"]
+            },
+            "orderDirection": {
+                "$enum": ["ASC", "DESC"]
             },
             "status": {
                 "$enum": ["all", "draft", "paused", "running", "stopped"]

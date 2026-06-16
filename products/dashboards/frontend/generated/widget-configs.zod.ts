@@ -49,6 +49,8 @@ export const experimentResultsWidgetFormSchema = experimentResultsWidgetConfigSc
 
 export const experimentsWidgetFormSchema = experimentsWidgetConfigSchema.pick({
     limit: true,
+    orderBy: true,
+    orderDirection: true,
     status: true,
     createdBy: true,
 })

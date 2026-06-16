@@ -167,6 +167,8 @@ export const DASHBOARD_WIDGET_CATALOG = {
         label: 'Experiments list',
         description: 'List of experiments filtered by status and creator.',
         headerTitle: 'Experiments',
+        // Filtered by status/creator, not a date range — don't show a (defaulted) date in the header.
+        headerMeta: { showDateRange: false },
         defaultConfig: experimentsWidgetConfigSchema.parse({}),
         defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'experiment',
@@ -181,6 +183,8 @@ export const DASHBOARD_WIDGET_CATALOG = {
         label: 'Experiment results',
         description: 'Current results for the primary metrics of a selected experiment.',
         headerTitle: 'Experiment results',
+        // Shows a selected experiment's current results — there's no date range to surface.
+        headerMeta: { showDateRange: false },
         defaultConfig: experimentResultsWidgetConfigSchema.parse({}),
         defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
         productAccess: 'experiment',

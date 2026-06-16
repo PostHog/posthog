@@ -14,18 +14,32 @@ describe('experimentsListWidgetConfigValidation', () => {
     })
 
     it('rejects limit above 25 with an inline-friendly message', () => {
-        const result = validateExperimentsListWidgetConfigInput({ limit: 30, status: 'all', createdBy: null })
+        const result = validateExperimentsListWidgetConfigInput({
+            limit: 30,
+            orderBy: 'created_at',
+            orderDirection: 'DESC',
+            status: 'all',
+            createdBy: null,
+        })
         expect(result.success).toBe(false)
         if (!result.success) {
             expect(result.fieldErrors.limit).toBe('Too big: expected number to be <=25')
         }
     })
 
-    it('accepts a valid status + creator filter', () => {
-        const result = validateExperimentsListWidgetConfigInput({ limit: 10, status: 'running', createdBy: 7 })
+    it('accepts a valid sort + status + creator filter', () => {
+        const result = validateExperimentsListWidgetConfigInput({
+            limit: 10,
+            orderBy: 'name',
+            orderDirection: 'ASC',
+            status: 'running',
+            createdBy: 7,
+        })
         expect(result.success).toBe(true)
         if (result.success) {
             expect(result.config.limit).toBe(10)
+            expect(result.config.orderBy).toBe('name')
+            expect(result.config.orderDirection).toBe('ASC')
             expect(result.config.status).toBe('running')
             expect(result.config.createdBy).toBe(7)
         }

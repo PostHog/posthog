@@ -1,3 +1,5 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -8,7 +10,7 @@ import { urls } from 'scenes/urls'
 import type { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import type { ExperimentStatus } from '~/types'
 
-import { WidgetCardBodyMessage, WidgetCardContent, WidgetLoadingState } from '../../components/WidgetCard'
+import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 
 export type ExperimentResultsWidgetMetricEntry = {
@@ -66,6 +68,31 @@ function ExperimentResultsWidgetMetric({ entry }: { entry: ExperimentResultsWidg
     )
 }
 
+function ExperimentResultsLoadingSkeleton(): JSX.Element {
+    return (
+        <WidgetCardContent>
+            <div className="flex flex-col gap-3 p-2" aria-busy aria-label="Loading experiment results">
+                <div className="flex items-center justify-between gap-2" aria-hidden>
+                    <LemonSkeleton className="h-4 w-1/3 max-w-xs" />
+                    <LemonSkeleton className="h-5 w-20 rounded" />
+                </div>
+                <div className="flex flex-col gap-2" aria-hidden>
+                    <LemonSkeleton className="h-3 w-24" />
+                    <div className="flex flex-col gap-2 rounded border p-2">
+                        {Array.from({ length: 3 }, (_, index) => (
+                            <div key={index} className="flex items-center justify-between gap-4">
+                                <LemonSkeleton className="h-3 w-1/4" />
+                                <LemonSkeleton className="h-3 w-1/5" />
+                                <LemonSkeleton className="h-3 w-1/6" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </WidgetCardContent>
+    )
+}
+
 export function ExperimentResultsWidget({
     result,
     loading,
@@ -74,7 +101,7 @@ export function ExperimentResultsWidget({
     const payload = result as ExperimentResultsWidgetResult | null | undefined
 
     if (loading) {
-        return <WidgetLoadingState rowCount={4} />
+        return <ExperimentResultsLoadingSkeleton />
     }
 
     if (!payload || payload.needsConfiguration) {

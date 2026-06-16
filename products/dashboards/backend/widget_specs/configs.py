@@ -25,6 +25,7 @@ SessionReplayOrderBy = Literal[
 ]
 WidgetAssigneeType = Literal["user", "role"]
 ExperimentsWidgetStatus = Literal["draft", "running", "paused", "stopped", "all"]
+ExperimentsWidgetOrderBy = Literal["created_at", "name", "start_date"]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -79,6 +80,8 @@ class ExperimentsListWidgetConfig(BaseModel):
     limit: WidgetLimit = Field(
         default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of experiments to return."
     )
+    orderBy: ExperimentsWidgetOrderBy = Field(default="created_at", description="Experiment list sort column.")
+    orderDirection: WidgetOrderDirection = Field(default="DESC", description="Sort direction for orderBy.")
     status: ExperimentsWidgetStatus = Field(default="all", description="Experiment status filter.")
     createdBy: int | None = Field(default=None, description="Filter by creator (user id). Omit for any creator.")
 

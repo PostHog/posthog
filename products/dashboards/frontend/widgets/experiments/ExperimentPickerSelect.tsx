@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonInputSelect, type LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { fullName } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import type { ExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -13,10 +15,10 @@ function ExperimentOptionLabel({ experiment }: { experiment: ExperimentApi }): J
     const creator = experiment.created_by
     const creatorName = creator ? fullName(creator) || creator.email : null
     return (
-        <div className="flex w-full items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2">
             <span className="truncate">{experiment.name}</span>
             {creator ? (
-                <span className="flex shrink-0 items-center gap-1 text-xs text-muted">
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted">
                     <ProfilePicture
                         user={{ first_name: creator.first_name, last_name: creator.last_name, email: creator.email }}
                         size="sm"
@@ -24,7 +26,7 @@ function ExperimentOptionLabel({ experiment }: { experiment: ExperimentApi }): J
                     <span className="max-w-32 truncate">{creatorName}</span>
                 </span>
             ) : null}
-        </div>
+        </span>
     )
 }
 
@@ -49,7 +51,7 @@ export function ExperimentPickerSelect({
     dataAttr,
 }: ExperimentPickerSelectProps): JSX.Element {
     const logic = experimentPickerLogic({ pickerKey })
-    const { experimentOptions, experimentOptionsLoading, selectedExperiment } = useValues(logic)
+    const { experimentOptions, experimentOptionsLoading, selectedExperiment, search } = useValues(logic)
     const { ensureOptionsLoaded, setSearch, ensureSelectedLoaded } = useActions(logic)
 
     // Resolve the selected label even when it falls outside the loaded/searched page.
@@ -85,6 +87,18 @@ export function ExperimentPickerSelect({
             disableFiltering
             value={value != null ? [String(value)] : []}
             options={options}
+            emptyStateComponent={
+                search ? (
+                    <p className="text-secondary italic p-1">No experiments matching "{search}"</p>
+                ) : (
+                    <div className="flex flex-col gap-1 p-1 text-secondary">
+                        <span>No experiments yet.</span>
+                        <Link to={urls.experiment('new')} target="_blank">
+                            Create an experiment
+                        </Link>
+                    </div>
+                )
+            }
             onFocus={() => ensureOptionsLoaded()}
             onInputChange={(text) => setSearch(text)}
             onChange={(values) => onChange(values.length > 0 ? Number(values[0]) : null)}

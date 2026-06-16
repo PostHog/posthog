@@ -5,18 +5,32 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editExperimentsListWidgetModalLogic } from './editExperimentsListWidgetModalLogic'
+import {
+    EXPERIMENTS_WIDGET_ORDER_BY_OPTIONS,
+    EXPERIMENTS_WIDGET_ORDER_DIRECTION_OPTIONS,
+} from './experimentsListWidgetConfigValidation'
 
 function EditExperimentsListWidgetModalContents(): JSX.Element {
-    const { limit, tileName, tileDescription, activeFieldErrors, saving, saveDisabledReason, onClose, defaultTitle } =
-        useValues(editExperimentsListWidgetModalLogic)
-    const { setLimit, setTileName, setTileDescription, clearFieldError, submit } = useActions(
-        editExperimentsListWidgetModalLogic
-    )
+    const {
+        limit,
+        orderBy,
+        orderDirection,
+        tileName,
+        tileDescription,
+        activeFieldErrors,
+        saving,
+        saveDisabledReason,
+        onClose,
+        defaultTitle,
+    } = useValues(editExperimentsListWidgetModalLogic)
+    const { setLimit, setOrderBy, setOrderDirection, setTileName, setTileDescription, clearFieldError, submit } =
+        useActions(editExperimentsListWidgetModalLogic)
 
     return (
         <LemonModal
@@ -57,6 +71,34 @@ function EditExperimentsListWidgetModalContents(): JSX.Element {
                     <p className="m-0 text-xs text-muted">
                         Filter by status and creator directly on the tile using the filter bar.
                     </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <LemonField.Pure label="Sort by" error={activeFieldErrors.orderBy}>
+                            <LemonSelect
+                                fullWidth
+                                value={orderBy}
+                                onChange={(value) => {
+                                    if (value) {
+                                        setOrderBy(value)
+                                        clearFieldError('orderBy')
+                                    }
+                                }}
+                                options={EXPERIMENTS_WIDGET_ORDER_BY_OPTIONS}
+                            />
+                        </LemonField.Pure>
+                        <LemonField.Pure label="Direction" error={activeFieldErrors.orderDirection}>
+                            <LemonSelect
+                                fullWidth
+                                value={orderDirection}
+                                onChange={(value) => {
+                                    if (value) {
+                                        setOrderDirection(value)
+                                        clearFieldError('orderDirection')
+                                    }
+                                }}
+                                options={EXPERIMENTS_WIDGET_ORDER_DIRECTION_OPTIONS}
+                            />
+                        </LemonField.Pure>
+                    </div>
                     <LemonField.Pure
                         label="Number of experiments"
                         help="Show up to 25 experiments on the tile."

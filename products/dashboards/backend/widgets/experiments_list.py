@@ -68,7 +68,9 @@ def run_experiments_list_widget(
     typed_config = validate_widget_config(EXPERIMENTS_LIST_WIDGET_TYPE, config)
     limit = typed_config["limit"]
 
-    query_params: dict[str, Any] = {"status": typed_config["status"]}
+    order_by = typed_config.get("orderBy", "created_at")
+    order_prefix = "-" if typed_config.get("orderDirection", "DESC") == "DESC" else ""
+    query_params: dict[str, Any] = {"status": typed_config["status"], "order": f"{order_prefix}{order_by}"}
     created_by = typed_config.get("createdBy")
     if created_by is not None:
         query_params["created_by_id"] = created_by
