@@ -43,6 +43,11 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       python:
+                        # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
+                        # file anywhere must trigger this workflow — otherwise an unformatted
+                        # file lands undetected and trips the next unrelated PR that does run.
+                        - '**/*.py'
+                        - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - 'uv.lock'
                         - conftest.py # Root conftest loads for every pytest run
