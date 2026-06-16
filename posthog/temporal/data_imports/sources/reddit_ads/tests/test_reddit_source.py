@@ -110,6 +110,32 @@ class TestRedditAdsSource:
         assert "Integration not found" in error_message
         mock_capture_exception.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "401 Client Error: Unauthorized for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
+            "403 Client Error: Forbidden for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/reports?page.size=100",
+            "404 Client Error: Not Found for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
+            "ValueError: Integration not found: 154683",
+        ],
+    )
+    def test_non_retryable_errors_match_known_failures(self, observed_error):
+        """Auth failures and deleted integrations must be recognised as non-retryable."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in observed_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "other_error",
+        [
+            "500 Server Error for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns",
+            "ConnectionError: Connection reset by peer",
+        ],
+    )
+    def test_non_retryable_errors_does_not_match_transient(self, other_error):
+        """Transient infrastructure failures must stay retryable."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(key in other_error for key in non_retryable_errors)
+
     def test_get_schemas(self):
         """Test get_schemas returns all endpoint schemas."""
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -41,6 +41,15 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             "received fatal alert: BadCertificate": "Temporal rejected this source's client certificate as invalid. Update the source with a valid client certificate and key.",
             "received fatal alert: CertificateUnknown": "Temporal rejected this source's client certificate. Update the source with a valid client certificate and key.",
             "invalid peer certificate": "The Temporal server's certificate could not be verified. Check the host and port point at your Temporal namespace's gRPC endpoint.",
+            # tonic/rustls raises CertificateParseError when one of the PEM credential blobs cannot be
+            # decoded at all (vs the alerts above, which reject an otherwise-parseable cert). The blobs
+            # come straight from the source config, so this is a malformed-credential problem — retrying
+            # can never recover.
+            "CertificateParseError": "PostHog could not parse the TLS certificate or key configured for this source. Check that the client certificate, client private key, and server client root CA are valid PEM and were pasted in full, including the BEGIN and END lines.",
+            # tonic surfaces a gRPC UNAUTHENTICATED status when the server requires API key (JWT/Bearer)
+            # authentication, which this source does not provide — it authenticates with mTLS client
+            # certificates. This is a credential/host configuration problem, so retrying can never recover.
+            "code: Unauthenticated": "Temporal rejected the connection because it requires API key (JWT) authentication, which this source does not provide. This usually means the configured host points at a Temporal Cloud API endpoint that uses API key authentication rather than your namespace's mTLS gRPC endpoint (typically <namespace>.<account>.tmprl.cloud:7233). Update the source's host to the namespace's gRPC endpoint that accepts client-certificate (mTLS) authentication.",
         }
 
     def get_schemas(

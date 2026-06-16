@@ -79,6 +79,19 @@ def test_get_resumable_source_manager_uses_resume_config():
 
 
 @pytest.mark.parametrize(
+    "error_message",
+    [
+        "invalid_grant",
+        # The real RefreshError raised when AuthorizedSession refreshes a revoked/expired token.
+        "RefreshError: ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+    ],
+)
+def test_invalid_grant_is_non_retryable(error_message):
+    non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
+    assert any(key in error_message for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
     "status_code,expected_substring",
     [
         (401, "rejected the credentials"),
