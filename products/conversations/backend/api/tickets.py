@@ -262,9 +262,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
-            "teams_channel_id",
-            "teams_conversation_id",
-            "teams_tenant_id",
             "email_subject",
             "email_from",
             "email_to",
@@ -292,9 +289,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "slack_channel_id",
             "slack_thread_ts",
             "slack_team_id",
-            "teams_channel_id",
-            "teams_conversation_id",
-            "teams_tenant_id",
             "email_subject",
             "email_from",
             "email_to",
@@ -308,14 +302,6 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
-            "teams_channel_id": {
-                "help_text": "Microsoft Teams channel thread id. Only set when channel_source is teams."
-            },
-            "teams_conversation_id": {
-                "help_text": "Microsoft Teams reply-chain id (contains the root message id). "
-                "Only set when channel_source is teams."
-            },
-            "teams_tenant_id": {"help_text": "Microsoft Teams tenant id. Only set when channel_source is teams."},
         }
 
     def get_email_to(self, obj: Ticket) -> str | None:

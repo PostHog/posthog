@@ -26,7 +26,6 @@ const channelDetailLabel: Record<TicketChannelDetail, string> = {
 
 const channelOpenLabel: Partial<Record<TicketChannel, string>> = {
     slack: 'Open in Slack',
-    teams: 'Open in Teams',
 }
 
 interface ChannelsTagProps {

@@ -505,21 +505,6 @@ export interface TicketApi {
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
-    /**
-     * Microsoft Teams channel thread id. Only set when channel_source is teams.
-     * @nullable
-     */
-    readonly teams_channel_id: string | null
-    /**
-     * Microsoft Teams reply-chain id (contains the root message id). Only set when channel_source is teams.
-     * @nullable
-     */
-    readonly teams_conversation_id: string | null
-    /**
-     * Microsoft Teams tenant id. Only set when channel_source is teams.
-     * @nullable
-     */
-    readonly teams_tenant_id: string | null
     /** @nullable */
     readonly email_subject: string | null
     /** @nullable */
@@ -598,21 +583,6 @@ export interface PatchedTicketApi {
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
-    /**
-     * Microsoft Teams channel thread id. Only set when channel_source is teams.
-     * @nullable
-     */
-    readonly teams_channel_id?: string | null
-    /**
-     * Microsoft Teams reply-chain id (contains the root message id). Only set when channel_source is teams.
-     * @nullable
-     */
-    readonly teams_conversation_id?: string | null
-    /**
-     * Microsoft Teams tenant id. Only set when channel_source is teams.
-     * @nullable
-     */
-    readonly teams_tenant_id?: string | null
     /** @nullable */
     readonly email_subject?: string | null
     /** @nullable */

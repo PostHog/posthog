@@ -98,9 +98,6 @@ export interface Ticket {
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
-    teams_channel_id?: string | null
-    teams_conversation_id?: string | null
-    teams_tenant_id?: string | null
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null

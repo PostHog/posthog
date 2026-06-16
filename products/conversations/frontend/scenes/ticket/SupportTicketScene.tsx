@@ -50,18 +50,10 @@ export const scene: SceneExport<{ ticketId: string }> = {
     paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
-// Builds a deep link to the originating Slack/Teams thread so the Channel tag can be clickable.
+// Builds a deep link to the originating Slack thread so the Channel tag can be clickable.
 function getChannelThreadUrl(ticket: Ticket | null): string | undefined {
     if (ticket?.channel_source === 'slack' && ticket.slack_channel_id && ticket.slack_thread_ts) {
         return `https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`
-    }
-    if (ticket?.channel_source === 'teams' && ticket.teams_channel_id && ticket.teams_tenant_id) {
-        // teams_conversation_id is stored as "<channel>;messageid=<root_msg_id>" — the deep link needs that message id
-        const messageId = ticket.teams_conversation_id?.split(';messageid=')[1]
-        if (!messageId) {
-            return undefined
-        }
-        return `https://teams.microsoft.com/l/message/${encodeURIComponent(ticket.teams_channel_id)}/${messageId}?tenantId=${encodeURIComponent(ticket.teams_tenant_id)}`
     }
     return undefined
 }
