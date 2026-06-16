@@ -27,10 +27,6 @@ describe('InsightTooltip', () => {
         )
     }
 
-    // Funnel historical trends break a single conversion series into one line per breakdown value,
-    // and the funnel runner tags each line with a distinct `order` (its breakdown rank). The
-    // entities-as-columns tooltip layout keys value cells by `order`, so without the single-column
-    // fallback only the line whose order matched the column rendered a value and the rest showed "–".
     it('renders a value for every breakdown line in a funnel trend (not "–")', () => {
         const breakdownFilter: BreakdownFilter = { breakdown: '$browser', breakdown_type: 'event' }
         const seriesData: SeriesDatum[] = [
