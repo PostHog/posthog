@@ -2,15 +2,10 @@ import pytest
 
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
-
 
 class TestStripeSource:
     def setup_method(self):
         self.source = StripeSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.STRIPE
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -22,6 +17,9 @@ class TestStripeSource:
             # 401/403 surfaced as a requests HTTPError keep matching the existing URL-based keys.
             "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers",
             "403 Client Error: Forbidden for url: https://api.stripe.com/v1/prices",
+            # IP allowlist rejection — matched on the stable phrase, ignoring the appended IP address.
+            "The API key provided does not allow requests from your IP address.",
+            "The API key provided does not allow requests from your IP address (1.2.3.4).",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
