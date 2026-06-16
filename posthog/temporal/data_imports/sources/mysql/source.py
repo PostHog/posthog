@@ -121,6 +121,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
             "Bad handshake": None,
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This
+            # is the customer's gateway configuration, not a momentary blip; the import retried it
+            # across attempts and never recovered. `handle_non_retryable_error` still re-tries a few
+            # times across runs before giving up, so a genuinely transient gateway reboot is
+            # absorbed. Postgres and MS SQL already treat this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
             # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
             # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
             # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
