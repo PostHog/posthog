@@ -448,8 +448,10 @@ export function FeatureFlagReleaseConditions({
                                 {(() => {
                                     const targetIndex = group.aggregation_group_type_index
                                     const pluralName = aggregationTargetName(targetIndex)
-                                    const singularName =
-                                        targetIndex != null ? aggregationLabel(targetIndex).singular : 'user'
+                                    const singularName = aggregationLabel(
+                                        targetIndex ?? filters.aggregation_group_type_index,
+                                        true
+                                    ).singular
                                     const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
                                     const total = group.sort_key ? totalCounts[group.sort_key] : undefined
                                     if (affected === undefined || affected < 0 || total === undefined) {

@@ -463,7 +463,10 @@ const ConditionContent = ({
     }
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
-    const resolvedSingularTargetName = aggregationLabel(group.aggregation_group_type_index, true).singular
+    const resolvedSingularTargetName = aggregationLabel(
+        group.aggregation_group_type_index ?? releaseFilters.aggregation_group_type_index,
+        true
+    ).singular
 
     return (
         <div
