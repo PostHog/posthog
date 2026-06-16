@@ -1,6 +1,11 @@
 import pytest
 
-from posthog.models.bot_definition.sql import _bot_definition_rows
+from posthog.models.bot_definition.sql import (
+    BOT_DEFINITION_UDF_NAMES,
+    BOT_DEFINITION_UDFS_SQL,
+    DROP_BOT_DEFINITION_UDFS_SQL,
+    _bot_definition_rows,
+)
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
@@ -133,3 +138,54 @@ class TestBotDefinitionsDataStructure:
                     assert patterns.index(p2) < patterns.index(p1), (
                         f"{p2} must come before {p1} to avoid ambiguity in REGEXP_TREE matching"
                     )
+
+
+class TestBotDefinitionUDFs:
+    def test_all_five_udfs_generated_with_namespaced_names(self):
+        # Namespaced (webAnalytics*) to avoid clashing with built-ins / other products in
+        # ClickHouse's single global function catalog.
+        assert len(BOT_DEFINITION_UDFS_SQL) == 5
+        joined = "\n".join(BOT_DEFINITION_UDFS_SQL)
+        for name in BOT_DEFINITION_UDF_NAMES:
+            assert name.startswith("webAnalytics"), f"UDF {name} is not namespaced"
+            assert f"CREATE OR REPLACE FUNCTION {name} AS (ua)" in joined
+
+    def test_udfs_use_multimatch_not_dictget(self):
+        # The whole point: multiMatch (Hyperscan) is 7-46x cheaper than the REGEXP_TREE dictGet.
+        for sql in BOT_DEFINITION_UDFS_SQL:
+            assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
+        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsBot" in s)
+        assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index
+        for name in ("webAnalyticsBotName", "webAnalyticsBotCategory", "webAnalyticsBotTrafficType"):
+            sql = next(s for s in BOT_DEFINITION_UDFS_SQL if name in s)
+            assert "multiMatchAnyIndex(ifNull(ua, '')," in sql
+            assert "arrayElement(" in sql
+
+    def test_label_arrays_align_with_patterns(self):
+        # arrayElement(arr, multiMatchAnyIndex(...) + 1): arr must be [default, <N bots>, empty_ua],
+        # i.e. len(BOT_DEFINITIONS) + 2, so index 0 -> default and index N+1 (^$) -> empty_ua_value.
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsBotName" in s)
+        # count quoted elements in the first array literal of the lookup
+        array_literal = bot_name_sql[
+            bot_name_sql.index("arrayElement([") + len("arrayElement(") : bot_name_sql.index("], multiMatch") + 1
+        ]
+        n_elements = array_literal.count("'") // 2
+        assert n_elements == len(BOT_DEFINITIONS) + 2
+
+    def test_isbot_equivalent_to_traffic_type_not_regular(self):
+        # webAnalyticsIsBot is multiMatchAny (any pattern matches). That equals the dict's
+        # "traffic_type != 'Regular'" only if every defined bot is non-Regular — assert it holds.
+        for pattern, bot in BOT_DEFINITIONS.items():
+            assert bot.traffic_type != "Regular", f"{pattern} has Regular traffic_type; isBot would diverge"
+
+    def test_drop_statements_cover_every_udf(self):
+        assert len(DROP_BOT_DEFINITION_UDFS_SQL) == len(BOT_DEFINITION_UDF_NAMES)
+        for name in BOT_DEFINITION_UDF_NAMES:
+            assert f"DROP FUNCTION IF EXISTS {name}" in DROP_BOT_DEFINITION_UDFS_SQL
+
+    def test_patterns_match_inline_hogql_path(self):
+        # The UDF patterns must be exactly the inline HogQL path's patterns (parity): bot keys + ^$.
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsBot" in s)
+        for pattern in BOT_DEFINITIONS:
+            assert pattern.replace("\\", "\\\\").replace("'", "''") in bot_name_sql
+        assert "'^$'" in bot_name_sql

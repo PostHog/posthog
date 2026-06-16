@@ -129,3 +129,43 @@ PRIMARY KEY regexp
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(REGEXP_TREE())
 """
+
+
+# Bot-detection UDFs. Names are namespaced (`webAnalytics*`) because ClickHouse functions share
+# one global catalog — a generic `isBot`/`botName` would risk clashing with built-ins or other
+# products. Bodies use multiMatchAnyIndex (Hyperscan), NOT the REGEXP_TREE dict's dictGet:
+# benchmarks on real traffic showed dictGet costs 7-46x more CPU and grows with row count, while
+# multiMatch stays flat (~200 ms at any window). SQL UDFs are macro-expanded at query-analysis
+# time, so call sites stay tiny (`webAnalyticsBotName(ua)`) yet execute at full multiMatch speed.
+# BOT_DEFINITIONS remains the single source of truth — the same patterns/labels the dict is
+# seeded from and the inline HogQL path emits.
+_BOT_UDF_PATTERNS = _format_array([*BOT_DEFINITIONS.keys(), "^$"])
+
+
+def _bot_udf_label_lookup(attr: str, default: str, empty_ua_value: str) -> str:
+    # Label array aligns with the patterns array: [default, <per-bot attr>…, empty_ua_value].
+    # multiMatchAnyIndex returns 0 (no match) or 1..N+1 ("^$" is N+1); arrayElement(arr, idx + 1)
+    # then maps 0 -> default, k -> attr of bot k, N+1 -> empty_ua_value.
+    labels = [default, *(getattr(bot, attr) for bot in BOT_DEFINITIONS.values()), empty_ua_value]
+    return f"arrayElement({_format_array(labels)}, multiMatchAnyIndex(ifNull(ua, ''), {_BOT_UDF_PATTERNS}) + 1)"
+
+
+BOT_DEFINITION_UDF_NAMES = [
+    "webAnalyticsIsBot",
+    "webAnalyticsBotName",
+    "webAnalyticsBotCategory",
+    "webAnalyticsBotTrafficType",
+    "webAnalyticsBotOperator",
+]
+
+# CREATE OR REPLACE so a later BOT_DEFINITIONS change re-creates the functions idempotently via a
+# follow-up migration. Defaults mirror the inline HogQL builder (traffic_type.py).
+BOT_DEFINITION_UDFS_SQL = [
+    f"CREATE OR REPLACE FUNCTION webAnalyticsIsBot AS (ua) -> multiMatchAny(ifNull(ua, ''), {_BOT_UDF_PATTERNS})",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsBotName AS (ua) -> {_bot_udf_label_lookup('name', '', '')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsBotCategory AS (ua) -> {_bot_udf_label_lookup('category', 'regular', 'no_user_agent')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsBotTrafficType AS (ua) -> {_bot_udf_label_lookup('traffic_type', 'Regular', 'Automation')}",
+    f"CREATE OR REPLACE FUNCTION webAnalyticsBotOperator AS (ua) -> {_bot_udf_label_lookup('operator', '', '')}",
+]
+
+DROP_BOT_DEFINITION_UDFS_SQL = [f"DROP FUNCTION IF EXISTS {name}" for name in BOT_DEFINITION_UDF_NAMES]
