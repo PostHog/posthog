@@ -74,9 +74,7 @@ logger = structlog.get_logger(__name__)
 DEFAULT_EXPOSURE_TTL_SECONDS = {
     "0d": 15 * 60,  # 15 min
     "1d": 60 * 60,  # 1 hour
-    "2d": 18 * 60 * 60,  # 18 hours
-    "3d": 18 * 60 * 60,  # 18 hours
-    "4d": 18 * 60 * 60,  # 18 hours
+    "4d": 18 * 60 * 60,  # 18 hours; covers windows 2-4 days old
     "default": 60 * 24 * 60 * 60,  # 60 days - data frozen
 }
 
