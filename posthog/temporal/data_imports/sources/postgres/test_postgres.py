@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -3329,7 +3330,7 @@ class TestOffsetChunkingFallbackRealDb:
                     chunk_size_override=2,
                     team_id=1,
                 )
-                tables = list(response.items())
+                tables = list(cast(Iterable[Any], response.items()))
 
             assert sum(t.num_rows for t in tables) == 5
         finally:
