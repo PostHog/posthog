@@ -903,6 +903,7 @@ request-level context (`path`, `attempt`).
 | `capture_v1_kafka_publish_total` | counter | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Every event outcome (success, error, timeout, reject) |
 | `capture_v1_kafka_ack_duration_seconds` | histogram | `mode`, `cluster`, `outcome`, `path`, `attempt` (capped at "6+"), `destination` | Per-event broker-ack latency (successful send → ack resolution), including `outcome="timeout"` for acks that miss `produce_timeout` |
 | `capture_v1_kafka_enqueue_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+") | Per-batch enqueue wall-time (the `enqueue_events` call), isolated from broker-ack latency |
+| `capture_v1_kafka_serialize_duration_seconds` | histogram | `mode`, `cluster`, `path`, `attempt` (capped at "6+"), `batch_size` | Per-batch serialization time (serialize + partition-key + enqueue loop), bucketed by batch size for latency/size correlation |
 
 Cardinality note: the `destination` label is bounded at 9 values
 (`Destination::as_tag()` collapses all `Custom(_)` topics to `custom`)

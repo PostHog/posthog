@@ -24,6 +24,19 @@ use super::producer::ProduceRecord;
 use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
+/// Bounded batch-size bucket for the serialize_duration histogram label.
+/// 5 values keeps cardinality manageable while giving visibility into
+/// the batch-size / latency relationship.
+fn batch_size_bucket(n: usize) -> &'static str {
+    match n {
+        0..=1 => "1",
+        2..=8 => "2-8",
+        9..=32 => "9-32",
+        33..=128 => "33-128",
+        _ => "129+",
+    }
+}
+
 /// Null the partition key when person processing is force-disabled for
 /// Main/Overflow destinations — spreads load across partitions instead of
 /// hotspotting on a single token:distinct_id pair.
@@ -160,6 +173,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         pending: &mut FuturesUnordered<AckFuture>,
         enqueued_keys: &mut Vec<(Uuid, &'static str, Instant)>,
     ) {
+        let serialize_start = Instant::now();
         let mut payload_buf = String::with_capacity(4096);
         let mut key_buf = String::with_capacity(128);
 
@@ -252,6 +266,16 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                 }
             }
         }
+
+        histogram!(
+            KAFKA_SERIALIZE_DURATION_SECONDS,
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+            "batch_size" => batch_size_bucket(events.len()),
+        )
+        .record(serialize_start.elapsed().as_secs_f64());
     }
 
     /// Phase 2: drain ack futures with a per-sink deadline. Dropping remaining
