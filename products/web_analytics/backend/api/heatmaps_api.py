@@ -226,6 +226,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         required=False,
         default=0,
         min_value=0,
+        max_value=MAX_SELECT_HEATMAPS_LIMIT,
         help_text="Number of hottest-first points to skip, for paging through cooler coordinates. "
         "Ignored for the 'scrolldepth' type.",
     )

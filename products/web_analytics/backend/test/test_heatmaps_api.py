@@ -229,12 +229,14 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self._assert_heatmap_single_result_count({"date_from": "2023-03-08", "type": "rageclick"}, 2)
 
     def _create_three_distinct_points(self) -> None:
-        # three distinct coordinates (differ by x) with descending counts 3, 2, 1
-        for _ in range(3):
-            self._create_heatmap_event("s1", "click", "2023-03-08T08:00:00", x=16)
+        # three distinct coordinates (differ by x) with counts 1, 2, 3 — created coolest-first so
+        # insertion order is the reverse of count order, making the hottest-first assertions fail
+        # if the query stops ordering by count.
+        self._create_heatmap_event("s3", "click", "2023-03-08T08:00:00", x=80)
         for _ in range(2):
             self._create_heatmap_event("s2", "click", "2023-03-08T08:00:00", x=48)
-        self._create_heatmap_event("s3", "click", "2023-03-08T08:00:00", x=80)
+        for _ in range(3):
+            self._create_heatmap_event("s1", "click", "2023-03-08T08:00:00", x=16)
 
     @parameterized.expand(
         [
@@ -242,6 +244,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("limit_truncates_hottest_first", 2, None, [3, 2], True),
             ("limit_equal_to_total", 3, None, [3, 2, 1], False),
             ("offset_pages_into_cooler_points", 2, 1, [2, 1], False),
+            ("offset_past_end_returns_empty", 2, 5, [], False),
         ]
     )
     @freezegun.freeze_time("2025-03-31")
