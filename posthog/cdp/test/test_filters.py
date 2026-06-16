@@ -3,6 +3,8 @@ import json
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from parameterized import parameterized
+
 from posthog.hogql.compiler.bytecode import create_bytecode
 
 from posthog.cdp.filters import (
@@ -297,38 +299,53 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             4,
         ]
 
-    def test_activity_log_nested_detail_property_resolves_to_nested_chain(self):
-        # `detail` is a nested object on `$activity_log_entry_created`, so a `detail.name` filter
-        # must match against `properties.detail.name`, not a flat `properties["detail.name"]` key.
-        filters = {
-            "events": [{"id": "$activity_log_entry_created", "type": "events", "order": 0}],
-            "properties": [{"key": "detail.name", "value": "cheese", "operator": "icontains", "type": "event"}],
-        }
+    @parameterized.expand(
+        [
+            # `detail` is a nested object on `$activity_log_entry_created`, so a `detail.name` filter
+            # must resolve to `properties.detail.name` rather than a flat `properties["detail.name"]` key.
+            (
+                "activity_log_nested_detail_matches",
+                {
+                    "events": [{"id": "$activity_log_entry_created", "type": "events", "order": 0}],
+                    "properties": [{"key": "detail.name", "value": "cheese", "operator": "icontains", "type": "event"}],
+                },
+                {"event": "$activity_log_entry_created", "properties": {"detail": {"name": "cheese wheel"}}},
+                True,
+            ),
+            (
+                "activity_log_nested_detail_does_not_match",
+                {
+                    "events": [{"id": "$activity_log_entry_created", "type": "events", "order": 0}],
+                    "properties": [{"key": "detail.name", "value": "cheese", "operator": "icontains", "type": "event"}],
+                },
+                {"event": "$activity_log_entry_created", "properties": {"detail": {"name": "bananas"}}},
+                False,
+            ),
+            # Outside internal events a dotted key stays a single flat property lookup, so existing
+            # destinations keep matching properties whose names literally contain a dot.
+            (
+                "regular_event_dotted_key_stays_flat",
+                {
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "foo.bar", "value": "baz", "operator": "exact", "type": "event"}],
+                },
+                {"event": "$pageview", "properties": {"foo.bar": "baz"}},
+                True,
+            ),
+            (
+                "regular_event_dotted_key_not_treated_as_nested",
+                {
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "properties": [{"key": "foo.bar", "value": "baz", "operator": "exact", "type": "event"}],
+                },
+                {"event": "$pageview", "properties": {"foo": {"bar": "baz"}}},
+                False,
+            ),
+        ]
+    )
+    def test_dotted_property_key_resolution(self, _name: str, filters: dict, hog_globals: dict, expected: bool):
         bytecode = self.filters_to_bytecode(filters=filters)
-
-        globals_with_match = {
-            "event": "$activity_log_entry_created",
-            "properties": {"scope": "Experiment", "activity": "created", "detail": {"name": "cheese wheel"}},
-        }
-        assert execute_bytecode(bytecode, globals_with_match).result is True
-
-        globals_without_match = {
-            "event": "$activity_log_entry_created",
-            "properties": {"scope": "Experiment", "activity": "created", "detail": {"name": "bananas"}},
-        }
-        assert execute_bytecode(bytecode, globals_without_match).result is False
-
-    def test_dotted_event_property_unchanged_for_regular_events(self):
-        # Outside internal events, a dotted key stays a single flat property lookup so existing
-        # destinations keep matching properties whose names literally contain a dot.
-        filters = {
-            "events": [{"id": "$pageview", "type": "events", "order": 0}],
-            "properties": [{"key": "foo.bar", "value": "baz", "operator": "exact", "type": "event"}],
-        }
-        bytecode = self.filters_to_bytecode(filters=filters)
-
-        assert execute_bytecode(bytecode, {"event": "$pageview", "properties": {"foo.bar": "baz"}}).result is True
-        assert execute_bytecode(bytecode, {"event": "$pageview", "properties": {"foo": {"bar": "baz"}}}).result is False
+        assert execute_bytecode(bytecode, hog_globals).result is expected
 
 
 class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

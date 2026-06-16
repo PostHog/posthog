@@ -215,11 +215,18 @@ def _build_single_filter_expr(filter: dict, actions: dict[int, Action], team: Te
 
     # Return single expression or AND combination
     if not filter_exprs:
-        return ast.Constant(value=True)
+        expr: ast.Expr = ast.Constant(value=True)
     elif len(filter_exprs) == 1:
-        return filter_exprs[0]
+        expr = filter_exprs[0]
     else:
-        return ast.And(exprs=filter_exprs)
+        expr = ast.And(exprs=filter_exprs)
+
+    # Internal events carry nested JSON properties, so resolve dotted keys (e.g. `detail.name`)
+    # into nested chains for this branch only — never for sibling non-internal event branches.
+    if filter.get("id") in INTERNAL_NESTED_PROPERTY_EVENTS:
+        expr = _NestedPropertyKeyResolver().visit(expr)
+
+    return expr
 
 
 def _combine_expressions(expressions: list[ast.Expr]) -> ast.Expr:
@@ -250,15 +257,15 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
     if not all_filters:
         return _combine_expressions(test_account_filters + global_property_filters)
 
-    # Build expressions for each event/action filter
+    # Build expressions for each event/action filter (dotted keys on internal events are resolved
+    # per-branch inside _build_single_filter_expr).
     event_action_exprs = [_build_single_filter_expr(filter, actions, team) for filter in all_filters]
 
-    # Resolve dotted property keys (e.g. `detail.name`) into nested chains for internal events
-    # whose properties are nested JSON objects rather than a flat map.
+    # Global property filters apply across all branches; the activity log UI stores `detail.name`
+    # here, so resolve dotted keys when an internal nested event is targeted.
     if _targets_internal_nested_event(filters):
         resolver = _NestedPropertyKeyResolver()
         global_property_filters = [resolver.visit(expr) for expr in global_property_filters]
-        event_action_exprs = [resolver.visit(expr) for expr in event_action_exprs]
 
     # Combine event/action filters with OR (match any of these events/actions)
     combined_events_expr = ast.Or(exprs=event_action_exprs) if len(event_action_exprs) > 1 else event_action_exprs[0]
