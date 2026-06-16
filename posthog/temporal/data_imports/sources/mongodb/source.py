@@ -51,6 +51,11 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # matched the real message — key off the stable codeName and the capitalised message.
             "AuthenticationFailed": auth_failed_msg,
             "Authentication failed": auth_failed_msg,
+            # MongoDB Atlas reports bad credentials differently from self-hosted MongoDB: it raises
+            # OperationFailure with codeName 'AtlasError' (code 8000) and the lowercase errmsg
+            # 'bad auth : authentication failed', so neither key above matches. "bad auth" is the
+            # stable, auth-specific prefix Atlas uses for credential failures.
+            "bad auth": auth_failed_msg,
             "SSL handshake failed": None,
             # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node
             # for the whole selection timeout. The reason varies — "No servers found yet" / "No
