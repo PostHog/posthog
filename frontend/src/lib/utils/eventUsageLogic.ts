@@ -339,6 +339,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
+        reportIntegrationConnectClicked: (integration: string, kind: string) => ({ integration, kind }),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -1141,6 +1142,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportInstanceSettingChange: ({ name, value }) => {
             posthog.capture('instance setting change', { name, value })
+        },
+        reportIntegrationConnectClicked: ({ integration, kind }) => {
+            posthog.capture('integration_connect_clicked', { integration, integration_kind: kind })
         },
         reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
             posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })

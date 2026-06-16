@@ -62,10 +62,46 @@ class _MetricGroupBySerializer(serializers.Serializer):
     )
 
 
+class _MetricClauseSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=64,
+        help_text="Clause name a formula refers to (e.g. 'a').",
+    )
+    metricName = serializers.CharField(
+        max_length=255,
+        help_text="Exact metric name this clause queries.",
+    )
+    aggregation = serializers.ChoiceField(
+        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        default="sum",
+        help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile in (0, 1) for 'histogram_quantile'.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates ANDed together for this clause.",
+    )
+    groupBy = _MetricGroupBySerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Labels to split this clause into separate series by.",
+    )
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
-        help_text="Exact metric name to query (e.g. 'http.server.duration').",
+        required=False,
+        help_text="Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
     )
     aggregation = serializers.ChoiceField(
         choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
@@ -97,6 +133,17 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
     )
+    clauses = _MetricClauseSerializer(
+        many=True,
+        required=False,
+        help_text="Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'.",
+    )
+    formula = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=512,
+        help_text="Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
+    )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the query range. ISO 8601.",
     )
@@ -105,9 +152,46 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Upper bound (exclusive) for the query range. Defaults to now if omitted.",
     )
 
+    def validate(self, attrs: dict) -> dict:
+        has_single = bool(attrs.get("metricName"))
+        has_clauses = bool(attrs.get("clauses"))
+        if has_single == has_clauses:
+            raise serializers.ValidationError("Provide exactly one of 'metricName' or 'clauses'.")
+        if attrs.get("formula") and not has_clauses:
+            raise serializers.ValidationError("'formula' requires 'clauses'.")
+        return attrs
+
 
 class _MetricQueryRequestSerializer(serializers.Serializer):
     query = _MetricQueryBodySerializer(help_text="The metric query to execute.")
+
+
+def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
+    """Validated wire clause (or single-clause shorthand body) → contract.
+
+    The wire aggregation "p95" is contract QUANTILE(0.95)."""
+    aggregation_raw: str = data["aggregation"]
+    quantile: float | None = None
+    if aggregation_raw == "p95":
+        aggregation, quantile = MetricAggregation.QUANTILE, 0.95
+    elif aggregation_raw == "histogram_quantile":
+        aggregation, quantile = MetricAggregation.HISTOGRAM_QUANTILE, data.get("quantile")
+    else:
+        aggregation = MetricAggregation(aggregation_raw)
+
+    return MetricQueryClause(
+        name=name,
+        metric_name=data["metricName"],
+        aggregation=aggregation,
+        quantile=quantile,
+        filters=tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in data.get("filters") or []
+        ),
+        group_by=tuple(
+            MetricGroupBy(key=g["key"], scope=AttributeScope(g["scope"])) for g in data.get("groupBy") or []
+        ),
+    )
 
 
 class _MetricQueryPointSerializer(serializers.Serializer):
@@ -217,46 +301,18 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body.is_valid(raise_exception=True)
         query_data = body.validated_data["query"]
 
-        # The wire aggregation "p95" is contract QUANTILE(0.95).
-        aggregation_raw: str = query_data["aggregation"]
-        if aggregation_raw == "p95":
-            aggregation, quantile = MetricAggregation.QUANTILE, 0.95
-        elif aggregation_raw == "histogram_quantile":
-            aggregation, quantile = MetricAggregation.HISTOGRAM_QUANTILE, query_data.get("quantile")
-            if quantile is None:
-                raise ParseError("histogram_quantile requires 'quantile'")
-        else:
-            aggregation, quantile = MetricAggregation(aggregation_raw), None
-
-        filters = tuple(
-            MetricFilter(
-                key=f["key"],
-                op=FilterOp(f["op"]),
-                value=f["value"],
-                scope=AttributeScope(f["scope"]),
-            )
-            for f in query_data.get("filters") or []
-        )
-        group_by = tuple(
-            MetricGroupBy(key=g["key"], scope=AttributeScope(g["scope"])) for g in query_data.get("groupBy") or []
-        )
-
         date_to: dt.datetime = query_data.get("dateTo") or timezone.now()
         try:
+            if query_data.get("clauses"):
+                clauses = tuple(_build_clause(c, name=c["name"]) for c in query_data["clauses"])
+            else:
+                clauses = (_build_clause(query_data, name="a"),)
             metric_request = MetricQueryRequest(
-                clauses=(
-                    MetricQueryClause(
-                        name="a",
-                        metric_name=query_data["metricName"],
-                        aggregation=aggregation,
-                        quantile=quantile,
-                        filters=filters,
-                        group_by=group_by,
-                    ),
-                ),
+                clauses=clauses,
                 date_from=query_data["dateFrom"],
                 date_to=date_to,
                 interval=query_data.get("interval"),
+                formula=query_data.get("formula"),
             )
             series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
@@ -266,7 +322,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request.user,
             "metrics query ran",
             {
-                "aggregation": query_data["aggregation"],
+                "aggregations": sorted({c.aggregation.value for c in clauses}),
+                "clause_count": len(clauses),
+                "has_formula": metric_request.formula is not None,
                 "series_count": len(series),
                 "result_count": sum(len(s.points) for s in series),
             },
