@@ -1451,24 +1451,30 @@ class TestGetTableChunkSize:
             assert cursor.fetchone()[0] == 1
 
     @pytest.mark.django_db
-    def test_statement_timeout_falls_back_without_poisoning_transaction(self):
+    def test_statement_timeout_falls_back_without_poisoning_connection(self, autocommit_pg_connection):
         # The estimation query wraps the sample in octet_length(t::text), which can exceed the
         # source's statement_timeout on tables whose rows trigger slow validator functions. A
         # cancelled probe must degrade to DEFAULT_CHUNK_SIZE, not crash the whole import — the
         # streaming read loop has its own dedicated QueryCanceled handling.
+        #
+        # Discovery runs under autocommit (see postgres_source), so each probe is its own
+        # transaction: a statement_timeout cancellation ends only that statement and leaves the
+        # connection usable for later probes — there are no per-probe savepoints anymore.
+        # Session-scoped timeout because LOCAL has no transaction to bind to under autocommit.
         logger = structlog.get_logger()
 
-        with django_connection.cursor() as dj_cursor:
+        with autocommit_pg_connection.cursor() as cursor:
             # Tight timeout + a deliberately slow probe reproduces a real QueryCanceled.
-            dj_cursor.execute("SET LOCAL statement_timeout = '100ms'")
+            cursor.execute("SET statement_timeout = '100ms'")
             inner_query = sql.SQL("SELECT pg_sleep(3) AS c").format()
 
-            chunk_size = _get_table_chunk_size(cast(Any, dj_cursor), inner_query, logger)
+            chunk_size = _get_table_chunk_size(cast(Any, cursor), inner_query, logger)
             assert chunk_size == DEFAULT_CHUNK_SIZE
 
-            # Savepoint rollback leaves the connection usable for the rest of setup.
-            dj_cursor.execute("SELECT 1")
-            assert dj_cursor.fetchone()[0] == 1
+            # Clear the tight timeout so the sanity check isn't itself at risk on a slow runner.
+            cursor.execute("SET statement_timeout = 0")
+            cursor.execute("SELECT 1")
+            assert cursor.fetchone()[0] == 1
 
 
 class TestGetRowsToSync:
