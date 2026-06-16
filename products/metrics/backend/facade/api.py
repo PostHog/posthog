@@ -29,25 +29,55 @@ def team_has_metrics(team: Team) -> bool:
     return _team_has_metrics(team)
 
 
+# Hard cap on series returned per clause; the largest series (by summed
+# absolute value) win so the most significant groups survive truncation.
+MAX_SERIES_PER_CLAUSE = 100
+
+
+def _assemble_series(
+    rows: list[dict[str, Any]], *, metric_name: str, clause_name: str, grid: list[str]
+) -> list[MetricSeries]:
+    """Split bucketed rows into one series per label-set, zero-filled onto
+    the shared grid so every series (and later, every clause of a formula)
+    has identical timestamps."""
+    by_labels: dict[tuple[tuple[str, str], ...], dict[str, float]] = {}
+    for row in rows:
+        key = tuple(sorted(row["labels"].items()))
+        by_labels.setdefault(key, {})[row["time"]] = row["value"]
+
+    series = [
+        MetricSeries(
+            labels=dict(key),
+            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
+            metric_name=metric_name,
+            clause=clause_name,
+        )
+        for key, values in by_labels.items()
+    ]
+    series.sort(key=lambda s: (-sum(abs(p.value) for p in s.points), tuple(sorted(s.labels.items()))))
+    return series[:MAX_SERIES_PER_CLAUSE]
+
+
 def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
     series with empty labels, so consumers never branch on single-vs-multi.
 
-    Current scope: one clause; filters, group_by, interval, formula and the
-    rate/histogram aggregations raise `ValueError` until their PRs land.
-    The presentation layer surfaces `ValueError` as a 400.
+    All series share one bucket grid (the union of observed buckets,
+    zero-filled), which is what makes cross-series and cross-clause math
+    line up. Series per clause are capped at `MAX_SERIES_PER_CLAUSE`,
+    keeping the largest ones.
+
+    Current scope: one clause; multi-clause and formula raise `ValueError`
+    until their PRs land. The presentation layer surfaces `ValueError` as
+    a 400.
     """
     if len(request.clauses) != 1:
         raise ValueError("multi-clause queries are not supported yet")
     if request.formula is not None:
         raise ValueError("formulas are not supported yet")
-    if request.interval is not None:
-        raise ValueError("explicit intervals are not supported yet")
 
     clause = request.clauses[0]
-    if clause.group_by:
-        raise ValueError("group_by is not supported yet")
 
     if clause.aggregation == MetricAggregation.QUANTILE and clause.quantile == 0.95:
         runner_aggregation = "p95"
@@ -63,9 +93,15 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         date_from=request.date_from,
         date_to=request.date_to,
         filters=clause.filters,
+        group_by=clause.group_by,
+        interval=request.interval,
     )
-    points = tuple(MetricPoint(time=row["time"], value=row["value"]) for row in runner.run())
-    return [MetricSeries(labels={}, points=points, metric_name=clause.metric_name, clause=clause.name)]
+    rows = runner.run()
+    if not rows:
+        return [MetricSeries(labels={}, points=(), metric_name=clause.metric_name, clause=clause.name)]
+
+    grid = sorted({row["time"] for row in rows})
+    return _assemble_series(rows, metric_name=clause.metric_name, clause_name=clause.name, grid=grid)
 
 
 def list_metric_names(
