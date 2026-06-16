@@ -22,7 +22,7 @@ from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEF
 
 class TestTrafficTypeFunctions:
     def test_get_traffic_type_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -39,7 +39,7 @@ class TestTrafficTypeFunctions:
         assert isinstance(result.args[2], ast.ArrayAccess)
 
     def test_get_traffic_type_uses_multiMatchAnyIndex(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -52,7 +52,7 @@ class TestTrafficTypeFunctions:
         assert comparison.left.name == "multiMatchAnyIndex"
 
     def test_get_traffic_type_has_correct_patterns_and_labels(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -83,7 +83,7 @@ class TestTrafficTypeFunctions:
         assert "Automation" in label_values  # For empty UA
 
     def test_get_traffic_category_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getTrafficCategory", args=[])
+        node = ast.Call(name="getTrafficCategory", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_category(node=node, args=[user_agent_arg])
@@ -97,7 +97,7 @@ class TestTrafficTypeFunctions:
         assert default_arg.value == "regular"
 
     def test_get_traffic_category_returns_expected_values(self):
-        node = ast.Call(name="__preview_getTrafficCategory", args=[])
+        node = ast.Call(name="getTrafficCategory", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_category(node=node, args=[user_agent_arg])
@@ -121,7 +121,7 @@ class TestTrafficTypeFunctions:
 
 class TestIsBotFunction:
     def test_is_bot_returns_compare_operation(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
@@ -130,7 +130,7 @@ class TestIsBotFunction:
         assert result.op == ast.CompareOperationOp.NotEq
 
     def test_is_bot_uses_multiMatchAnyIndex(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
@@ -139,7 +139,7 @@ class TestIsBotFunction:
         assert result.left.name == "multiMatchAnyIndex"
 
     def test_is_bot_compares_against_zero(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
@@ -150,7 +150,7 @@ class TestIsBotFunction:
 
 class TestGetBotTypeFunction:
     def test_get_bot_type_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getBotType", args=[])
+        node = ast.Call(name="getBotType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_type(node=node, args=[user_agent_arg])
@@ -164,7 +164,7 @@ class TestGetBotTypeFunction:
         assert default_arg.value == ""
 
     def test_get_bot_type_returns_expected_values(self):
-        node = ast.Call(name="__preview_getBotType", args=[])
+        node = ast.Call(name="getBotType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_type(node=node, args=[user_agent_arg])
@@ -192,7 +192,7 @@ class TestGetBotTypeFunction:
 
 class TestGetBotNameFunction:
     def test_get_bot_name_returns_if_with_array_lookup(self):
-        node = ast.Call(name="__preview_getBotName", args=[])
+        node = ast.Call(name="getBotName", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_name(node=node, args=[user_agent_arg])
@@ -206,7 +206,7 @@ class TestGetBotNameFunction:
         assert default_arg.value == ""
 
     def test_get_bot_name_returns_expected_values(self):
-        node = ast.Call(name="__preview_getBotName", args=[])
+        node = ast.Call(name="getBotName", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_bot_name(node=node, args=[user_agent_arg])
@@ -283,7 +283,7 @@ class TestTrafficTypeFunctionPatterns:
         assert safe_user_agent.args[0] == user_agent_arg
 
     def test_is_bot_preserves_user_agent_expression(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
@@ -299,7 +299,7 @@ class TestTrafficTypeFunctionPatterns:
 
 class TestNullHandling:
     def test_build_bot_array_lookup_wraps_user_agent_in_ifnull(self):
-        node = ast.Call(name="__preview_getTrafficType", args=[])
+        node = ast.Call(name="getTrafficType", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = get_traffic_type(node=node, args=[user_agent_arg])
@@ -321,7 +321,7 @@ class TestNullHandling:
         assert empty_string_arg.value == ""
 
     def test_is_bot_wraps_user_agent_in_ifnull(self):
-        node = ast.Call(name="__preview_isBot", args=[])
+        node = ast.Call(name="isLikelyBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
