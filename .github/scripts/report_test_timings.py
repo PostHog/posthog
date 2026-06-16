@@ -67,7 +67,7 @@ class TestCase:
     duration_seconds: float
     start: datetime
     end: datetime
-    outcome: str  # passed | failed | error | skipped | rerun_passed
+    outcome: str  # passed | failed | error | skipped | xfailed | rerun_passed
     attempts: int  # 1 + number of pytest-rerunfailures retries before final outcome
 
 
@@ -158,7 +158,12 @@ def classify_testcase(testcase: Any) -> tuple[str, int]:
         if tag.startswith("rerun"):
             rerun_count += 1
         elif tag in ("failure", "error", "skipped") and final_outcome is None:
-            final_outcome = "failed" if tag == "failure" else tag
+            if tag == "skipped" and child.get("type") == "pytest.xfail":
+                # Quarantined-but-still-failing tests (xfail strict=False) must stay
+                # distinguishable from plain skips in the analytics data.
+                final_outcome = "xfailed"
+            else:
+                final_outcome = "failed" if tag == "failure" else tag
     if final_outcome is None:
         final_outcome = "rerun_passed" if rerun_count else "passed"
     return final_outcome, 1 + rerun_count
@@ -285,8 +290,8 @@ def collect_shards(artifacts_root: Path) -> list[Shard]:
 
 
 def should_emit(test: TestCase, min_duration_seconds: float) -> bool:
-    """Emit signal-bearing testcases: failures, errors, reruns, or above the duration threshold."""
-    if test.outcome in ("failed", "error"):
+    """Emit signal-bearing testcases: failures, errors, xfails, reruns, or above the duration threshold."""
+    if test.outcome in ("failed", "error", "xfailed"):
         return True
     if test.attempts > 1:
         return True

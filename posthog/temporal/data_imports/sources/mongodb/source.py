@@ -34,6 +34,12 @@ _MONGO_UNREACHABLE_MESSAGE = (
     "IP addresses are allowlisted in your database's network access settings."
 )
 
+_MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
+    "Your MongoDB connection string is invalid: the username and password must be percent-encoded "
+    "per RFC 3986. Escape any reserved characters (e.g. : / ? # [ ] @ %) in your credentials — for "
+    "example with urllib.parse.quote_plus — and update the connection string."
+)
+
 _MONGO_ATLAS_SQL_MESSAGE = (
     "This connection string points at a MongoDB Atlas SQL / Data Federation endpoint "
     "(its host ends in .query.mongodb.net), which PostHog can't import from — those endpoints "
@@ -52,6 +58,15 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         auth_failed_msg = "MongoDB authentication failed. Please check the username and password for this source."
         return {
             "The DNS query name does not exist": None,
+            # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
+            # use urllib.parse.quote_plus") before any network call when the credentials in the
+            # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
+            # password). The same RFC-3986 hint also appears on the "Port contains non-digit characters"
+            # variant, which is the same unescaped-credential mistake. This is a malformed connection
+            # string the user must fix — we can't safely percent-encode it ourselves because the
+            # reserved characters are ambiguous with the URI's own delimiters — so retrying never
+            # recovers. Match the stable RFC-3986 fragment, not the volatile surrounding text.
+            "must be escaped according to RFC 3986": _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
             # pymongo raises OperationFailure with codeName 'AuthenticationFailed' (code 18) and
             # errmsg 'Authentication failed.' when the credentials are wrong. Non-retryable error
             # matching is case-sensitive, so the previous lowercase "authentication failed" never

@@ -42125,6 +42125,10 @@
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
+                "flatSpans": {
+                    "description": "Return the matching spans themselves, one row per span (root and child), instead of the whole-trace grouping. Streams the matches under `ORDER BY … LIMIT` rather than grouping every matching span by trace, so a filter on a hot child attribute (e.g. `code.filepath`) stays bounded. Distinct from `rootSpans`, which scopes whole-trace selection. The single-trace waterfall never sets this.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "TraceSpansQuery",
                     "type": "string"

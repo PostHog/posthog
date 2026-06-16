@@ -377,6 +377,17 @@ def static_varies_origin(headers, path, url):
 
 WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 
+# Per-IP signup throttle rate (see posthog.rate_limit.SignupIPThrottle). Overridable per-env so
+# non-prod (e.g. dev deploy smoke-tests) can raise it without weakening the prod default.
+SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
+
+# Email domains whose signups are created already-verified (skipping the email round-trip), so
+# non-prod deploy smoke-tests can sign up and act immediately. Empty by default — prod verifies
+# every signup.
+EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
+    domain.lower() for domain in get_list(get_from_env("EMAIL_VERIFICATION_SKIP_FOR_DOMAINS", ""))
+]
+
 ####
 # REST framework
 
