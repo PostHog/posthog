@@ -21,6 +21,10 @@
 
 set -euo pipefail
 
+# Manifests are sorted with `LC_ALL=C sort` inside the container; pin the host side to the same
+# collation so `comm` agrees and doesn't choke on "input is not sorted".
+export LC_ALL=C
+
 base_ref="${1:?usage: bin/dockerignore-drop-check <base-ref>}"
 
 # Files that are always fine to drop from the image — never loaded at runtime.
