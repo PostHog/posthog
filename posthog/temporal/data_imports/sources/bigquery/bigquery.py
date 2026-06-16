@@ -72,6 +72,19 @@ BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 # so it must stay free of volatile data (urls, ids, timestamps).
 BIGQUERY_TOKEN_RESPONSE_ERROR = "BigQuery OAuth token endpoint returned an unexpected response"
 
+# gRPC channel options for the Storage Read API channel. The Storage Read API
+# can return `ReadRowsResponse` messages larger than gRPC's default 4 MiB
+# receive limit (wide rows, large Arrow batches), which surfaces as
+# `ResourceExhausted: CLIENT: Received message larger than max`. The generated
+# `BigQueryReadGrpcTransport` applies these same options when it builds its own
+# channel, but because we build the channel ourselves (to inject the tracked
+# interceptors) and pass it in as `channel=`, that default path is skipped — so
+# we must set them here to match. `-1` means unlimited, mirroring the client.
+BIGQUERY_STORAGE_GRPC_CHANNEL_OPTIONS = [
+    ("grpc.max_send_message_length", -1),
+    ("grpc.max_receive_message_length", -1),
+]
+
 
 class BigQueryTokenRefreshError(Exception):
     """Raised when the service-account OAuth token endpoint returns a non-JSON-object 200.
@@ -206,7 +219,11 @@ def bigquery_storage_read_client(
     # via `create_channel(credentials=...)`. This routes the Storage Read API's
     # create_read_session (unary) + read_rows (server-streaming) RPCs through our
     # logging / metrics / sample-capture pipeline.
-    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    channel = BigQueryReadGrpcTransport.create_channel(
+        host=BIGQUERY_STORAGE_HOST,
+        credentials=credentials,
+        options=BIGQUERY_STORAGE_GRPC_CHANNEL_OPTIONS,
+    )
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
     transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
