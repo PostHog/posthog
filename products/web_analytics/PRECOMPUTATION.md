@@ -80,10 +80,22 @@ The 24 h pad matches the JS SDK's hard `SESSION_LENGTH_LIMIT` and covers effecti
 - `query.conversionGoal` is set
 - `query.sampling.enabled` is True
 - `query.modifiers.sessionsV2JoinMode == "uuid"` (column type mismatch — temporary; should be re-enabled by re-typing `uniq_sessions_state` to `(uniq, UUID)`)
-- `query.properties` contains more than one filter
-- The single filter is not `EventPropertyFilter(key="$host", operator="exact", value=<non-empty string>)`
+- `query.properties` contains a filter that isn't precomputable (see below)
 - Date range exceeds `MAX_PRECOMPUTE_DAYS` (90)
 - Either date_from or date_to is None
+
+#### Which user filters are precomputable
+
+Filter eligibility lives in `validate_user_filters` (`web_lazy_precompute_common.py`), shared by both gates. The filter is baked into each job's INSERT `WHERE` and the job is keyed by its hash, so a filter is only safe to precompute if its truth value is a pure function of the events the job scans — otherwise the stored aggregate goes stale independently of its TTL and we serve wrong numbers.
+
+- **Default (MVP):** a single `EventPropertyFilter(key="$host", operator="exact", value=<non-empty string>)`. Everything else falls through.
+- **Expanded** (teams in `WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS`): up to `EXPANDED_MAX_FILTERS` filters, **any key / operator / value**, gated by **type** rather than a key list:
+  - **event** / **session** properties → always (read off / derived from the scanned events)
+  - **person** properties → only under a person-on-events POE mode (`*_PROPERTIES_ON_EVENTS`), where `person.properties.*` is the event-time-stamped value; under `DISABLED` / `*_PROPERTIES_JOINED` it joins the current persons table and would go stale → falls through
+  - **cohort / behavioral** → never (membership recomputed out-of-band)
+  - anything else (hogql, group, element, …) → falls through
+
+  Operators/values are unconstrained because the `WHERE` is built with the same `property_to_expr` the raw query uses (parity by construction); only the filter _count_ is bounded, with per-filter cardinality bounded by the job TTL.
 
 When the gate returns False the runner silently falls through to v2 / raw. **Today there is no telemetry on gate rejections** — operators tuning the rollout have to read the source to know why a team isn't seeing the lazy path. A `web_overview_lazy_gate_rejected_total{reason}` counter would close that gap (open issue).
 

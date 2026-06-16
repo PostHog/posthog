@@ -3,9 +3,10 @@
 Both the web overview lazy precompute and the web stats PATHS lazy precompute
 share the same rollout/safety gate (org feature flag + per-query opt-in,
 whole-hour timezone, no conversion goal, no sampling, no v2 UUID sessions,
-at most one `$host` exact filter, bounded date range) and the same TTL /
+precomputable user filters, bounded date range) and the same TTL /
 session-pad / UTC-day helpers. Keeping a single source of truth avoids
-the two paths drifting apart.
+the two paths drifting apart. See `validate_user_filters` for which filters
+are precomputable and why.
 """
 
 import json
@@ -32,6 +33,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models import Team
+from posthog.schema_enums import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
 
@@ -80,42 +82,49 @@ LAZY_TTL_SECONDS: dict[str, int] = {
 # (their content is hashed into the cache key).
 SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
-# Expanded allowlist (gated per team via WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS).
-# Curated event/session keys deterministic given the events scanned by a job, so
-# baking them into the job WHERE precomputes correctly. Cohort filters stay
-# excluded — dynamic membership can't be re-aggregated from events.
-EXPANDED_EVENT_FILTER_KEYS: set[str] = {
-    "$host",
-    "$pathname",
-    "$current_url",
-    "$referring_domain",
-    "$device_type",
-    "$browser",
-    "$os",
-    "$geoip_country_code",
-    "$geoip_country_name",
-    "$geoip_city_name",
-    "$geoip_subdivision_1_code",
-    "$channel_type",
-    "utm_source",
-    "utm_medium",
-    "utm_campaign",
-    "utm_term",
-    "utm_content",
-}
-EXPANDED_SESSION_FILTER_KEYS: set[str] = {
-    "$channel_type",
-    "$entry_referring_domain",
-    "$entry_pathname",
-    "$end_pathname",
-    "$entry_utm_source",
-    "$entry_utm_medium",
-    "$entry_utm_campaign",
-    "$entry_utm_term",
-    "$entry_utm_content",
-    "$session_duration",
-}
+# --- Expanded user-filter eligibility ----------------------------------------
+# Gated per team via WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS.
+#
+# The precomputability rule
+# -------------------------
+# A precompute job bakes the user filter into its INSERT `WHERE` and stores the
+# resulting aggregate keyed by the filter's hash; a read just serves that stored
+# aggregate. So a filter is only safe to precompute if its truth value is a pure
+# function of the events the job scans — it must not be able to change after the
+# job runs unless the underlying events change. If it can change independently
+# (dynamic / out-of-band state), the stored aggregate silently goes stale and we
+# serve wrong numbers, and no TTL short enough saves us. We therefore gate on
+# filter *type*, not on a curated key list (a key list neither bounds cardinality
+# — `$pathname` is higher-cardinality than most — nor captures this rule):
+#
+#   - event   properties → always safe: evaluated directly against scanned events.
+#   - session properties → always safe: derived from those same events.
+#   - person  properties → safe ONLY under a person-on-events POE mode, where
+#       `person.properties.*` resolves to the value stamped on the event at
+#       ingestion (immutable). Under DISABLED / *_PROPERTIES_JOINED the same HogQL
+#       joins the *current* persons table, so the value changes when a person is
+#       updated — unsafe; falls through to raw. See `_EVENT_TIME_POE_MODES`.
+#   - cohort / behavioral → never: membership is recomputed out-of-band, so a
+#       baked job goes stale independently of its TTL.
+#   - anything else (hogql, group, element, data warehouse, …) → not supported.
+#
+# Operators and values are unconstrained: the WHERE is built with the same
+# `property_to_expr` the raw query uses, so the precompute matches raw by
+# construction for any operator (icontains / gt / is_not / is_set / …) or value
+# shape. We bound only the *number* of combined filters; per-filter cardinality
+# is bounded by the job TTL — a one-off filter computes once (no costlier than
+# the raw query it replaces) and then expires.
 EXPANDED_MAX_FILTERS = 5
+
+# POE modes under which `person.properties.*` resolves to the event-time-stamped
+# value on the events table (deterministic) rather than a join to the current
+# persons table. Person-property filters are precomputable only under these.
+_EVENT_TIME_POE_MODES: frozenset[PersonsOnEventsMode] = frozenset(
+    {
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+        PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+    }
+)
 
 # Upper bound on the precompute span. Above this, the framework would create
 # enough daily jobs that the first request burns INSERT slots for minutes.
@@ -187,6 +196,21 @@ class NonStringOrEmptyFilterValue(LazyPrecomputeIneligible):
     pass
 
 
+class UnsupportedFilterType(LazyPrecomputeIneligible):
+    """Filter whose truth value isn't a function of the scanned events (cohort,
+    behavioral, hogql, group, …) — can't be re-aggregated, so it falls through to raw."""
+
+    def __init__(self, filter_type: object):
+        self.filter_type = filter_type
+        super().__init__(f"type={filter_type!r}")
+
+
+class PersonFilterRequiresEventTimePoe(LazyPrecomputeIneligible):
+    """Person-property filter under a POE mode that joins current person values
+    (DISABLED / *_PROPERTIES_JOINED) — the stored aggregate would go stale on a
+    person update, so it falls through to raw."""
+
+
 class MissingDateRange(LazyPrecomputeIneligible):
     pass
 
@@ -226,22 +250,23 @@ def validate_user_filters(team: Team, properties: list) -> None:
             raise NonStringOrEmptyFilterValue()
         return
 
-    # Expanded path: curated event/session keys, any person property, any
-    # operator, small combos. property_to_expr builds the same WHERE the raw
-    # query uses, so value-type/operator handling matches by construction.
+    # Expanded path (team-gated). Type-based, not key-based: admit event/session
+    # filters unconditionally and person filters only under an event-time POE
+    # mode; reject everything else. Any key/operator/value is fine because the
+    # WHERE is built with `property_to_expr` (parity with raw by construction);
+    # we bound only the filter count, with the TTL bounding per-filter cardinality.
+    # See the precomputability rule above for the full reasoning.
     if len(properties) > EXPANDED_MAX_FILTERS:
         raise TooManyFilters()
+    person_props_precomputable = team.person_on_events_mode in _EVENT_TIME_POE_MODES
     for prop in properties:
-        if isinstance(prop, EventPropertyFilter):
-            if prop.key not in EXPANDED_EVENT_FILTER_KEYS:
-                raise UnsupportedFilterKey(prop.key)
-        elif isinstance(prop, SessionPropertyFilter):
-            if prop.key not in EXPANDED_SESSION_FILTER_KEYS:
-                raise UnsupportedFilterKey(prop.key)
-        elif isinstance(prop, PersonPropertyFilter):
-            pass  # any person key (POE-stamped, deterministic given events)
-        else:
-            raise NonEventPropertyFilter()  # cohort / behavioral / element / hogql / etc. -> raw fallback
+        if isinstance(prop, EventPropertyFilter | SessionPropertyFilter):
+            continue
+        if isinstance(prop, PersonPropertyFilter):
+            if not person_props_precomputable:
+                raise PersonFilterRequiresEventTimePoe()
+            continue
+        raise UnsupportedFilterType(getattr(prop, "type", type(prop).__name__))
 
 
 def is_org_feature_flag_enabled(team: Team) -> bool:

@@ -25,6 +25,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.utils import uuid7
+from posthog.schema_enums import PersonsOnEventsMode
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -633,10 +634,6 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
             ),
             (
-                "person_property",
-                [PersonPropertyFilter(key="name", value="p1", operator=PropertyOperator.EXACT)],
-            ),
-            (
                 "pathname_icontains",
                 [EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.ICONTAINS)],
             ),
@@ -668,6 +665,30 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
             assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0, (
                 "cohort filters cannot be precomputed — must fall through to raw"
+            )
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_expanded_person_filter_eligible_under_event_time_poe(self) -> None:
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value}
+        self.team.save()
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS={self.team.pk}):
+            self._seed_two_sessions()
+            person_filter = PersonPropertyFilter(key="name", value="p1", operator=PropertyOperator.EXACT)
+            with self._enable_lazy():
+                self._run(self._build_query(properties=[person_filter]))
+            assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_expanded_person_filter_falls_through_under_joined_poe(self) -> None:
+        self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED.value}
+        self.team.save()
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_EXPANDED_FILTERS_TEAM_IDS={self.team.pk}):
+            self._seed_two_sessions()
+            person_filter = PersonPropertyFilter(key="name", value="p1", operator=PropertyOperator.EXACT)
+            with self._enable_lazy():
+                self._run(self._build_query(properties=[person_filter]))
+            assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0, (
+                "person filters under joined POE must fall through to raw"
             )
 
     @parameterized.expand(
