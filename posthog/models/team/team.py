@@ -445,12 +445,9 @@ class Team(UUIDTClassicModel):
     # null revoked_at = not revoked. Set by internal tooling/admin only.
     llm_gateway_enabled_at = models.DateTimeField(null=True, blank=True)
     llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
-    # Per-team bounded overspend allowance (USD) the gateway adds to the team's balance
-    # floor, letting it keep dispatching past $0 down to -allowance. Projected into the
-    # gateway_credential.json blob under the gateway-defined wire key `overspend_allowance_usd`
-    # as a fixed-point string. Null = unset → the gateway falls back to its operator default;
-    # 0 = explicitly no allowance. Range [0, 10000] is enforced at the write surfaces (admin
-    # form, management command). Set by internal tooling/admin only.
+    # Per-team USD floor the gateway lets a team dispatch past $0 down to. Projected into
+    # gateway_credential.json as the `overspend_allowance_usd` wire key. Null = use the
+    # gateway default; 0 = no allowance. Range [0, 10000] validated at the write surfaces.
     llm_gateway_overspend_allowance_usd = models.DecimalField(max_digits=20, decimal_places=6, null=True, blank=True)
 
     # Heatmaps

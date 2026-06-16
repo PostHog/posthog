@@ -138,8 +138,7 @@ class TestLLMGatewayTeamCommand(BaseTest):
         self.assertIsNone(self.team.llm_gateway_overspend_allowance_usd)
 
     def test_set_allowance_rejects_child_environment(self) -> None:
-        # The projection reads the allowance from the project-root team, so setting it on a
-        # child env would silently never reach the wire — reject up front.
+        # Child-env value never reaches the wire (projection reads the root team), so reject.
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         with self.assertRaises(CommandError):
             self._run("set-allowance", str(child.id), "5")

@@ -79,9 +79,8 @@ class TeamAdminForm(ModelForm):
         value = self.cleaned_data.get("llm_gateway_overspend_allowance_usd")
         if value is None:
             return value
-        # The projection reads the allowance from the canonical (project-root) team, so a
-        # value set on a child environment would never reach the wire — reject rather than
-        # silently no-op.
+        # The projection reads the allowance from the project-root team, so a child-env value
+        # never reaches the wire — reject instead of silently no-opping.
         if self.instance.parent_team_id is not None:
             raise ValidationError(
                 f"This is a child environment; set the allowance on its project-root team "

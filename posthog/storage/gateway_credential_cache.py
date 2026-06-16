@@ -66,9 +66,9 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "revoked_at",
 ]
 
-# Per-team overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
-# a fixed-point USD string with 6 decimal places, present only when configured. Range [0, 10000];
-# the gateway clamps anything outside or malformed to 0, so the write surfaces validate up front.
+# Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
+# fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
+# so we validate at the write surfaces instead of relying on the clamp.
 OVERSPEND_ALLOWANCE_KEY = "overspend_allowance_usd"
 OVERSPEND_ALLOWANCE_QUANTUM = Decimal("0.000001")
 OVERSPEND_ALLOWANCE_MIN_USD = Decimal(0)
@@ -76,17 +76,14 @@ OVERSPEND_ALLOWANCE_MAX_USD = Decimal(10000)
 
 
 def format_overspend_allowance_usd(value: Decimal) -> str:
-    """Fixed-point 6dp string for the wire — never scientific notation (str(Decimal) emits
-    "1E+12" for some values, which stalls the gateway's decimal parsing)."""
+    """Fixed-point 6dp string for the wire. `:f` avoids scientific notation, which the
+    gateway's decimal parser can't read."""
     return f"{value.quantize(OVERSPEND_ALLOWANCE_QUANTUM):f}"
 
 
 def validate_overspend_allowance_usd(value: Decimal) -> Decimal:
-    """Range/precision-check a write-time allowance, returning it quantized to 6dp.
-
-    Raises ValueError on a value outside [0, 10000] or with more than 6 decimal places.
-    Callers (admin form, management command) map this to their own error type.
-    """
+    """Quantize to 6dp; raise ValueError outside [0, 10000] or beyond 6dp. Callers map to
+    their own error type."""
     if not value.is_finite():
         raise ValueError("overspend allowance must be a finite number")
     if value < OVERSPEND_ALLOWANCE_MIN_USD or value > OVERSPEND_ALLOWANCE_MAX_USD:
@@ -285,8 +282,7 @@ def _policy_for_credential(
         "revoked_at": None,
     }
 
-    # Unset (null) is meaningful: omit so the gateway falls back to its operator default.
-    # An explicit 0 ("0.000000") disables the allowance regardless of that default.
+    # Omit when null so the gateway uses its default; an explicit 0 disables the allowance.
     allowance = team.llm_gateway_overspend_allowance_usd
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)

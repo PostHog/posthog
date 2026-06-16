@@ -269,9 +269,8 @@ def _capture_old_team_fields_if_deferred(sender: type[Team], instance: Team, **k
 
 
 def _reproject_team_on_change(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
-    # Two team-level fields feed every credential blob on this team's gateways:
-    # project_token (the team's api_token) and llm_gateway_overspend_allowance_usd. A change
-    # to either leaves the blobs stale, so re-project the team's credentials.
+    # api_token (project_token) and overspend allowance both feed every credential blob on
+    # this team; a change to either leaves them stale, so re-project.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
     old_token = instance.__dict__.get(_LOADED_TEAM_API_TOKEN_ATTR)
