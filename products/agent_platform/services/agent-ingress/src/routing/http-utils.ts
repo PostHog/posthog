@@ -23,6 +23,36 @@ import type { Logger } from '@posthog/agent-shared'
 import { AmbiguousRevisionError } from './resolver'
 
 /**
+ * Query params that carry a secret and must never reach the access log.
+ * PATs ride in `?token=` and preview JWTs in `?preview_token=` for browser
+ * `EventSource` callers (the EventSource API can't set request headers), so
+ * the value lands in `originalUrl` — redact it before logging.
+ */
+const REDACT_QUERY_PARAMS = ['token', 'preview_token']
+
+/**
+ * Return `rawUrl` with the values of any sensitive query params masked. Keeps
+ * the param present (so the shape of the request is still visible) but replaces
+ * the secret with `REDACTED`. Handles the path+query `originalUrl` shape.
+ */
+export function redactUrl(rawUrl: string): string {
+    const qIndex = rawUrl.indexOf('?')
+    if (qIndex === -1) {
+        return rawUrl
+    }
+    const path = rawUrl.slice(0, qIndex)
+    const params = new URLSearchParams(rawUrl.slice(qIndex + 1))
+    let changed = false
+    for (const key of REDACT_QUERY_PARAMS) {
+        if (params.has(key)) {
+            params.set(key, 'REDACTED')
+            changed = true
+        }
+    }
+    return changed ? `${path}?${params.toString()}` : rawUrl
+}
+
+/**
  * One structured log line per request, emitted when the response completes so
  * it carries the final status + total duration — the trail you need when an
  * ingress call misbehaves and there's otherwise nothing to grep for.
@@ -39,7 +69,7 @@ import { AmbiguousRevisionError } from './resolver'
 export function requestLogger(log: Logger): RequestHandler {
     return (req, res, next) => {
         const start = process.hrtime.bigint()
-        log.debug({ method: req.method, url: req.originalUrl }, 'request_start')
+        log.debug({ method: req.method, url: redactUrl(req.originalUrl) }, 'request_start')
         let logged = false
         const emit = (): void => {
             if (logged) {
@@ -48,7 +78,7 @@ export function requestLogger(log: Logger): RequestHandler {
             logged = true
             const fields = {
                 method: req.method,
-                url: req.originalUrl,
+                url: redactUrl(req.originalUrl),
                 status: res.statusCode,
                 duration_ms: Math.round((Number(process.hrtime.bigint() - start) / 1e6) * 10) / 10,
                 ip: req.ip,
