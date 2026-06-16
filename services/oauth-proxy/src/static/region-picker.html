@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Log in to PostHog</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -106,6 +107,10 @@
             justify-content: center;
         }
 
+        .flag-emoji {
+            font-size: 18px;
+        }
+
         .cta {
             position: relative;
             display: inline-flex;
@@ -135,6 +140,12 @@
         .cta:active {
             transform: translateY(0.5px);
             box-shadow: 0 2.5px 0 -1px var(--button-frame);
+        }
+
+        .cta:focus-visible,
+        .btn-secondary:focus-visible {
+            outline: 2px solid var(--brand-blue);
+            outline-offset: 2px;
         }
 
         .cta svg {
@@ -212,6 +223,11 @@
             border-radius: var(--radius);
             cursor: pointer;
             transition: border-color 200ms ease;
+            appearance: none;
+        }
+
+        button.btn-secondary {
+            margin: 0;
         }
 
         .btn-secondary:hover {
@@ -238,10 +254,10 @@
 </head>
 
 <body>
-    <div class="container">
+    <main class="container">
         <div class="card">
-            <div class="logo-row">
-                <svg fill="none" height="30" viewBox="0 0 157 30" xmlns="http://www.w3.org/2000/svg">
+            <header class="logo-row">
+                <svg aria-hidden="true" fill="none" height="30" viewBox="0 0 157 30" xmlns="http://www.w3.org/2000/svg">
                     <clipPath id="a">
                         <path d="m0 0h157v30h-157z" />
                     </clipPath>
@@ -293,51 +309,57 @@
                         </g>
                     </g>
                 </svg>
-            </div>
+            </header>
 
             <h1>Log in to PostHog</h1>
 
             <p class="description">Where is your PostHog project hosted?</p>
 
-            <div class="buttons">
+            <nav aria-label="Select PostHog region" class="buttons">
                 <a class="cta" id="btn-us" href="#">
-                    <span style="font-size: 18px">&#x1F1FA;&#x1F1F8;</span>
+                    <span aria-hidden="true" class="flag-emoji">&#x1F1FA;&#x1F1F8;</span>
                     US Cloud
                 </a>
                 <a class="cta" id="btn-eu" href="#">
-                    <span style="font-size: 18px">&#x1F1EA;&#x1F1FA;</span>
+                    <span aria-hidden="true" class="flag-emoji">&#x1F1EA;&#x1F1FA;</span>
                     EU Cloud
                 </a>
-            </div>
+            </nav>
+
+            <noscript>
+                <p class="hint">Enable JavaScript to continue. Your OAuth login parameters are required from this page.
+                </p>
+            </noscript>
 
             <p class="hint" id="hint-default">
-                Not sure? Check your PostHog URL. It starts with
-                <a href="https://us.posthog.com" target="_blank">us.</a> or
-                <a href="https://eu.posthog.com" target="_blank">eu.</a>
+                Not sure? Check your PostHog URL. <br />
+                It should be either
+                <a href="https://us.posthog.com" rel="noopener noreferrer" target="_blank">us.posthog.com</a> or
+                <a href="https://eu.posthog.com" rel="noopener noreferrer" target="_blank">eu.posthog.com</a>
             </p>
 
-            <div class="redirect-banner" id="redirect-banner" style="display: none">
+            <div aria-live="polite" class="redirect-banner" hidden id="redirect-banner">
                 <span>You last logged in on <span class="region-name" id="redirect-region-name"></span>. Redirecting
                     in <span id="redirect-countdown">7</span>s...</span>
-                <div class="progress-bar">
+                <div aria-label="Redirect countdown" aria-valuemax="100" aria-valuemin="0" aria-valuenow="0"
+                    class="progress-bar" id="progress-bar" role="progressbar">
                     <div class="progress-bar-fill" id="progress-fill"></div>
                 </div>
                 <div class="redirect-actions">
-                    <a class="btn-secondary" id="redirect-cancel">Cancel redirect</a>
+                    <button class="btn-secondary" id="redirect-cancel" type="button">Cancel redirect</button>
                     <a class="cta" id="redirect-go-now"></a>
                 </div>
             </div>
         </div>
 
-        <p class="footer">
+        <footer class="footer">
             &copy; <span id="year"></span> <a href="https://posthog.com">posthog.com</a>
-        </p>
-    </div>
+        </footer>
+    </main>
     <script>
         // Write the current year to the footer
         document.getElementById('year').textContent = new Date().getFullYear();
 
-        // Build the URL for the given region
         var params = new URLSearchParams(window.location.search);
         function buildUrl(region) {
             params.set('_region', region);
@@ -364,21 +386,24 @@
             var regionLabel = region === 'us' ? 'US Cloud' : 'EU Cloud';
             var redirectUrl = buildUrl(region);
 
-            document.getElementById('hint-default').style.display = 'none';
-            document.getElementById('redirect-banner').style.display = 'block';
+            document.getElementById('hint-default').hidden = true;
+            document.getElementById('redirect-banner').hidden = false;
             document.getElementById('redirect-region-name').textContent = regionLabel;
             document.getElementById('redirect-go-now').textContent = 'Go to ' + regionLabel + ' now';
             document.getElementById('redirect-go-now').href = redirectUrl;
 
             var startTime = Date.now();
             var fill = document.getElementById('progress-fill');
+            var progressBar = document.getElementById('progress-bar');
             var countdown = document.getElementById('redirect-countdown');
             var timer = null;
 
             function tick() {
                 var elapsed = Date.now() - startTime;
                 var progress = Math.min(elapsed / (REDIRECT_SECONDS * 1000), 1);
-                fill.style.width = (progress * 100) + '%';
+                var percent = Math.round(progress * 100);
+                fill.style.width = percent + '%';
+                progressBar.setAttribute('aria-valuenow', String(percent));
                 countdown.textContent = Math.max(0, Math.ceil(REDIRECT_SECONDS - elapsed / 1000));
                 if (progress >= 1) {
                     window.location.href = redirectUrl;
@@ -390,8 +415,8 @@
 
             document.getElementById('redirect-cancel').addEventListener('click', function () {
                 cancelAnimationFrame(timer);
-                document.getElementById('redirect-banner').style.display = 'none';
-                document.getElementById('hint-default').style.display = 'block';
+                document.getElementById('redirect-banner').hidden = true;
+                document.getElementById('hint-default').hidden = false;
             });
         })();
     </script>
