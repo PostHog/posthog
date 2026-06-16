@@ -370,7 +370,19 @@ export function ExperimentMetricForm({
                         <ExperimentMetricThreshold
                             math={metric.source.math}
                             value={metric.threshold}
-                            onChange={(value) => handleSetMetric({ ...metric, threshold: value })}
+                            onChange={(value) =>
+                                handleSetMetric({
+                                    ...metric,
+                                    threshold: value,
+                                    // Setting a threshold disables outlier handling, so clear any stale
+                                    // bounds to keep the metric consistent with the UI and pass validation.
+                                    ...(value !== undefined && {
+                                        lower_bound_percentile: undefined,
+                                        upper_bound_percentile: undefined,
+                                        ignore_zeros: undefined,
+                                    }),
+                                })
+                            }
                         />
                     </>
                 )}
