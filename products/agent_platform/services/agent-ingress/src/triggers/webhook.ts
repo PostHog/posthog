@@ -9,23 +9,19 @@
 
 import { Request } from 'express'
 import { createHash } from 'node:crypto'
-import { z } from 'zod'
+import type { z } from 'zod'
 
 import { principalDisplay } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
-import type { AuthedRouteCtx, TriggerModule } from './types'
+import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 import { WebhookBodySchema } from './webhook.schemas'
 
-async function webhookHandler(ctx: AuthedRouteCtx): Promise<void> {
+async function webhookHandler(ctx: AuthedRouteCtx<z.infer<typeof WebhookBodySchema>>): Promise<void> {
     const { req, res, deps, resolved } = ctx
-    const parsed = WebhookBodySchema.safeParse(req.body)
-    if (!parsed.success) {
-        res.status(400).json({ error: 'invalid_body', issues: parsed.error.issues })
-        return
-    }
+    const body = ctx.parsed
     const externalKeyHeader = req.headers['x-external-key']
     const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-    const idempotencyKey = extractProviderIdempotencyKey(req, parsed.data)
+    const idempotencyKey = extractProviderIdempotencyKey(req, body)
     const sessionPrincipal = ctx.principal
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
@@ -36,7 +32,7 @@ async function webhookHandler(ctx: AuthedRouteCtx): Promise<void> {
             idempotencyKey,
             seed: {
                 role: 'user',
-                content: JSON.stringify(parsed.data),
+                content: JSON.stringify(body),
                 timestamp: Date.now(),
                 sender: sessionPrincipal,
             },
@@ -101,12 +97,12 @@ function extractProviderIdempotencyKey(req: Request, parsedBody: unknown): strin
 export const webhookTrigger: TriggerModule = {
     type: 'webhook',
     routes: [
-        {
+        defineRoute({
             method: 'POST',
             path: '/webhook',
-            bodySchema: z.toJSONSchema(WebhookBodySchema),
             auth: 'agent_spec',
+            schema: WebhookBodySchema,
             handler: webhookHandler,
-        },
+        }),
     ],
 }

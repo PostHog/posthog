@@ -322,6 +322,17 @@ export class PgSessionQueue implements SessionQueue {
         return rowToSession(r.rows[0])
     }
 
+    async getForApplication(sessionId: string, applicationId: string): Promise<AgentSession | null> {
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS} FROM agent_session WHERE id = $1 AND application_id = $2`,
+            [sessionId, applicationId]
+        )
+        if (r.rowCount === 0) {
+            return null
+        }
+        return rowToSession(r.rows[0])
+    }
+
     async findByIdempotencyKey(applicationId: string, idempotencyKey: string): Promise<AgentSession | null> {
         // Unique index on (application_id, idempotency_key) guarantees at most
         // one row matches — no ORDER BY / LIMIT needed for correctness, but

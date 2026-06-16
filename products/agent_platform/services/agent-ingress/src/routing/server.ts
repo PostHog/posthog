@@ -6,6 +6,7 @@
 
 import express, { Express, Request, Response } from 'express'
 import type { Pool } from 'pg'
+import { z } from 'zod'
 
 import type { IdentityStore, IntegrationStore, SecretResolver } from '@posthog/agent-shared'
 import { createLogger, RevisionStore, SessionQueue, triggerAuthConfig } from '@posthog/agent-shared'
@@ -202,13 +203,21 @@ export function buildApp(opts: BuildAppOpts): Express {
                 const triggerAuth = specTrigger ? triggerAuthConfig(specTrigger) : null
                 return {
                     type: m.type,
-                    routes: m.routes.map((r) => ({
-                        method: r.method,
-                        path: r.path,
-                        ...(r.bodySchema ? { bodySchema: r.bodySchema } : {}),
-                        ...(r.querySchema ? { querySchema: r.querySchema } : {}),
-                        auth: resolveRouteAuth(r.auth, triggerAuth),
-                    })),
+                    routes: m.routes.map((r) => {
+                        // A route's `schema` (zod) drives both runtime parsing and the
+                        // published shape — body for POST, query for GET. Bespoke-parse
+                        // triggers (MCP, Slack) publish via the raw `bodySchema`/`querySchema`.
+                        const schemaJson = r.schema ? z.toJSONSchema(r.schema) : undefined
+                        const bodySchema = r.method === 'POST' ? (schemaJson ?? r.bodySchema) : r.bodySchema
+                        const querySchema = r.method === 'GET' ? (schemaJson ?? r.querySchema) : r.querySchema
+                        return {
+                            method: r.method,
+                            path: r.path,
+                            ...(bodySchema ? { bodySchema } : {}),
+                            ...(querySchema ? { querySchema } : {}),
+                            auth: resolveRouteAuth(r.auth, triggerAuth),
+                        }
+                    }),
                 }
             })
             res.json({

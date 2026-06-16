@@ -372,6 +372,107 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(missing).toBeNull()
     })
 
+    it('getForApplication scopes by (id, application_id) — null for another application', async () => {
+        if (!reachable) {
+            return
+        }
+        const queue = new PgSessionQueue(pool)
+        const revisions = new PgRevisionStore(pool)
+        const app = await revisions.createApplication({ team_id: 1, slug: 'owner', name: 'Owner', description: '' })
+        const other = await revisions.createApplication({ team_id: 1, slug: 'other', name: 'Other', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        const sessionId = '33333333-3333-3333-3333-333333333333'
+        await queue.enqueue({
+            id: sessionId,
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
+            state: 'queued',
+            conversation: [],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            acl: [],
+            pending_elevation_requests: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+        // Owning application resolves it; a different application (even in the
+        // same team) sees null — the cross-tenant guard lives in the SQL filter.
+        expect((await queue.getForApplication(sessionId, app.id))!.id).toBe(sessionId)
+        expect(await queue.getForApplication(sessionId, other.id)).toBeNull()
+        // Plain get is unscoped (trusted internal callers only).
+        expect((await queue.get(sessionId))!.id).toBe(sessionId)
+    })
+
+    it('agent_session carries the indexes the hot session lookups rely on', async () => {
+        if (!reachable) {
+            return
+        }
+        const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
+            `SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'agent_session'`
+        )
+        const defs = rows.map((r) => r.indexdef)
+        const has = (re: RegExp): boolean => defs.some((d) => re.test(d))
+        // getForApplication resolves via the primary key on id.
+        expect(has(/UNIQUE INDEX .*agent_session_pkey.* \(id\)/)).toBe(true)
+        // findByExternalKey — (application_id, external_key), partial on non-null.
+        expect(has(/\(application_id, external_key\)[\s\S]*WHERE \(external_key IS NOT NULL\)/)).toBe(true)
+        // findByIdempotencyKey — unique (application_id, idempotency_key), partial.
+        expect(
+            has(/UNIQUE INDEX[\s\S]*\(application_id, idempotency_key\)[\s\S]*WHERE \(idempotency_key IS NOT NULL\)/)
+        ).toBe(true)
+    })
+
+    it('the hot session lookups plan as index scans, not seq scans', async () => {
+        if (!reachable) {
+            return
+        }
+        const appId = randomUUID()
+        const sid = randomUUID()
+        // EXPLAIN (no ANALYZE) plans without touching rows. Forcing seqscan off
+        // proves each predicate is index-supported against the real schema — on a
+        // small table the planner would otherwise pick a seq scan by cost.
+        const client = await pool.connect()
+        try {
+            await client.query('SET enable_seqscan = off')
+            const explain = async (sql: string): Promise<string> => {
+                const r = await client.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql}`)
+                return r.rows.map((row) => row['QUERY PLAN']).join('\n')
+            }
+            // getForApplication
+            const getPlan = await explain(
+                `SELECT * FROM agent_session WHERE id = '${sid}' AND application_id = '${appId}'`
+            )
+            expect(getPlan).toMatch(/Index Scan using agent_session_pkey/)
+            expect(getPlan).not.toMatch(/Seq Scan on agent_session/)
+            // findByExternalKey
+            const extPlan = await explain(
+                `SELECT * FROM agent_session WHERE application_id = '${appId}' AND external_key = 'slack:C1' ORDER BY updated_at DESC LIMIT 1`
+            )
+            expect(extPlan).toMatch(/Index Scan.*agent_sess_extkey_idx/)
+            expect(extPlan).not.toMatch(/Seq Scan on agent_session/)
+            // findByIdempotencyKey
+            const idemPlan = await explain(
+                `SELECT * FROM agent_session WHERE application_id = '${appId}' AND idempotency_key = 'k1'`
+            )
+            expect(idemPlan).toMatch(/Index Scan.*agent_session_idempotency_key_unique/)
+            expect(idemPlan).not.toMatch(/Seq Scan on agent_session/)
+        } finally {
+            client.release()
+        }
+    })
+
     it('PgSessionQueue.reapStuckRunning bumps retry_count and poison-pills past threshold', async () => {
         if (!reachable) {
             return

@@ -51,6 +51,7 @@ import { buildElevationResponse, principalDisplay, recordElevationRequest, requi
 import { principalsMatch } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { McpRequestBodySchema, McpStreamQuerySchema } from './mcp.schemas'
+import { getOwnedSession } from './session-access'
 import type { AuthedRouteCtx, CustomAuthRouteCtx, RouteCtx, TriggerDeps, TriggerModule } from './types'
 
 interface McpRequest {
@@ -161,12 +162,8 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
             if (continuationId) {
                 // Continuation path: append to an existing session, matching the
                 // strict-principal contract chat/send already enforces.
-                const existing = await deps.queue.get(continuationId)
+                const existing = await getOwnedSession(ctx, continuationId)
                 if (!existing) {
-                    res.json(errReply(RPC_INVALID_PARAMS, 'session_not_found'))
-                    return
-                }
-                if (existing.application_id !== resolved.application.id) {
                     res.json(errReply(RPC_INVALID_PARAMS, 'session_not_found'))
                     return
                 }
@@ -285,8 +282,8 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                 return
             }
             const sessionId = uri.slice(SESSION_URI_PREFIX.length)
-            const session = await deps.queue.get(sessionId)
-            if (!session || session.application_id !== resolved.application.id) {
+            const session = await getOwnedSession(ctx, sessionId)
+            if (!session) {
                 res.json(errReply(RPC_INVALID_PARAMS, 'session_not_found'))
                 return
             }
@@ -328,7 +325,10 @@ async function mcpStreamHandler(ctx: AuthedRouteCtx): Promise<void> {
         return
     }
     const { session_id: sessionId } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+    // Scope the session to the resolved agent — a leaked anonymous session UUID
+    // must not be subscribable via another public agent's /mcp/stream. Mismatch
+    // reads as not-found.
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return

@@ -104,6 +104,17 @@ export interface SessionQueue extends SessionInputsStore {
      */
     decideElevationRequest(sessionId: string, input: DecideElevationInput): Promise<DecideElevationResult>
     get(sessionId: string): Promise<AgentSession | null>
+    /**
+     * Like `get`, but scoped to one application — returns null when the session
+     * doesn't exist OR belongs to a different application. This is the
+     * tenant-safe read for request handlers, where `sessionId` is
+     * client-supplied: a leaked id from another agent must not resolve. The
+     * filter is in SQL (`id = $1 AND application_id = $2`), so the scoping holds
+     * even if a caller forgets to compare afterwards. Ingress handlers reach it
+     * via `getOwnedSession(ctx, id)`; plain `get` stays for trusted internal
+     * callers (runner claim loop, sweep) that legitimately fetch by id alone.
+     */
+    getForApplication(sessionId: string, applicationId: string): Promise<AgentSession | null>
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
     /**

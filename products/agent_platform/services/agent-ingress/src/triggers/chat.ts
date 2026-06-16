@@ -11,7 +11,6 @@
  * (ACL) on the principal the guard produced.
  */
 
-import { Response } from 'express'
 import { z } from 'zod'
 
 import { buildClientToolResultMarker } from '@posthog/agent-shared'
@@ -25,24 +24,12 @@ import {
     ChatRunBodySchema,
     ChatSendBodySchema,
 } from './chat.schemas'
-import type { AuthedRouteCtx, TriggerModule } from './types'
+import { getOwnedSession } from './session-access'
+import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
 
-/**
- * Turn a zod error into the structured 400 body. Same shape as the janitor's
- * validation responses so callers (curl, MCP, tests) parse it uniformly.
- */
-function badRequest(res: Response, err: z.ZodError): void {
-    res.status(400).json({ error: 'invalid_body', issues: err.issues })
-}
-
-async function runHandler(ctx: AuthedRouteCtx): Promise<void> {
-    const { req, res, deps, resolved } = ctx
-    const parsed = ChatRunBodySchema.safeParse(req.body)
-    if (!parsed.success) {
-        badRequest(res, parsed.error)
-        return
-    }
-    const { message, external_key: externalKey = null } = parsed.data
+async function runHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatRunBodySchema>>): Promise<void> {
+    const { res, deps, resolved } = ctx
+    const { message, external_key: externalKey = null } = ctx.parsed
     const sessionPrincipal = ctx.principal
     const outcome = await enqueueOrResume(
         { queue: deps.queue },
@@ -77,15 +64,10 @@ async function runHandler(ctx: AuthedRouteCtx): Promise<void> {
     })
 }
 
-async function sendHandler(ctx: AuthedRouteCtx): Promise<void> {
-    const { req, res, deps, resolved } = ctx
-    const parsed = ChatSendBodySchema.safeParse(req.body)
-    if (!parsed.success) {
-        badRequest(res, parsed.error)
-        return
-    }
-    const { session_id: sessionId, message, client_tool_result } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema>>): Promise<void> {
+    const { res, deps, resolved } = ctx
+    const { session_id: sessionId, message, client_tool_result } = ctx.parsed
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -159,15 +141,10 @@ async function sendHandler(ctx: AuthedRouteCtx): Promise<void> {
     res.json({ ok: true })
 }
 
-async function cancelHandler(ctx: AuthedRouteCtx): Promise<void> {
-    const { req, res, deps } = ctx
-    const parsed = ChatCancelBodySchema.safeParse(req.body)
-    if (!parsed.success) {
-        badRequest(res, parsed.error)
-        return
-    }
-    const { session_id: sessionId } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+async function cancelHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatCancelBodySchema>>): Promise<void> {
+    const { res, deps } = ctx
+    const { session_id: sessionId } = ctx.parsed
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -185,15 +162,10 @@ async function cancelHandler(ctx: AuthedRouteCtx): Promise<void> {
     res.json({ ok: true, state: 'cancelled' })
 }
 
-async function listenHandler(ctx: AuthedRouteCtx): Promise<void> {
+async function listenHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatListenQuerySchema>>): Promise<void> {
     const { req, res, deps } = ctx
-    const parsed = ChatListenQuerySchema.safeParse(req.query)
-    if (!parsed.success) {
-        badRequest(res, parsed.error)
-        return
-    }
-    const { session_id: sessionId } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+    const { session_id: sessionId } = ctx.parsed
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'session_not_found' })
         return
@@ -215,15 +187,12 @@ async function listenHandler(ctx: AuthedRouteCtx): Promise<void> {
     req.on('close', () => unsubscribe())
 }
 
-async function clientToolResultHandler(ctx: AuthedRouteCtx): Promise<void> {
-    const { req, res, deps } = ctx
-    const parsed = ChatClientToolResultBodySchema.safeParse(req.body)
-    if (!parsed.success) {
-        badRequest(res, parsed.error)
-        return
-    }
-    const { session_id: sessionId, call_id, result, error } = parsed.data
-    const existing = await deps.queue.get(sessionId)
+async function clientToolResultHandler(
+    ctx: AuthedRouteCtx<z.infer<typeof ChatClientToolResultBodySchema>>
+): Promise<void> {
+    const { res, deps } = ctx
+    const { session_id: sessionId, call_id, result, error } = ctx.parsed
+    const existing = await getOwnedSession(ctx, sessionId)
     if (!existing) {
         res.status(404).json({ error: 'no_session' })
         return
@@ -250,40 +219,40 @@ async function clientToolResultHandler(ctx: AuthedRouteCtx): Promise<void> {
 export const chatTrigger: TriggerModule = {
     type: 'chat',
     routes: [
-        {
+        defineRoute({
             method: 'POST',
             path: '/run',
-            bodySchema: z.toJSONSchema(ChatRunBodySchema),
             auth: 'agent_spec',
+            schema: ChatRunBodySchema,
             handler: runHandler,
-        },
-        {
+        }),
+        defineRoute({
             method: 'POST',
             path: '/send',
-            bodySchema: z.toJSONSchema(ChatSendBodySchema),
             auth: 'agent_spec',
+            schema: ChatSendBodySchema,
             handler: sendHandler,
-        },
-        {
+        }),
+        defineRoute({
             method: 'POST',
             path: '/cancel',
-            bodySchema: z.toJSONSchema(ChatCancelBodySchema),
             auth: 'agent_spec',
+            schema: ChatCancelBodySchema,
             handler: cancelHandler,
-        },
-        {
+        }),
+        defineRoute({
             method: 'GET',
             path: '/listen',
-            querySchema: z.toJSONSchema(ChatListenQuerySchema),
             auth: 'agent_spec',
+            schema: ChatListenQuerySchema,
             handler: listenHandler,
-        },
-        {
+        }),
+        defineRoute({
             method: 'POST',
             path: '/client_tool_result',
-            bodySchema: z.toJSONSchema(ChatClientToolResultBodySchema),
             auth: 'agent_spec',
+            schema: ChatClientToolResultBodySchema,
             handler: clientToolResultHandler,
-        },
+        }),
     ],
 }

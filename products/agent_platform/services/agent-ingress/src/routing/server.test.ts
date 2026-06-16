@@ -538,6 +538,38 @@ describe('ingress HTTP server (path mode)', () => {
         expect(init.body.result.serverInfo.name).toBe('agent:gated')
     })
 
+    it('cross-agent session access is 404 — a session id from agent A cannot be driven via agent B', async () => {
+        const { revisions, app } = mk()
+        // Two public agents in the same team → distinct application_ids. Both
+        // store the anonymous principal, so `principalsMatch` alone would let a
+        // leaked session id be driven through either agent's endpoints. The
+        // `application_id` binding closes that cross-tenant path.
+        await seedApp(revisions, 'agent-a')
+        await seedApp(revisions, 'agent-b')
+        const create = await request(app).post('/agents/agent-a/run').send({ message: 'hi' })
+        expect(create.status).toBe(200)
+        const sid = create.body.session_id as string
+
+        // Every write/stream path on agent B must refuse A's session as not-found.
+        const crossAgentCases: Array<() => Promise<{ status: number }>> = [
+            () => request(app).post('/agents/agent-b/send').send({ session_id: sid, message: 'pwn' }),
+            () => request(app).post('/agents/agent-b/cancel').send({ session_id: sid }),
+            () => request(app).get('/agents/agent-b/listen').query({ session_id: sid }),
+            () =>
+                request(app)
+                    .post('/agents/agent-b/client_tool_result')
+                    .send({ session_id: sid, call_id: 'c1', result: {} }),
+            () => request(app).get('/agents/agent-b/mcp/stream').query({ session_id: sid }),
+        ]
+        for (const makeRequest of crossAgentCases) {
+            expect((await makeRequest()).status).toBe(404)
+        }
+
+        // The owning agent still drives its own session.
+        const sendA = await request(app).post('/agents/agent-a/send').send({ session_id: sid, message: 'ok' })
+        expect(sendA.status).toBe(200)
+    })
+
     it('GET /mcp/connect-info advertises a public agent with no headers', async () => {
         const { revisions, app } = mk()
         await seedApp(revisions, 'public-agent')
