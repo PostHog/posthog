@@ -136,6 +136,22 @@ def _parse_next_url(link_header: str) -> str | None:
     return None
 
 
+def _is_empty_repository_response(response: requests.Response) -> bool:
+    """GitHub's commits endpoint returns 409 Conflict with the body message
+    "Git Repository is empty." for a repository that has no commits yet. That's
+    a valid empty state, not a failure (credentials and the repo itself are
+    fine — every other endpoint returns an empty list), so the caller treats it
+    as zero rows instead of raising. Once commits are pushed, the next sync
+    picks them up automatically."""
+    if response.status_code != 409:
+        return False
+    try:
+        message = response.json().get("message", "")
+    except (ValueError, TypeError, AttributeError):
+        return False
+    return isinstance(message, str) and "repository is empty" in message.lower()
+
+
 def _as_utc(dt: datetime) -> datetime:
     """Treat naive datetimes as UTC so tz-aware values (GitHub returns ISO 8601
     with `Z`) can be safely compared against naive cutoffs from the DB."""
@@ -315,6 +331,11 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
 
+        # An empty repository (no commits) is a valid state, not an error — the
+        # loop stops cleanly with zero rows. Return before raise_for_status.
+        if _is_empty_repository_response(response):
+            return response
+
         if not response.ok:
             logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
             response.raise_for_status()
@@ -323,6 +344,10 @@ def get_rows(
 
     while True:
         response = fetch_page(url)
+
+        if _is_empty_repository_response(response):
+            logger.debug(f"Github: repository is empty, no rows for endpoint {endpoint}")
+            break
 
         data = response.json()
         # Most GitHub list endpoints return a JSON array at the top level,
