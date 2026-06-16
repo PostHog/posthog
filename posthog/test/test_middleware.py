@@ -708,46 +708,31 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
 
-    def test_loginas_logout_with_safe_next_returns_to_app(self):
-        """The loginas logout endpoint honors a safe `next` so staff can return to the PostHog app."""
+    @parameterized.expand(
+        [
+            # A safe `next` lets staff return straight to the PostHog app.
+            ("safe_next", "?next=/", "/"),
+            # No `next` keeps the default admin change-page redirect.
+            ("no_next", "", None),
+            # Unsafe `next` values are ignored, falling back to the admin default.
+            ("unsafe_scheme_relative", "?next=//evil.com/path", None),
+            ("unsafe_absolute_url", "?next=https://evil.com", None),
+        ]
+    )
+    def test_loginas_logout_redirect(self, _name, query_suffix, expected_location):
+        """The loginas logout endpoint redirects to a safe `next` when given, otherwise to the admin change page."""
         now = datetime.now()
         with freeze_time(now):
             self.login_as_other_user()
 
-            res = self.client.get("/admin/logout/?next=/")
+            res = self.client.get(f"/admin/logout/{query_suffix}")
             assert res.status_code == 302
-            assert res.headers["Location"] == "/"
+            assert res.headers["Location"] == (expected_location or f"/admin/posthog/user/{self.other_user.id}/change/")
 
             # Verify we're back to the original staff user
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
-
-    def test_loginas_logout_without_next_redirects_to_admin(self):
-        """Without `next`, the loginas logout endpoint keeps the default admin redirect."""
-        now = datetime.now()
-        with freeze_time(now):
-            self.login_as_other_user()
-
-            res = self.client.get("/admin/logout/")
-            assert res.status_code == 302
-            assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
-
-    @parameterized.expand(
-        [
-            ("scheme_relative", "//evil.com/path"),
-            ("absolute_url", "https://evil.com"),
-        ]
-    )
-    def test_loginas_logout_ignores_unsafe_next(self, _name, unsafe):
-        """An unsafe `next` is ignored, falling back to the default admin redirect."""
-        now = datetime.now()
-        with freeze_time(now):
-            self.login_as_other_user()
-
-            res = self.client.get(f"/admin/logout/?next={unsafe}")
-            assert res.status_code == 302
-            assert res.headers["Location"] == f"/admin/posthog/user/{self.other_user.id}/change/"
 
     def test_loginas_logout_with_next_returns_to_app_after_expiry(self):
         """Even when the session has expired server-side, `next` survives the middleware
