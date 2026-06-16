@@ -21,7 +21,7 @@ import { accountsViewsLogic } from './accountsViewsLogic'
 
 export function AccountsViewSelector(): JSX.Element {
     const { views, currentView, isDirty, viewsLoading, canEditCurrentView, user } = useValues(accountsViewsLogic)
-    const { selectView, updateView, setViewToDelete, setIsCreating } = useActions(accountsViewsLogic)
+    const { selectView, updateView, setViewToDelete, setViewToRename, setIsCreating } = useActions(accountsViewsLogic)
 
     const menuItems: LemonMenuItems = [
         {
@@ -39,16 +39,7 @@ export function AccountsViewSelector(): JSX.Element {
                             dropdown: {
                                 overlay: (
                                     <>
-                                        <LemonButton
-                                            size="small"
-                                            fullWidth
-                                            onClick={() => {
-                                                const newName = window.prompt('Rename view', view.name)
-                                                if (newName && newName !== view.name) {
-                                                    updateView({ id: view.id, updates: { name: newName } })
-                                                }
-                                            }}
-                                        >
+                                        <LemonButton size="small" fullWidth onClick={() => setViewToRename(view.id)}>
                                             Rename
                                         </LemonButton>
                                         <LemonButton
@@ -108,6 +99,7 @@ export function AccountsViewSelector(): JSX.Element {
             )}
 
             <CreateViewModal />
+            <RenameViewModal />
             <DeleteViewModal />
         </div>
     )
@@ -159,6 +151,46 @@ function CreateViewModal(): JSX.Element {
                         />
                     </LemonField>
                 </div>
+            </Form>
+        </LemonModal>
+    )
+}
+
+function RenameViewModal(): JSX.Element {
+    const { views, viewToRename, viewsLoading } = useValues(accountsViewsLogic)
+    const { setViewToRename, submitRenameViewForm, resetRenameViewForm } = useActions(accountsViewsLogic)
+    const view = views.find((v) => v.id === viewToRename)
+
+    const close = (): void => {
+        setViewToRename(null)
+        resetRenameViewForm()
+    }
+
+    return (
+        <LemonModal
+            isOpen={!!viewToRename}
+            onClose={close}
+            title="Rename view"
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={close}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitRenameViewForm}
+                        loading={viewsLoading}
+                        disabledReason={viewsLoading ? 'Saving…' : undefined}
+                    >
+                        Rename
+                    </LemonButton>
+                </>
+            }
+        >
+            <Form logic={accountsViewsLogic} formKey="renameViewForm">
+                <LemonField name="name" label="View name">
+                    <LemonInput placeholder={view?.name} autoFocus onPressEnter={submitRenameViewForm} />
+                </LemonField>
             </Form>
         </LemonModal>
     )

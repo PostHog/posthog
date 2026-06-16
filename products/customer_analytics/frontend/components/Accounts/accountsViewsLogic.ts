@@ -57,6 +57,7 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
         setCurrentViewId: (id: string | null) => ({ id }),
         setIsCreating: (isCreating: boolean) => ({ isCreating }),
         setViewToDelete: (id: string | null) => ({ id }),
+        setViewToRename: (id: string | null) => ({ id }),
     }),
     loaders(({ values }) => ({
         views: [
@@ -118,6 +119,13 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             null as string | null,
             {
                 setViewToDelete: (_, { id }) => id,
+            },
+        ],
+        viewToRename: [
+            null as string | null,
+            {
+                setViewToRename: (_, { id }) => id,
+                updateViewSuccess: () => null,
             },
         ],
     })),
@@ -194,6 +202,15 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
                 posthog.capture(AccountsEvents.ViewSaved, { visibility })
             },
         },
+        renameViewForm: {
+            defaults: { name: '' },
+            errors: ({ name }: { name: string }) => ({ name: !name?.trim() ? 'Name is required' : undefined }),
+            submit: ({ name }: { name: string }) => {
+                if (values.viewToRename) {
+                    actions.updateView({ id: values.viewToRename, updates: { name: name.trim() } })
+                }
+            },
+        },
     })),
     listeners(({ actions, values }) => ({
         selectView: ({ id }) => {
@@ -217,9 +234,16 @@ export const accountsViewsLogic = kea<accountsViewsLogicType>([
             actions.setCurrentViewId(view.id)
             posthog.capture(AccountsEvents.ViewSelected, { visibility: view.visibility })
         },
+        setViewToRename: ({ id }) => {
+            const view = id ? values.views.find((v) => v.id === id) : undefined
+            if (view) {
+                actions.setRenameViewFormValue('name', view.name)
+            }
+        },
         updateViewSuccess: () => {
             lemonToast.success('View updated')
             posthog.capture(AccountsEvents.ViewUpdated)
+            actions.resetRenameViewForm()
         },
         updateViewFailure: ({ error }) => {
             posthog.captureException(error)

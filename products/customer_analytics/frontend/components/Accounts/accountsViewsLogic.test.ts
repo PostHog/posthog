@@ -125,6 +125,31 @@ describe('accountsViewsLogic', () => {
             .toMatchValues({ currentViewId: null })
     })
 
+    it('rename seeds the form with the current name and patches the trimmed name on submit', async () => {
+        let patchedBody: any = null
+        useMocks({
+            get: { '/api/environments/:team_id/column_configurations/': { count: 1, results: [buildView()] } },
+            patch: {
+                '/api/environments/:team_id/column_configurations/:id/': async (req: any) => {
+                    patchedBody = await req.json()
+                    return [200, buildView({ name: patchedBody.name })]
+                },
+            },
+        })
+        mountAll()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.setViewToRename('view-1'))
+            .toDispatchActions(['setRenameViewFormValue'])
+            .toMatchValues({ viewToRename: 'view-1', renameViewForm: { name: 'Enterprise' } })
+
+        logic.actions.setRenameViewFormValue('name', '  Renamed  ')
+        await expectLogic(logic, () => logic.actions.submitRenameViewForm())
+            .toDispatchActions(['updateView', 'updateViewSuccess'])
+            .toMatchValues({ viewToRename: null })
+        expect(patchedBody.name).toBe('Renamed')
+    })
+
     it('migrates localStorage tiles into the creator-owned default row exactly once', async () => {
         const customTiles = [{ id: 'mine', label: 'Mine', metric: { type: 'count' as const } }]
         let patchedBody: any = null
