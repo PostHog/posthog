@@ -404,8 +404,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     # Row-level security check powers the advisory warning in the table picker.
                     rls_active_by_table = _rls_active_from_conn(conn, config.schema, names)
             except Exception as e:
-                # Connection-level failure: neither lookup is usable.
-                capture_exception(e)
+                # Connection-level failure for the best-effort PK/index/RLS metadata lookup. The
+                # schema listing already succeeded above (`db_schemas`), so degrade quietly — log a
+                # warning and drop the optional metadata, consistent with the foreign-key and index
+                # lookups in this function. Don't `capture_exception` here: this connection is opened
+                # separately from schema discovery and is prone to transient drops (e.g. an SSH-tunnel
+                # hiccup raising "server closed the connection unexpectedly"), which would otherwise
+                # flood error tracking despite the listing still succeeding.
+                structlog.get_logger().warning("Failed to fetch PK/index/RLS metadata for Postgres schemas", exc_info=e)
                 pk_columns_by_table = {}
                 indexed_columns_by_table = None
                 tables_with_pks = set()

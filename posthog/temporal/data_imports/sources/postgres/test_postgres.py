@@ -869,6 +869,54 @@ class TestPostgresSourceGetSchemasDegradesGracefully:
         assert schemas[0].name == "public.users"
         assert schemas[0].foreign_keys == []
 
+    def test_metadata_connection_failure_degrades_quietly_without_capturing(self, source):
+        # The PK/index/RLS metadata connection is opened separately from schema discovery and is
+        # prone to transient drops (commonly an SSH-tunnel hiccup raising "server closed the
+        # connection unexpectedly"). Schema discovery already succeeded, so this must degrade quietly:
+        # surface the schema listing and DON'T flood error tracking with a captured exception.
+        discovered = {
+            "public.users": PostgresDiscoveredSchema(
+                source_catalog=None,
+                source_schema="public",
+                source_table_name="users",
+                columns=[("id", "integer", False)],
+            )
+        }
+
+        tunnel_cm = mock.MagicMock()
+        tunnel_cm.__enter__.return_value = ("localhost", 5432)
+        tunnel_cm.__exit__.return_value = None
+
+        connection_dropped = psycopg.OperationalError(
+            'connection failed: connection to server at "127.0.0.1", port 37761 failed: '
+            "server closed the connection unexpectedly\n\tThis probably means the server terminated "
+            "abnormally\n\tbefore or while processing the request."
+        )
+
+        with (
+            mock.patch.object(source, "with_ssh_tunnel", return_value=tunnel_cm),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_schemas",
+                return_value=discovered,
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.get_postgres_foreign_keys",
+                return_value={},
+            ),
+            mock.patch(
+                "posthog.temporal.data_imports.sources.postgres.source.pg_connection",
+                side_effect=connection_dropped,
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.source.capture_exception") as mock_capture,
+        ):
+            schemas = source.get_schemas(self._config(), team_id=1)
+
+        assert len(schemas) == 1
+        assert schemas[0].name == "public.users"
+        # Best-effort metadata is dropped, but the listing survives and nothing is captured.
+        assert schemas[0].supports_cdc is False
+        mock_capture.assert_not_called()
+
 
 class TestGetSslmode:
     @pytest.mark.parametrize(
