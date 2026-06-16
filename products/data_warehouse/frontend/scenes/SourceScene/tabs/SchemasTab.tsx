@@ -132,8 +132,8 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-3">
+            <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-3 min-w-0">
                     <LemonSwitch
                         checked={showEnabledSchemasOnly}
                         onChange={setShowEnabledSchemasOnly}
@@ -184,7 +184,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                     <SourceEditorAction source={source}>
                         <LemonButton
                             type="secondary"

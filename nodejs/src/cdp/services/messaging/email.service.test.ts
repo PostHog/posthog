@@ -366,6 +366,16 @@ describe('EmailService', () => {
             })
         })
 
+        it('records a send-time metric for normal sends but not for test sends', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+            const normal = await service.executeSendEmail(invocation)
+            expect(normal.metrics.map((m) => m.metric_name)).toContain('email_sent')
+
+            const testSend = await service.executeSendEmail(invocation, true)
+            expect(testSend.metrics).toEqual([])
+        })
+
         it('should include cc addresses in SES destination', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({

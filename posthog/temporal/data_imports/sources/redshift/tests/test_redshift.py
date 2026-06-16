@@ -261,7 +261,20 @@ class TestFetchTableStats:
 
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = RuntimeError("boom")
-        assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+        mock_capture.assert_called_once()
+
+    def test_permission_denied_on_svv_table_info_is_not_reported(self, impl, cursor, logger):
+        # Some Redshift roles lack SELECT on `svv_table_info`. That's an expected customer
+        # permission-config issue — stats are optional, so skip gracefully without reporting the
+        # non-actionable error to error tracking (the source of the reported noise).
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege(
+            "permission denied for relation svv_table_info"
+        )
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            assert impl.fetch_table_stats(cursor, "public", "t", logger) is None
+        mock_capture.assert_not_called()
 
     def test_failed_explain_does_not_poison_real_query(self, impl, logger):
         # Reproduces the reported incident: EXPLAIN on `svv_table_info` fails (Redshift can't
@@ -359,6 +372,18 @@ class TestFetchAverageRowSize:
     def test_returns_none_on_exception(self, impl, cursor, logger):
         cursor.execute.side_effect = [None, RuntimeError("boom")]
         assert impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger) is None
+
+    def test_does_not_report_whole_row_reference_failure(self, impl, cursor, logger):
+        # Redshift rejects the `pg_column_size(t)` whole-row reference with this exact error on every
+        # table. It's a best-effort probe that falls back to the default chunk size, so it must not be
+        # reported to error tracking (the source of the noise this fix addresses).
+        cursor.execute.side_effect = [None, psycopg.errors.UndefinedColumn('column "t" does not exist in t')]
+
+        with patch("posthog.temporal.data_imports.sources.redshift.redshift.capture_exception") as mock_capture:
+            result = impl.fetch_average_row_size(cursor, "public", "t", self._inner(), None, logger)
+
+        assert result is None
+        mock_capture.assert_not_called()
 
 
 class TestHasDuplicatePrimaryKeys:
