@@ -3960,15 +3960,13 @@ class TestOAuthProtectedResourceMetadata(APIBaseTest):
         self.assertEqual(metadata["authorization_servers"], [metadata["resource"]])
         self.assertEqual(metadata["bearer_methods_supported"], ["header"])
 
-    def test_resource_and_authorization_server_are_valid_urls(self):
-        response = self.client.get("/.well-known/oauth-protected-resource")
-        metadata = response.json()
+    def test_resource_is_a_valid_url(self):
+        metadata = self.client.get("/.well-known/oauth-protected-resource").json()
+        self.assertRegex(metadata["resource"], r"^https?://")
 
-        for url in [metadata["resource"], *metadata["authorization_servers"]]:
-            self.assertTrue(
-                url.startswith("http://") or url.startswith("https://"),
-                f"expected a valid URL, got: {url}",
-            )
+    def test_authorization_server_is_a_valid_url(self):
+        metadata = self.client.get("/.well-known/oauth-protected-resource").json()
+        self.assertRegex(metadata["authorization_servers"][0], r"^https?://")
 
     def test_metadata_includes_scopes(self):
         response = self.client.get("/.well-known/oauth-protected-resource")

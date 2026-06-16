@@ -61,7 +61,7 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import absolute_uri, render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
@@ -1547,7 +1547,10 @@ class OAuthProtectedResourceMetadataView(APIView):
     authentication_classes = []
 
     def get(self, request, *args, **kwargs):
-        base_url = request.build_absolute_uri("/").rstrip("/")
+        # Pin to SITE_URL rather than the request Host header: with permissive
+        # ALLOWED_HOSTS an attacker could otherwise steer this discovery document
+        # to an attacker-controlled origin (matches posthog/exceptions.py).
+        base_url = absolute_uri().rstrip("/")
 
         metadata = {
             # Required by RFC 9728
