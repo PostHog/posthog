@@ -1,24 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { Form, Field as FormField } from 'kea-forms'
-import { type ChangeEvent, useEffect, useState } from 'react'
+import { Form } from 'kea-forms'
+import { useEffect, useState } from 'react'
 
 import { getCookie } from 'lib/api'
-import { SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Link } from 'lib/lemon-ui/Link'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
-import {
-    PaperCardTitle,
-    PaperDivider,
-    PaperField,
-    PaperFooterNote,
-    PaperInput,
-    PaperLink,
-    PaperPrimaryButton,
-    PaperRegionField,
-    PaperSecondaryButton,
-    PaperSocialIcons,
-} from 'scenes/authentication/shared/paperDesk/PaperDeskControls'
+import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
-import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -41,11 +34,9 @@ function Login(): JSX.Element {
         devUsers,
         devUsersLoading,
     } = useValues(loginLogic)
-    const { beginPasskeyLogin } = useActions(passkeyLogic)
     const { preflight } = useValues(preflightLogic)
     const allowDevLogin = !!preflight?.allow_dev_login
 
-    // Show the password field upfront (matching the design); only hide it when SSO is enforced.
     const isPasswordHidden = !!precheckResponse.sso_enforcement
     const isEmailVerificationSent = generalError?.code === 'email_verification_sent'
     const lastLoginMethod = getCookie(LAST_LOGIN_METHOD_COOKIE) as LoginMethod
@@ -58,20 +49,26 @@ function Login(): JSX.Element {
     }, [allowDevLogin, loadDevUsers])
 
     const footer = (
-        <PaperFooterNote>
-            New to PostHog? <PaperLink to={signupUrl}>Create an account →</PaperLink>
-        </PaperFooterNote>
+        <p className="mt-5 mb-0 text-sm text-secondary text-center">
+            New to PostHog?{' '}
+            <Link
+                to={signupUrl}
+                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+            >
+                Create an account →
+            </Link>
+        </p>
     )
 
     return (
         <PaperDeskScene notes={['// welcome back', '// 100,000+ teams ship here']}>
             <PaperDeskCard footer={footer}>
-                <PaperCardTitle
+                <CardTitle
                     title={isEmailVerificationSent ? 'Check your email' : 'Log in to PostHog'}
                     sub={isEmailVerificationSent ? undefined : "Welcome back. Let's go ship something."}
                 />
                 {generalError && (
-                    <div className="PaperDesk__error mb-4">
+                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         {generalError.detail ||
                             ERROR_MESSAGES[generalError.code] ||
                             'Could not complete your login. Please try again.'}
@@ -79,70 +76,81 @@ function Login(): JSX.Element {
                 )}
                 {isEmailVerificationSent ? (
                     <div className="flex flex-col items-center gap-3">
-                        <PaperSecondaryButton disabled={resendResponseLoading} onClick={() => resendEmailMFA(null)}>
+                        <LemonButton
+                            fullWidth
+                            disabled={resendResponseLoading}
+                            loading={resendResponseLoading}
+                            onClick={() => resendEmailMFA(null)}
+                        >
                             Resend verification email
-                        </PaperSecondaryButton>
-                        <PaperLink muted onClick={() => clearGeneralError()}>
+                        </LemonButton>
+                        <Link
+                            onClick={() => clearGeneralError()}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
                             Back to login
-                        </PaperLink>
+                        </Link>
                     </div>
                 ) : (
                     <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
-                        <PaperRegionField />
-                        <FormField name="email">
+                        <RegionField />
+                        <LemonField name="email" label="Email">
                             {({ value, onChange, error, id }) => (
-                                <PaperField label="Email" help={error} helpError={!!error}>
-                                    <PaperInput
-                                        id={id}
-                                        type="email"
-                                        autoFocus
-                                        placeholder="you@yourcompany.com"
-                                        autoComplete="email"
-                                        value={value ?? ''}
-                                        onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-                                        onBlur={() => precheck({ email: login.email })}
-                                        invalid={!!error}
-                                    />
-                                </PaperField>
+                                <LemonInput
+                                    id={id}
+                                    type="email"
+                                    autoFocus
+                                    placeholder="you@yourcompany.com"
+                                    autoComplete="email"
+                                    value={value ?? ''}
+                                    onChange={onChange}
+                                    onBlur={() => precheck({ email: login.email })}
+                                    status={error ? 'danger' : 'default'}
+                                    fullWidth
+                                />
                             )}
-                        </FormField>
+                        </LemonField>
                         {!isPasswordHidden && (
-                            <FormField name="password">
+                            <LemonField
+                                name="password"
+                                label={
+                                    <div className="flex items-baseline justify-between w-full">
+                                        <span>Password</span>
+                                        <Link
+                                            to={urls.passwordReset()}
+                                            className="text-xs font-semibold text-muted"
+                                            tabIndex={-1}
+                                        >
+                                            Forgot password?
+                                        </Link>
+                                    </div>
+                                }
+                            >
                                 {({ value, onChange, error, id }) => (
-                                    <PaperField
-                                        label="Password"
-                                        help={error}
-                                        helpError={!!error}
-                                        right={
-                                            <PaperLink
-                                                to={urls.passwordReset()}
-                                                className="text-[12.5px]"
-                                                tabIndex={-1}
-                                            >
-                                                Forgot password?
-                                            </PaperLink>
-                                        }
-                                    >
-                                        <PaperInput
-                                            id={id}
-                                            type="password"
-                                            placeholder="••••••••••"
-                                            autoComplete="current-password"
-                                            value={value ?? ''}
-                                            onChange={(e: ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-                                            invalid={!!error}
-                                        />
-                                    </PaperField>
+                                    <LemonInput
+                                        id={id}
+                                        type="password"
+                                        placeholder="••••••••••"
+                                        autoComplete="current-password"
+                                        value={value ?? ''}
+                                        onChange={onChange}
+                                        status={error ? 'danger' : 'default'}
+                                        fullWidth
+                                    />
                                 )}
-                            </FormField>
+                            </LemonField>
                         )}
                         {!precheckResponse.sso_enforcement && (
-                            <PaperPrimaryButton
+                            <LemonButton
+                                type="primary"
+                                fullWidth
+                                htmlType="submit"
                                 loading={isLoginSubmitting || precheckResponseLoading}
-                                loadingLabel="Logging in…"
+                                center
+                                className="h-12"
                             >
                                 Log in
-                            </PaperPrimaryButton>
+                            </LemonButton>
                         )}
                         {precheckResponse.sso_enforcement && (
                             <SSOEnforcedLoginButton
@@ -161,21 +169,19 @@ function Login(): JSX.Element {
                     </Form>
                 )}
                 {!isEmailVerificationSent && !precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                    <>
-                        <PaperDivider dashed label="Or log in with" />
-                        <PaperSocialIcons
-                            verb="Log in"
-                            lastUsed={lastLoginMethod}
-                            showPasskey
-                            onPasskey={() => beginPasskeyLogin(undefined, undefined)}
-                        />
-                    </>
+                    <SocialLoginButtons
+                        topDivider
+                        caption="Or log in with"
+                        captionLocation="top"
+                        lastUsedProvider={lastLoginMethod}
+                        showPasskey
+                    />
                 )}
                 {allowDevLogin && !devUsersLoading && devUsers.length > 0 && (
                     <div className="mt-5 border-t border-dashed pt-4">
                         <button
                             type="button"
-                            className="PaperDesk__link PaperDesk__link--muted text-xs"
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
                             onClick={() => setDevLoginOpen((open) => !open)}
                             aria-expanded={devLoginOpen}
                         >
@@ -184,13 +190,14 @@ function Login(): JSX.Element {
                         {devLoginOpen && (
                             <div className="mt-2 flex flex-col gap-1">
                                 {devUsers.map((u) => (
-                                    <PaperSecondaryButton
+                                    <LemonButton
                                         key={u.email}
+                                        fullWidth
                                         onClick={() => devLogin(u.email)}
                                         data-attr={`dev-login-${u.email}`}
                                     >
                                         {u.email}
-                                    </PaperSecondaryButton>
+                                    </LemonButton>
                                 ))}
                             </div>
                         )}

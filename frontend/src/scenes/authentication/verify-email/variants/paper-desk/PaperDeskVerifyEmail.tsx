@@ -3,13 +3,9 @@ import { useState } from 'react'
 
 import { DetectiveHog, ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import {
-    PaperFooterNote,
-    PaperLink,
-    PaperPrimaryButton,
-    PaperSecondaryButton,
-} from 'scenes/authentication/shared/paperDesk/PaperDeskControls'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { urls } from 'scenes/urls'
 
@@ -38,13 +34,13 @@ function NotSeeingIt(): JSX.Element {
         <>
             <button
                 type="button"
-                className="PaperDesk__link PaperDesk__link--muted text-[12.5px]"
+                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
                 onClick={() => setOpen((v) => !v)}
             >
                 Not seeing it?
             </button>
             {open && (
-                <div className="PaperDesk__note mt-3 w-full">
+                <div className="PaperDesk__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
                     <p className="m-0 mb-2.5 font-semibold text-primary">Before we escalate, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (
@@ -64,15 +60,16 @@ function NotSeeingIt(): JSX.Element {
                             </label>
                         ))}
                     </div>
-                    <PaperSecondaryButton
+                    <LemonButton
                         className="mt-3"
-                        disabled={!allChecked}
+                        fullWidth
+                        disabledReason={
+                            !allChecked ? `Contact support (${checked.filter(Boolean).length}/3 checked)` : undefined
+                        }
                         onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
                     >
-                        {allChecked
-                            ? 'Contact support'
-                            : `Contact support (${checked.filter(Boolean).length}/3 checked)`}
-                    </PaperSecondaryButton>
+                        Contact support
+                    </LemonButton>
                 </div>
             )}
         </>
@@ -91,22 +88,25 @@ function VerifyEmail(): JSX.Element {
             <PaperDeskScene notes={notes}>
                 <PaperDeskCard>
                     <div className="flex flex-col items-center text-center">
-                        <ExplorerHog className="PaperDesk__hog h-[124px]" />
-                        <h1 className="PaperDesk__title mt-3">You're verified, go explore!</h1>
-                        <p className="PaperDesk__sub mb-5">
+                        <ExplorerHog className="block w-auto mx-auto h-32" />
+                        <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
+                            You're verified, go explore!
+                        </h1>
+                        <p className="PaperDesk__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
                             Email confirmed. Next up: a quick setup. Your org, your team, your first events.
                         </p>
-                        <div className="PaperDesk__progress mb-[18px] w-full">
-                            <div className="PaperDesk__progress-fill" />
+                        <div className="PaperDesk__progress mb-4 w-full h-1.5 overflow-hidden bg-[#e0e1d9] rounded-sm">
+                            <div className="PaperDesk__progress-fill w-full h-full bg-warning rounded-sm" />
                         </div>
-                        <PaperPrimaryButton
-                            htmlType="button"
+                        <LemonButton
+                            type="primary"
+                            fullWidth
                             onClick={() => {
                                 window.location.href = '/'
                             }}
                         >
                             Continue to setup →
-                        </PaperPrimaryButton>
+                        </LemonButton>
                     </div>
                 </PaperDeskCard>
             </PaperDeskScene>
@@ -118,29 +118,38 @@ function VerifyEmail(): JSX.Element {
             <PaperDeskScene notes={notes}>
                 <PaperDeskCard
                     footer={
-                        <PaperFooterNote>
-                            Already verified? <PaperLink to={urls.login()}>Log in →</PaperLink>
-                        </PaperFooterNote>
+                        <p className="mt-5 mb-0 text-sm text-secondary text-center">
+                            Already verified?{' '}
+                            <Link
+                                to={urls.login()}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Log in →
+                            </Link>
+                        </p>
                     }
                 >
                     <div className="flex flex-col items-center text-center">
-                        <SleepingHog className="PaperDesk__hog h-[104px]" />
-                        <h1 className="PaperDesk__title mt-3">This link fell asleep</h1>
-                        <p className="PaperDesk__sub mb-5">
+                        <SleepingHog className="block w-auto mx-auto h-28" />
+                        <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
+                            This link fell asleep
+                        </h1>
+                        <p className="PaperDesk__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
                             Verification links last 24 hours, and this one's past its bedtime. Request a fresh one and
                             we'll get you in.
                         </p>
                         <div className="flex w-full flex-col gap-2.5">
                             {uuid && (
-                                <PaperPrimaryButton htmlType="button" onClick={() => requestVerificationLink(uuid)}>
+                                <LemonButton type="primary" fullWidth onClick={() => requestVerificationLink(uuid)}>
                                     Email me a new link
-                                </PaperPrimaryButton>
+                                </LemonButton>
                             )}
-                            <PaperSecondaryButton
+                            <LemonButton
+                                fullWidth
                                 onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
                             >
                                 Contact support
-                            </PaperSecondaryButton>
+                            </LemonButton>
                         </div>
                     </div>
                 </PaperDeskCard>
@@ -154,7 +163,9 @@ function VerifyEmail(): JSX.Element {
                 <PaperDeskCard>
                     <div className="flex flex-col items-center gap-4 text-center">
                         <Spinner className="text-4xl" />
-                        <p className="PaperDesk__sub m-0">Verifying your email address…</p>
+                        <p className="PaperDesk__sub m-0 text-sm text-secondary text-center text-pretty">
+                            Verifying your email address…
+                        </p>
                     </div>
                 </PaperDeskCard>
             </PaperDeskScene>
@@ -166,23 +177,37 @@ function VerifyEmail(): JSX.Element {
         <PaperDeskScene notes={notes}>
             <PaperDeskCard
                 footer={
-                    <PaperFooterNote>
-                        Wrong address? <PaperLink to={urls.signup()}>Start over →</PaperLink>
-                    </PaperFooterNote>
+                    <p className="mt-5 mb-0 text-sm text-secondary text-center">
+                        Wrong address?{' '}
+                        <Link
+                            to={urls.signup()}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                        >
+                            Start over →
+                        </Link>
+                    </p>
                 }
             >
                 <div className="flex flex-col items-center text-center">
-                    <DetectiveHog className="PaperDesk__hog h-28" />
-                    <h1 className="PaperDesk__title mt-3">Check your inbox</h1>
-                    <p className="PaperDesk__sub mb-2.5">We sent a verification link to</p>
-                    {user?.email && <span className="PaperDesk__emailChip mb-[18px]">{user.email}</span>}
-                    <p className="PaperDesk__sub mt-0 mb-[18px]">
+                    <DetectiveHog className="block w-auto mx-auto h-28" />
+                    <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
+                        Check your inbox
+                    </h1>
+                    <p className="PaperDesk__sub mt-2 mb-2.5 text-sm text-secondary text-center text-pretty">
+                        We sent a verification link to
+                    </p>
+                    {user?.email && (
+                        <span className="mb-4 inline-block py-1 px-2.5 font-mono text-sm font-semibold text-primary bg-[#fbfbf9] border border-[#e0e1d9] rounded">
+                            {user.email}
+                        </span>
+                    )}
+                    <p className="PaperDesk__sub mt-0 mb-4 text-sm text-secondary text-center text-pretty">
                         Click the link inside and you're in. The link is valid for 24 hours.
                     </p>
                     {uuid && (
-                        <PaperSecondaryButton onClick={() => requestVerificationLink(uuid)}>
+                        <LemonButton fullWidth onClick={() => requestVerificationLink(uuid)}>
                             Resend email
-                        </PaperSecondaryButton>
+                        </LemonButton>
                     )}
                     <div className="mt-3.5">
                         <NotSeeingIt />
