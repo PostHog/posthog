@@ -5240,6 +5240,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-analytics',
     'google-search-console',
     'google-sheets',
     'linkedin-ads',
@@ -5304,6 +5305,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 // `invalid_scope`. Move entries into SlackIntegrationScope once Slack approves the public app.
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
+    CHANNELS_MANAGE = 'channels:manage',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5533,6 +5535,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'
