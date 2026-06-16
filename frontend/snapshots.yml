@@ -3188,6 +3188,10 @@ snapshots:
         hash: v1.k794b7964.2a51b64245c72cec4c72c007d0d21eaa962a9698331000056c4ce4d9fd9bb60e.UxHh9wpdqsP3vQl3lhImbvCBWgW6UM_kD7nj9N6-iro
     lemon-ui-lemon-input-select--single-option-with-custom--light:
         hash: v1.k794b7964.25547054385d438f3a862828753585e090d6c8f679761e34e8347b88db0d1a3b.9yiFsLVVZmLLKZdvOcTE9eFvQLmZAWOYXmpR4rlxcWM
+    lemon-ui-lemon-input-select--single-select-with-id-keys--dark:
+        hash: v1.k794b7964.2663ea7f292a439212adcf439cf6ea6c2b5797c071d5ff8ed73ca80dcb9aa36c.mKKvjf1x7DWGrN7Q0NWAb5Kc-L0081Yath1o7qCBqFw
+    lemon-ui-lemon-input-select--single-select-with-id-keys--light:
+        hash: v1.k794b7964.f1b800ce7c442ac300a46deecb8fd2a4e610d2327c592ca3a497195bff840ac3.mjVIsRtamHEtE6olJk5yconR0JFa0lKwZk6huHl_oZQ
     lemon-ui-lemon-input-select--snacks-mode-with-sortable--dark:
         hash: v1.k794b7964.1cde22375021a4e9bc8079fe0936ccd3b7e715838e49abcb9f5944bb48b09922.vbbCUemoM9gCfmCgY3P7Qmzbh3GvsV8qDDKjyxGI_MA
     lemon-ui-lemon-input-select--snacks-mode-with-sortable--light:
