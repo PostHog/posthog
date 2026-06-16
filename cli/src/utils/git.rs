@@ -292,7 +292,7 @@ fn get_commit_sha(git_dir: &Path, common_dir: &Path, branch: &str) -> Result<Str
         return Ok(head_content.trim().to_string());
     }
 
-    // Try to read the commit from the branch reference
+    // Try to read the commit from the branch reference (loose ref)
     for ref_path in branch_ref_paths(git_dir, common_dir, branch) {
         if !ref_path.exists() {
             continue;
@@ -307,6 +307,8 @@ fn get_commit_sha(git_dir: &Path, common_dir: &Path, branch: &str) -> Result<Str
         return Ok(commit_id.trim().to_string());
     }
 
+    // Fall back to packed-refs — Git packs loose refs into this file during
+    // garbage collection or clone, which is common on Windows and in CI.
     if let Some(commit_id) = get_packed_ref(git_dir, common_dir, branch) {
         return Ok(commit_id);
     }

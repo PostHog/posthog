@@ -47,7 +47,6 @@ impl EnvVarGuard {
     fn clear(names: &[&str]) -> Self {
         Self(remove_env_vars(names))
     }
-
 }
 
 impl Drop for EnvVarGuard {
@@ -106,6 +105,82 @@ fn assert_posthog_git_info(worktree_dir: PathBuf, branch: &str, commit_id: &str)
         Some("https://github.com/PostHog/posthog.git")
     );
     assert_eq!(info.repo_name.as_deref(), Some("posthog"));
+}
+
+#[test]
+fn test_get_commit_sha_from_loose_ref() {
+    let _env_lock = lock_env();
+    let _env_guard = EnvVarGuard::clear(&[
+        "GITHUB_ACTIONS",
+        "GITHUB_SHA",
+        "GITHUB_REF_NAME",
+        "GITHUB_REPOSITORY",
+        "GITHUB_SERVER_URL",
+        "VERCEL",
+        "VERCEL_GIT_PROVIDER",
+        "VERCEL_GIT_REPO_OWNER",
+        "VERCEL_GIT_REPO_SLUG",
+        "VERCEL_GIT_COMMIT_REF",
+        "VERCEL_GIT_COMMIT_SHA",
+    ]);
+
+    let temp_root =
+        std::env::temp_dir().join(format!("posthog_cli_loose_ref_test_{}", Uuid::now_v7()));
+    let git_dir = temp_root.join(".git");
+    let branch = "main";
+    let commit_id = "abc123def456abc123def456abc123def456abc1";
+
+    fs::create_dir_all(&git_dir).expect("failed to create .git directory");
+    write_head(&git_dir, branch);
+    write_loose_ref(&git_dir, branch, commit_id);
+
+    let info = get_git_info(Some(temp_root.clone()))
+        .expect("get_git_info failed")
+        .expect("expected Some(GitInfo)");
+
+    assert_eq!(info.branch, branch);
+    assert_eq!(info.commit_id, commit_id);
+    let _ = fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn test_get_commit_sha_loose_ref_takes_precedence_over_packed_refs() {
+    let _env_lock = lock_env();
+    let _env_guard = EnvVarGuard::clear(&[
+        "GITHUB_ACTIONS",
+        "GITHUB_SHA",
+        "GITHUB_REF_NAME",
+        "GITHUB_REPOSITORY",
+        "GITHUB_SERVER_URL",
+        "VERCEL",
+        "VERCEL_GIT_PROVIDER",
+        "VERCEL_GIT_REPO_OWNER",
+        "VERCEL_GIT_REPO_SLUG",
+        "VERCEL_GIT_COMMIT_REF",
+        "VERCEL_GIT_COMMIT_SHA",
+    ]);
+
+    let temp_root = std::env::temp_dir().join(format!(
+        "posthog_cli_ref_precedence_test_{}",
+        Uuid::now_v7()
+    ));
+    let git_dir = temp_root.join(".git");
+    let branch = "main";
+    let loose_commit_id = "1111111111111111111111111111111111111111";
+    let packed_commit_id = "cafebabecafebabecafebabecafebabecafebabe";
+
+    fs::create_dir_all(&git_dir).expect("failed to create .git directory");
+    write_head(&git_dir, branch);
+    write_loose_ref(&git_dir, branch, loose_commit_id);
+    write_packed_ref(&git_dir, branch, packed_commit_id);
+
+    let info = get_git_info(Some(temp_root.clone()))
+        .expect("get_git_info failed")
+        .expect("expected Some(GitInfo)");
+
+    assert_eq!(info.branch, branch);
+    assert_eq!(info.commit_id, loose_commit_id);
+    let _ = fs::remove_dir_all(temp_root);
 }
 
 #[test]
