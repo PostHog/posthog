@@ -94,6 +94,13 @@ export interface ApprovalStore {
      */
     upsertQueued(input: UpsertApprovalRequestInput): Promise<UpsertApprovalRequestResult>
     get(id: string): Promise<ApprovalRequest | null>
+    /**
+     * Tenant-scoped variant of `get` for request-path callers: only returns the
+     * row when it belongs to `applicationId`. Use this from HTTP handlers that
+     * receive a caller-supplied id so a leaked id can't resolve another tenant's
+     * request; keep `get` for trusted internal callers (runner, sweep).
+     */
+    getForApplication(id: string, applicationId: string): Promise<ApprovalRequest | null>
     /** Returns the most recently created request for a (session, tool, args). */
     findLatestByArgs(sessionId: string, toolName: string, argsHash: Buffer): Promise<ApprovalRequest | null>
     /** Atomically flip `queued` → `approving` with stamp. Returns null when not in `queued`. */

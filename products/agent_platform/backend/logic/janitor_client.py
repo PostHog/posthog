@@ -261,8 +261,11 @@ class JanitorClient:
             params["offset"] = offset
         return self._call("GET", "/fleet/approvals", params=params)
 
-    def get_approval(self, approval_id: str) -> dict:
-        return self._call("GET", f"/approvals/{approval_id}")
+    def get_approval(self, approval_id: str, *, application_id: str | None = None) -> dict:
+        # application_id scopes the janitor's read to this tenant (defence in
+        # depth alongside the app/team gate the view already enforces).
+        params = {"application_id": application_id} if application_id else None
+        return self._call("GET", f"/approvals/{approval_id}", params=params)
 
     def decide_approval(
         self,
@@ -272,13 +275,15 @@ class JanitorClient:
         decided_by: str,
         edited_args: dict[str, Any] | None = None,
         reason: str | None = None,
+        application_id: str | None = None,
     ) -> dict:
         body: dict[str, Any] = {"decision": decision, "decided_by": decided_by}
         if edited_args is not None:
             body["edited_args"] = edited_args
         if reason is not None:
             body["reason"] = reason
-        return self._call("POST", f"/approvals/{approval_id}/decide", json=body)
+        params = {"application_id": application_id} if application_id else None
+        return self._call("POST", f"/approvals/{approval_id}/decide", json=body, params=params)
 
     # ── catalog ────────────────────────────────────────────────────────────
 

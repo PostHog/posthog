@@ -1436,7 +1436,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Application not found")
         self._require_team_admin()
         try:
-            payload = _janitor().get_approval(approval_id)
+            payload = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         # Cross-check ownership: the janitor doesn't know about teams.
@@ -1481,7 +1481,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body.is_valid(raise_exception=True)
         # Cross-check ownership before forwarding.
         try:
-            existing = _janitor().get_approval(approval_id)
+            existing = _janitor().get_approval(approval_id, application_id=str(application.id))
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         if existing.get("application_id") != str(application.id):
@@ -1502,6 +1502,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 decided_by=str(request.user.uuid) if request.user and request.user.is_authenticated else "",
                 edited_args=body.validated_data.get("edited_args"),
                 reason=body.validated_data.get("reason"),
+                application_id=str(application.id),
             )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e

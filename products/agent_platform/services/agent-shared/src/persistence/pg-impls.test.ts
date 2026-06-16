@@ -92,6 +92,11 @@ maybeDescribe('Postgres impls (real PG)', () => {
         await store.setRevisionState(rev.id, 'live')
         await store.setLiveRevision(app.id, rev.id)
         expect((await store.getApplication(app.id))!.live_revision_id).toBe(rev.id)
+
+        // Tenant-scoped read: resolves for the owning app, null for another.
+        expect((await store.getRevisionForApplication(rev.id, app.id))!.id).toBe(rev.id)
+        const otherApp = await store.createApplication({ team_id: 2, slug: 'echo2', name: 'Echo2', description: '' })
+        expect(await store.getRevisionForApplication(rev.id, otherApp.id)).toBeNull()
     })
 
     it('PgRevisionStore rejects spec updates on non-draft revisions', async () => {
