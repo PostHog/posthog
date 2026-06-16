@@ -1866,4 +1866,57 @@ describe('Workflows E2E (email queue)', () => {
         const deniedAfter = await readDeniedCount()
         expect(deniedAfter - deniedBefore).toBeGreaterThan(0)
     })
+
+    it('does not increment the limiter counter on idle polls (no work, no metric)', async () => {
+        // Regression guard for the peek-before-claim fix. Without it, idle
+        // workers would silently drain the bucket on every poll and the
+        // denied counter would climb even with zero traffic.
+        await emailWorker.stop()
+
+        const limiterValkey = createRedisV2PoolFromConfig({
+            connection: hub.CDP_REDIS_HOST
+                ? {
+                      url: hub.CDP_REDIS_HOST,
+                      options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                  }
+                : { url: hub.REDIS_URL },
+            poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+        })
+        const bucketKey = '@posthog-test/ses-e2e-idle/bucket'
+        await deleteKeysWithPrefix(limiterValkey, '@posthog-test/ses-e2e-idle/')
+
+        const limiterName = 'ses-e2e-idle'
+        const rateLimitedQueue = new CyclotronJobQueueRateLimitedPostgresV2(hub.CONSUMER_BATCH_SIZE, hub, {
+            limiter: new RateLimiterService(limiterValkey, { name: limiterName }),
+            key: bucketKey,
+            capacity: 2,
+            refillPerSecond: 1,
+            throttledPollDelayMs: 50,
+        })
+        emailWorker = new CdpCyclotronWorkerEmail(hub, deps, rateLimitedQueue)
+        await emailWorker.start()
+
+        // Sum across all result labels — even granted_* would be wrong here
+        // since no work exists. The whole counter family should be flat.
+        const readAllResults = async (): Promise<number> => {
+            const metric = register.getSingleMetric('cdp_rate_limiter_claim_total')
+            if (!metric) {
+                return 0
+            }
+            const data = await metric.get()
+            return data.values
+                .filter((v: any) => v.labels.limiter === limiterName && v.labels.key === bucketKey)
+                .reduce((sum: number, v: any) => sum + v.value, 0)
+        }
+
+        const before = await readAllResults()
+
+        // Let the worker poll for a full second with no jobs queued — that's
+        // ~20 poll cycles at the default 50ms cadence. None should claim.
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+
+        const after = await readAllResults()
+        expect(after - before).toBe(0)
+    })
 })

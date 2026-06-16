@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -112,5 +114,85 @@ describe('RateLimiterService', () => {
             refillPerSecond: 1000,
         })
         expect(granted).toBe(50)
+    })
+
+    describe('metric emission', () => {
+        // Counters are module-scoped globals — use deltas (after − before) per
+        // test so we don't have to reset shared state between runs.
+        const readCounter = async (labels: Record<string, string>): Promise<number> => {
+            const metric = register.getSingleMetric('cdp_rate_limiter_claim_total')
+            if (!metric) {
+                return 0
+            }
+            const data = await metric.get()
+            return data.values
+                .filter((v: any) =>
+                    Object.entries(labels).every(([k, val]) => (v.labels as Record<string, string>)[k] === val)
+                )
+                .reduce((sum: number, v: any) => sum + v.value, 0)
+        }
+
+        it('increments granted_full when the grant equals the request', async () => {
+            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_full' }
+            const before = await readCounter(labels)
+
+            const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
+            expect(granted).toBe(5)
+
+            const after = await readCounter(labels)
+            expect(after - before).toBe(1)
+        })
+
+        it('increments granted_partial when the grant is less than the request', async () => {
+            // Drain to 2 tokens, then ask for 5.
+            await limiter.claimUpTo({ key: KEY, requested: 8, capacity: 10, refillPerSecond: 0 })
+
+            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'granted_partial' }
+            const before = await readCounter(labels)
+
+            const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
+            expect(granted).toBe(2)
+
+            const after = await readCounter(labels)
+            expect(after - before).toBe(1)
+        })
+
+        it('increments denied when the bucket is empty', async () => {
+            // Drain the bucket fully.
+            await limiter.claimUpTo({ key: KEY, requested: 10, capacity: 10, refillPerSecond: 0 })
+
+            const labels = { limiter: 'ses-rate-limiter', key: KEY, result: 'denied' }
+            const before = await readCounter(labels)
+
+            const granted = await limiter.claimUpTo({ key: KEY, requested: 5, capacity: 10, refillPerSecond: 0 })
+            expect(granted).toBe(0)
+
+            const after = await readCounter(labels)
+            expect(after - before).toBe(1)
+        })
+
+        it('increments valkey_error when the Lua call throws', async () => {
+            // Synthetic broken pool — useClient rejects on every call.
+            const brokenValkey = {
+                useClient: jest.fn().mockRejectedValue(new Error('connection lost')),
+                usePipeline: jest.fn(),
+            } as unknown as RedisV2
+            const brokenLimiter = new RateLimiterService(brokenValkey, { name: 'broken-limiter' })
+
+            const labels = { limiter: 'broken-limiter', key: KEY, result: 'valkey_error' }
+            const before = await readCounter(labels)
+
+            const granted = await brokenLimiter.claimUpTo({
+                key: KEY,
+                requested: 5,
+                capacity: 10,
+                refillPerSecond: 0,
+            })
+            // Fail-closed: thrown error → 0 granted.
+            expect(granted).toBe(0)
+
+            const after = await readCounter(labels)
+            expect(after - before).toBe(1)
+        })
     })
 })
