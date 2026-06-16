@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
     validate_bigquery_credentials,
@@ -42,12 +43,34 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         return {
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
+            # OAuth2 error code returned by Google's token endpoint when the service account grant
+            # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
+            # service account ("account not found"). Raised as a `RefreshError` while refreshing the
+            # token, so it surfaces on every BigQuery call rather than at a single site. Retrying
+            # can't recover invalid credentials; the user must upload a new key file. Matched on the
+            # stable `invalid_grant` code rather than `RefreshError`, which can also wrap transient
+            # token-endpoint failures that should stay retryable.
+            "invalid_grant": "Your BigQuery service account credentials were rejected by Google. The key may have been rotated or revoked, or the service account deleted. Please upload a new Google Cloud JSON key file.",
+            # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
+            # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
+            # (or it may not exist).". The matched string above only covers the REST client's
+            # "PermissionDenied: 403 request failed" wording; the Storage Read API raises a
+            # google.api_core PermissionDenied whose `str()` is "403 Access Denied: ..." instead,
+            # so it slips through and retries forever. These are config/permission problems on the
+            # customer's service account — retrying can't resolve them; the user must grant the
+            # missing permission (or the referenced table/dataset must exist).
+            "Access Denied:": "BigQuery denied access to a table or dataset. Please ensure your service account has read access (the bigquery.tables.getData permission, e.g. the BigQuery Data Viewer role) on every dataset and table you're syncing, then reconnect the source.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
             # type. Delta Lake can't widen an existing column in place, so retrying won't help —
             # the table must be reset and fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `BigQueryImplementation.get_columns` when the service-account OAuth
+            # token endpoint returns a non-JSON-object 200 (bad `token_uri`, or an intercepting
+            # proxy). Authentication can't succeed until the key file is fixed, so retrying just
+            # hammers the endpoint and spams error tracking.
+            BIGQUERY_TOKEN_RESPONSE_ERROR: "We couldn't authenticate with BigQuery — Google's OAuth token endpoint returned an unexpected response. Please re-upload your service account key file and verify its token_uri.",
         }
 
     def validate_credentials(

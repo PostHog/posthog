@@ -29,6 +29,7 @@ const REFERENCE_ALLOWLIST = new Set([
     'comma-separated',
     'skills-store', // the Skills store feature ("the skills-store tools")
     'llma-alerts', // skills-store skill, not in this repo
+    'secrets-and-integrations', // agent-platform runtime skill (secret-editor deep-link contract), not a repo skill
     'text-embedding-3-small-1536', // embedding model name
     'deep-dive', // "a deep-dive skill"
     'team-shared',
@@ -36,6 +37,7 @@ const REFERENCE_ALLOWLIST = new Set([
     'per-session', // adjective in "per-session tool calls", not a tool name
     'multi-file',
     'document-window', // shorthand for the business-knowledge-document-window-retrieve tool
+    'secrets-and-integrations', // agent platform skill, lives on feature branch until GA
 ])
 
 // "use the X tool", "load the `X` skill" — kebab or snake candidate followed by tool/skill.

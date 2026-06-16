@@ -3397,7 +3397,7 @@
         "feature_flag": "heatmaps-mcp"
     },
     "heatmaps-list": {
-        "description": "Aggregated heatmap interactions captured on a page. Filter by `url_exact` (one page) or `url_pattern` (regex across pages), a date window (`date_from`/`date_to`, data is retained 90 days), and optionally a viewport range (`viewport_width_min`/`viewport_width_max`, CSS px) to isolate a device class. Set `type` to 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. For clicks each result is a point — `pointer_relative_x` (0..1 across the viewport), `pointer_y` (absolute pixels down the page), and a `count`; 'scrolldepth' returns reach buckets instead. For the click types the response also includes a `fold` summary — `pct_below_fold` (share of non-fixed interactions that landed below the user's initial viewport, i.e. required scrolling), `below_fold_count`, `total_count`, and the `median_viewport_height` (the typical fold line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick` hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot.",
+        "description": "Aggregated heatmap interactions captured on a page. Filter by `url_exact` (one page) or `url_pattern` (regex across pages), a date window (`date_from`/`date_to`, data is retained 90 days), and optionally a viewport range (`viewport_width_min`/`viewport_width_max`, CSS px) to isolate a device class. Set `type` to 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. For clicks each result is a point — `pointer_relative_x` (0..1 across the viewport), `pointer_y` (absolute pixels down the page), and a `count`; 'scrolldepth' returns reach buckets instead. For the click types the response also includes a `fold` summary — `pct_below_fold` (share of non-fixed interactions that landed below the user's initial viewport, i.e. required scrolling), `below_fold_count`, `total_count`, and the `median_viewport_height` (the typical fold line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick` hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot. Click results are returned hottest-first and capped at `limit` (default 500); busy pages have thousands of distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is truncated.",
         "category": "Web analytics",
         "feature": "web_analytics",
         "summary": "List heatmap interactions for a page",
@@ -5793,6 +5793,20 @@
         "summary": "Get the project profile",
         "title": "Get the project profile",
         "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-emission-reports": {
+        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List the inbox reports a scout run's findings linked to",
+        "title": "List the inbox reports a scout run's findings linked to",
+        "required_scopes": ["signal_scout:read", "task:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
