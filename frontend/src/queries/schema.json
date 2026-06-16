@@ -15010,6 +15010,26 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
+        "DataWarehouseSourceCategory": {
+            "enum": [
+                "Databases",
+                "File storage",
+                "Advertising",
+                "Marketing & email",
+                "CRM",
+                "Sales",
+                "Customer support",
+                "Payments & billing",
+                "Finance & accounting",
+                "Analytics",
+                "Engineering & monitoring",
+                "Productivity",
+                "HR & recruiting",
+                "Communication",
+                "E-commerce"
+            ],
+            "type": "string"
+        },
         "DataWarehouseSyncWarning": {
             "additionalProperties": false,
             "properties": {
@@ -39926,6 +39946,10 @@
                         {}
                     ]
                 },
+                "category": {
+                    "$ref": "#/definitions/DataWarehouseSourceCategory",
+                    "description": "Catalog bucket this source is grouped under in the new-source wizard. Optional at the type level so partial/in-progress sources don't break, but every registered source must set one (enforced by a test). See `dataWarehouseSourceCategories`."
+                },
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
@@ -39954,6 +39978,13 @@
                 },
                 "iconPath": {
                     "type": "string"
+                },
+                "keywords": {
+                    "description": "Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → [\"ga4\", \"ga\"]. Matched alongside name/label/category.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "label": {
                     "type": "string"

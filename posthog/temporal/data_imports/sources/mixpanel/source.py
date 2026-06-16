@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -42,6 +43,7 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MIXPANEL,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Mixpanel",
             caption="""Connect your Mixpanel project to pull events, user profiles, cohorts and annotations into the PostHog Data warehouse.
 

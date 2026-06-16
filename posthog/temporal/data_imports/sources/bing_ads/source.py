@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -68,6 +69,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "AuthenticationFailed": auth_friendly,
             "InvalidCredentials": auth_friendly,
             "OAuthTokenExpired": auth_friendly,
+            # Integration row was deleted/disconnected while a scheduled job still references it.
+            # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
+            # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
+            # the customer has to reconnect.
+            "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
             # Deterministic credential/config errors raised in source_for_pipeline.
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
@@ -78,6 +84,8 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BING_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["microsoft ads", "microsoft advertising"],
             label="Bing Ads",
             caption="Ensure you have granted PostHog access to your Bing Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/bing-ads).",
             releaseStatus="beta",
