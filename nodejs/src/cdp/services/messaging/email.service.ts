@@ -1,11 +1,4 @@
-import {
-    MessageHeader,
-    SESv2Client,
-    SendEmailCommand,
-    SendEmailCommandInput,
-    SendingPausedException,
-    TooManyRequestsException,
-} from '@aws-sdk/client-sesv2'
+import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import { Counter } from 'prom-client'
@@ -30,12 +23,23 @@ const sesThrottleResponsesTotal = new Counter({
 })
 
 /**
- * SES v2 throws these on rate-limit / temporary-pause. Both are retryable;
- * `SendingPausedException` can mean a reputation issue but is still expected
- * to recover, so we retry. Other SDK exceptions (BadRequest, MessageRejected,
- * AccountSuspended, etc.) stay on the hard-failure path.
+ * SES error codes that signal a transient rate-limit shape — safe to retry
+ * shortly after. `TooManyRequestsException` is the SES-v2-specific class;
+ * `ThrottlingException` is a generic AWS SDK error code that can surface
+ * from the underlying transport layer for the same condition (not exported
+ * as a class for sesv2, so we match by `name`).
+ *
+ * `SendingPausedException` is *not* on this list — it signals a reputation
+ * or account-state problem that won't recover in seconds. Retrying within
+ * 500ms just burns reschedules; the job hard-fails instead, surfaces via
+ * `email_failed`, and the underlying SES config needs operator attention.
  */
-type SesThrottleException = TooManyRequestsException | SendingPausedException
+const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
+type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
+
+function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
+    return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
+}
 
 /**
  * Tagged error signalling that SES rejected the send for a transient,
@@ -44,10 +48,10 @@ type SesThrottleException = TooManyRequestsException | SendingPausedException
  * pick locally (SES doesn't return a Retry-After header).
  */
 export class SESThrottleError extends Error {
-    public readonly errorCode: SesThrottleException['name']
+    public readonly errorCode: SesThrottleErrorName
     public readonly retryAfterMs: number
 
-    constructor(errorCode: SesThrottleException['name'], retryAfterMs: number, message: string) {
+    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string) {
         super(message)
         this.name = 'SESThrottleError'
         this.errorCode = errorCode
@@ -327,7 +331,7 @@ export class EmailService {
                 throw new Error('No messageId returned from SES')
             }
         } catch (error: unknown) {
-            if (error instanceof TooManyRequestsException || error instanceof SendingPausedException) {
+            if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }

@@ -32,21 +32,27 @@ const claimLatency = new Histogram({
 
 // Atomic "claim up to" token-bucket script.
 //   KEYS[1]      = bucket hash key (stores `ts` and `pool`)
-//   ARGV[1]      = now (epoch ms)
-//   ARGV[2]      = requested tokens (integer)
-//   ARGV[3]      = pool capacity (max tokens the bucket can hold)
-//   ARGV[4]      = refill rate (tokens per second)
-//   ARGV[5]      = TTL seconds — bucket auto-expires when idle so cold-start
+//   ARGV[1]      = requested tokens (integer)
+//   ARGV[2]      = pool capacity (max tokens the bucket can hold)
+//   ARGV[3]      = refill rate (tokens per second)
+//   ARGV[4]      = TTL seconds — bucket auto-expires when idle so cold-start
 //                  gives full capacity rather than a stale negative pool.
+//
+// `now` is sourced via `redis.call('TIME')` so all pods share a single
+// monotonic clock — NTP drift between workers can't over- or under-refill
+// the bucket on this code path.
 //
 // Returns the number of tokens granted (0..requested).
 const CLAIM_UP_TO_LUA = `
 local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local requested = tonumber(ARGV[2])
-local capacity = tonumber(ARGV[3])
-local refillPerSecond = tonumber(ARGV[4])
-local ttlSeconds = tonumber(ARGV[5])
+local requested = tonumber(ARGV[1])
+local capacity = tonumber(ARGV[2])
+local refillPerSecond = tonumber(ARGV[3])
+local ttlSeconds = tonumber(ARGV[4])
+
+local time = redis.call('TIME')
+-- TIME returns {seconds, microseconds}; flatten to epoch ms.
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
 
 local existing = redis.call('hmget', key, 'ts', 'pool')
 local rawTs = existing[1]
@@ -145,7 +151,6 @@ export class RateLimiterService {
                         CLAIM_UP_TO_LUA,
                         1,
                         req.key,
-                        String(Date.now()),
                         String(req.requested),
                         String(req.capacity),
                         String(req.refillPerSecond),
