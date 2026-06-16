@@ -313,7 +313,6 @@ export const FEATURE_FLAGS = {
     HACKATHONS_SUBSCRIPTIONS: 'hackathons_subscriptions', // owner: #team-analytics-platform, gates listing subscription delivery history and AI change summaries
     HEALTH_ALERTS: 'health-alerts', // owner: #team-growth, gates the central /health/alerts scene and per-page Alerts buttons
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
-    INSIGHT_SUBSCRIBE_PROMINENT_BUTTON: 'insight-subscribe-prominent-button', // owner: @mattp #team-analytics-platform multivariate=control,test
     INTER_PROJECT_TRANSFERS: 'inter-project-transfers', // owner: @reecejones #team-platform-features
     JS_SNIPPET_VERSIONING: 'js-snippet-versioning', // owner: #team-client-libraries
     LEGAL_DOCUMENTS: 'legal-documents', // owner: @rafaeelaudibert #team-growth
@@ -445,7 +444,6 @@ export const FEATURE_FLAGS = {
     PROMOTED_PRODUCT: 'promoted-product', // owner: @pauldambra #team-growth multivariate=control,control_b,intent,intent_plus, experiment for surfacing the team's primary onboarding product directly under Home
     PROMPT_MANAGEMENT: 'prompt-management', // owner: #team-ai-observability
     PROPERTY_ACCESS_CONTROL: 'property-access-control', // owner: @reecejones #team-platform-features
-    PROVISION_MANAGED_WAREHOUSE_BETA: 'provision-managed-warehouse-beta', // owner: @EDsCODE #team-managed-warehouse
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
@@ -461,7 +459,6 @@ export const FEATURE_FLAGS = {
     REPLAY_VISION: 'replay-vision', // owner: #team-replay
     REVENUE_ANALYTICS: 'revenue-analytics', // owner: @rafaeelaudibert #team-customer-analytics
     REVENUE_FIELDS_IN_POWER_USERS_TABLE: 'revenue-fields-in-power-users-table', // owner: @arthurdedeus #team-customer-analytics
-    SCENE_ALERTS_LABEL_EXPERIMENT: 'scene-alerts-label-experiment', // owner: @mattp #team-analytics-platform multivariate=control,get-notified,monitor-changes,set-up-alert
     SCENE_MENU_BAR: 'scene-menu-bar', // owner: @adamleithp #team-platform-ux, gates the per-scene MenuBar above SceneTitleSection
     SCHEMA_ENFORCEMENT_REJECT: 'schema-enforcement-reject', // owner: @aspicer, gates the ability to set schema enforcement mode to "reject"
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer

@@ -786,6 +786,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema_metadata: dict | None = None,
         source_model=None,
         sync_type_config: dict | None = None,
+        s3_folder_name: str | None = None,
     ):
         schema = mock.MagicMock()
         schema.name = name
@@ -797,6 +798,10 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema.chunk_size_override = None
         schema.schema_metadata = schema_metadata
         schema.sync_type_config = sync_type_config or {}
+        schema.s3_folder_name = s3_folder_name
+        # MagicMock auto-attrs are truthy; pin the property to what the real model would resolve
+        # (resolution itself is covered by warehouse_sources test_models).
+        schema.resolved_s3_folder_name = s3_folder_name
         schema.source = source_model or mock.MagicMock()
         return schema
 
@@ -853,9 +858,9 @@ class TestPostgresSourceForPipelineSchemaResolution:
             assert kwargs["schema"] == "real_schema"
             assert kwargs["table_names"] == ["real_table"]
 
-    def test_dwh_storage_key_drives_response_name_so_delta_writes_to_legacy_path(self, source):
+    def test_s3_folder_name_drives_response_name_so_delta_writes_to_legacy_path(self, source):
         # After `consolidate_postgres_legacy_rows` renames `example_table` → `public.example_table`,
-        # the row carries `dwh_storage_key="example_table"`. `validate_schema_and_update_table` uses
+        # the row carries `s3_folder_name="example_table"`. `validate_schema_and_update_table` uses
         # that key for `url_pattern`, so `SourceResponse.name` MUST also derive from the storage key
         # — otherwise Delta files land at `.../public__example_table/` while `DataWarehouseTable.url_pattern`
         # points at `.../example_table/` and HogQL reads from an empty location.
@@ -864,7 +869,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
         schema_model = self._make_schema_model(
             "public.example_table",
             schema_metadata={"source_schema": "public", "source_table_name": "example_table"},
-            sync_type_config={"dwh_storage_key": "example_table"},
+            s3_folder_name="example_table",
         )
         inputs = self._make_inputs("public.example_table")
         config = self._make_config(schema=None)
@@ -884,12 +889,12 @@ class TestPostgresSourceForPipelineSchemaResolution:
             source.source_for_pipeline(config, inputs)
 
             assert response.name == NamingConvention.normalize_identifier("example_table"), (
-                f"response.name must derive from dwh_storage_key to keep Delta writes anchored to the "
+                f"response.name must derive from s3_folder_name to keep Delta writes anchored to the "
                 f"legacy folder; got {response.name!r}"
             )
 
     def test_response_name_uses_schema_name_when_no_storage_key(self, source):
-        # New (non-migrated) rows have no dwh_storage_key — response.name falls back to the row's
+        # New (non-migrated) rows have no s3_folder_name — response.name falls back to the row's
         # current name so the Delta path matches `url_pattern` (also derived from the row's name).
         from posthog.temporal.data_imports.naming_convention import NamingConvention
 
@@ -3693,6 +3698,22 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+    def test_failed_sql_transaction_is_not_captured(self):
+        # This lookup shares a connection with earlier best-effort metadata queries (PK + index
+        # discovery). When one of those fails on a non-Postgres engine (e.g. Redshift) its exception
+        # is caught upstream but leaves the transaction aborted, so our first statement here raises
+        # InFailedSqlTransaction as a downstream symptom. That's already handled, not a bug — don't
+        # flood error tracking with it.
+        conn = self._conn_raising(
+            psycopg.errors.InFailedSqlTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            )
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
+        assert result == {}
+        capture_mock.assert_not_called()
 
 
 class TestGetRowsInitialConnectRetry:

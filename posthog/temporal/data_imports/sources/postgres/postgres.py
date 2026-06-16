@@ -718,11 +718,20 @@ def _rls_active_from_conn(
                     result[display_name] = bool(rls_active)
             return result
     except Exception as e:
+        # This runs on a connection shared with earlier best-effort metadata lookups (PK + index
+        # discovery). When one of those fails on a non-Postgres engine — e.g. a Redshift-incompatible
+        # `pg_catalog` query — its exception is caught upstream but the connection's transaction is
+        # left in `INERROR`, so our first statement here fails with `InFailedSqlTransaction` purely as
+        # a downstream symptom. That's an already-handled condition, not a bug in this lookup, so
+        # don't re-capture it (mirrors `_get_partition_settings`).
+        #
         # Postgres-wire-compatible engines (DuckDB/Flight-SQL proxies, etc.) accept our connection
         # but don't implement `row_security_active`. RLS is a Postgres-only concept there, so a
         # missing-function error is an expected "no RLS" answer, not a bug — degrade quietly rather
         # than flooding error tracking. Still capture genuinely unexpected failures.
-        if not _is_unsupported_function_error(e, "row_security_active"):
+        if not isinstance(e, psycopg.errors.InFailedSqlTransaction) and not _is_unsupported_function_error(
+            e, "row_security_active"
+        ):
             capture_exception(e)
         return {}
 

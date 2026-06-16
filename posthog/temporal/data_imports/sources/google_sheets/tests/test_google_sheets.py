@@ -9,10 +9,12 @@ import gspread
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from posthog.temporal.data_imports.sources.google_sheets.google_sheets import (
     _PERMISSION_DENIED_MESSAGE,
+    _REQUEST_TIMEOUT_SECONDS,
     _get_worksheet,
     _retry_on_transient_api_error,
     get_schema_incremental_fields,
     get_schemas,
+    google_sheets_client,
     google_sheets_source,
 )
 from posthog.temporal.data_imports.sources.google_sheets.source import GoogleSheetsSource
@@ -379,3 +381,19 @@ def test_get_schema_incremental_fields_reraises_other_api_errors():
         get_schema_incremental_fields(config, "sheet1")
 
     assert mock_worksheet.get_all_values.call_count == 10
+
+
+def test_google_sheets_client_sets_request_timeout():
+    """Every gspread client must be built with a bounded (connect, read) timeout. gspread defaults
+    to no timeout, so a stalled Sheets API read blocks the threaded sync activity until Temporal's
+    start_to_close_timeout cancels the thread mid-read — which surfaces as a noisy CancelledError
+    rather than a fast, retryable timeout."""
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.service_account"),
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.AuthorizedSession"),
+        mock.patch("posthog.temporal.data_imports.sources.google_sheets.google_sheets.make_tracked_adapter"),
+    ):
+        client = google_sheets_client()
+
+    assert client.http_client.timeout == _REQUEST_TIMEOUT_SECONDS
+    assert client.http_client.timeout is not None

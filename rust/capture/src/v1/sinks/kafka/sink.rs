@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -136,6 +136,7 @@ type AckFuture = Pin<
                     Uuid,
                     &'static str,
                     DateTime<Utc>,
+                    Duration,
                     Result<(), super::producer::ProduceError>,
                 ),
             > + Send,
@@ -156,7 +157,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
         enqueued_at: DateTime<Utc>,
         results: &mut Vec<Box<dyn SinkResult>>,
         pending: &mut FuturesUnordered<AckFuture>,
-        enqueued_keys: &mut Vec<(Uuid, &'static str)>,
+        enqueued_keys: &mut Vec<(Uuid, &'static str, Instant)>,
     ) {
         let mut payload_buf = String::with_capacity(4096);
         let mut key_buf = String::with_capacity(128);
@@ -243,10 +244,12 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                             )
                             .increment(1);
                         }
-                        enqueued_keys.push((uuid, dest_tag));
+                        let sent_at = Instant::now();
+                        enqueued_keys.push((uuid, dest_tag, sent_at));
                         pending.push(Box::pin(async move {
                             let result = ack_future.await;
-                            (uuid, dest_tag, Utc::now(), result)
+                            let ack_latency = sent_at.elapsed();
+                            (uuid, dest_tag, Utc::now(), ack_latency, result)
                         }));
                         break;
                     }
@@ -304,7 +307,7 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
 
         loop {
             match tokio::time::timeout_at(deadline, pending.next()).await {
-                Ok(Some((uuid, dest_tag, completed_at, ack))) => {
+                Ok(Some((uuid, dest_tag, completed_at, ack_latency, ack))) => {
                     resolved_keys.insert(uuid);
 
                     let outcome_tag = match &ack {
@@ -329,19 +332,18 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
                     )
                     .increment(1);
 
-                    let elapsed = completed_at.signed_duration_since(enqueued_at);
-                    if let Ok(secs) = elapsed.to_std() {
-                        histogram!(
-                            "capture_v1_kafka_ack_duration_seconds",
-                            "mode" => labels.mode,
-                            "cluster" => labels.sink,
-                            "outcome" => outcome_tag,
-                            "path" => labels.path,
-                            "attempt" => labels.attempt,
-                            "destination" => dest_tag,
-                        )
-                        .record(secs.as_secs_f64());
-                    }
+                    // Per-event broker-ack latency (send → ack), isolated from
+                    // batch enqueue wall-time.
+                    histogram!(
+                        "capture_v1_kafka_ack_duration_seconds",
+                        "mode" => labels.mode,
+                        "cluster" => labels.sink,
+                        "outcome" => outcome_tag,
+                        "path" => labels.path,
+                        "attempt" => labels.attempt,
+                        "destination" => dest_tag,
+                    )
+                    .record(ack_latency.as_secs_f64());
 
                     match ack {
                         Ok(()) => results.push(Box::new(
@@ -365,20 +367,20 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
     fn collect_timeouts(
         labels: &MetricLabels,
         enqueued_at: DateTime<Utc>,
-        enqueued_keys: Vec<(Uuid, &'static str)>,
+        enqueued_keys: Vec<(Uuid, &'static str, Instant)>,
         resolved_keys: &HashSet<Uuid>,
         results: &mut Vec<Box<dyn SinkResult>>,
     ) {
         let timed_out: Vec<_> = enqueued_keys
             .into_iter()
-            .filter(|(k, _)| !resolved_keys.contains(k))
+            .filter(|(k, _, _)| !resolved_keys.contains(k))
             .collect();
         if timed_out.is_empty() {
             return;
         }
         let mut by_dest: std::collections::HashMap<&'static str, u64> =
             std::collections::HashMap::new();
-        for (_, dest_tag) in &timed_out {
+        for (_, dest_tag, _) in &timed_out {
             *by_dest.entry(dest_tag).or_default() += 1;
         }
         for (dest_tag, count) in &by_dest {
@@ -394,7 +396,19 @@ impl<P: KafkaProducerTrait + 'static> KafkaSink<P> {
             .increment(*count);
         }
         let gave_up_at = Utc::now();
-        for (uuid, _) in timed_out {
+        for (uuid, dest_tag, sent_at) in timed_out {
+            // Record timed-out acks so the latency tail (>= produce_timeout)
+            // is visible rather than silently dropped.
+            histogram!(
+                "capture_v1_kafka_ack_duration_seconds",
+                "mode" => labels.mode,
+                "cluster" => labels.sink,
+                "outcome" => Outcome::Timeout.as_tag(),
+                "path" => labels.path,
+                "attempt" => labels.attempt,
+                "destination" => dest_tag,
+            )
+            .record(sent_at.elapsed().as_secs_f64());
             results.push(Box::new(
                 KafkaResult::err(uuid, KafkaSinkError::Timeout, enqueued_at)
                     .with_completed_at(gave_up_at),
@@ -435,8 +449,10 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
         let enqueued_at = Utc::now();
         let mut results: Vec<Box<dyn SinkResult>> = Vec::new();
         let mut pending: FuturesUnordered<AckFuture> = FuturesUnordered::new();
-        let mut enqueued_keys: Vec<(Uuid, &'static str)> = Vec::new();
+        let mut enqueued_keys: Vec<(Uuid, &'static str, Instant)> = Vec::new();
 
+        // Enqueue wall-time, isolated from per-event broker-ack latency.
+        let enqueue_start = Instant::now();
         self.enqueue_events(
             ctx,
             events,
@@ -447,6 +463,14 @@ impl<P: KafkaProducerTrait + 'static> Sink for KafkaSink<P> {
             &mut enqueued_keys,
         )
         .await;
+        histogram!(
+            "capture_v1_kafka_enqueue_duration_seconds",
+            "mode" => labels.mode,
+            "cluster" => labels.sink,
+            "path" => labels.path,
+            "attempt" => labels.attempt,
+        )
+        .record(enqueue_start.elapsed().as_secs_f64());
 
         let resolved_keys = self
             .drain_acks(&labels, enqueued_at, &mut results, &mut pending)

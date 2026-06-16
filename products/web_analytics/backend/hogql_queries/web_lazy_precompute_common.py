@@ -47,10 +47,13 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Hourly UTC bucketing TTL schedule. Today gets 15 min so dashboards stay
-# fresh; older buckets get longer TTLs so we don't keep recomputing them.
+# Hourly UTC bucketing TTL schedule. Today gets 2h: recomputing it more often
+# buys nothing, since the ~6h HogQL result cache already fronts these queries (a
+# cache hit never reads the precompute), and a tighter TTL just makes the warmer
+# re-scan the whole current day every tick — which is what kept a full warm pass
+# from finishing inside the hourly window. Older buckets get longer TTLs.
 LAZY_TTL_SECONDS: dict[str, int] = {
-    "0d": 15 * 60,
+    "0d": 2 * 60 * 60,
     "1d": 60 * 60,
     "7d": 24 * 60 * 60,
     "default": 7 * 24 * 60 * 60,
