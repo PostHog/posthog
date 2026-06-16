@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
@@ -53,11 +54,10 @@ class TestWebflowSource:
         assert fields["site_id"].type == SourceFieldInputConfigType.TEXT
         assert fields["site_id"].secret is False
 
-    def test_get_non_retryable_errors(self) -> None:
+    @pytest.mark.parametrize("error_prefix", ["401 Client Error", "403 Client Error", "409 Client Error"])
+    def test_get_non_retryable_errors(self, error_prefix: str) -> None:
         errors = WebflowSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-        assert "409 Client Error" in errors
+        assert error_prefix in errors
 
     def test_409_conflict_is_recognised_as_non_retryable(self) -> None:
         # Webflow raises this on the ecommerce list endpoints when the site has no
