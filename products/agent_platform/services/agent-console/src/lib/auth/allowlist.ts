@@ -2,9 +2,12 @@
  * Team allowlist check for the agent console.
  *
  * Driven by `AGENT_CONSOLE_ALLOWED_TEAM_IDS` on `AgentConsoleConfig`.
- * When the list is empty (the default) the gate is disabled — anyone
- * with a working PostHog login can use the console. Set the env var to
- * restrict access to a curated set of teams (projects).
+ * When the list is empty the gate is disabled — anyone with a working
+ * PostHog login can use the console. In production this only happens when
+ * the operator sets the env var to an explicit empty value (the config
+ * loader requires it to be set in prod, so there's no silent default);
+ * dev defaults to `1,2`. Set the env var to restrict access to a curated
+ * set of teams (projects).
  *
  * Checked at two points:
  *   1. The OAuth callback — denial means the session cookie is never

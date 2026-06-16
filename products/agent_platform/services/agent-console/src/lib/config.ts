@@ -89,7 +89,13 @@ export const AgentConsoleConfigSchema = z.object({
         .describe('Node env. Controls cookie `secure` flag and the dev-default gating above.'),
     allowedTeamIds: z
         .string()
-        .default('1,2')
+        // Dev convenience default only — `1,2` covers the first two projects in
+        // a local install. In prod there is NO default: the operator must set
+        // `AGENT_CONSOLE_ALLOWED_TEAM_IDS` explicitly (see the prod check in
+        // `loadAgentConsoleConfig`) so a deployment can't silently ship the
+        // `1,2` door, and so "run without a team gate" is a deliberate choice
+        // (an explicit empty value) rather than an accident.
+        .default(() => (isDev() ? '1,2' : ''))
         .transform((v) =>
             v
                 .split(',')
@@ -99,7 +105,7 @@ export const AgentConsoleConfigSchema = z.object({
                 .filter((n) => Number.isInteger(n) && n > 0)
         )
         .describe(
-            'Comma-separated PostHog team (project) IDs that may use this console deployment. Defaults to `1,2` — the first two projects in any PostHog install, which cover a typical local dev or small single-tenant setup. Override to lock down a multi-team install, or set to an empty string (`AGENT_CONSOLE_ALLOWED_TEAM_IDS=`) to disable the gate entirely. Checked at OAuth callback (cookie never gets set on denial) AND on every `/api/auth/me` refresh (an admin removing the team mid-session signs the user out on next refresh).'
+            'Comma-separated PostHog team (project) IDs that may use this console deployment. Dev defaults to `1,2`; in prod it must be set explicitly. Set an empty string (`AGENT_CONSOLE_ALLOWED_TEAM_IDS=`) to deliberately run without a team gate. Checked at OAuth callback (cookie never gets set on denial) AND on every `/api/auth/me` refresh (an admin removing the team mid-session signs the user out on next refresh).'
         ),
 })
 
@@ -159,6 +165,16 @@ export function loadAgentConsoleConfig(env: NodeJS.ProcessEnv = process.env): Ag
         if (missing.length > 0) {
             const names = missing.map((k) => PROD_ENV_NAMES[k]).join(', ')
             throw new Error(`Missing required env vars in production: ${names}`)
+        }
+        // The team gate must be an explicit decision in prod: require the env
+        // var to be present (even if empty) so we never silently ship the dev
+        // `1,2` default or fall open by accident. An explicit empty value is a
+        // deliberate opt-out of the gate.
+        if (env.AGENT_CONSOLE_ALLOWED_TEAM_IDS === undefined) {
+            throw new Error(
+                'AGENT_CONSOLE_ALLOWED_TEAM_IDS must be set in production ' +
+                    '(use an explicit empty value to run without a team gate)'
+            )
         }
     }
 
