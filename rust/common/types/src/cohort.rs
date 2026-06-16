@@ -48,6 +48,15 @@ impl FromStr for TeamAllowlist {
                     if end < start {
                         return Err(format!("invalid range '{part}': end < start"));
                     }
+                    // Guard against an unbounded span materializing billions of ids (OOM at
+                    // startup). Compute in i64 so a negative start vs i32::MAX end can't overflow.
+                    const MAX_RANGE_SPAN: i64 = 100_000;
+                    let span = i64::from(end) - i64::from(start) + 1;
+                    if span > MAX_RANGE_SPAN {
+                        return Err(format!(
+                            "range '{part}' spans {span} teams (max {MAX_RANGE_SPAN}); use 'all' or '*' to allow every team"
+                        ));
+                    }
                     ids.extend(start..=end);
                 }
                 None => {
@@ -104,6 +113,11 @@ mod tests {
         assert!("nope".parse::<TeamAllowlist>().is_err());
         assert!("3:1".parse::<TeamAllowlist>().is_err());
         assert!("2,x".parse::<TeamAllowlist>().is_err());
+        // Oversized spans would materialize billions of ids and OOM at startup.
+        assert!("1:2000000000".parse::<TeamAllowlist>().is_err());
+        assert!("1:100002".parse::<TeamAllowlist>().is_err());
+        // A span at exactly the cap (100_000 teams) is still allowed.
+        assert!("1:100000".parse::<TeamAllowlist>().is_ok());
     }
 
     #[test]
