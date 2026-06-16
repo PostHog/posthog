@@ -766,3 +766,33 @@ class TestResourceCreateKwargs:
         kwargs = _resource_create_kwargs(config)
 
         assert kwargs == {"cpu": (0.5, 1.0), "memory": (1024, 1024)}
+
+    def test_explicit_request_floor_is_honored_when_burstable(self):
+        config = SandboxConfig(
+            name="t",
+            cpu_cores=8,
+            memory_gb=16,
+            burstable_resources=True,
+            cpu_request_cores=2,
+            memory_request_mb=4096,
+        )
+
+        kwargs = _resource_create_kwargs(config)
+
+        # Reserve the explicitly requested floor, burst up to the configured limit.
+        assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
+
+    def test_explicit_request_floor_is_clamped_to_limit(self):
+        # A request floor above the configured limit is clamped down to the limit.
+        config = SandboxConfig(
+            name="t",
+            cpu_cores=1,
+            memory_gb=2,
+            burstable_resources=True,
+            cpu_request_cores=4,
+            memory_request_mb=8192,
+        )
+
+        kwargs = _resource_create_kwargs(config)
+
+        assert kwargs == {"cpu": (1.0, 1.0), "memory": (2048, 2048)}

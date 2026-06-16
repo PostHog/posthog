@@ -26,7 +26,11 @@ from django.conf import settings
 import structlog
 from pydantic import BaseModel
 
-from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
+from products.tasks.backend.services.sandbox_config import (
+    BURSTABLE_REQUEST_CPU_CORES,
+    BURSTABLE_REQUEST_MEMORY_MB,
+    SANDBOX_TTL_SECONDS,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.temporal.process_task.utils import McpServerConfig
@@ -82,6 +86,10 @@ class SandboxConfig(BaseModel):
     # When True, request a small floor and let the box burst up to `cpu_cores` / `memory_gb`
     # (the limit); Modal bills max(request, actual). When False, request == limit (fixed size).
     burstable_resources: bool = False
+    # Request floor used when `burstable_resources` is True: the box reserves this much and bursts
+    # up to `cpu_cores` / `memory_gb`. Clamped to the limit at create time so it never exceeds it.
+    cpu_request_cores: float = BURSTABLE_REQUEST_CPU_CORES
+    memory_request_mb: int = BURSTABLE_REQUEST_MEMORY_MB
     vm_runtime: bool = False
     # gVisor only — Modal rejects this under vm_runtime.
     outbound_domain_allowlist: list[str] | None = None

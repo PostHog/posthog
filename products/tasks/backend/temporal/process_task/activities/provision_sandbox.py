@@ -386,7 +386,8 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Burstable resources enabled: bursting up to {config.cpu_cores} CPU / "
+                f"Burstable resources enabled: requesting {config.cpu_request_cores} CPU / "
+                f"{config.memory_request_mb} MiB, bursting up to {config.cpu_cores} CPU / "
                 f"{int(config.memory_gb * 1024)} MiB",
             )
 
