@@ -3268,3 +3268,82 @@ class TestRlsActiveFromConnErrorHandling:
             result = _rls_active_from_conn(cast(Any, conn), "public", ["t"])
         assert result == {}
         capture_mock.assert_called_once()
+
+
+class TestGetRowsInitialConnectRetry:
+    # Regression: the main server-cursor read path opened its initial connection with a bare
+    # get_connection(), so a transient "server closed the connection unexpectedly" while
+    # establishing that connection escaped and failed the whole sync — even though every other
+    # read path already recovers in-process via _connect_with_dropped_retry. Wrapping the initial
+    # connect in the same helper makes a transient drop retry instead of aborting.
+    @pytest.mark.django_db(transaction=True)
+    def test_initial_connect_retries_transient_drop(self):
+        table_name = "test_initial_connect_retry"
+        sd = django_connection.settings_dict
+
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+            dj_cursor.execute(f"CREATE TABLE {table_name} (id BIGSERIAL PRIMARY KEY, val TEXT)")
+            dj_cursor.execute(f"INSERT INTO {table_name} (val) SELECT 'v' || g FROM generate_series(1, 5) g")
+
+        @contextmanager
+        def tunnel():
+            yield (sd["HOST"] or "localhost", int(sd["PORT"]) if sd["PORT"] else 5432)
+
+        real_connect = psycopg.connect
+
+        def plain_connect(*args, **kwargs):
+            # The production connect passes dummy SSL cert paths ("/tmp/no.txt"); strip the SSL
+            # kwargs so the read path can reach the local test DB while we exercise the retry.
+            for key in ("sslmode", "sslrootcert", "sslcert", "sslkey"):
+                kwargs.pop(key, None)
+            return real_connect(*args, **kwargs)
+
+        logger = structlog.get_logger()
+
+        try:
+            with patch(
+                "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                side_effect=plain_connect,
+            ):
+                response = postgres_source(
+                    tunnel=tunnel,
+                    user=sd["USER"] or "",
+                    password=sd["PASSWORD"] or "",
+                    database=sd["NAME"],
+                    sslmode="prefer",
+                    schema="public",
+                    table_names=[table_name],
+                    should_use_incremental_field=False,
+                    logger=logger,
+                    db_incremental_field_last_value=None,
+                    team_id=1,
+                )
+
+            connect_calls = {"n": 0}
+
+            def flaky_connect(*args, **kwargs):
+                connect_calls["n"] += 1
+                if connect_calls["n"] == 1:
+                    # The exact production failure: a transient drop while establishing the read
+                    # connection (here, the local 127.0.0.1 tunnel endpoint).
+                    raise psycopg.OperationalError(
+                        'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
+                        "server closed the connection unexpectedly"
+                    )
+                return plain_connect(*args, **kwargs)
+
+            with (
+                patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"),
+                patch(
+                    "posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+                    side_effect=flaky_connect,
+                ),
+            ):
+                tables = list(response.items())
+
+            assert connect_calls["n"] >= 2, "initial connect should have been retried after the transient drop"
+            assert sum(table.num_rows for table in tables) == 5
+        finally:
+            with django_connection.cursor() as dj_cursor:
+                dj_cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
