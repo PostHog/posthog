@@ -835,7 +835,9 @@ class TestGetIntegration:
             return integration
 
         monkeypatch.setattr(meta_ads.Integration.objects, "get", fake_get)
-        monkeypatch.setattr(meta_ads, "MetaAdsIntegration", lambda i: mock.MagicMock(integration=i))
+
+        meta_ads_integration = mock.MagicMock(integration=integration)
+        monkeypatch.setattr(meta_ads, "MetaAdsIntegration", lambda _: meta_ads_integration)
 
         config = mock.MagicMock()
         config.meta_ads_integration_id = 1
@@ -843,4 +845,5 @@ class TestGetIntegration:
         result = meta_ads.get_integration(config, team_id=1)
 
         assert calls == ["close_old_connections", "Integration.objects.get"]
+        meta_ads_integration.refresh_access_token.assert_called_once()
         assert result is integration
