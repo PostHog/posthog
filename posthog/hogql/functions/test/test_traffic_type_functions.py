@@ -1,6 +1,9 @@
 import pytest
+from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.traffic_type import (
     get_bot_name,
     get_bot_type,
@@ -8,6 +11,8 @@ from posthog.hogql.functions.traffic_type import (
     get_traffic_type,
     is_bot,
 )
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
@@ -419,3 +424,23 @@ class TestBotDefinitionsDataStructure:
                     assert patterns.index(p2) < patterns.index(p1), (
                         f"{p2} must come before {p1} for correct multiMatchAnyIndex matching"
                     )
+
+
+class TestMacroExpansionGuard(BaseTest):
+    def _print(self, select: str) -> str:
+        return prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            "clickhouse",
+        )[0]
+
+    def test_single_level_traffic_type_expands(self):
+        # A non-nested call resolves and expands to the multiMatchAnyIndex lookup.
+        printed = self._print("SELECT __preview_getTrafficType(toString(properties.x)) FROM events")
+        assert "multiMatchAnyIndex" in printed
+
+    def test_nested_expanded_function_is_rejected(self):
+        # The builders duplicate their argument, so a macro nested inside another macro's
+        # expansion would blow up ~2^depth during resolution. Reject it instead of expanding.
+        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+            self._print("SELECT __preview_getTrafficType(__preview_getTrafficType(toString(properties.x))) FROM events")

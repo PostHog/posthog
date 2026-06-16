@@ -256,6 +256,8 @@ class Resolver(CloningVisitor):
         self.cte_counter = 0
         self._scope_table_names: dict[int, dict[str, str]] = {}
         self._scope_table_column_aliases: dict[int, dict[str, list[str]]] = {}
+        # Re-entrancy guard for PostHog-function macros (see _expand_posthog_function_macro).
+        self._inside_posthog_macro_expansion: bool = False
 
     def _get_scope_table_names(self, scope: ast.SelectQueryType) -> dict[str, str]:
         return self._scope_table_names.setdefault(id(scope), {})
@@ -1508,6 +1510,29 @@ class Resolver(CloningVisitor):
         node.type.nullable = left_type.nullable or right_type.nullable
         return node
 
+    def _matches_action_expansion(self, node: ast.Call) -> ast.Expr:
+        events_alias, _ = self._get_events_table_current_scope()
+        if events_alias is None:
+            raise QueryError("matchesAction can only be used with the events table")
+        return matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+
+    def _expand_posthog_function_macro(self, node: ast.Call, builder: Callable[[], ast.Expr]) -> ast.Expr:
+        """Build a PostHog-function macro's replacement AST and resolve it.
+
+        Some builders duplicate their argument into multiple positions of the expansion
+        (e.g. the bot-lookup helpers reference the same multiMatchAnyIndex node twice), so a
+        user-written macro nested inside another macro's argument would expand ~2^depth during
+        resolution. The catalog and every legitimate caller use these functions un-nested, so a
+        macro reached while we're already expanding one means user abuse: reject it instead.
+        """
+        if self._inside_posthog_macro_expansion:
+            raise QueryError(f"Function '{node.name}' cannot be nested inside another expanded function call.")
+        self._inside_posthog_macro_expansion = True
+        try:
+            return self.visit(builder())
+        finally:
+            self._inside_posthog_macro_expansion = False
+
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
@@ -1534,36 +1559,34 @@ class Resolver(CloningVisitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
 
             if node.name == "sparkline":
-                return self.visit(sparkline(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: sparkline(node=node, args=node.args))
             if node.name == "recordingButton":
-                return self.visit(recording_button(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: recording_button(node=node, args=node.args))
             if node.name == "explainCSPReport":
-                return self.visit(explain_csp_report(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: explain_csp_report(node=node, args=node.args))
             if node.name == "matchesAction":
-                events_alias, _ = self._get_events_table_current_scope()
-                if events_alias is None:
-                    raise QueryError("matchesAction can only be used with the events table")
-                return self.visit(
-                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
-                )
+                return self._expand_posthog_function_macro(node, lambda: self._matches_action_expansion(node))
             if node.name == "getSurveyResponse":
-                return self.visit(get_survey_response(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: get_survey_response(node=node, args=node.args))
             if node.name == "uniqueSurveySubmissionsFilter":
-                return self.visit(
-                    unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
+                return self._expand_posthog_function_macro(
+                    node,
+                    lambda: unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id),
                 )
             if node.name == "__preview_getTrafficType":
-                return self.visit(get_traffic_type(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: get_traffic_type(node=node, args=node.args))
             if node.name == "__preview_getTrafficCategory":
-                return self.visit(get_traffic_category(node=node, args=node.args))
+                return self._expand_posthog_function_macro(
+                    node, lambda: get_traffic_category(node=node, args=node.args)
+                )
             if node.name == "__preview_isBot":
-                return self.visit(is_bot(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: is_bot(node=node, args=node.args))
             if node.name == "__preview_getBotType":
-                return self.visit(get_bot_type(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: get_bot_type(node=node, args=node.args))
             if node.name == "__preview_getBotName":
-                return self.visit(get_bot_name(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: get_bot_name(node=node, args=node.args))
             if node.name == "__preview_getBotOperator":
-                return self.visit(get_bot_operator(node=node, args=node.args))
+                return self._expand_posthog_function_macro(node, lambda: get_bot_operator(node=node, args=node.args))
 
         if self._is_higher_order_array_call(node):
             node = self._visit_higher_order_array_call(node)
