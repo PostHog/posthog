@@ -1,6 +1,6 @@
-import type { ChartTheme, Series } from '../../core/types'
+import type { ChartTheme, Series, TooltipContext } from '../../core/types'
 import { renderHogChart } from '../../testing'
-import type { SlopeSeriesMeta } from './slope-data'
+import { sortSlopeTooltipRows, type SlopeSeriesMeta } from './slope-data'
 import { SlopeChart } from './SlopeChart'
 
 const THEME: ChartTheme = {
@@ -212,6 +212,25 @@ describe('SlopeChart', () => {
             const values = chart.slopeValueLabels().map((l) => ({ side: l.side, text: l.text }))
             expect(values).toContainEqual({ side: 'start', text: '10' })
             expect(values).toContainEqual({ side: 'end', text: '40' })
+        })
+    })
+
+    describe('tooltip row sorting', () => {
+        const row = (key: string, value: number): TooltipContext['seriesData'][number] => ({
+            series: { key, label: key.toUpperCase(), data: [] },
+            value,
+            color: '#000',
+        })
+
+        it('orders rows biggest-to-smallest by value', () => {
+            const sorted = sortSlopeTooltipRows([row('a', 30), row('b', 90), row('c', 60)])
+            expect(sorted.map((r) => r.value)).toEqual([90, 60, 30])
+        })
+
+        it('does not mutate the input array', () => {
+            const input = [row('a', 30), row('b', 90)]
+            sortSlopeTooltipRows(input)
+            expect(input.map((r) => r.value)).toEqual([30, 90])
         })
     })
 
