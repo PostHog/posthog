@@ -40,6 +40,7 @@ import {
     isExternalLink,
     isLessThan2Days,
     isOperatorMulti,
+    isQueryCancellation,
     isURL,
     median,
     midEllipsis,
@@ -1647,38 +1648,55 @@ describe('lib/utils', () => {
     })
 
     describe('isCancelledQueryError', () => {
-        it('matches a server-side cancellation by code', () => {
-            expect(isCancelledQueryError({ code: 'query_was_cancelled' })).toBe(true)
-            expect(isCancelledQueryError({ code: 'QUERY_WAS_CANCELLED' })).toBe(true)
-            expect(isCancelledQueryError({ data: { code: 'query_was_cancelled' } })).toBe(true)
+        it.each([
+            ['code, lowercase', { code: 'query_was_cancelled' }],
+            ['code, uppercase', { code: 'QUERY_WAS_CANCELLED' }],
+            ['nested data.code', { data: { code: 'query_was_cancelled' } }],
+            ['detail message', { detail: 'DB::Exception: Query was cancelled. (QUERY_WAS_CANCELLED)' }],
+            ['top-level message', { message: 'Query was cancelled' }],
+            ['nested query_status message', { data: { query_status: { error_message: 'Query was cancelled' } } }],
+        ])('matches a server-side cancellation by %s', (_label, error) => {
+            expect(isCancelledQueryError(error)).toBe(true)
         })
 
-        it('matches a server-side cancellation by message', () => {
-            expect(isCancelledQueryError({ detail: 'DB::Exception: Query was cancelled. (QUERY_WAS_CANCELLED)' })).toBe(
-                true
-            )
-            expect(isCancelledQueryError({ message: 'Query was cancelled' })).toBe(true)
-            expect(isCancelledQueryError({ data: { query_status: { error_message: 'Query was cancelled' } } })).toBe(
-                true
-            )
-        })
-
-        it('does not match unrelated errors', () => {
-            expect(isCancelledQueryError({ code: 'unknown_function', detail: 'Unknown function foo' })).toBe(false)
-            expect(isCancelledQueryError({ message: 'Network error' })).toBe(false)
-            expect(isCancelledQueryError({})).toBe(false)
+        it.each([
+            ['an unknown-function error', { code: 'unknown_function', detail: 'Unknown function foo' }],
+            ['a generic network error', { message: 'Network error' }],
+            ['an empty error', {}],
+        ])('does not match %s', (_label, error) => {
+            expect(isCancelledQueryError(error)).toBe(false)
         })
     })
 
     describe('shouldCancelQuery', () => {
-        it('treats client aborts, timeouts, and server cancellations as cancellations', () => {
-            expect(shouldCancelQuery({ name: 'AbortError' })).toBe(true)
-            expect(shouldCancelQuery({ status: 504 })).toBe(true)
-            expect(shouldCancelQuery({ code: 'query_was_cancelled' })).toBe(true)
+        // Only frontend-initiated aborts/timeouts warrant a backend cancel request; a server-side
+        // QUERY_WAS_CANCELLED is already gone, so it is intentionally excluded here.
+        it.each([
+            ['a client abort', { name: 'AbortError' }],
+            ['a gateway timeout', { status: 504 }],
+        ])('issues a backend cancel for %s', (_label, error) => {
+            expect(shouldCancelQuery(error)).toBe(true)
         })
 
-        it('does not treat genuine query failures as cancellations', () => {
-            expect(shouldCancelQuery({ status: 500, detail: 'ClickHouse error while executing query.' })).toBe(false)
+        it.each([
+            ['a server-side cancellation', { code: 'query_was_cancelled' }],
+            ['a genuine query failure', { status: 500, detail: 'ClickHouse error while executing query.' }],
+        ])('does not issue a backend cancel for %s', (_label, error) => {
+            expect(shouldCancelQuery(error)).toBe(false)
+        })
+    })
+
+    describe('isQueryCancellation', () => {
+        it.each([
+            ['a client abort', { name: 'AbortError' }],
+            ['a gateway timeout', { status: 504 }],
+            ['a server-side cancellation', { code: 'query_was_cancelled' }],
+        ])('treats %s as a benign cancellation', (_label, error) => {
+            expect(isQueryCancellation(error)).toBe(true)
+        })
+
+        it('does not treat a genuine query failure as a cancellation', () => {
+            expect(isQueryCancellation({ status: 500, detail: 'ClickHouse error while executing query.' })).toBe(false)
         })
     })
 })

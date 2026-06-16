@@ -19,7 +19,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { shouldCancelQuery, uuid } from 'lib/utils'
+import { isQueryCancellation, shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
@@ -718,7 +718,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         // Extract count from first row, first column
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        if (!shouldCancelQuery(error)) {
+                        if (!isQueryCancellation(error)) {
                             posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
                         }
                         return null
@@ -741,7 +741,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         breakpoint()
                         return response?.results?.[0]?.[0] || 0
                     } catch (error) {
-                        if (!shouldCancelQuery(error)) {
+                        if (!isQueryCancellation(error)) {
                             posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
                         }
                         return null

@@ -6,7 +6,7 @@ import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/fro
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
-import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
+import { isQueryCancellation, objectClean, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -334,7 +334,7 @@ export async function getInsightWithRetry(
                         )
                         return result
                     } catch (e) {
-                        if (shouldCancelQuery(e)) {
+                        if (isQueryCancellation(e)) {
                             throw e // Re-throw cancellation errors
                         }
                         // if polling throws, show an error.
@@ -354,7 +354,7 @@ export async function getInsightWithRetry(
 
             return result
         } catch (e: any) {
-            if (shouldCancelQuery(e)) {
+            if (isQueryCancellation(e)) {
                 throw e // Re-throw cancellation errors
             }
 

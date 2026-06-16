@@ -2352,7 +2352,7 @@ export function inStorybook(): boolean {
 
 /** We issue a cancel request, when the request is aborted or times out (frontend side), since in these cases the backend query might still be running. */
 export function shouldCancelQuery(error: any): boolean {
-    return isAbortedRequest(error) || isTimedOutRequest(error) || isCancelledQueryError(error)
+    return isAbortedRequest(error) || isTimedOutRequest(error)
 }
 
 export function isAbortedRequest(error: any): boolean {
@@ -2361,6 +2361,17 @@ export function isAbortedRequest(error: any): boolean {
 
 export function isTimedOutRequest(error: any): boolean {
     return error.status === 504
+}
+
+/**
+ * Whether an error represents an intentional query cancellation rather than a real failure — either
+ * a frontend-initiated abort/timeout (see {@link shouldCancelQuery}) or a backend `QUERY_WAS_CANCELLED`
+ * echoed back (see {@link isCancelledQueryError}). Use this to keep cancellations out of error tracking
+ * and avoid surfacing them as errors. Unlike {@link shouldCancelQuery}, this does not imply we should
+ * issue a backend cancel request — a server-side cancellation means the query is already gone.
+ */
+export function isQueryCancellation(error: any): boolean {
+    return shouldCancelQuery(error) || isCancelledQueryError(error)
 }
 
 /**

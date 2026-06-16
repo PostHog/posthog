@@ -37,7 +37,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import {
+    clearDOMTextSelection,
+    getJSHeapMemory,
+    isCancelledQueryError,
+    shouldCancelQuery,
+    toParams,
+    uuid,
+} from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
@@ -2417,6 +2424,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime })
+                            tilesAbortedCount++
+                        } else if (isCancelledQueryError(e)) {
+                            // Backend already cancelled the query (echoed back as QUERY_WAS_CANCELLED) —
+                            // it's a cancellation, not a failure, and there's nothing left to cancel.
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
