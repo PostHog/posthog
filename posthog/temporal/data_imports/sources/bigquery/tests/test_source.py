@@ -294,16 +294,39 @@ def test_non_retryable_errors_match_rejected_credentials(observed_error):
 
 
 @pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Raised when the Dataset ID is `project.dataset`, so we build a 4-component table id.
+        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
+        "got immortal-407108.immortal-407108.analytics_529249625.events_20260325",
+        'table_id must be a fully-qualified ID in standard SQL format, e.g., "project.dataset.table_id", '
+        "got immortal-407108.immortal-407108.analytics_529249625.__posthog_import_abc_def_123",
+    ],
+)
+def test_bigquery_malformed_table_id_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Malformed table id error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
     "transient_error",
     [
         # A token refresh that failed for a transient reason must stay retryable.
         "RefreshError: ('Failed to retrieve token', {'error': 'internal_failure'})",
         "RefreshError: HTTPError 503 Service Unavailable",
+        "Connection reset by peer",
+        "ReadTimeout: The read operation timed out",
+        "503 Service Unavailable",
     ],
 )
 def test_non_retryable_errors_does_not_match_transient_refresh_failures(transient_error):
+    """Transient errors must not match any non-retryable key, so they stay retryable. Mirrors the
+    real matching mechanism (substring against every key) to guard against an overly broad key."""
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    assert not any(key in transient_error for key in non_retryable_errors)
+    matching = [key for key in non_retryable_errors if key in transient_error]
+    assert not matching, f"Transient error should remain retryable, but matched keys: {matching}"
 
 
 def _run_delete_all_temp_destination_tables(side_effect, logger):
