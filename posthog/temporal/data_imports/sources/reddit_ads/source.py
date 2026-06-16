@@ -38,6 +38,10 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": None,
+            # Reddit returns 403 when the connected account lacks permission to read the
+            # configured ad account's reports (access revoked or insufficient scope). The
+            # request can never succeed without the user reconnecting, so stop retrying.
+            "403 Client Error": None,
             "404 Client Error": None,
             # Raised by OAuthMixin.get_oauth_integration when the connected Reddit Ads
             # account has been deleted or disconnected. The integration row is gone, so
