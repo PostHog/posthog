@@ -1130,40 +1130,35 @@ def _clamp_pg_hour_24(data) -> bytes | None:
     return ("23:59:59.999999" + tz_suffix).encode("utf-8")
 
 
-class SafeTimeLoader(TimeLoader):
-    """Load PostgreSQL `time` values, clamping the '24:00:00' edge case.
+def _load_time_clamping_hour_24(super_load: Callable[[Any], datetime_time], data) -> datetime_time:
+    """Run psycopg's default time loader, clamping the '24:00:00' edge case.
 
     Mirrors SafeDateLoader's clamp-to-max behaviour: a Postgres end-of-day
     '24:00:00' (which Python's datetime.time cannot represent) is clamped to
     time.max, while every other value — and any genuine parse error — is
     delegated to psycopg's default loader.
     """
+    try:
+        return super_load(data)
+    except psycopg.DataError:
+        clamped = _clamp_pg_hour_24(data)
+        if clamped is None:
+            raise
+        return super_load(clamped)
 
-    def load(self, data) -> datetime_time | None:
-        try:
-            return super().load(data)
-        except psycopg.DataError:
-            clamped = _clamp_pg_hour_24(data)
-            if clamped is None:
-                raise
-            return super().load(clamped)
+
+class SafeTimeLoader(TimeLoader):
+    """Load PostgreSQL `time` values, clamping the '24:00:00' edge case."""
+
+    def load(self, data) -> datetime_time:
+        return _load_time_clamping_hour_24(super().load, data)
 
 
 class SafeTimetzLoader(TimetzLoader):
-    """Load PostgreSQL `timetz` values, clamping the '24:00:00' edge case.
+    """Load PostgreSQL `timetz` values, clamping '24:00:00' while preserving the timezone offset."""
 
-    See SafeTimeLoader; this variant preserves the timezone offset when
-    clamping an hour-24 value to the maximum representable time.
-    """
-
-    def load(self, data) -> datetime_time | None:
-        try:
-            return super().load(data)
-        except psycopg.DataError:
-            clamped = _clamp_pg_hour_24(data)
-            if clamped is None:
-                raise
-            return super().load(clamped)
+    def load(self, data) -> datetime_time:
+        return _load_time_clamping_hour_24(super().load, data)
 
 
 def _build_query(
