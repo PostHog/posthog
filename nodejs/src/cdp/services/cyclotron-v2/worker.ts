@@ -41,6 +41,7 @@ export class CyclotronV2Worker {
     protected readonly pollDelayMs: number
     private readonly heartbeatTimeoutMs: number
     protected readonly includeEmptyBatches: boolean
+    protected readonly fairDequeue: boolean
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = new Pool({
@@ -52,6 +53,7 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
+        this.fairDequeue = config.fairDequeue ?? false
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -109,6 +111,16 @@ export class CyclotronV2Worker {
 
     protected async dequeueJobs(limit: number = this.batchMaxSize): Promise<RawJobRow[]> {
         const lockId = uuidv7()
+        // Fair dequeue (email queue): order by the precomputed sort key so
+        // tenants interleave 1-for-1 instead of FIFO. Hits the partial index
+        // `idx_cyclotron_jobs_email_fair_dequeue`. NULLS FIRST so any legacy
+        // rows without dequeue_seq (pre-migration backlog) drain first.
+        //
+        // Default (non-email queues): FIFO by priority then scheduled time.
+        // Hits the partial index `idx_cyclotron_jobs_dequeue`.
+        const orderBy = this.fairDequeue
+            ? 'ORDER BY dequeue_seq ASC NULLS FIRST'
+            : 'ORDER BY priority ASC, scheduled ASC'
         const result = await this.pool.query<RawJobRow>(
             `WITH available AS (
                 SELECT id
@@ -116,7 +128,7 @@ export class CyclotronV2Worker {
                 WHERE status = 'available'
                   AND queue_name = $1
                   AND scheduled <= NOW()
-                ORDER BY priority ASC, scheduled ASC
+                ${orderBy}
                 LIMIT $2
                 FOR UPDATE SKIP LOCKED
             )

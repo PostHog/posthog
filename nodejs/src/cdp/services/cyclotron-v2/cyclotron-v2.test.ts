@@ -799,6 +799,190 @@ describe('Cyclotron V2', () => {
         })
     })
 
+    // ── Email fair dequeue ───────────────────────────────────────────
+    //
+    // dequeue_seq is precomputed at insert time for email-queue jobs.
+    // Sorting ascending by it interleaves tenants 1-for-1, so a single
+    // email from one team isn't blocked behind another team's 2M-row
+    // campaign. Counter state lives in cyclotron_email_team_seq.
+
+    describe('Email fair dequeue', () => {
+        const EMAIL_QUEUE = 'email'
+
+        const readDequeueSeq = async (id: string): Promise<bigint | null> => {
+            const res = await assertPool.query<{ dequeue_seq: string | null }>(
+                'SELECT dequeue_seq FROM cyclotron_jobs WHERE id = $1',
+                [id]
+            )
+            const raw = res.rows[0].dequeue_seq
+            return raw === null ? null : BigInt(raw)
+        }
+
+        const readTeamCounter = async (teamId: number): Promise<bigint | null> => {
+            const res = await assertPool.query<{ counter: string }>(
+                'SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1',
+                [teamId]
+            )
+            return res.rows.length === 0 ? null : BigInt(res.rows[0].counter)
+        }
+
+        beforeEach(async () => {
+            // Wipe the per-team counter table between tests so each starts cold.
+            await assertPool.query('DELETE FROM cyclotron_email_team_seq')
+        })
+
+        describe('Manager: dequeue_seq assignment', () => {
+            it('assigns dequeue_seq for email jobs, NULL for other queues', async () => {
+                const emailId = await manager.createJob({ teamId: 7, queueName: EMAIL_QUEUE })
+                const hogId = await manager.createJob({ teamId: 7, queueName: 'hog' })
+
+                expect(await readDequeueSeq(emailId)).not.toBeNull()
+                expect(await readDequeueSeq(hogId)).toBeNull()
+            })
+
+            it('uses counter * 16M + team_id as the formula', async () => {
+                const teamId = 42
+                const id = await manager.createJob({ teamId, queueName: EMAIL_QUEUE })
+
+                const seq = await readDequeueSeq(id)
+                // First job for this team: counter = 1.
+                // dequeue_seq = 1 * 16,777,216 + 42 = 16,777,258
+                expect(seq).toBe(BigInt(16_777_216) + BigInt(teamId))
+            })
+
+            it('increments the team counter monotonically across calls', async () => {
+                const teamId = 100
+                await manager.createJob({ teamId, queueName: EMAIL_QUEUE })
+                await manager.createJob({ teamId, queueName: EMAIL_QUEUE })
+                await manager.createJob({ teamId, queueName: EMAIL_QUEUE })
+
+                expect(await readTeamCounter(teamId)).toBe(3n)
+            })
+
+            it('keeps per-team counters independent', async () => {
+                await manager.createJob({ teamId: 1, queueName: EMAIL_QUEUE })
+                await manager.createJob({ teamId: 1, queueName: EMAIL_QUEUE })
+                await manager.createJob({ teamId: 2, queueName: EMAIL_QUEUE })
+
+                expect(await readTeamCounter(1)).toBe(2n)
+                expect(await readTeamCounter(2)).toBe(1n)
+            })
+
+            it('assigns sequential dequeue_seq within a bulk batch for the same team', async () => {
+                const teamId = 50
+                const ids = await manager.bulkCreateJobs([
+                    { teamId, queueName: EMAIL_QUEUE },
+                    { teamId, queueName: EMAIL_QUEUE },
+                    { teamId, queueName: EMAIL_QUEUE },
+                ])
+
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                expect(seqs).toEqual([
+                    BigInt(16_777_216) + BigInt(teamId), // counter=1
+                    BigInt(16_777_216) * 2n + BigInt(teamId), // counter=2
+                    BigInt(16_777_216) * 3n + BigInt(teamId), // counter=3
+                ])
+                expect(await readTeamCounter(teamId)).toBe(3n)
+            })
+
+            it('handles mixed-team bulk batches without crossing counters', async () => {
+                const ids = await manager.bulkCreateJobs([
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                    { teamId: 2, queueName: EMAIL_QUEUE },
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                    { teamId: 2, queueName: EMAIL_QUEUE },
+                ])
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                const BLOCK = BigInt(16_777_216)
+
+                // Team 1's two jobs use counter 1 and 2; same for team 2.
+                expect(seqs[0]).toBe(BLOCK + 1n) // team 1, counter 1
+                expect(seqs[1]).toBe(BLOCK + 2n) // team 2, counter 1
+                expect(seqs[2]).toBe(BLOCK * 2n + 1n) // team 1, counter 2
+                expect(seqs[3]).toBe(BLOCK * 2n + 2n) // team 2, counter 2
+            })
+
+            it('leaves non-email jobs in a bulk batch with NULL dequeue_seq', async () => {
+                const ids = await manager.bulkCreateJobs([
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                    { teamId: 1, queueName: 'hog' },
+                    { teamId: 1, queueName: EMAIL_QUEUE },
+                ])
+
+                const seqs = await Promise.all(ids.map(readDequeueSeq))
+                expect(seqs[0]).not.toBeNull() // email
+                expect(seqs[1]).toBeNull() // hog
+                expect(seqs[2]).not.toBeNull() // email
+                // Only the email jobs bumped the team counter.
+                expect(await readTeamCounter(1)).toBe(2n)
+            })
+        })
+
+        describe('Worker: fairDequeue ordering', () => {
+            const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
+                createWorker(EMAIL_QUEUE, { fairDequeue: true, ...overrides })
+
+            it('interleaves teams when fairDequeue is true', async () => {
+                // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,
+                // team B enqueues 1. Without fair dequeue, A's 5 come before
+                // B's 1. With fair dequeue, B's 1 lands right after A's first.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+                await manager.createJob({ teamId: teamB, queueName: EMAIL_QUEUE })
+
+                const worker = createFairWorker({ batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(2)
+                // First job is team A (counter 1, lower team_id → sorts first
+                // within the counter=1 group). Second job is team B (counter 1).
+                // The remaining 4 of team A all have counter >= 2 → sort after.
+                const teamIds = jobs.map((j) => j.teamId).sort()
+                expect(teamIds).toEqual([teamA, teamB])
+            })
+
+            it('preserves FIFO when fairDequeue is false (default)', async () => {
+                // Same scenario, but with the flag off, all team-A jobs come first.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs(
+                    Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE }))
+                )
+                await manager.createJob({ teamId: teamB, queueName: EMAIL_QUEUE })
+
+                const worker = createWorker(EMAIL_QUEUE, { batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(2)
+                // FIFO: both jobs are team A (their dequeue_seq is ignored by the
+                // ordering, scheduled-time wins, A came first).
+                expect(jobs.every((j) => j.teamId === teamA)).toBe(true)
+            })
+
+            it('drains legacy rows (NULL dequeue_seq) before new ones when fair is on', async () => {
+                // Simulate a row inserted before the migration ran: NULL dequeue_seq.
+                // NULLS FIRST in the ORDER BY means it should be picked up before
+                // the new fair-ordered row.
+                const teamId = 1
+                const newerId = await manager.createJob({ teamId, queueName: EMAIL_QUEUE })
+                const legacyId = await manager.createJob({ teamId, queueName: EMAIL_QUEUE })
+                // Backdate one row by manually clearing its dequeue_seq to mimic
+                // a pre-migration row.
+                await assertPool.query('UPDATE cyclotron_jobs SET dequeue_seq = NULL WHERE id = $1', [legacyId])
+
+                const worker = createFairWorker({ batchMaxSize: 1 })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs).toHaveLength(1)
+                expect(jobs[0].id).toBe(legacyId)
+                expect(newerId).toBeDefined() // (silences unused-var warning)
+            })
+        })
+    })
+
     // ── Janitor ──────────────────────────────────────────────────────
 
     describe('Janitor', () => {

@@ -95,6 +95,12 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
 
+    // When true, the email worker dequeues ordered by `dequeue_seq` (per-team
+    // round-robin) instead of FIFO. `dequeue_seq` is always assigned at insert
+    // (cheap), so flipping this on/off is purely a worker-side decision —
+    // rollback is a single env-var change with no SQL revert needed.
+    CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: boolean
+
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_RETRIES: number
@@ -213,6 +219,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
         CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: 250,
+
+        CDP_CYCLOTRON_EMAIL_FAIR_DEQUEUE: false,
 
         CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: true,
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',

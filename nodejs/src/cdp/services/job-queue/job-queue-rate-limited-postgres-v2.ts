@@ -28,9 +28,10 @@ export class CyclotronJobQueueRateLimitedPostgresV2 extends CyclotronJobQueuePos
     constructor(
         consumerBatchSize: number,
         config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1],
-        private rateLimit: RateLimitedQueueOptions
+        private rateLimit: RateLimitedQueueOptions,
+        workerOptions: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[2] = {}
     ) {
-        super(consumerBatchSize, config)
+        super(consumerBatchSize, config, workerOptions)
     }
 
     public override async startAsConsumer(

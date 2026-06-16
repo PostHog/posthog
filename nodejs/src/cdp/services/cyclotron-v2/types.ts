@@ -85,6 +85,13 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
+    /**
+     * When true, dequeue orders by `dequeue_seq ASC NULLS FIRST` (per-team
+     * round-robin via the sort key assigned at insert time) instead of the
+     * default `priority, scheduled` FIFO. Intended for the email queue
+     * specifically; non-email queues should leave this off.
+     */
+    fairDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {
