@@ -10,6 +10,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.models import Task
+from products.tasks.backend.serializers import TaskSerializer
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
@@ -18,6 +20,9 @@ from ee.hogai.tool import PENDING_APPROVAL_STATUS
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
+
+# Sentinel: tells an absent queryset annotation apart from one that is present but None.
+_UNSET = object()
 
 _conversation_fields = [
     "id",
@@ -44,27 +49,41 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
-class ConversationSandboxTaskSerializer(serializers.Serializer):
+class ConversationTaskSerializer(TaskSerializer):
     """The products/tasks Task backing a sandbox conversation.
 
-    Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
-    the `logs/` history against. Null for LangGraph conversations.
+    Reuses `TaskSerializer` but overrides `latest_run` to be just the latest run's id (not the
+    full run object), so the conversation list/retrieve stays cheap — the frontend only needs
+    the Task id + latest run id to bootstrap `sandboxStreamLogic.bootstrapRun`. Null for
+    LangGraph conversations.
     """
 
-    id = serializers.UUIDField(help_text="The backing products/tasks Task id.")
-    current_run_id = serializers.UUIDField(
-        allow_null=True,
-        help_text="Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.",
+    latest_run = serializers.SerializerMethodField()
+
+    @extend_schema_field(
+        serializers.UUIDField(allow_null=True, help_text="Id of the latest TaskRun; null when the task has no runs.")
     )
+    def get_latest_run(self, obj: Task) -> str | None:
+        # Fast path: the conversation queryset prefetches the task with a `latest_run_id` subquery
+        # annotation. Standalone serialization (no annotation) falls back to the `latest_run` property.
+        run_id = getattr(obj, "latest_run_id", _UNSET)
+        if run_id is _UNSET:
+            run = obj.latest_run
+            run_id = run.id if run else None
+        return str(run_id) if run_id else None
 
 
 class ConversationMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = _conversation_fields
+        # `task` is exposed here (not in `_conversation_fields`) so it stays out of the full
+        # serializer's field list, which already appends `task` itself — listing it twice
+        # would raise a DRF duplicate-field error.
+        fields = [*_conversation_fields, "task"]
         read_only_fields = fields
 
     user = UserBasicSerializer(read_only=True)
+    task = ConversationTaskSerializer(read_only=True, allow_null=True)
 
 
 class ConversationSerializer(ConversationMinimalSerializer):
@@ -96,7 +115,6 @@ class ConversationSerializer(ConversationMinimalSerializer):
     agent_mode = serializers.SerializerMethodField()
     is_sandbox = serializers.SerializerMethodField()
     pending_approvals = serializers.SerializerMethodField()
-    task = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
         # Sandbox conversations don't persist messages Django-side — history lives in S3
@@ -136,19 +154,6 @@ class ConversationSerializer(ConversationMinimalSerializer):
 
     def get_is_sandbox(self, conversation: Conversation) -> bool:
         return conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX
-
-    @extend_schema_field(ConversationSandboxTaskSerializer(allow_null=True))
-    def get_task(self, conversation: Conversation) -> dict[str, Any] | None:
-        # The backing Task + current Run let the frontend bootstrap the sandbox stream on
-        # open. `current_run` is derived (latest Run on the Task), so this costs one extra
-        # query — acceptable on single retrieve, never hit on `list`.
-        if conversation.task_id is None:
-            return None
-        current_run = conversation.current_run
-        return {
-            "id": str(conversation.task_id),
-            "current_run_id": str(current_run.id) if current_run else None,
-        }
 
     def get_pending_approvals(self, conversation: Conversation) -> list[dict[str, Any]]:
         """

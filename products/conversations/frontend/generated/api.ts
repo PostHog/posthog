@@ -188,7 +188,7 @@ export const conversationsCancelPartialUpdate = async (
 }
 
 export const getConversationsPermissionCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/permission/`
+    return `/api/projects/${projectId}/conversations/${conversation}/permission/`
 }
 
 /**
@@ -209,7 +209,7 @@ export const conversationsPermissionCreate = async (
 }
 
 export const getConversationsPrewarmCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/prewarm/`
+    return `/api/projects/${projectId}/conversations/${conversation}/prewarm/`
 }
 
 /**
@@ -227,7 +227,7 @@ export const conversationsPrewarmCreate = async (
 }
 
 export const getConversationsPrewarmDestroyUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/prewarm/`
+    return `/api/projects/${projectId}/conversations/${conversation}/prewarm/`
 }
 
 /**
@@ -331,7 +331,7 @@ export const conversationsQueueClearCreate = async (
 }
 
 export const getConversationsSandboxCreateUrl = (projectId: string, conversation: string) => {
-    return `/api/environments/${projectId}/conversations/${conversation}/sandbox/`
+    return `/api/projects/${projectId}/conversations/${conversation}/sandbox/`
 }
 
 /**

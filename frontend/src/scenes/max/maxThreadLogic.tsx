@@ -2087,7 +2087,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.resetSandboxStream()
             actions.clearSandboxAttachments()
             if (conversation.task) {
-                const runId = conversation.task.current_run_id
+                const runId = conversation.task.latest_run
                 if (runId) {
                     actions.bootstrapSandboxRun({
                         taskId: conversation.task.id,

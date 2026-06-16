@@ -11685,19 +11685,117 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `automation` - Automation
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     */
+    export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
+
+
+    export const OriginProductEnum = {
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      UserCreated: 'user_created',
+      Automation: 'automation',
+      Slack: 'slack',
+      SupportQueue: 'support_queue',
+      SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
+      SignalReport: 'signal_report',
+      SignalsScout: 'signals_scout',
+    } as const;
+
+    /**
+     * * `implementation` - Implementation
+     */
+    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
+
+
+    export const SignalReportTaskRelationshipEnum = {
+      Implementation: 'implementation',
+    } as const;
+
+    /**
      * The products/tasks Task backing a sandbox conversation.
      *
-     * Carries the IDs the frontend's `sandboxStreamLogic.bootstrapRun` opens SSE / replays
-     * the `logs/` history against. Null for LangGraph conversations.
+     * Reuses `TaskSerializer` but overrides `latest_run` to be just the latest run's id (not the
+     * full run object), so the conversation list/retrieve stays cheap — the frontend only needs
+     * the Task id + latest run id to bootstrap `sandboxStreamLogic.bootstrapRun`. Null for
+     * LangGraph conversations.
      */
-    export interface ConversationSandboxTask {
-      /** The backing products/tasks Task id. */
-      id: string;
+    export interface ConversationTask {
+      readonly id: string;
+      /** @nullable */
+      readonly task_number: number | null;
+      readonly slug: string;
       /**
-         * Current (latest) TaskRun id the frontend bootstraps against; null when the Task has no runs yet.
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
+      title?: string;
+      title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+      description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+       *
+       * * `error_tracking` - Error Tracking
+       * * `eval_clusters` - Eval Clusters
+       * * `user_created` - User Created
+       * * `automation` - Automation
+       * * `slack` - Slack
+       * * `support_queue` - Support Queue
+       * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
+       * * `signal_report` - Signal Report
+       * * `signals_scout` - Signals Scout */
+      origin_product?: OriginProductEnum;
+      /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+         * @maxLength 255
          * @nullable
          */
-      current_run_id: string | null;
+      repository?: string | null;
+      /**
+         * GitHub integration for this task
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * User-scoped GitHub integration to use for user-authored cloud runs.
+         * @nullable
+         */
+      github_user_integration?: string | null;
+      /** @nullable */
+      signal_report?: string | null;
+      signal_report_task_relationship?: SignalReportTaskRelationshipEnum;
+      /** JSON schema for the task. This is used to validate the output of the task. */
+      json_schema?: unknown;
+      /** If true, this task is for internal use and should not be exposed to end users. */
+      internal?: boolean;
+      /** If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile. */
+      archived?: boolean;
+      /** @nullable */
+      readonly archived_at: string | null;
+      /**
+         * Id of the latest TaskRun; null when the task has no runs.
+         * @nullable
+         */
+      readonly latest_run: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      /**
+         * Custom prompt for CI fixes. If blank, a default prompt will be used.
+         * @nullable
+         */
+      ci_prompt?: string | null;
     }
 
     export interface Conversation {
@@ -11756,7 +11854,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
-      readonly task: ConversationSandboxTask | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversationMinimal {
@@ -11800,6 +11898,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
+      readonly task: ConversationTask | null;
     }
 
     export interface ConversionGoalSummary {
@@ -24914,34 +25013,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `error_tracking` - Error Tracking
-     * * `eval_clusters` - Eval Clusters
-     * * `user_created` - User Created
-     * * `automation` - Automation
-     * * `slack` - Slack
-     * * `support_queue` - Support Queue
-     * * `session_summaries` - Session Summaries
-     * * `posthog_ai` - PostHog AI
-     * * `signal_report` - Signal Report
-     * * `signals_scout` - Signals Scout
-     */
-    export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
-
-
-    export const OriginProductEnum = {
-      ErrorTracking: 'error_tracking',
-      EvalClusters: 'eval_clusters',
-      UserCreated: 'user_created',
-      Automation: 'automation',
-      Slack: 'slack',
-      SupportQueue: 'support_queue',
-      SessionSummaries: 'session_summaries',
-      PosthogAi: 'posthog_ai',
-      SignalReport: 'signal_report',
-      SignalsScout: 'signals_scout',
-    } as const;
-
-    /**
      * Initial goal and session outcome coming from LLM.
      */
     export interface Outcome {
@@ -28110,16 +28181,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `implementation` - Implementation
-     */
-    export type SignalReportTaskRelationshipEnum = typeof SignalReportTaskRelationshipEnum[keyof typeof SignalReportTaskRelationshipEnum];
-
-
-    export const SignalReportTaskRelationshipEnum = {
-      Implementation: 'implementation',
-    } as const;
-
-    /**
      * Latest run details for this task
      * @nullable
      */
@@ -29726,7 +29787,7 @@ export namespace Schemas {
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
-      readonly task?: ConversationSandboxTask | null;
+      readonly task?: ConversationTask | null;
     }
 
     export interface PatchedCoreEvent {

@@ -5,8 +5,10 @@ from typing import Any, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from rest_framework import status
@@ -35,6 +37,7 @@ from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAg
 
 from products.posthog_ai.backend.message_routing import SandboxCancelResult, SandboxRouteResult
 from products.posthog_ai.backend.models.assistant import Conversation
+from products.tasks.backend.models import Task, TaskRun
 
 from ee.api.conversation import ConversationViewSet
 
@@ -1489,3 +1492,102 @@ class TestConversationSandboxRoute(APIBaseTest):
             viewset.check_throttles(release)
         m_research.assert_not_called()
         m_super.assert_called_once()
+
+
+class TestConversationListTaskHandle(APIBaseTest):
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def _sandbox_conversation(self, title: str) -> TaskRun:
+        task = self._task()
+        latest = task.create_run(mode="interactive")
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title=title,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+        return latest
+
+    def test_list_surfaces_task_latest_run_id(self):
+        latest = self._sandbox_conversation("Sandbox chat")
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["task"]["id"], str(latest.task_id))
+        # The full Task is serialized, but latest_run is just the newest run's id.
+        self.assertEqual(results[0]["task"]["latest_run"], str(latest.id))
+
+    def test_list_reports_null_task_for_langgraph(self):
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="LangGraph chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertIsNone(results[0]["task"])
+
+    def test_retrieve_surfaces_task_latest_run_id(self):
+        # A sandbox conversation backed by a Task with runs, and one with no Task at all.
+        latest = self._sandbox_conversation("With task")
+        with_task = Conversation.objects.get(task_id=latest.task_id)
+        without_task = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="No task",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+        base = f"/api/environments/{self.team.id}/conversations/"
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            r_with = self.client.get(f"{base}{with_task.id}/")
+            r_without = self.client.get(f"{base}{without_task.id}/")
+
+        self.assertEqual(r_with.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_without.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_with.json()["task"]["id"], str(latest.task_id))
+        self.assertEqual(r_with.json()["task"]["latest_run"], str(latest.id))
+        self.assertIsNone(r_without.json()["task"])
+
+    def test_list_query_count_does_not_scale_with_conversation_count(self):
+        url = f"/api/environments/{self.team.id}/conversations/"
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            # One sandbox conversation establishes the baseline query count. Warm the request
+            # first so one-time session/auth queries don't skew the comparison.
+            self._sandbox_conversation("Chat 1")
+            self.client.get(url)
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            baseline = len(ctx.captured_queries)
+
+            # More sandbox conversations (each with its own Task + runs) must not add per-row
+            # queries — the backing tasks load via a single prefetch carrying the latest-run-id
+            # subquery, not a per-row task/run lookup.
+            self._sandbox_conversation("Chat 2")
+            self._sandbox_conversation("Chat 3")
+
+            with self.assertNumQueries(baseline):
+                response = self.client.get(url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(len(response.json()["results"]), 3)

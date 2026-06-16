@@ -3,6 +3,8 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db.models import OuterRef, Subquery
+
 from posthog.schema import (
     AgentMode,
     ArtifactContentType,
@@ -13,9 +15,9 @@ from posthog.schema import (
 )
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
-from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
@@ -331,20 +333,109 @@ class TestConversationSerializerTaskField(APIBaseTest):
         self.assertIsNone(data["task"])
         self.assertFalse(data["is_sandbox"])
 
-    def test_task_current_run_id_null_when_task_has_no_runs(self):
+    def test_task_latest_run_null_when_task_has_no_runs(self):
         task = self._task()
         data = self._serialize(self._sandbox_conversation(task))
-        self.assertEqual(data["task"], {"id": str(task.id), "current_run_id": None})
+        self.assertEqual(data["task"]["id"], str(task.id))
+        self.assertIsNone(data["task"]["latest_run"])
+        # Reuses the full TaskSerializer, so other Task fields come through too.
+        self.assertEqual(data["task"]["title"], "t")
 
-    def test_task_reports_latest_run(self):
+    def test_task_reports_latest_run_id(self):
         task = self._task()
         first = task.create_run(mode="interactive")
         latest = task.create_run(mode="interactive")
 
         data = self._serialize(self._sandbox_conversation(task))
 
-        self.assertEqual(data["task"], {"id": str(task.id), "current_run_id": str(latest.id)})
-        self.assertNotEqual(data["task"]["current_run_id"], str(first.id))
+        self.assertEqual(data["task"]["id"], str(task.id))
+        # latest_run is just the newest run's id, not the full run object.
+        self.assertEqual(data["task"]["latest_run"], str(latest.id))
+        self.assertNotEqual(data["task"]["latest_run"], str(first.id))
+
+
+class TestTaskLatestRun(APIBaseTest):
+    def _task_with_runs(self, count: int) -> tuple[Task, list]:
+        task = Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+        runs = [task.create_run(mode="interactive") for _ in range(count)]
+        return task, runs
+
+    def test_non_prefetched_fast_path_single_query(self):
+        task, runs = self._task_with_runs(5)
+        fresh = Task.objects.get(pk=task.pk)
+
+        with self.assertNumQueries(1):
+            latest = fresh.latest_run
+
+        self.assertEqual(latest.id, runs[-1].id)
+
+    def test_prefetched_reuses_cache_no_query(self):
+        task, runs = self._task_with_runs(5)
+        prefetched = Task.objects.prefetch_related("runs").get(pk=task.pk)
+
+        with self.assertNumQueries(0):
+            latest = prefetched.latest_run
+
+        self.assertEqual(latest.id, runs[-1].id)
+
+    def test_prefetched_and_non_prefetched_return_same_row(self):
+        task, runs = self._task_with_runs(3)
+        non_prefetched = Task.objects.get(pk=task.pk).latest_run
+        prefetched = Task.objects.prefetch_related("runs").get(pk=task.pk).latest_run
+
+        self.assertEqual(non_prefetched.id, prefetched.id)
+        self.assertEqual(non_prefetched.id, runs[-1].id)
+
+    def test_latest_run_none_when_no_runs(self):
+        task, _ = self._task_with_runs(0)
+        self.assertIsNone(Task.objects.get(pk=task.pk).latest_run)
+        self.assertIsNone(Task.objects.prefetch_related("runs").get(pk=task.pk).latest_run)
+
+
+class TestConversationMinimalSerializerTaskField(APIBaseTest):
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="t",
+            description="d",
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+            created_by=self.user,
+        )
+
+    def test_minimal_serializer_exposes_task_from_annotation(self):
+        task = self._task()
+        latest = task.create_run(mode="interactive")
+        Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+
+        latest_run = TaskRun.objects.filter(task=OuterRef("task_id")).order_by("-created_at")
+        annotated = Conversation.objects.filter(task=task).annotate(
+            current_run_id=Subquery(latest_run.values("id")[:1])
+        )
+        data = ConversationMinimalSerializer(annotated, many=True, context={"team": self.team, "user": self.user}).data
+
+        self.assertEqual(data[0]["task"], {"id": str(task.id), "current_run_id": str(latest.id)})
+
+    def test_minimal_serializer_task_null_for_langgraph(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        data = ConversationMinimalSerializer(conversation, context={"team": self.team, "user": self.user}).data
+        self.assertIsNone(data["task"])
 
 
 class TestConversationSerializerArtifactEnrichment(APIBaseTest):
