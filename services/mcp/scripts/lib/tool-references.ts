@@ -29,6 +29,7 @@ const REFERENCE_ALLOWLIST = new Set([
     'comma-separated',
     'skills-store', // the Skills store feature ("the skills-store tools")
     'llma-alerts', // skills-store skill, not in this repo
+    'secrets-and-integrations', // agent-platform runtime skill (secret-editor deep-link contract), not a repo skill
     'text-embedding-3-small-1536', // embedding model name
     'deep-dive', // "a deep-dive skill"
     'team-shared',
