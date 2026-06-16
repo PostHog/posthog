@@ -18,6 +18,7 @@
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
         "@types/react": "*",
+        "clsx": "*",
         "fast-deep-equal": "*",
         "react": "*",
         "typescript": "*"

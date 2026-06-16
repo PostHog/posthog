@@ -197,8 +197,70 @@ impl ConsumerConfigBuilder {
         self
     }
 
+    /// Strip classic-only keys when the KIP-848 consumer group protocol is selected.
+    ///
+    /// When `group.protocol=consumer`, librdkafka rejects the whole config at
+    /// startup if any classic-only key is set: `session.timeout.ms`,
+    /// `heartbeat.interval.ms` (broker-side under KIP-848) and
+    /// `partition.assignment.strategy` (replaced by the server-side
+    /// `group.remote.assignor`). Remove them after the full config is built so
+    /// the batch-consumer defaults don't break a consumer opted into the new
+    /// protocol. Mirrors the Node.js `stripClassicProtocolConfig`.
+    ///
+    /// `group.instance.id` (static membership) is intentionally kept — KIP-848
+    /// supports it.
+    pub fn strip_classic_protocol_keys_if_consumer(mut self) -> Self {
+        let is_consumer_protocol = self.config.get("group.protocol") == Some("consumer");
+        if is_consumer_protocol {
+            for key in [
+                "session.timeout.ms",
+                "heartbeat.interval.ms",
+                "partition.assignment.strategy",
+                "group.protocol.type",
+            ] {
+                self.config.remove(key);
+            }
+        }
+        self
+    }
+
     /// Build the final configuration
     pub fn build(self) -> ClientConfig {
         self.config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_classic_keys_under_consumer_protocol() {
+        let config = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
+            .with_sticky_partition_assignment(Some("pod-1"))
+            .set("group.protocol", "consumer")
+            .strip_classic_protocol_keys_if_consumer()
+            .build();
+
+        assert_eq!(config.get("group.protocol"), Some("consumer"));
+        assert_eq!(config.get("session.timeout.ms"), None);
+        assert_eq!(config.get("heartbeat.interval.ms"), None);
+        assert_eq!(config.get("partition.assignment.strategy"), None);
+        // Static membership is valid under KIP-848 and must survive the strip.
+        assert_eq!(config.get("group.instance.id"), Some("pod-1"));
+    }
+
+    #[test]
+    fn keeps_classic_keys_under_classic_protocol() {
+        let config = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
+            .with_sticky_partition_assignment(None)
+            .strip_classic_protocol_keys_if_consumer()
+            .build();
+
+        assert_eq!(config.get("session.timeout.ms"), Some("60000"));
+        assert_eq!(
+            config.get("partition.assignment.strategy"),
+            Some("cooperative-sticky")
+        );
     }
 }

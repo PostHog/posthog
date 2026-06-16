@@ -38,6 +38,7 @@ import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } fr
 
 import { Scene } from '../sceneTypes'
 import { MODE_DEFINITIONS } from './max-constants'
+import { EnhancedToolCall } from './max-constants'
 import { SuggestionGroup } from './maxLogic'
 import {
     InsightWithQuery,
@@ -51,7 +52,6 @@ import {
     MaxNotebookContext,
     MaxUIContext,
 } from './maxTypes'
-import { EnhancedToolCall } from './Thread'
 
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
@@ -174,7 +174,9 @@ export const dashboardToMaxContext = (dashboard: DashboardType<InsightWithQuery>
         id: dashboard.id,
         name: dashboard.name,
         description: dashboard.description,
-        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        insights: (dashboard.tiles ?? [])
+            .filter((tile) => tile.insight)
+            .map((tile) => insightToMaxContext(tile.insight!)),
         filters: dashboard.filters,
     }
 }

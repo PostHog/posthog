@@ -105,6 +105,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -296,6 +297,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -600,6 +602,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -768,6 +771,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -939,6 +943,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1038,6 +1043,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1451,6 +1457,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1587,6 +1594,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1694,6 +1702,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1814,6 +1823,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1936,6 +1946,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2057,6 +2068,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2194,6 +2206,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2433,6 +2446,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2540,6 +2554,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2702,6 +2717,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2838,6 +2854,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -2945,6 +2962,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3082,6 +3100,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3316,6 +3335,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3423,6 +3443,7 @@
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
          "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -3833,43 +3854,28 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.82
   '''
-  SELECT "posthog_experiment"."id",
-         "posthog_experiment"."name",
-         "posthog_experiment"."description",
-         "posthog_experiment"."team_id",
-         "posthog_experiment"."filters",
-         "posthog_experiment"."parameters",
-         "posthog_experiment"."secondary_metrics",
-         "posthog_experiment"."created_by_id",
-         "posthog_experiment"."feature_flag_id",
-         "posthog_experiment"."exposure_cohort_id",
-         "posthog_experiment"."holdout_id",
-         "posthog_experiment"."start_date",
-         "posthog_experiment"."end_date",
-         "posthog_experiment"."created_at",
-         "posthog_experiment"."updated_at",
-         "posthog_experiment"."archived",
-         "posthog_experiment"."deleted",
-         "posthog_experiment"."type",
-         "posthog_experiment"."variants",
-         "posthog_experiment"."exposure_criteria",
-         "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary",
-         "posthog_experiment"."primary_metrics_ordered_uuids",
-         "posthog_experiment"."secondary_metrics_ordered_uuids",
-         "posthog_experiment"."stats_config",
-         "posthog_experiment"."scheduling_config",
-         "posthog_experiment"."only_count_matured_users",
-         "posthog_experiment"."status",
-         "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
-  FROM "posthog_experiment"
-  WHERE ("posthog_experiment"."feature_flag_id" = 99999
-         AND NOT "posthog_experiment"."deleted")
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.83
   '''
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.84
+  '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
          "posthog_experiment"."description",
@@ -3896,6 +3902,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."running_time_calculation",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
@@ -3905,7 +3912,45 @@
          AND NOT "posthog_experiment"."deleted")
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.84
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.85
+  '''
+  SELECT "posthog_experiment"."id",
+         "posthog_experiment"."name",
+         "posthog_experiment"."description",
+         "posthog_experiment"."team_id",
+         "posthog_experiment"."filters",
+         "posthog_experiment"."parameters",
+         "posthog_experiment"."secondary_metrics",
+         "posthog_experiment"."created_by_id",
+         "posthog_experiment"."feature_flag_id",
+         "posthog_experiment"."exposure_cohort_id",
+         "posthog_experiment"."holdout_id",
+         "posthog_experiment"."start_date",
+         "posthog_experiment"."end_date",
+         "posthog_experiment"."created_at",
+         "posthog_experiment"."updated_at",
+         "posthog_experiment"."archived",
+         "posthog_experiment"."deleted",
+         "posthog_experiment"."type",
+         "posthog_experiment"."variants",
+         "posthog_experiment"."exposure_criteria",
+         "posthog_experiment"."metrics",
+         "posthog_experiment"."metrics_secondary",
+         "posthog_experiment"."primary_metrics_ordered_uuids",
+         "posthog_experiment"."secondary_metrics_ordered_uuids",
+         "posthog_experiment"."stats_config",
+         "posthog_experiment"."scheduling_config",
+         "posthog_experiment"."running_time_calculation",
+         "posthog_experiment"."only_count_matured_users",
+         "posthog_experiment"."status",
+         "posthog_experiment"."conclusion",
+         "posthog_experiment"."conclusion_comment"
+  FROM "posthog_experiment"
+  WHERE ("posthog_experiment"."feature_flag_id" = 99999
+         AND NOT "posthog_experiment"."deleted")
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.86
   '''
   SELECT "posthog_survey"."id",
          "posthog_survey"."team_id",
@@ -3950,7 +3995,7 @@
   WHERE "posthog_survey"."linked_flag_id" = 99999
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.85
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.87
   '''
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
@@ -3963,86 +4008,6 @@
          "posthog_earlyaccessfeature"."created_at"
   FROM "posthog_earlyaccessfeature"
   WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 99999
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.86
-  '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organizationmembership"."invited_by_id",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_create_projects",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.87
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."last_refresh",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."breakdown_colors",
-         "posthog_dashboard"."data_color_theme_id",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."quick_filter_ids",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_featureflagdashboards"."feature_flag_id" = 99999)
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.88
@@ -4098,11 +4063,31 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.89
   '''
-  SELECT 1 AS "a"
-  FROM "posthog_team"
-  WHERE ("posthog_team"."project_id" = 99999
-         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb)
-  LIMIT 1
+  SELECT "posthog_dashboard"."id",
+         "posthog_dashboard"."name",
+         "posthog_dashboard"."description",
+         "posthog_dashboard"."team_id",
+         "posthog_dashboard"."pinned",
+         "posthog_dashboard"."created_at",
+         "posthog_dashboard"."created_by_id",
+         "posthog_dashboard"."deleted",
+         "posthog_dashboard"."last_accessed_at",
+         "posthog_dashboard"."last_refresh",
+         "posthog_dashboard"."filters",
+         "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
+         "posthog_dashboard"."creation_mode",
+         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
+         "posthog_dashboard"."deprecated_tags",
+         "posthog_dashboard"."tags",
+         "posthog_dashboard"."share_token",
+         "posthog_dashboard"."is_shared"
+  FROM "posthog_dashboard"
+  INNER JOIN "posthog_featureflagdashboards" ON ("posthog_dashboard"."id" = "posthog_featureflagdashboards"."dashboard_id")
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_featureflagdashboards"."feature_flag_id" = 99999)
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.9
@@ -4115,6 +4100,66 @@
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.90
   '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.91
+  '''
+  SELECT 1 AS "a"
+  FROM "posthog_team"
+  WHERE ("posthog_team"."project_id" = 99999
+         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb)
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.92
+  '''
   SELECT "posthog_featureflagevaluationcontext"."id",
          "posthog_featureflagevaluationcontext"."feature_flag_id",
          "posthog_featureflagevaluationcontext"."evaluation_context_id",
@@ -4122,13 +4167,14 @@
          "posthog_evaluationcontext"."id",
          "posthog_evaluationcontext"."name",
          "posthog_evaluationcontext"."team_id",
-         "posthog_evaluationcontext"."created_at"
+         "posthog_evaluationcontext"."created_at",
+         "posthog_evaluationcontext"."hidden_from_suggestions"
   FROM "posthog_featureflagevaluationcontext"
   INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
   WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" = 99999
   '''
 # ---
-# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.91
+# name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.93
   '''
   SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"

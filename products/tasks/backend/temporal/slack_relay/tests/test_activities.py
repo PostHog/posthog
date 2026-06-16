@@ -20,6 +20,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     _markdown_to_slack_mrkdwn,
     _repair_link_trailing_markers,
     _split_markdown_for_slack,
+    _wrap_bare_urls_in_emphasis,
     relay_slack_message,
 )
 
@@ -180,6 +181,20 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
                 "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd**>",
                 "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
             ),
+            # Bare URL wrapped directly in markdown bold. Without the pre-wrap pass the
+            # converter halves the markers in place and emits ``*https://x.com*``, which
+            # Slack renders as literal asterisks around an auto-linked URL — the exact
+            # papercut on the PR-completion message that prompted this repair.
+            (
+                "agent_typo_bare_url_in_bold",
+                "Draft PR opened: **https://github.com/PostHog/posthog.com/pull/17450**",
+                "Draft PR opened: *<https://github.com/PostHog/posthog.com/pull/17450>*",
+            ),
+            (
+                "agent_typo_bare_url_in_italic_asterisk",
+                "see *https://example.com*",
+                "see _<https://example.com>_",
+            ),
             ("plain_text_unchanged", "Hello world", "Hello world"),
             ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
         ]
@@ -239,6 +254,50 @@ class TestRepairLinkTrailingMarkers(unittest.TestCase):
     )
     def test_repair(self, _name, text, expected):
         assert _repair_link_trailing_markers(text) == expected
+
+
+class TestWrapBareUrlsInEmphasis(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("bold_bare_url", "**https://x.com**", "**<https://x.com>**"),
+            ("italic_bare_url", "*https://x.com*", "*<https://x.com>*"),
+            ("underscore_bare_url", "_https://x.com_", "_<https://x.com>_"),
+            ("strike_bare_url", "~~https://x.com~~", "~~<https://x.com>~~"),
+            (
+                "url_with_path_and_query",
+                "**https://github.com/PostHog/posthog.com/pull/17450?foo=bar**",
+                "**<https://github.com/PostHog/posthog.com/pull/17450?foo=bar>**",
+            ),
+            (
+                "two_bare_urls_in_one_line",
+                "**https://a.com** and *https://b.com*",
+                "**<https://a.com>** and *<https://b.com>*",
+            ),
+            # Surrounded by sentence text — only the wrapped URL should be touched.
+            (
+                "url_inside_sentence",
+                "Draft PR opened: **https://x.com/pr/1**",
+                "Draft PR opened: **<https://x.com/pr/1>**",
+            ),
+            # Already bracketed — leave alone so we don't double-wrap.
+            ("autolink_already_bracketed", "**<https://x.com>**", "**<https://x.com>**"),
+            # Standard markdown link — handled correctly by the converter as-is.
+            ("markdown_link_in_bold_unchanged", "**[label](https://x.com)**", "**[label](https://x.com)**"),
+            # Non-URL bold spans must not be rewritten.
+            ("plain_bold_unchanged", "**hello world**", "**hello world**"),
+            ("plain_text_unchanged", "Visit https://x.com without bolding", "Visit https://x.com without bolding"),
+            # A bare URL not directly adjacent to the marker shouldn't be wrapped — the
+            # surrounding text means the emphasis already flanks whitespace and Slack
+            # renders it correctly without help.
+            (
+                "url_inside_bold_span_with_surrounding_text",
+                "**check https://x.com later**",
+                "**check https://x.com later**",
+            ),
+        ]
+    )
+    def test_wrap(self, _name, text, expected):
+        assert _wrap_bare_urls_in_emphasis(text) == expected
 
 
 class TestSplitTextForSlack(TestCase):

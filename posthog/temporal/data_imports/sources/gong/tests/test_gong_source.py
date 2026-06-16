@@ -27,7 +27,7 @@ class TestGongSource:
         assert config.name.value == "Gong"
         assert config.label == "Gong"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert not config.unreleasedSource
         assert config.iconPath == "/static/services/gong.png"
 
         fields = config.fields

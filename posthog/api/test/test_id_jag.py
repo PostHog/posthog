@@ -22,7 +22,6 @@ from django.utils import timezone
 
 import jwt
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
 
@@ -39,21 +38,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User as UserModel
-
-
-def _generate_rsa_pem() -> str:
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption(),
-    )
-    return pem.decode("utf-8")
-
+from posthog.settings.utils import generate_rsa_private_key_pem
 
 # rsa operations are expensive, keep this at the module-level to avoid slow tests
-_IDP_PRIVATE_KEY_PEM = _generate_rsa_pem()
-_AS_PRIVATE_KEY_PEM = _generate_rsa_pem()
+_IDP_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
+_AS_PRIVATE_KEY_PEM = generate_rsa_private_key_pem()
 
 _IDP_ISSUER = "https://idp.example.com"
 _VERIFIED_DOMAIN = "example.com"
@@ -535,7 +524,7 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertIn("active member", resp.json()["error_description"])
 
     def test_rejects_signature_from_unrecognized_key(self) -> None:
-        other_pem = _generate_rsa_pem()
+        other_pem = generate_rsa_private_key_pem()
         assertion = _make_id_jag(signing_pem=other_pem)
         resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
@@ -875,7 +864,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_invalid_signature_rejected(self) -> None:
-        other_pem = _generate_rsa_pem()
+        other_pem = generate_rsa_private_key_pem()
         token = self._mint_access_token(scope="user:read", signing_pem=other_pem)
         resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -885,7 +874,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         # that key is demoted to inactive and a freshly generated key takes over signing.
         token = self._mint_access_token(scope="user:read", signing_pem=_AS_PRIVATE_KEY_PEM)
         with override_settings(
-            OIDC_RSA_PRIVATE_KEY=_generate_rsa_pem(),
+            OIDC_RSA_PRIVATE_KEY=generate_rsa_private_key_pem(),
             OIDC_RSA_PRIVATE_KEYS_INACTIVE=[_AS_PRIVATE_KEY_PEM],
         ):
             resp = self._call_authenticated(token)
@@ -893,10 +882,10 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertEqual(resp.json()["email"], self.user.email)
 
     def test_token_signed_with_neither_active_nor_inactive_key_rejected(self) -> None:
-        token = self._mint_access_token(scope="user:read", signing_pem=_generate_rsa_pem())
+        token = self._mint_access_token(scope="user:read", signing_pem=generate_rsa_private_key_pem())
         with override_settings(
             OIDC_RSA_PRIVATE_KEY=_AS_PRIVATE_KEY_PEM,
-            OIDC_RSA_PRIVATE_KEYS_INACTIVE=[_generate_rsa_pem()],
+            OIDC_RSA_PRIVATE_KEYS_INACTIVE=[generate_rsa_private_key_pem()],
         ):
             resp = self._call_authenticated(token)
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)

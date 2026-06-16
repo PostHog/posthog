@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,6 +28,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
 export interface VisualReviewRunSceneLogicProps {
@@ -38,7 +40,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     props({} as VisualReviewRunSceneLogicProps),
     key((props) => props.runId),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId']],
+        values: [teamLogic, ['currentProjectId'], visualReviewPreferencesLogic, ['addImagesToComment']],
+        actions: [visualReviewPreferencesLogic, ['setAddImagesToComment']],
     })),
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
@@ -312,13 +315,20 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
 
             try {
+                const addImages = values.addImagesToComment
                 // approve_all approves any still-pending changes (tolerated ones are left alone),
                 // commits the approved baseline, and greens the gate.
                 await visualReviewRunsFinalizeCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
+                    add_images_to_comment_on_pr: addImages,
                 })
                 actions.finalizeRunSuccess()
-                lemonToast.success('Run finalized — baseline committed')
+                posthog.capture('visual_review_run_finalized', { added_images_to_comment: addImages })
+                lemonToast.success(
+                    addImages
+                        ? 'Run finalized — baseline committed, PR commented with snapshots'
+                        : 'Run finalized — baseline committed, PR commented'
+                )
                 actions.loadRun()
                 // Patch in place — refetching all snapshots after finalize made the whole grid
                 // flash and lost the user's selection. Server is the source of truth on next mount;
