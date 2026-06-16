@@ -41,6 +41,7 @@ import {
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
+import { ExperimentMetricThreshold } from './ExperimentMetricThreshold'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -366,6 +367,11 @@ export function ExperimentMetricForm({
                                 </Link>
                             </div>
                         )}
+                        <ExperimentMetricThreshold
+                            math={metric.source.math}
+                            value={metric.threshold}
+                            onChange={(value) => handleSetMetric({ ...metric, threshold: value })}
+                        />
                     </>
                 )}
 

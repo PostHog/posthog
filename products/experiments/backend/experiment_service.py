@@ -18,7 +18,13 @@ import pydantic
 import structlog
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, ExperimentMetric
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentMetric,
+)
 
 from posthog.api.cohort import CohortSerializer
 from posthog.event_usage import EventSource, report_user_action
@@ -30,6 +36,7 @@ from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
@@ -414,6 +421,25 @@ class ExperimentService:
                             )
                         # Additional validation for funnel metrics with DW steps
                         FunnelDWValidator.validate_funnel_metric(actual_metric)
+                    elif isinstance(actual_metric, ExperimentMeanMetric) and actual_metric.threshold is not None:
+                        # A threshold turns the per-user value into a binary "did the user reach N"
+                        # outcome, which only makes sense for sum/count math types.
+                        source_math = getattr(actual_metric.source, "math", None)
+                        if not is_threshold_supported_math(source_math):
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: a threshold is only supported for "
+                                "sum or count (total) math types."
+                            )
+                        # Winsorization caps continuous outliers, which is meaningless once the
+                        # value collapses to a binary threshold outcome.
+                        if (
+                            actual_metric.lower_bound_percentile is not None
+                            or actual_metric.upper_bound_percentile is not None
+                        ):
+                            raise ValidationError(
+                                f"Invalid metric at index {i}: a threshold cannot be combined with "
+                                "outlier handling (winsorization)."
+                            )
 
                 except pydantic.ValidationError as e:
                     # Surface only the field locations and error types from pydantic — not the

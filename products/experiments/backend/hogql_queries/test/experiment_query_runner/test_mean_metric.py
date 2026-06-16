@@ -1287,3 +1287,165 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(len(result.variant_results), 1)
         self.assertEqual(result.baseline.number_of_samples, 10)
         self.assertEqual(result.variant_results[0].number_of_samples, 10)
+
+    def _create_threshold_users(
+        self,
+        feature_flag,
+        variant: str,
+        per_user_purchases: list[list[float]],
+    ) -> None:
+        """Create one user per entry in per_user_purchases, each making the listed purchase amounts."""
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        for i, amounts in enumerate(per_user_purchases):
+            distinct_id = f"user_{variant}_{i}"
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=distinct_id,
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: variant,
+                    "$feature_flag_response": variant,
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            for amount in amounts:
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=distinct_id,
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: variant, "amount": amount},
+                )
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_threshold_sum_metric_counts_users_crossing(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            threshold=100,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        # Control: 4 users cross (sum 120), 6 do not (sum 50)
+        self._create_threshold_users(
+            feature_flag,
+            "control",
+            [[60, 60]] * 4 + [[50]] * 6,
+        )
+        # Test: 7 users cross (sum 120), 3 do not (sum 50)
+        self._create_threshold_users(
+            feature_flag,
+            "test",
+            [[60, 60]] * 7 + [[50]] * 3,
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # sum becomes the count of users whose per-user sum reached the threshold
+        self.assertEqual(control_variant.sum, 4)
+        self.assertEqual(test_variant.sum, 7)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_threshold_is_inclusive_and_zero_for_users_without_events(self):
+        """A user whose sum exactly equals the threshold crosses; a user with no events does not."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            threshold=100,
+        )
+
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Control: 1 user exactly at threshold (crosses), 1 user with no purchases (does not cross)
+        self._create_threshold_users(feature_flag, "control", [[100], []])
+        # Test: 1 user just below threshold (does not cross), 1 user above (crosses)
+        self._create_threshold_users(feature_flag, "test", [[99], [101]])
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+
+        self.assertEqual(result.baseline.sum, 1)
+        self.assertEqual(result.baseline.number_of_samples, 2)
+        self.assertEqual(result.variant_results[0].sum, 1)
+        self.assertEqual(result.variant_results[0].number_of_samples, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_threshold_count_metric_counts_users_with_enough_events(self):
+        """With TOTAL math the per-user value is the event count; threshold compares against it."""
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
+            threshold=3,
+        )
+
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # Control: 1 user with 3 purchases (crosses), 1 user with 2 (does not)
+        self._create_threshold_users(feature_flag, "control", [[1, 1, 1], [1, 1]])
+        # Test: 2 users with 5 purchases each (both cross)
+        self._create_threshold_users(feature_flag, "test", [[1, 1, 1, 1, 1], [1, 1, 1, 1, 1]])
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+
+        self.assertEqual(result.baseline.sum, 1)
+        self.assertEqual(result.variant_results[0].sum, 2)
