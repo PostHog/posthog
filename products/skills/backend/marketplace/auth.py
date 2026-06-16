@@ -22,12 +22,15 @@ from django.utils import timezone
 from rest_framework import authentication
 from rest_framework.request import Request
 
-from posthog.auth import ProjectSecretAPIKeyUser
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 
 
-class MarketplaceGitBasicAuthentication(authentication.BaseAuthentication):
+class MarketplaceGitBasicAuthentication(ProjectSecretAPIKeyAuthentication):
+    # Subclasses ProjectSecretAPIKeyAuthentication so APIScopePermission's
+    # isinstance(...) check treats it as PSAK auth and enforces scope, team binding,
+    # and psak_allowed_actions — we only swap the transport from Bearer to Basic.
     keyword = "Basic"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[object, None]]:

@@ -16,10 +16,14 @@ from django.db.models import QuerySet
 from django.http import HttpResponse
 
 from drf_spectacular.utils import extend_schema
+from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import BaseParser
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.permissions import APIScopePermission, is_authenticated_via_project_secret_api_key
 
 from ..marketplace import git_smart_http as git
 from ..marketplace.adapters import build_team_marketplace_tree
@@ -30,21 +34,45 @@ _MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"
 _MARKETPLACE_AUTHOR = "PostHog"
 
 
-class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin):
+class GitProtocolParser(BaseParser):
+    """Passthrough parser so DRF accepts git's request bodies (read back via ``request.data``)."""
+
+    media_type = "*/*"
+
+    def parse(self, stream, media_type=None, parser_context=None) -> bytes:
+        return stream.read()
+
+
+class IsProjectSecretAPIKeyAuth(BasePermission):
+    """Require Project Secret API Key auth. Deterministically rejects anonymous/session/other
+    principals so the marketplace is strictly PSAK-gated (no reliance on lazy IsAuthenticated)."""
+
+    message = "This endpoint requires a project secret API key."
+
+    def has_permission(self, request: Request, view) -> bool:
+        return is_authenticated_via_project_secret_api_key(request)
+
+
+class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "llm_skill"
     # Git fetch is a read even though upload-pack is a POST — force read scope for both actions.
     required_scopes = ["llm_skill:read"]
     # Default-deny: only these git actions accept a Project Secret API Key.
     psak_allowed_actions = ["marketplace_info_refs", "marketplace_upload_pack"]
     authentication_classes = [MarketplaceGitBasicAuthentication]
-    # Rely on the mixin's default permission stack (IsAuthenticated + APIScopePermission, which
-    # enforces psak_allowed_actions and team binding + AccessControlPermission). No feature-flag
-    # gate: the minted Project Secret API Key is itself the access gate.
-    permission_classes = []
+    parser_classes = [GitProtocolParser]
     queryset = LLMSkill.objects.none()
 
     def safely_get_queryset(self, queryset: QuerySet[LLMSkill]) -> QuerySet[LLMSkill]:
         return LLMSkill.objects.none()
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        # The only principal here is a user-less Project Secret API Key, so the default
+        # object-level RBAC checks (AccessControlPermission / TeamMemberAccessPermission)
+        # don't apply and would crash querying membership for a synthetic user. Require PSAK
+        # auth explicitly, then let APIScopePermission enforce the llm_skill:read scope,
+        # psak_allowed_actions, and key.team == view.team.
+        return [IsProjectSecretAPIKeyAuth(), APIScopePermission()]
 
     def _synthesize(self) -> git.SynthesizedRepo:
         tree = build_team_marketplace_tree(self.team)
@@ -65,9 +93,12 @@ class LLMSkillMarketplaceViewSet(TeamAndOrgViewSetMixin):
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="git-upload-pack")
     def marketplace_upload_pack(self, request: Request, **kwargs: Any) -> HttpResponse:
+        # GitProtocolParser already consumed the stream into request.data as raw bytes,
+        # so request.body is no longer readable — use the parsed bytes.
+        raw_body = request.data if isinstance(request.data, bytes | bytearray) else b""
         repo = self._synthesize()
         return HttpResponse(
-            git.build_upload_pack(request.body, repo),
+            git.build_upload_pack(bytes(raw_body), repo),
             content_type=git.UPLOAD_PACK_CONTENT_TYPE,
             headers={"Cache-Control": "no-cache"},
         )

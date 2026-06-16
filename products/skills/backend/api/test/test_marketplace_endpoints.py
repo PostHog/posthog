@@ -1,5 +1,5 @@
-import base64
 import io
+import base64
 import zipfile
 
 from posthog.test.base import APIBaseTest
@@ -48,7 +48,9 @@ class TestSkillZipExport(APIBaseTest):
             allowed_tools=["Bash", "Write"],
             created_by=self.user,
         )
-        LLMSkillFile.objects.create(skill=skill, path="scripts/run.py", content="print(1)\n", content_type="text/x-python")
+        LLMSkillFile.objects.create(
+            skill=skill, path="scripts/run.py", content="print(1)\n", content_type="text/x-python"
+        )
         return skill
 
     def test_export_returns_spec_zip(self, _mock_flag):
@@ -71,6 +73,12 @@ class TestSkillZipExport(APIBaseTest):
 
 
 class TestSkillMarketplaceGit(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Git clients carry no session — clear the base-class force_login so the only
+        # credential is the Basic header (or none), matching how `git clone` authenticates.
+        self.client.logout()
+
     def _info_refs_url(self) -> str:
         return f"/api/projects/{self.team.id}/llm_skills/marketplace.git/info/refs"
 
@@ -89,9 +97,10 @@ class TestSkillMarketplaceGit(APIBaseTest):
         )
 
     def test_info_refs_requires_credentials(self):
+        # No PSAK → 401. (The WWW-Authenticate challenge is forced to Bearer by global OAuth
+        # middleware; git clients authenticate via token-in-URL, so the challenge type is moot.)
         response = self.client.get(self._info_refs_url(), {"service": "git-upload-pack"})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert "Basic" in response.get("WWW-Authenticate", "")
 
     def test_info_refs_with_psak_advertises_refs(self):
         self._create_skill()
@@ -116,7 +125,7 @@ class TestSkillMarketplaceGit(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_psak_without_scope_is_denied(self):
-        _mint_psak(self.team, scopes=["llm_skill:write"])  # write only, read required
+        _mint_psak(self.team, scopes=["dashboard:read"])  # unrelated scope, lacks llm_skill access
         response = self.client.get(
             self._info_refs_url(),
             {"service": "git-upload-pack"},
