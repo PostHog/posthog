@@ -143,8 +143,6 @@ class TestBotDefinitionsDataStructure:
 
 class TestBotDefinitionUDFs:
     def test_all_five_udfs_generated_with_namespaced_names(self):
-        # Namespaced with a webAnalytics prefix to stay clash-safe in ClickHouse's single global
-        # function catalog (the HogQL layer exposes them without the prefix).
         assert len(BOT_DEFINITION_UDFS_SQL) == 5
         joined = "\n".join(BOT_DEFINITION_UDFS_SQL)
         for name in BOT_DEFINITION_UDF_NAMES:
@@ -157,10 +155,8 @@ class TestBotDefinitionUDFs:
 
     def test_isbot_uses_cheapest_multimatchany(self):
         is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsLikelyBot" in s)
-        assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index lookup
+        assert "multiMatchAny(ifNull(ua, '')," in is_bot
 
-    # Derive the attribute UDFs from the canonical name list so a newly added UDF can't be
-    # silently skipped (it gets parametrized automatically).
     @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "webAnalyticsIsLikelyBot"])
     def test_attribute_udf_uses_multimatchanyindex(self, udf_name):
         sql = next(s for s in BOT_DEFINITION_UDFS_SQL if udf_name in s)
@@ -168,7 +164,6 @@ class TestBotDefinitionUDFs:
         assert "arrayElement(" in sql
 
     def test_label_array_aligns_with_patterns(self):
-        # Reconstruct the expected [default, <N bots>, empty_ua] array (apostrophe-safe vs counting quotes).
         expected = _format_array(["", *(bot.name for bot in BOT_DEFINITIONS.values()), ""])
         bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsGetBotName" in s)
         assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
@@ -184,7 +179,6 @@ class TestBotDefinitionUDFs:
             assert f"DROP FUNCTION IF EXISTS {name}" in DROP_BOT_DEFINITION_UDFS_SQL
 
     def test_patterns_match_inline_hogql_path(self):
-        # The UDF patterns must be exactly the inline HogQL path's patterns (parity): bot keys + ^$.
         bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsLikelyBot" in s)
         for pattern in BOT_DEFINITIONS:
             assert pattern.replace("\\", "\\\\").replace("'", "''") in bot_name_sql
