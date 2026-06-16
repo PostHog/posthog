@@ -430,6 +430,10 @@ class ExperimentService:
                                 f"Invalid metric at index {i}: a threshold is only supported for "
                                 "sum or count (total) math types."
                             )
+                        # A non-positive threshold is satisfied by every user (missing users
+                        # accumulate to 0), producing a meaningless 100% proportion.
+                        if actual_metric.threshold <= 0:
+                            raise ValidationError(f"Invalid metric at index {i}: threshold must be a positive number.")
                         # Winsorization caps continuous outliers, which is meaningless once the
                         # value collapses to a binary threshold outcome.
                         if (
