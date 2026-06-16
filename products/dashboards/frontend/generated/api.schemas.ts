@@ -560,6 +560,8 @@ export interface SessionReplayListWidgetConfigApi {
     orderBy?: SessionReplayListWidgetConfigApiOrderBy
     /** Sort direction for orderBy. */
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
+    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+    savedFilterId?: string | null
 }
 
 export type DashboardWidgetConfigApi = ErrorTrackingListWidgetConfigApi | SessionReplayListWidgetConfigApi
@@ -4094,6 +4096,7 @@ export const IntegrationKindApi = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
