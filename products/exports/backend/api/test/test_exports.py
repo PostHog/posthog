@@ -20,6 +20,7 @@ from rest_framework import status
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -267,6 +268,61 @@ class TestExports(APIBaseTest):
             mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None, insight_cache_keys=ANY)
 
             mock_calculate.assert_called_once()
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_logs_exported_asset_activity_for_sql_export(self, _mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {
+                "export_format": "text/csv",
+                "export_context": {"source": {"kind": "HogQLQuery", "query": "select 1"}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        asset_id = response.json()["id"]
+
+        logs = ActivityLog.objects.filter(scope="ExportedAsset", item_id=str(asset_id))
+        self.assertEqual(logs.count(), 1)
+        log = logs.first()
+        assert log is not None
+        self.assertEqual(log.activity, "exported")
+        self.assertEqual(log.team_id, self.team.id)
+        self.assertEqual(log.user_id, self.user.id)
+        self.assertEqual(log.detail["name"], "SQL query results")
+        self.assertEqual(log.detail["changes"][0]["after"], "text/csv")
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_logs_exported_asset_activity_for_dashboard_export(self, _mock_exporter_task) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "dashboard": self.dashboard.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        asset_id = response.json()["id"]
+
+        logs = ActivityLog.objects.filter(scope="ExportedAsset", item_id=str(asset_id))
+        self.assertEqual(logs.count(), 1)
+        assert logs.first() is not None
+        self.assertEqual(logs.first().detail["name"], self.dashboard.name)
+
+    @patch("products.exports.backend.tasks.image_exporter._export_to_png")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_insight_export_does_not_create_duplicate_exported_asset_activity(
+        self, _mock_exporter_task, _mock_export_to_png
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "insight": self.insight.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        asset_id = response.json()["id"]
+
+        # Insight exports are recorded once under the Insight scope, never duplicated under ExportedAsset.
+        self.assertFalse(ActivityLog.objects.filter(scope="ExportedAsset", item_id=str(asset_id)).exists())
+        self.assertTrue(
+            ActivityLog.objects.filter(scope="Insight", item_id=str(self.insight.id), activity="exported").exists()
+        )
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
