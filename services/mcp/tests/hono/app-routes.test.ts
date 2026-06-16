@@ -3,6 +3,8 @@ import type { Mock } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import { resetAuthorizationServerScopesCacheForTests } from '@/lib/authorization-server-scopes'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
@@ -40,6 +42,25 @@ describe('Hono App Routes', () => {
 
     beforeEach(() => {
         mockRedis = createMockRedis()
+        // The protected-resource metadata handler fetches the authorization
+        // server's live `scopes_supported` to filter what it advertises. Stub
+        // it to the full advertised set (intersection is a no-op) and reset the
+        // cache so cases stay hermetic and don't hit the network.
+        resetAuthorizationServerScopesCacheForTests()
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(
+                async () =>
+                    ({
+                        ok: true,
+                        json: async () => ({ scopes_supported: getAdvertisedOAuthScopes() }),
+                    }) as unknown as Response
+            )
+        )
+    })
+
+    afterEach(() => {
+        vi.unstubAllGlobals()
     })
 
     describe('GET /', () => {
@@ -153,6 +174,34 @@ describe('Hono App Routes', () => {
             const { app } = createApp(mockRedis)
             const res = await app.request('/.well-known/oauth-protected-resource/mcp')
             expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600')
+        })
+
+        it('should not advertise a scope the live authorization server does not recognise', async () => {
+            // Deploy-skew guard: when the AS metadata omits a scope (Django hasn't
+            // rolled out the new scope yet), the MCP must not advertise it, or
+            // spec-compliant clients hit `invalid_scope` at /authorize.
+            const advertised = getAdvertisedOAuthScopes()
+            const droppedScope = advertised.find((scope) => scope.includes(':')) as string
+            resetAuthorizationServerScopesCacheForTests()
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    async () =>
+                        ({
+                            ok: true,
+                            json: async () => ({
+                                scopes_supported: advertised.filter((scope) => scope !== droppedScope),
+                            }),
+                        }) as unknown as Response
+                )
+            )
+
+            const { app } = createApp(mockRedis)
+            const res = await app.request('/.well-known/oauth-protected-resource/mcp')
+            const body = (await res.json()) as Record<string, any>
+
+            expect(body.scopes_supported).not.toContain(droppedScope)
+            expect(body.scopes_supported).toContain('openid')
         })
     })
 

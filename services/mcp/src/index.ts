@@ -1,3 +1,4 @@
+import { getLiveAdvertisedOAuthScopes } from '@/lib/authorization-server-scopes'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
@@ -5,7 +6,6 @@ import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
-import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
 import { proxyToHono, resolveProxyRegion } from './proxy'
@@ -168,7 +168,7 @@ const handleRequest = async (
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: getAdvertisedOAuthScopes(),
+                scopes_supported: await getLiveAdvertisedOAuthScopes(authorizationServer),
                 bearer_methods_supported: ['header'],
             }),
             {

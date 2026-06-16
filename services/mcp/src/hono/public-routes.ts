@@ -1,8 +1,8 @@
 import { serveStatic } from '@hono/node-server/serve-static'
 import type { Hono } from 'hono'
 
+import { getLiveAdvertisedOAuthScopes } from '@/lib/authorization-server-scopes'
 import { buildRedirectUrl, getPublicUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import type { Lifecycle } from './app'
 import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL } from './constants'
@@ -46,18 +46,19 @@ function readyzHandler(redis: RedisWithPing, lifecycle: Lifecycle) {
 // resource path. The resource URL the metadata advertises has to match what
 // the client connected on, so we derive it from the request rather than
 // hard-coding the host.
-const wellKnownHandler = (c: HonoCtx): Response => {
+const wellKnownHandler = async (c: HonoCtx): Promise<Response> => {
     const url = new URL(c.req.url)
     const resourcePath = url.pathname.slice(WELL_KNOWN_PREFIX.length) || '/'
     const resourceUrl = getPublicUrl(c.req.raw)
     resourceUrl.pathname = resourcePath
     resourceUrl.search = ''
 
+    const authorizationServerUrl = getAuthorizationServerUrl()
     return c.json(
         {
             resource: resourceUrl.toString().replace(/\/$/, ''),
-            authorization_servers: [getAuthorizationServerUrl()],
-            scopes_supported: getAdvertisedOAuthScopes(),
+            authorization_servers: [authorizationServerUrl],
+            scopes_supported: await getLiveAdvertisedOAuthScopes(authorizationServerUrl),
             bearer_methods_supported: ['header'],
         },
         200,
