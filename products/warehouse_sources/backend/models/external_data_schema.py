@@ -64,9 +64,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         default=dict,
         blank=True,
     )
-    # Leaf subdir under the source's S3 folder that Delta data is written to. Pins legacy rows
-    # (renamed to qualified form during multi-schema migration) to their original path. Empty for
-    # new rows — readers fall back to the normalized schema `name`.
+    # Normalized leaf subdir under the source's S3 folder that Delta data is written to (the actual
+    # folder name, e.g. `my_table`, not `My Table`). Pins legacy rows (renamed to qualified form
+    # during multi-schema migration) to their original path. Empty for rows written before this
+    # column existed — readers fall back to the legacy JSON key, then the normalized schema `name`.
     s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.common.sql.location import fill_missing_from_dotted_name, normalize_namespace
@@ -81,14 +82,15 @@ def _qualify_legacy_row(
     merged_metadata.setdefault("foreign_keys", [])
 
     new_sync_type_config: dict[str, Any] = {**sync_type_config, "schema_metadata": merged_metadata}
-    # `s3_folder_name` is the source of truth; the JSON key is written transitionally so workers
-    # still on the old code keep reading the legacy path during rollout.
-    storage_key = row.resolved_s3_folder_name or row.name
-    new_sync_type_config["dwh_storage_key"] = storage_key
+    # The S3 folder is the normalized identifier — store that, so the column holds the real folder
+    # name (matching what the backfill writes and what readers compute). `s3_folder_name` is the
+    # source of truth; the JSON key is written transitionally for workers still on the old code.
+    folder_name = NamingConvention.normalize_identifier(row.resolved_s3_folder_name or row.name)
+    new_sync_type_config["dwh_storage_key"] = folder_name
 
     update_fields = ["name", "sync_type_config", "updated_at"]
     if not row.s3_folder_name:
-        row.s3_folder_name = storage_key
+        row.s3_folder_name = folder_name
         update_fields.append("s3_folder_name")
 
     row.name = qualified_name
