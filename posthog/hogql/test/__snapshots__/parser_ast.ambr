@@ -2683,6 +2683,440 @@
   }
   '''
 # ---
+# name: test_cross_join_after_join_on_constraint[SELECT_0_FROM_a_JOIN_a_ON_a_a-a7392f7f]
+  '''
+  {
+    end: 33
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 0
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 28
+          expr: {
+            end: 28
+            start: 26
+            value: ""
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "a"
+          end: 33
+          join_type: "CROSS JOIN"
+          start: 30
+          table: {
+            chain: [
+              "a"
+            ]
+            end: 31
+            from_asterisk: False
+            start: 30
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "a"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_0_FROM_a_JOIN_a_ON_x_y_b_b-67d4e208]
+  '''
+  {
+    end: 36
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 0
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 31
+          expr: {
+            end: 31
+            left: {
+              chain: [
+                "x"
+              ]
+              end: 27
+              from_asterisk: False
+              start: 26
+            }
+            op: "=="
+            right: {
+              chain: [
+                "y"
+              ]
+              end: 31
+              from_asterisk: False
+              start: 30
+            }
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "b"
+          end: 36
+          join_type: "CROSS JOIN"
+          start: 33
+          table: {
+            chain: [
+              "b"
+            ]
+            end: 34
+            from_asterisk: False
+            start: 33
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "a"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_1_FROM_a_JOIN_b_ON_1_c_c-18367b47]
+  '''
+  {
+    end: 32
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 1
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            end: 27
+            start: 26
+            value: 1
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "c"
+          end: 32
+          join_type: "CROSS JOIN"
+          start: 29
+          table: {
+            chain: [
+              "c"
+            ]
+            end: 30
+            from_asterisk: False
+            start: 29
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_FROM_a_JOIN_b_ON_x_select_1_s-124faa4f]
+  '''
+  {
+    end: 41
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            chain: [
+              "x"
+            ]
+            end: 27
+            from_asterisk: False
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "s"
+          end: 41
+          join_type: "CROSS JOIN"
+          start: 29
+          table: {
+            end: 38
+            select: [
+              {
+                end: 38
+                start: 37
+                value: 1
+              }
+            ]
+            start: 30
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_FROM_a_JOIN_b_ON_x_y_FINAL-03644779]
+  '''
+  {
+    end: 36
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            chain: [
+              "x"
+            ]
+            end: 27
+            from_asterisk: False
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          end: 36
+          join_type: "CROSS JOIN"
+          start: 29
+          table: {
+            chain: [
+              "y"
+            ]
+            end: 30
+            from_asterisk: False
+            start: 29
+          }
+          table_final: True
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_cross_join_after_join_on_constraint[SELECT_FROM_a_JOIN_b_ON_x_y_z_w-431f4637]
+  '''
+  {
+    end: 35
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 15
+      next_join: {
+        constraint: {
+          constraint_type: "ON"
+          end: 27
+          expr: {
+            chain: [
+              "x"
+            ]
+            end: 27
+            from_asterisk: False
+            start: 26
+          }
+          start: 23
+        }
+        end: 22
+        join_type: "JOIN"
+        next_join: {
+          alias: "z"
+          end: 32
+          join_type: "CROSS JOIN"
+          next_join: {
+            end: 35
+            join_type: "CROSS JOIN"
+            start: 34
+            table: {
+              chain: [
+                "w"
+              ]
+              end: 35
+              from_asterisk: False
+              start: 34
+            }
+          }
+          start: 29
+          table: {
+            chain: [
+              "y"
+            ]
+            end: 30
+            from_asterisk: False
+            start: 29
+          }
+        }
+        start: 21
+        table: {
+          chain: [
+            "b"
+          ]
+          end: 22
+          from_asterisk: False
+          start: 21
+        }
+      }
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 15
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
 # name: test_cte_list_paren_after_non_paren_cte[WITH_1_AS_a_x_x_1_AS_f_SELECT_f_a-92e4cd4c]
   '''
   {
@@ -3643,6 +4077,98 @@
   }
   '''
 # ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct-1e756ee3]
+  '''
+  {
+    end: 17
+    select: [
+      {
+        args: []
+        distinct: False
+        end: 17
+        name: "distinct"
+        start: 7
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct_FROM_a-4a6b925e]
+  '''
+  {
+    end: 24
+    select: [
+      {
+        args: []
+        distinct: False
+        end: 17
+        name: "distinct"
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 24
+      start: 23
+      table: {
+        chain: [
+          "a"
+        ]
+        end: 24
+        from_asterisk: False
+        start: 23
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct_x-5ba596b3]
+  '''
+  {
+    distinct: True
+    end: 18
+    select: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 17
+        from_asterisk: False
+        start: 16
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_distinct_with_empty_parens_is_a_function_call[SELECT_distinct_x_y-53d4dfad]
+  '''
+  {
+    distinct: True
+    end: 21
+    select: [
+      {
+        chain: [
+          "x"
+        ]
+        end: 17
+        from_asterisk: False
+        start: 16
+      },
+      {
+        chain: [
+          "y"
+        ]
+        end: 21
+        from_asterisk: False
+        start: 20
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
 # name: test_empty_paren_only_clauses_rejected[COLUMNS_REPLACE_a_AS_b-2108574c]
   '''
   {
@@ -3873,6 +4399,33 @@
         start: 33
       }
     ]
+  }
+  '''
+# ---
+# name: test_full_template_string_empty_body_span[1-4927ce04]
+  '''
+  {
+    end: 4
+    start: 3
+    value: 1
+  }
+  '''
+# ---
+# name: test_full_template_string_empty_body_span[da39a3ee]
+  '''
+  {
+    end: 2
+    start: 0
+    value: ""
+  }
+  '''
+# ---
+# name: test_full_template_string_empty_body_span[x-11f6ad8e]
+  '''
+  {
+    end: 3
+    start: 2
+    value: "x"
   }
   '''
 # ---
@@ -14999,6 +15552,163 @@
         start: 0
       }
       start: 0
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_1_2-3d1f9a13]
+  '''
+  {
+    end: 21
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 21
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          end: 17
+          start: 16
+          value: 1
+        },
+        {
+          end: 20
+          start: 19
+          value: 2
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_SELECT_1-24fdd15d]
+  '''
+  {
+    end: 27
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 27
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          end: 25
+          select: [
+            {
+              end: 25
+              start: 24
+              value: 1
+            }
+          ]
+          start: 17
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_b-135bc7d5]
+  '''
+  {
+    end: 18
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 18
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          chain: [
+            "b"
+          ]
+          end: 17
+          from_asterisk: False
+          start: 16
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_table_function_arg_rejects_bare_select_subquery[SELECT_FROM_a_x_1-1c06ea1f]
+  '''
+  {
+    end: 23
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 23
+      start: 14
+      table: {
+        chain: [
+          "a"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          name: "x"
+          value: {
+            end: 22
+            start: 21
+            value: 1
+          }
+        }
+      ]
     }
     start: 0
   }

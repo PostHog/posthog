@@ -4351,6 +4351,52 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         Ok(args)
     }
 
+    /// Table-function argument list (cpp's `tableArgList`). A table-function
+    /// argument is a plain `columnExpr` or a named `ident := expr` — unlike a
+    /// general function call (cpp's `ColumnExprCallSelect`), a *bare* `SELECT …`
+    /// subquery is NOT a valid table arg: cpp rejects `FROM a(SELECT 1)` while
+    /// accepting the paren-wrapped `FROM a((SELECT 1))`. So this skips the
+    /// bare-`selectSetStmt` alt that `parse_arg_list` allows.
+    pub(crate) fn parse_table_arg_list(
+        &mut self,
+        terminator: TokenKind,
+    ) -> Result<Vec<E::Value>, ParseError> {
+        let mut args = Vec::new();
+        if self.peek() == terminator {
+            return Ok(args);
+        }
+        loop {
+            args.push(self.parse_table_argument()?);
+            if !self.eat(TokenKind::Comma)? {
+                break;
+            }
+            if self.peek() == terminator {
+                break;
+            }
+        }
+        Ok(args)
+    }
+
+    /// One table-function argument: the named form `ident := expr`, else a
+    /// plain `columnExpr`. No bare-`SELECT` subquery alt — see
+    /// `parse_table_arg_list`. The named-arg gate mirrors
+    /// `parse_call_argument_with` (cpp's `ColumnExprNamedArg` admits the full
+    /// `identifier` rule, including keyword-as-identifier and `true`/`false`).
+    fn parse_table_argument(&mut self) -> Result<E::Value, ParseError> {
+        let name_kw_ok =
+            matches!(self.peek(), TokenKind::Keyword(kw) if kw_valid_as_identifier(kw));
+        if (matches!(self.peek(), TokenKind::Ident | TokenKind::QuotedIdent) || name_kw_ok)
+            && self.peek_next() == TokenKind::ColonEquals
+        {
+            let name_tok = self.bump()?;
+            let name = identifier_text(self.text(name_tok), name_tok.kind);
+            self.bump()?; // consume `:=`
+            let value = self.parse_expr_bp(0)?;
+            return Ok(self.emit.named_argument(&name, value));
+        }
+        self.parse_expr_bp(0)
+    }
+
     /// One argument in a function call's argument list. Supports the named
     /// argument shape `ident := expr` which is grammar-bound to call sites,
     /// and a `SELECT …` subquery (`f(select 1)`) which the grammar's
