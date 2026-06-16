@@ -4,14 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     MessagingTemplatesCreateBody,
-    MessagingTemplatesDesignPartialUpdateBody,
-    MessagingTemplatesDesignPartialUpdateParams,
     MessagingTemplatesListQueryParams,
     MessagingTemplatesPartialUpdateBody,
     MessagingTemplatesPartialUpdateParams,
     MessagingTemplatesRetrieveParams,
 } from '@/generated/email_templates/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { EmailTemplateDesignPatchSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -110,25 +109,21 @@ const workflowsListEmailTemplates = (): ToolBase<
     },
 })
 
-const WorkflowsPatchEmailTemplateSchema = MessagingTemplatesDesignPartialUpdateParams.omit({ project_id: true }).extend(
-    MessagingTemplatesDesignPartialUpdateBody.shape
-)
+const WorkflowsPatchEmailTemplateSchema = EmailTemplateDesignPatchSchema
 
 const workflowsPatchEmailTemplate = (): ToolBase<
     typeof WorkflowsPatchEmailTemplateSchema,
-    WithPostHogUrl<Schemas.MessageTemplate>
+    Schemas.MessageTemplate
 > => ({
     name: 'workflows-patch-email-template',
     schema: WorkflowsPatchEmailTemplateSchema,
     handler: async (context: Context, params: z.infer<typeof WorkflowsPatchEmailTemplateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.operations !== undefined) {
-            body['operations'] = params.operations
-        }
+        const parsedParams = WorkflowsPatchEmailTemplateSchema.parse(params)
+        const { id, ...body } = parsedParams
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/design/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(id))}/design/`,
             body,
         })
         const filtered = omitResponseFields(result, ['content', 'created_by']) as typeof result

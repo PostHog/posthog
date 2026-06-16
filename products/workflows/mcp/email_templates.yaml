@@ -82,6 +82,10 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
+        # Hand-authored discriminated union: one op shape per change, with `operations` required.
+        # The auto-generated PATCH schema flattens every field to optional, so an agent gets no
+        # per-op field hints and `operations` isn't marked required.
+        input_schema: EmailTemplateDesignPatchSchema
         enrich_url: '{id}'
         title: Patch email template design
         description: >
