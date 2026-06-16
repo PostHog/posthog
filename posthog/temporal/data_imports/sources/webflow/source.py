@@ -3,6 +3,7 @@ from typing import Optional, cast
 import structlog
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -116,6 +117,7 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WEBFLOW,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Webflow",
             caption="""Enter your Webflow v2 API token and Site ID to pull your Webflow site data into the PostHog Data warehouse.
 

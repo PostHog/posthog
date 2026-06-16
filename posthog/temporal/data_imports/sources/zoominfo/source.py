@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class ZoomInfoSource(SimpleSource[ZoomInfoSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ZOOM_INFO,
+            category=DataWarehouseSourceCategory.CRM,
             label="ZoomInfo",
             iconPath="/static/services/zoominfo.png",
             fields=cast(list[FieldType], []),

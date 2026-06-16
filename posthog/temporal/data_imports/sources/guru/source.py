@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -40,6 +41,7 @@ class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GURU,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Guru",
             caption="""Enter your Guru API credentials to pull your Guru knowledge base data into the PostHog Data warehouse.
 

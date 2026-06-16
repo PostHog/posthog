@@ -4,6 +4,7 @@ from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError,
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -60,6 +61,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            category=DataWarehouseSourceCategory.DATABASES,
             releaseStatus="beta",
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
@@ -157,6 +159,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "No route to host": None,
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
+            # clickhouse-connect's HTTP driver got a 404 back while opening the
+            # connection ("HTTPDriver for <url> returned response code 404").
+            # The host responded but isn't serving the ClickHouse HTTP interface
+            # on that path — typically a tunnel/proxy pointing at the wrong
+            # service or an offline endpoint. A real ClickHouse server never
+            # answers queries with 404, so retrying can't recover. We match only
+            # 404, not transient gateway codes (502/503/504), which stay retryable.
+            "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
