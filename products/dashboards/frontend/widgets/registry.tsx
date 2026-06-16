@@ -131,7 +131,6 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         Component: ActivityEventsWidget,
         TileFilters: ActivityEventsWidgetTileFilters,
         EditModal: EditActivityEventsWidgetModal,
-        productAccess: 'insight',
         parseConfigApiError: parseActivityEventsWidgetConfigApiError,
     },
     error_tracking_list: {
