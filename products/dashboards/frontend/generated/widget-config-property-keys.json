@@ -1,5 +1,6 @@
 {
     "configPropertyKeys": {
+        "activity_events_list": ["dateRange", "filterTestAccounts", "limit", "widgetFilters"],
         "error_tracking_list": [
             "assignee",
             "dateRange",
@@ -16,10 +17,78 @@
             "limit",
             "orderBy",
             "orderDirection",
+            "savedFilterId",
             "widgetFilters"
         ]
     },
     "configPropertyTrees": {
+        "activity_events_list": {
+            "dateRange": {
+                "date_from": {
+                    "$enum": ["-14d", "-1h", "-24h", "-30d", "-3h", "-7d", "-90d"]
+                }
+            },
+            "filterTestAccounts": {
+                "$type": "boolean"
+            },
+            "widgetFilters": {
+                "$record": {
+                    "filterId": {
+                        "$type": "string"
+                    },
+                    "propertyName": {
+                        "$type": "string"
+                    },
+                    "optionId": {
+                        "$type": "string"
+                    },
+                    "operator": {
+                        "$enum": [
+                            "between",
+                            "exact",
+                            "flag_evaluates_to",
+                            "gt",
+                            "gte",
+                            "icontains",
+                            "icontains_multi",
+                            "in",
+                            "is_cleaned_path_exact",
+                            "is_date_after",
+                            "is_date_before",
+                            "is_date_exact",
+                            "is_not",
+                            "is_not_set",
+                            "is_set",
+                            "lt",
+                            "lte",
+                            "max",
+                            "min",
+                            "not_between",
+                            "not_icontains",
+                            "not_icontains_multi",
+                            "not_in",
+                            "not_regex",
+                            "regex",
+                            "semver_caret",
+                            "semver_eq",
+                            "semver_gt",
+                            "semver_gte",
+                            "semver_lt",
+                            "semver_lte",
+                            "semver_neq",
+                            "semver_tilde",
+                            "semver_wildcard"
+                        ]
+                    },
+                    "value": {
+                        "$types": ["string"]
+                    }
+                }
+            },
+            "limit": {
+                "$type": "integer"
+            }
+        },
         "error_tracking_list": {
             "dateRange": {
                 "date_from": {
@@ -182,6 +251,9 @@
             },
             "orderDirection": {
                 "$enum": ["ASC", "DESC"]
+            },
+            "savedFilterId": {
+                "$type": "string"
             }
         }
     }

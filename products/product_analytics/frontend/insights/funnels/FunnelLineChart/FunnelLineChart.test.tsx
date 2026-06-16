@@ -61,6 +61,45 @@ describe('FunnelLineChart', () => {
             expect(tooltip.textContent).toContain('Spike')
             expect(tooltip.textContent).toContain('Bramble')
         })
+
+        it('shows each breakdown series conversion value, not a placeholder dash', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            // Every breakdown series is its own tooltip row and must render its own
+            // conversion value. Regression guard: distinct series orders previously
+            // split the rows across columns the inverted layout never rendered, so
+            // only the first series showed a value and the rest showed "–".
+            expect(tooltip.row('Spike')).toContain('50%')
+            expect(tooltip.row('Bramble')).toContain('30%')
+        })
+
+        it('shows a distinct conversion value for each breakdown × compare series', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    compareFilter: { compare: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            const tooltip = await chart.hoverTooltip(2)
+
+            // Current and previous of the same breakdown are separate tooltip rows, keyed by
+            // breakdown_value/compare_label. Regression guard: without compare_label threaded into
+            // the tooltip datum, both rows collapsed into one shared column and only the current
+            // value rendered, leaving the previous row showing "–".
+            expect(tooltip.row('Spike · Current')).toContain('50%')
+            expect(tooltip.row('Spike · Previous')).toContain('45%')
+            expect(tooltip.row('Bramble · Current')).toContain('30%')
+            expect(tooltip.row('Bramble · Previous')).toContain('25%')
+        })
     })
 
     describe('click → persons modal', () => {
@@ -152,6 +191,66 @@ describe('FunnelLineChart', () => {
             await waitFor(() => {
                 expect(getHogChart().valueLabels()).toHaveLength(5)
             })
+        })
+    })
+
+    describe('legend', () => {
+        it('shows a legend item per breakdown series when showLegend is enabled', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
+            expect(labels).toEqual(['Spike', 'Bramble'])
+        })
+
+        it.each([
+            {
+                desc: 'showLegend is unset (off by default)',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                }),
+            },
+            {
+                desc: 'showLegend is false',
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: false },
+                }),
+            },
+            {
+                desc: 'there is only a single series, even when showLegend is true',
+                query: buildFunnelsQuery({ funnelsFilter: { showLegend: true } }),
+            },
+        ])('omits the legend when $desc', async ({ query }) => {
+            renderInsight({ query, featureFlags: HOG_CHARTS_FUNNEL_FLAG })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
+        })
+
+        it('assigns a distinct color to each breakdown series', async () => {
+            renderInsight({
+                query: buildFunnelsQuery({
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    funnelsFilter: { showLegend: true },
+                }),
+                featureFlags: HOG_CHARTS_FUNNEL_FLAG,
+            })
+
+            await screen.findByRole('img', { name: /chart with/i })
+            const legend = await screen.findByTestId('funnel-line-legend')
+            const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]')).map(
+                (el) => el.style.backgroundColor
+            )
+            expect(swatchColors).toHaveLength(2)
+            expect(new Set(swatchColors).size).toBe(2)
         })
     })
 

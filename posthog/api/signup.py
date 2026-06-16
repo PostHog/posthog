@@ -186,7 +186,10 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def is_email_auto_verified(self):
-        return self.is_social_signup
+        if self.is_social_signup:
+            return True
+        domain = self.validated_data.get("email", "").split("@")[-1].lower()
+        return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
@@ -256,6 +259,11 @@ class SignupSerializer(serializers.Serializer):
                         verified=True,
                         label="Passkey",
                     )
+                    # Self-created during signup, so it counts as already-acknowledged for the
+                    # credential review interstitial. Otherwise the user would be asked to revoke
+                    # the only credential they just minted to log in with.
+                    self._user.credentials_reviewed_at = timezone.now()
+                    self._user.save(update_fields=["credentials_reviewed_at"])
 
         except IntegrityError as e:
             # This can happen if:
@@ -610,6 +618,10 @@ class InviteSignupSerializer(serializers.Serializer):
                 if invite.organization.enforce_2fa and not user.passkeys_enabled_for_2fa:
                     user.passkeys_enabled_for_2fa = True
                     user.save(update_fields=["passkeys_enabled_for_2fa"])
+                # Self-created during invite signup; treat as already-acknowledged so the
+                # credential review interstitial doesn't ask the user to revoke their own passkey.
+                user.credentials_reviewed_at = timezone.now()
+                user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)

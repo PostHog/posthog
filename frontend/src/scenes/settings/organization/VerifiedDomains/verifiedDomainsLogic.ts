@@ -330,6 +330,10 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.SCIM),
         ],
+        isXAAAuthenticationAvailable: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.XAA_AUTHENTICATION),
+        ],
     }),
     afterMount(({ actions }) => actions.loadVerifiedDomains()),
     bindModalToUrl({

@@ -276,7 +276,7 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
                 )
             assert isinstance(cert["notAfter"], str)
             expires_at = dt.datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
-            if expires_at - dt.datetime.utcnow() < dt.timedelta(days=14):
+            if expires_at - dt.datetime.now(dt.UTC).replace(tzinfo=None) < dt.timedelta(days=14):
                 return CheckActivityOutput(
                     errors=["Live proxy certificate is expiring soon"],
                     warnings=[],

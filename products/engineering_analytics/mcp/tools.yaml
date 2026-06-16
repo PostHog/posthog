@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Engineering analytics
 feature: engineering_analytics
-url_prefix: /engineering_analytics
+url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
     engineering-analytics-ci-cards:
@@ -77,3 +77,4 @@ tools:
                 description: Window start — relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
+        url_prefix: /engineering-analytics/workflows

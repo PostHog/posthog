@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -40,6 +42,7 @@ class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SENTRY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sentry",
             iconPath="/static/services/sentry.png",
             caption="""Enter a Sentry auth token and your organization slug to sync Sentry organization, project, issue, and monitor datasets.
@@ -87,7 +90,7 @@ Create a token in Sentry and make sure it includes the scopes below if you want 
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

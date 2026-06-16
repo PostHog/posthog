@@ -8,7 +8,7 @@ import {
     NodeViewProps,
     getExtensionField,
 } from '@tiptap/react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, type PointerEvent as ReactPointerEvent, useCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -16,7 +16,7 @@ import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
-import { hashCodeForString } from 'lib/utils'
+import { hashCodeForString } from 'lib/utils/strings'
 import { useInView } from 'react-intersection-observer'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
@@ -168,6 +168,42 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
+    const onResizeHandlePointerDown = useCallback(
+        (event: ReactPointerEvent<HTMLDivElement>): void => {
+            if (!isEditable || !isResizeable || !contentRef.current) {
+                return
+            }
+
+            event.preventDefault()
+            event.stopPropagation()
+
+            const element = contentRef.current
+            const startY = event.clientY
+            const startHeight = element.getBoundingClientRect().height
+            const parsedMinHeight = Number.parseFloat(window.getComputedStyle(element).minHeight)
+            const minResizeHeight = Number.isFinite(parsedMinHeight) ? parsedMinHeight : 0
+
+            const onPointerMove = (moveEvent: PointerEvent): void => {
+                moveEvent.preventDefault()
+                const nextHeight = Math.max(minResizeHeight, startHeight + moveEvent.clientY - startY)
+                element.style.height = `${Math.round(nextHeight)}px`
+            }
+
+            const onPointerUp = (): void => {
+                window.removeEventListener('pointermove', onPointerMove)
+                window.removeEventListener('pointerup', onPointerUp)
+
+                updateAttributes({
+                    height: element.clientHeight,
+                    ...(nodeType === NotebookNodeType.Python ? { autoHeight: false } : {}),
+                } as any)
+            }
+
+            window.addEventListener('pointermove', onPointerMove)
+            window.addEventListener('pointerup', onPointerUp)
+        },
+        [isEditable, isResizeable, nodeType, updateAttributes]
+    )
     const isDraggable = !!(isEditable && getPos)
     const isPythonNode = nodeType === NotebookNodeType.Python
     const isDuckSqlNode = nodeType === NotebookNodeType.DuckSQL
@@ -414,6 +450,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                     attributes={attributes}
                                                     updateAttributes={updateAttributes}
                                                 />
+                                                {isEditable && isResizeable ? (
+                                                    <div
+                                                        className="NotebookNode__resize-handle"
+                                                        aria-hidden="true"
+                                                        onPointerDown={onResizeHandlePointerDown}
+                                                    />
+                                                ) : null}
                                             </ErrorBoundary>
                                         </div>
                                     </>

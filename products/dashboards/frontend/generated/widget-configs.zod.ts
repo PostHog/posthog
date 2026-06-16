@@ -3,21 +3,30 @@
  */
 import { z as zod } from 'zod'
 
+import { ActivityEventsListWidgetConfig } from './widget-config-schemas/activityEventsListWidgetConfig.zod'
 import { ErrorTrackingListWidgetConfig } from './widget-config-schemas/errorTrackingListWidgetConfig.zod'
 import { SessionReplayListWidgetConfig } from './widget-config-schemas/sessionReplayListWidgetConfig.zod'
 import { WidgetFilterEntry } from './widget-config-schemas/widgetFilterEntry.zod'
 
+export const activityEventsWidgetConfigSchema = /* @__PURE__ */ ActivityEventsListWidgetConfig
 export const errorTrackingWidgetConfigSchema = /* @__PURE__ */ ErrorTrackingListWidgetConfig
 export const sessionReplayWidgetConfigSchema = /* @__PURE__ */ SessionReplayListWidgetConfig
 export const widgetFilterEntrySchema = /* @__PURE__ */ WidgetFilterEntry
 
+export type ActivityEventsWidgetConfig = zod.infer<typeof activityEventsWidgetConfigSchema>
 export type ErrorTrackingWidgetConfig = zod.infer<typeof errorTrackingWidgetConfigSchema>
 export type SessionReplayWidgetConfig = zod.infer<typeof sessionReplayWidgetConfigSchema>
 
-type WidgetFiltersRecord = NonNullable<ErrorTrackingWidgetConfig['widgetFilters']>
+type WidgetFiltersRecord = NonNullable<ActivityEventsWidgetConfig['widgetFilters']>
 export type WidgetFilterConfigEntry = WidgetFiltersRecord[string]
 export type WidgetFilterConfigRecord = WidgetFiltersRecord
 export type StoredWidgetFilter = WidgetFilterConfigEntry
+
+export const activityEventsWidgetFormSchema = activityEventsWidgetConfigSchema.pick({
+    limit: true,
+    dateRange: true,
+    filterTestAccounts: true,
+})
 
 export const errorTrackingWidgetFormSchema = errorTrackingWidgetConfigSchema.pick({
     limit: true,

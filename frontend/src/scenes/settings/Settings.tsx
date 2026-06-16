@@ -33,8 +33,8 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from 'lib/ui/quill'
-import { inStorybookTestRunner } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'

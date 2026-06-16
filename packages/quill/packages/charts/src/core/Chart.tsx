@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
 import { AxisTitles } from '../overlays/AxisTitles'
@@ -8,6 +8,7 @@ import { normalizeAxisLabel } from '../utils/axis-labels'
 import { composeDrawHoverWithCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
+import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
@@ -23,38 +24,11 @@ import type {
     CreateScalesFn,
     DrawHoverResult,
     PointClickData,
-    ResolvedSeries,
     ResolveValueFn,
     Series,
     TooltipContext,
 } from './types'
 
-const OVERLAY_STYLE: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    pointerEvents: 'none',
-}
-
-const WRAPPER_STYLE_BASE: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    flex: 1,
-    minHeight: 0,
-    overflow: 'hidden',
-}
-const WRAPPER_STYLE_DEFAULT: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'default' }
-const WRAPPER_STYLE_POINTER: React.CSSProperties = { ...WRAPPER_STYLE_BASE, cursor: 'pointer' }
-
-const STATIC_CANVAS_STYLE: React.CSSProperties = { position: 'absolute', top: 0, left: 0 }
-const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    pointerEvents: 'none',
-}
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
 
@@ -66,10 +40,6 @@ function resolveHoverAnimationMs(animateHover: boolean | number | undefined): nu
         return animateHover
     }
     return 0
-}
-
-function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
-    return <div style={OVERLAY_STYLE}>{children}</div>
 }
 
 export interface ChartProps<Meta = unknown> {
@@ -174,14 +144,7 @@ export function Chart<Meta = unknown>({
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
-    const coloredSeries = useMemo<ResolvedSeries<Meta>[]>(
-        () =>
-            series.map((s, i) => ({
-                ...s,
-                color: s.color || theme.colors[i % theme.colors.length],
-            })),
-        [series, theme.colors]
-    )
+    const coloredSeries = useColoredSeries<Meta>(series, theme)
 
     const scales = useMemo<ChartScales | null>(() => {
         if (!dimensions) {
@@ -237,11 +200,8 @@ export function Chart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
-
     const ariaLabel = useMemo(() => {
-        const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
-        const parts = [`Chart with ${visible} data series`]
+        const parts = [`Chart with ${countVisibleSeries(coloredSeries)} data series`]
         const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
         const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
         if (!hideXAxis && cleanXAxisLabel) {
@@ -253,10 +213,7 @@ export function Chart<Meta = unknown>({
         return parts.join('. ')
     }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
 
-    const canvasBounds = useCallback(
-        (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
-        [canvasRef]
-    )
+    const canvasBounds = useCanvasBounds(canvasRef)
 
     // Overlays (value labels) anchor at the stacked top, so expose the position resolver —
     // falling back to the value resolver when the chart doesn't stack.
@@ -289,51 +246,42 @@ export function Chart<Meta = unknown>({
     return (
         <ChartLayoutContext.Provider value={layoutValue}>
             <ChartHoverContext.Provider value={hoverValue}>
-                <div
-                    ref={wrapperRef}
+                <ChartShell
+                    wrapperRef={wrapperRef}
+                    canvasRef={canvasRef}
+                    overlayCanvasRef={overlayCanvasRef}
                     className={className}
-                    data-attr={dataAttr}
-                    style={wrapperStyle}
-                    onMouseMove={handlers.onMouseMove}
-                    onMouseLeave={handlers.onMouseLeave}
-                    onClick={handlers.onClick}
+                    dataAttr={dataAttr}
+                    pointer={hoverIndex >= 0 && !!onPointClick}
+                    ariaLabel={ariaLabel}
+                    handlers={handlers}
+                    showOverlay={!!(dimensions && scales)}
                 >
-                    <canvas ref={canvasRef} role="img" aria-label={ariaLabel} style={STATIC_CANVAS_STYLE} />
-                    <canvas ref={overlayCanvasRef} aria-hidden="true" style={OVERLAY_CANVAS_STYLE} />
+                    <AxisLabels
+                        xTickFormatter={xTickFormatter}
+                        yTickFormatter={resolvedYFormatter}
+                        userYTickFormatter={yTickFormatter}
+                        hideXAxis={hideXAxis}
+                        hideYAxis={hideYAxis}
+                        axisColor={axisColor}
+                        orientation={axisOrientation}
+                        labelToCoord={labelToCoord}
+                        maxCategoryLabelWidth={maxCategoryLabelWidth}
+                    />
+                    <AxisTitles
+                        xAxisLabel={xAxisLabel}
+                        yAxisLabel={yAxisLabel}
+                        hideXAxis={hideXAxis}
+                        hideYAxis={hideYAxis}
+                        axisColor={axisColor}
+                    />
 
-                    {dimensions && scales && (
-                        <OverlayLayer>
-                            <AxisLabels
-                                xTickFormatter={xTickFormatter}
-                                yTickFormatter={resolvedYFormatter}
-                                userYTickFormatter={yTickFormatter}
-                                hideXAxis={hideXAxis}
-                                hideYAxis={hideYAxis}
-                                axisColor={axisColor}
-                                orientation={axisOrientation}
-                                labelToCoord={labelToCoord}
-                                maxCategoryLabelWidth={maxCategoryLabelWidth}
-                            />
-                            <AxisTitles
-                                xAxisLabel={xAxisLabel}
-                                yAxisLabel={yAxisLabel}
-                                hideXAxis={hideXAxis}
-                                hideYAxis={hideYAxis}
-                                axisColor={axisColor}
-                            />
+                    {children}
 
-                            {children}
-
-                            {tooltipCtx && showTooltip && (
-                                <Tooltip
-                                    context={tooltipCtx}
-                                    renderTooltip={renderTooltip}
-                                    placement={tooltipPlacement}
-                                />
-                            )}
-                        </OverlayLayer>
+                    {tooltipCtx && showTooltip && (
+                        <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} placement={tooltipPlacement} />
                     )}
-                </div>
+                </ChartShell>
             </ChartHoverContext.Provider>
         </ChartLayoutContext.Provider>
     )

@@ -54,7 +54,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
                 date_from: params.date_from,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering_analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics')
     },
 })
 
@@ -80,7 +80,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
                 date_to: params.date_to,
             },
         })
-        return await withPostHogUrl(context, result, '/engineering_analytics')
+        return await withPostHogUrl(context, result, '/engineering-analytics/workflows')
     },
 })
 

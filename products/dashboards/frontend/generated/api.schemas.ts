@@ -208,6 +208,13 @@ export const EffectivePrivilegeLevelEnumApi = {
     Number37: 37,
 } as const
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -248,6 +255,8 @@ export interface DashboardBasicApi {
     /** @nullable */
     readonly last_refresh: string | null
     readonly team_id: number
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface PaginatedDashboardBasicListApi {
@@ -356,6 +365,7 @@ export interface DashboardCollaboratorApi {
 }
 
 /**
+ * * `activity_events_list` - activity_events_list
  * * `error_tracking_list` - error_tracking_list
  * * `session_replay_list` - session_replay_list
  */
@@ -363,6 +373,7 @@ export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
     (typeof DashboardPatchWidgetOpenApiWidgetTypeEnumApi)[keyof typeof DashboardPatchWidgetOpenApiWidgetTypeEnumApi]
 
 export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
+    ActivityEventsList: 'activity_events_list',
     ErrorTrackingList: 'error_tracking_list',
     SessionReplayList: 'session_replay_list',
 } as const
@@ -433,6 +444,20 @@ export interface WidgetFilterEntryApi {
     optionId: string
     operator: PropertyOperatorApi
     value?: string | string[] | null
+}
+
+export type ActivityEventsListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
+
+export interface ActivityEventsListWidgetConfigApi {
+    dateRange?: WidgetDateRangeApi | null
+    filterTestAccounts?: boolean | null
+    widgetFilters?: ActivityEventsListWidgetConfigApiWidgetFilters
+    /**
+     * Maximum number of events to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
 }
 
 /**
@@ -551,15 +576,21 @@ export interface SessionReplayListWidgetConfigApi {
     orderBy?: SessionReplayListWidgetConfigApiOrderBy
     /** Sort direction for orderBy. */
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
+    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+    savedFilterId?: string | null
 }
 
-export type DashboardWidgetConfigApi = ErrorTrackingListWidgetConfigApi | SessionReplayListWidgetConfigApi
+export type DashboardWidgetConfigApi =
+    | ActivityEventsListWidgetConfigApi
+    | ErrorTrackingListWidgetConfigApi
+    | SessionReplayListWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
     id?: string
     /** Widget type identifier (cannot be changed on update).
      *
+     * * `activity_events_list` - activity_events_list
      * * `error_tracking_list` - error_tracking_list
      * * `session_replay_list` - session_replay_list */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
@@ -1905,6 +1936,7 @@ export const ChartDisplayTypeApi = {
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
     BoxPlot: 'BoxPlot',
+    SlopeGraph: 'SlopeGraph',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -2352,6 +2384,8 @@ export interface FunnelsFilterApi {
     resultCustomizations?: FunnelsFilterApiResultCustomizations
     /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
     showAnnotations?: boolean | null
+    /** Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels. */
+    showLegend?: boolean | null
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
@@ -2467,6 +2501,8 @@ export interface FunnelsQueryApi {
     aggregation_group_type_index?: number | null
     /** Breakdown of the events and actions */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Compare to date range */
+    compareFilter?: CompareFilterApi | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
     /** Date range for the query */
@@ -4081,6 +4117,7 @@ export const IntegrationKindApi = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
@@ -6806,7 +6843,7 @@ export interface ErrorTrackingQueryApi {
     orderBy: ErrorTrackingOrderByApi
     /** Sort direction. */
     orderDirection?: OrderDirection2Api | null
-    /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently. */
+    /** Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery. The backend caps the list at 50 entries; extras are dropped silently. */
     pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdateApi[] | null
     personId?: string | null
     response?: ErrorTrackingQueryResponseApi | null
@@ -6815,9 +6852,7 @@ export interface ErrorTrackingQueryApi {
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
-    /** Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries) */
     useQueryV2?: boolean | null
-    /** Use V3 query path (denormalized ClickHouse table, no Postgres joins) */
     useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
@@ -7176,13 +7211,9 @@ export interface AccountsQueryResponseApi {
 }
 
 export interface AccountsQueryApi {
-    /** Match accounts whose account executive is any of these user ids (OR semantics). */
-    accountExecutive?: number[] | null
-    /** Match accounts whose account owner is any of these user ids (OR semantics). */
-    accountOwner?: number[] | null
     allRolesUnassigned?: boolean | null
-    /** Match accounts whose CSM is any of these user ids (OR semantics). */
-    csm?: number[] | null
+    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    assignedToUserIds?: number[] | null
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: string | null
     kind?: 'AccountsQuery'
@@ -7554,13 +7585,6 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
-export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
-
-export const SearchMatchTypeEnumApi = {
-    Exact: 'exact',
-    Similar: 'similar',
-} as const
-
 /**
  * @nullable
  */
@@ -7902,6 +7926,31 @@ export interface _WidgetTileLayoutsOpenApiApi {
     xs?: _WidgetTileLayoutBoxOpenApiApi
 }
 
+export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetAddRequestOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: ActivityEventsListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the recent events widget. */
+    config: ActivityEventsListWidgetConfigApi
+}
+
 export type ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType =
     (typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType]
 
@@ -7953,6 +8002,7 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
 }
 
 export type AddDashboardWidgetRequestApi =
+    | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
 
@@ -7961,7 +8011,7 @@ export type AddDashboardWidgetRequestApi =
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8017,6 +8067,25 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export type ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetCatalogEntryOpenApiApi {
+    widget_type: ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: ActivityEventsListWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+}
+
 export type ErrorTrackingListWidgetCatalogEntryOpenApiApiWidgetType =
     (typeof ErrorTrackingListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetCatalogEntryOpenApiApiWidgetType]
 
@@ -8056,6 +8125,7 @@ export interface SessionReplayListWidgetCatalogEntryOpenApiApi {
 }
 
 export type WidgetCatalogEntryApi =
+    | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
 
@@ -8094,6 +8164,16 @@ export interface PatchedDataColorThemeApi {
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+/**
+ * * `activity_events_list` - activity_events_list
+ */
+export type ActivityEventsListWidgetTypeEnumApi =
+    (typeof ActivityEventsListWidgetTypeEnumApi)[keyof typeof ActivityEventsListWidgetTypeEnumApi]
+
+export const ActivityEventsListWidgetTypeEnumApi = {
+    ActivityEventsList: 'activity_events_list',
+} as const
 
 /**
  * * `error_tracking_list` - error_tracking_list
@@ -8157,7 +8237,7 @@ export type DashboardsListParams = {
      */
     offset?: number
     /**
-     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     * Optional. Match against dashboard `name`, `description`, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first, then pinned status, then name; each result's `search_match_type` is `exact` or `similar`. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
 }

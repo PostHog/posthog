@@ -14,6 +14,7 @@ export enum SignalSourceProduct {
     PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
+    HEALTH_CHECKS = 'health_checks',
 }
 
 export enum SignalSourceType {
@@ -29,6 +30,7 @@ export enum SignalSourceType {
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
+    HEALTH_ISSUE = 'health_issue',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -324,6 +326,9 @@ export interface SignalsScoutSignalExtra extends SignalExtraBase {
     evidence: SignalsScoutEvidenceEntry[]
     /** Free-form short keys the harness can use for cross-run dedupe. */
     dedupe_keys?: string[]
+    /** Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout
+     * maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit. */
+    tags?: string[]
     /** Optional time window the finding refers to. */
     time_range?: {
         date_from: string
@@ -358,6 +363,29 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     source_type: 'alert_state_change'
     source_product: 'logs'
     extra: LogsAlertStateChangeSignalExtra
+}
+
+// Health-check issue (instrumentation problem detected by a HealthCheck)
+
+export type HealthCheckSeverity = 'critical' | 'warning' | 'info'
+
+export interface HealthCheckSignalExtra extends SignalExtraBase {
+    kind: string
+    severity: HealthCheckSeverity
+    issue_id: string
+    title: string
+    summary: string
+    /** Relative in-app path to the resource, e.g. '/web'. */
+    link: string
+    /** Absolute URL ({project.url} + link). */
+    url: string
+    payload: Record<string, unknown>
+}
+
+export interface HealthCheckSignalInput extends SignalInputBase {
+    source_type: 'health_issue'
+    source_product: 'health_checks'
+    extra: HealthCheckSignalExtra
 }
 
 // ── Report reviewer types ────────────────────────────────────────────────────────
@@ -401,3 +429,4 @@ export type SignalInput =
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | HealthCheckSignalInput

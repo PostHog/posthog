@@ -67,5 +67,5 @@ def get_team_batches_activity(inputs: RecommendationsRefreshInputs) -> list[list
 
 @activity.defn
 def refresh_recommendations_batch_activity(inputs: RefreshBatchInputs) -> RefreshBatchResult:
-    kicked = refresh_teams_recommendations_batched(inputs.team_ids, on_progress=activity.heartbeat)
-    return RefreshBatchResult(teams_processed=len(inputs.team_ids), recommendations_kicked=kicked)
+    teams_processed, kicked = refresh_teams_recommendations_batched(inputs.team_ids, on_progress=activity.heartbeat)
+    return RefreshBatchResult(teams_processed=teams_processed, recommendations_kicked=kicked)

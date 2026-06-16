@@ -34,8 +34,8 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -44,7 +44,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
@@ -126,7 +125,6 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>

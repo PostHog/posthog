@@ -7,7 +7,8 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { assertNotReadOnly } from 'lib/readOnlyGuard'
-import { objectClean, toParams } from 'lib/utils'
+import { objectClean } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
@@ -95,17 +96,12 @@ import {
     DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
-    DataWarehouseActivityRecord,
-    DataWarehouseJobStats,
-    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDependencies,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryFolder,
     DataWarehouseSavedQueryRunHistory,
-    DataWarehouseProvisioningStatus,
-    DataWarehouseSourceRowCount,
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
@@ -224,6 +220,7 @@ import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/Err
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -743,10 +740,6 @@ export class ApiRequest {
 
     public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
         return this.metrics(projectId).addPathComponent('has_metrics')
-    }
-
-    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
-        return this.metrics(projectId).addPathComponent('query')
     }
 
     public metricsValues(projectId?: ProjectType['id']): ApiRequest {
@@ -1764,10 +1757,6 @@ export class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent('connections')
     }
 
-    public dataWarehouse(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('data_warehouse')
-    }
-
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
@@ -2623,6 +2612,7 @@ const api = {
                     ActivityScope.PRODUCT_TOUR,
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
+                    ActivityScope.OAUTH_APPLICATION,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2819,20 +2809,6 @@ const api = {
                 .get()
                 .then((response) => Boolean(response.hasMetrics))
         },
-        async query({
-            query,
-            signal,
-        }: {
-            query: {
-                metricName: string
-                aggregation: 'sum' | 'avg' | 'count' | 'p95'
-                dateFrom: string
-                dateTo?: string
-            }
-            signal?: AbortSignal
-        }): Promise<{ results: { time: string; value: number }[] }> {
-            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
-        },
         async values({
             search,
             limit,
@@ -2909,6 +2885,19 @@ const api = {
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
+        },
+        async durationHistogram(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{
+            results: { bucket_ns: number; service: string; count: number }[]
+        }> {
+            return new ApiRequest().tracingSpans().withAction('duration-histogram').create({ signal, data: { query } })
         },
         async aggregate(
             query: {
@@ -4402,6 +4391,11 @@ const api = {
         async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
+        async getCaptureDiagnostics(
+            recordingId: SessionRecordingType['id']
+        ): Promise<{ properties: Record<string, any> | null }> {
+            return await new ApiRequest().recording(recordingId).withAction('capture_diagnostics').get()
+        },
         async get(
             recordingId: SessionRecordingType['id'],
             params: Record<string, any> = {},
@@ -4798,6 +4792,21 @@ const api = {
         },
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
+        },
+        async markdownSave(
+            notebookId: NotebookType['short_id'],
+            data: {
+                client_id: string
+                /** The notebook version the content is based on (optimistic concurrency baseline). */
+                version: number
+                content: NotebookType['content']
+                text_content?: string
+                title?: string
+                /** The author's caret in the saved markdown, broadcast with the update event. */
+                cursor?: NotebookCollabCursorApi
+            }
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withAction('collab/markdown_save').create({ data })
         },
         async collabStream(
             notebookId: NotebookType['short_id'],
@@ -5695,106 +5704,6 @@ const api = {
             data: Partial<ExternalDataSourceRevenueAnalyticsConfig>
         ): Promise<ExternalDataSource> {
             return await new ApiRequest().externalDataSourceRevenueAnalyticsConfig(sourceId).update({ data })
-        },
-    },
-
-    dataWarehouse: {
-        async totalRowsStats(options?: ApiMethodOptions): Promise<DataWarehouseSourceRowCount> {
-            return await new ApiRequest().dataWarehouse().withAction('total_rows_stats').get(options)
-        },
-
-        async runningActivity(
-            options?: ApiMethodOptions & {
-                limit?: number
-                offset?: number
-                cutoff_days?: number
-            }
-        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('running_activity')
-                .withQueryString({
-                    limit: options?.limit,
-                    offset: options?.offset,
-                    cutoff_days: options?.cutoff_days,
-                })
-                .get(options)
-        },
-
-        async completedActivity(
-            options?: ApiMethodOptions & {
-                limit?: number
-                offset?: number
-                cutoff_days?: number
-            }
-        ): Promise<PaginatedResponse<DataWarehouseActivityRecord>> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('completed_activity')
-                .withQueryString({
-                    limit: options?.limit,
-                    offset: options?.offset,
-                    cutoff_days: options?.cutoff_days,
-                })
-                .get(options)
-        },
-
-        async jobStats(
-            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
-        ): Promise<DataWarehouseJobStats> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('job_stats')
-                .withQueryString({ days: options?.days })
-                .get(options)
-        },
-
-        async dataOpsDashboard(options?: ApiMethodOptions): Promise<{ dashboard_id: number }> {
-            return await new ApiRequest().dataWarehouse().withAction('data_ops_dashboard').get(options)
-        },
-
-        async provisionWarehouse(
-            databaseName: string,
-            options?: ApiMethodOptions
-        ): Promise<{
-            status: string
-            org: string
-            username: string
-            password: string
-        }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('provision')
-                .create({
-                    data: { database_name: databaseName },
-                    ...options,
-                } as any)
-        },
-
-        async deprovisionWarehouse(options?: ApiMethodOptions): Promise<{ status: string; org: string }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('deprovision')
-                .create(options as any)
-        },
-
-        async warehouseStatus(options?: ApiMethodOptions): Promise<DataWarehouseProvisioningStatus> {
-            return await new ApiRequest().dataWarehouse().withAction('warehouse_status').get(options)
-        },
-
-        async checkDatabaseName(name: string): Promise<{ name: string; available: boolean }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('check-database-name')
-                .withQueryString({ name })
-                .get()
-        },
-
-        async resetPassword(): Promise<{ username: string; password: string }> {
-            return await new ApiRequest()
-                .dataWarehouse()
-                .withAction('reset_password')
-                .create({} as any)
         },
     },
 
