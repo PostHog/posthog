@@ -25609,6 +25609,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `eq` - eq
+     * * `neq` - neq
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     */
+    export type OpEnum = typeof OpEnum[keyof typeof OpEnum];
+
+
+    export const OpEnum = {
+      Eq: 'eq',
+      Neq: 'neq',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+    } as const;
+
+    /**
      * * `latest` - latest
      * * `earliest` - earliest
      */
@@ -45504,6 +45520,43 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * * `resource` - resource
+     * * `attribute` - attribute
+     * * `auto` - auto
+     */
+    export type _MetricFilterScopeEnum = typeof _MetricFilterScopeEnum[keyof typeof _MetricFilterScopeEnum];
+
+
+    export const _MetricFilterScopeEnum = {
+      Resource: 'resource',
+      Attribute: 'attribute',
+      Auto: 'auto',
+    } as const;
+
+    export interface _MetricFilter {
+      /**
+         * Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').
+         * @maxLength 255
+         */
+      key: string;
+      /** Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.
+       *
+       * * `eq` - eq
+       * * `neq` - neq
+       * * `regex` - regex
+       * * `not_regex` - not_regex */
+      op?: OpEnum;
+      /** Value to compare against. For regex operators this is the pattern. */
+      value: string;
+      /** Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.
+       *
+       * * `resource` - resource
+       * * `attribute` - attribute
+       * * `auto` - auto */
+      scope?: _MetricFilterScopeEnum;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -45529,6 +45582,8 @@ export namespace Schemas {
        * * `count` - count
        * * `p95` - p95 */
       aggregation?: AggregationEnum;
+      /** Label predicates ANDed together. Rows must satisfy every filter. */
+      filters?: _MetricFilter[];
       /** Lower bound (inclusive) for the query range. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
@@ -45547,9 +45602,31 @@ export namespace Schemas {
       query: _MetricQueryBody;
     }
 
-    export interface _MetricQueryResponse {
+    /**
+     * Label values identifying this series. Empty for an ungrouped query.
+     */
+    export type _MetricSeriesLabels = {[key: string]: string};
+
+    export interface _MetricSeries {
+      /** Label values identifying this series. Empty for an ungrouped query. */
+      labels: _MetricSeriesLabels;
       /** Time-bucketed points, ordered by time ascending. */
-      results: _MetricQueryPoint[];
+      points: _MetricQueryPoint[];
+      /**
+         * Metric the series was computed from. Null for formula results.
+         * @nullable
+         */
+      metric_name?: string | null;
+      /**
+         * Name of the query clause that produced this series.
+         * @nullable
+         */
+      clause?: string | null;
+    }
+
+    export interface _MetricQueryResponse {
+      /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
+      results: _MetricSeries[];
     }
 
     /**
