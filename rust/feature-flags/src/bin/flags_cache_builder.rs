@@ -476,11 +476,15 @@ fn truncate_for_header(error: &str) -> String {
     if error.len() <= DLQ_ERROR_HEADER_MAX {
         return error.to_string();
     }
-    let mut end = DLQ_ERROR_HEADER_MAX;
+    const ELLIPSIS: &str = "…";
+    // Reserve room for the ellipsis so the result — marker included — stays within
+    // the byte cap. The ellipsis is 3 bytes, so slicing to the cap and appending it
+    // would otherwise overshoot.
+    let mut end = DLQ_ERROR_HEADER_MAX - ELLIPSIS.len();
     while !error.is_char_boundary(end) {
         end -= 1;
     }
-    format!("{}…", &error[..end])
+    format!("{}{ELLIPSIS}", &error[..end])
 }
 
 /// Re-produce the failed invalidation to the DLQ verbatim (so it stays a valid
