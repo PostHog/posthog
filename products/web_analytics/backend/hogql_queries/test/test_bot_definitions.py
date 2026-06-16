@@ -142,13 +142,13 @@ class TestBotDefinitionsDataStructure:
 
 
 class TestBotDefinitionUDFs:
-    def test_all_five_udfs_generated_with_namespaced_names(self):
-        # Namespaced (webAnalytics*) to avoid clashing with built-ins / other products in
-        # ClickHouse's single global function catalog.
+    def test_all_five_udfs_generated_with_clash_safe_names(self):
+        # Every UDF name carries "Bot" so it stays clash-safe in ClickHouse's single global
+        # function catalog (no generic single-word name).
         assert len(BOT_DEFINITION_UDFS_SQL) == 5
         joined = "\n".join(BOT_DEFINITION_UDFS_SQL)
         for name in BOT_DEFINITION_UDF_NAMES:
-            assert name.startswith("webAnalytics"), f"UDF {name} is not namespaced"
+            assert "Bot" in name, f"UDF {name} is not bot-specific (clash risk)"
             assert f"CREATE OR REPLACE FUNCTION {name} AS (ua)" in joined
 
     def test_no_udf_uses_dictget(self):
@@ -157,12 +157,12 @@ class TestBotDefinitionUDFs:
             assert "dictGet" not in sql, f"UDF must not use dictGet: {sql[:80]}"
 
     def test_isbot_uses_cheapest_multimatchany(self):
-        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsBot" in s)
+        is_bot = next(s for s in BOT_DEFINITION_UDFS_SQL if "isBot" in s)
         assert "multiMatchAny(ifNull(ua, '')," in is_bot  # boolean: cheapest form, no index lookup
 
     # Derive the attribute UDFs from the canonical name list so a newly added UDF can't be
     # silently skipped (it gets parametrized automatically).
-    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "webAnalyticsIsBot"])
+    @pytest.mark.parametrize("udf_name", [n for n in BOT_DEFINITION_UDF_NAMES if n != "isBot"])
     def test_attribute_udf_uses_multimatchanyindex(self, udf_name):
         sql = next(s for s in BOT_DEFINITION_UDFS_SQL if udf_name in s)
         assert "multiMatchAnyIndex(ifNull(ua, '')," in sql
@@ -173,11 +173,11 @@ class TestBotDefinitionUDFs:
         # Reconstruct the expected array literal with the same escaping rather than counting quotes
         # (apostrophe-safe: a label like "it's bot" escapes to '' and would break a naive count).
         expected = _format_array(["", *(bot.name for bot in BOT_DEFINITIONS.values()), ""])
-        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsBotName" in s)
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "getBotName" in s)
         assert f"arrayElement({expected}, multiMatchAnyIndex(" in bot_name_sql
 
     def test_isbot_equivalent_to_traffic_type_not_regular(self):
-        # webAnalyticsIsBot is multiMatchAny (any pattern matches). That equals the dict's
+        # isBot is multiMatchAny (any pattern matches). That equals the dict's
         # "traffic_type != 'Regular'" only if every defined bot is non-Regular — assert it holds.
         for pattern, bot in BOT_DEFINITIONS.items():
             assert bot.traffic_type != "Regular", f"{pattern} has Regular traffic_type; isBot would diverge"
@@ -189,7 +189,7 @@ class TestBotDefinitionUDFs:
 
     def test_patterns_match_inline_hogql_path(self):
         # The UDF patterns must be exactly the inline HogQL path's patterns (parity): bot keys + ^$.
-        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "webAnalyticsIsBot" in s)
+        bot_name_sql = next(s for s in BOT_DEFINITION_UDFS_SQL if "isBot" in s)
         for pattern in BOT_DEFINITIONS:
             assert pattern.replace("\\", "\\\\").replace("'", "''") in bot_name_sql
         assert "'^$'" in bot_name_sql
