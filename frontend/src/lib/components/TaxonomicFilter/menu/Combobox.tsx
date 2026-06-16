@@ -805,7 +805,7 @@ export function MenuFilterCombobox({
         })
         setActiveChip('all')
         inputRef.current?.focus()
-    }, [activeChip, inputRef.current])
+    }, [activeChip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const selectionContextFor = useCallback(
         (entry: MenuFilterEntry): CommitSelectionContext => {
