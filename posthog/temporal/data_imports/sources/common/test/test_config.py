@@ -323,23 +323,33 @@ def test_to_config_union_nested_configs_with_alias():
 
 
 @pytest.mark.parametrize(
-    "config_dict,expected_selection,expected_integration_id,expected_account_id",
+    "config_dict,expected_selection,expected_integration_id,expected_secret_key,expected_account_id",
     [
         # Flat select payload: the option value as a scalar with the option's fields as
         # siblings. The scalar isn't mapped to `selection`, so it keeps its default and
         # the siblings are parsed flat.
-        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "api_key", 123, "acct_x"),
+        ({"auth_method": "oauth", "integration_id": 123, "account_id": "acct_x"}, "api_key", 123, None, "acct_x"),
+        # Flat payload whose scalar sibling is a string field — it must survive the flat
+        # fallback and land on the nested config (e.g. Stripe's `secret_key`).
+        (
+            {"auth_method": "api_key", "secret_key": "rk_live_x", "account_id": "acct_123"},
+            "api_key",
+            None,
+            "rk_live_x",
+            "acct_123",
+        ),
         # Nested form keeps working unchanged.
         (
             {"auth_method": {"selection": "oauth", "integration_id": 456}, "account_id": "acct_y"},
             "oauth",
             456,
+            None,
             "acct_y",
         ),
     ],
 )
 def test_to_config_scalar_under_nested_config_key(
-    config_dict, expected_selection, expected_integration_id, expected_account_id
+    config_dict, expected_selection, expected_integration_id, expected_secret_key, expected_account_id
 ):
     """A scalar under a nested-config key must not crash `to_config`.
 
@@ -355,6 +365,7 @@ def test_to_config_scalar_under_nested_config_key(
     class AuthMethod:
         selection: str = "api_key"
         integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+        secret_key: str | None = None
 
     @config.config
     class SourceConfig(config.Config):
@@ -371,6 +382,7 @@ def test_to_config_scalar_under_nested_config_key(
     assert isinstance(cfg.auth_method, AuthMethod)
     assert cfg.auth_method.selection == expected_selection
     assert cfg.auth_method.integration_id == expected_integration_id
+    assert cfg.auth_method.secret_key == expected_secret_key
     assert cfg.account_id == expected_account_id
 
 
