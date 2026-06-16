@@ -706,6 +706,17 @@ export interface FeatureFlagCreateRequestSchemaApi {
      * @nullable
      */
     ensure_experience_continuity?: boolean | null
+    /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | null
+    /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -731,6 +742,17 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * @nullable
      */
     ensure_experience_continuity?: boolean | null
+    /** Where this flag is allowed to evaluate: 'server' (server-side SDKs only), 'client' (client-side SDKs only), or 'all' (both). Defaults to 'all'.
+     *
+     * * `server` - Server
+     * * `client` - Client
+     * * `all` - All */
+    evaluation_runtime?: EvaluationRuntimeEnumApi | null
+    /** Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Incompatible with ensure_experience_continuity.
+     *
+     * * `distinct_id` - User ID (default)
+     * * `device_id` - Device ID */
+    bucketing_identifier?: BucketingIdentifierEnumApi | null
 }
 
 export interface ChangeApi {
