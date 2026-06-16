@@ -1930,7 +1930,12 @@ def postgres_source(
         # letting Temporal re-run setup straight back into the same wall.
         setup_recovery_conflicts = 0
         while True:
-            connection = _open_setup_connection()
+            # Opening the setup connection can itself hit a transient drop ("server closed the
+            # connection unexpectedly", idle cull, failover) — the same class of error the read
+            # path already recovers from. Retry the connect in-process with bounded backoff,
+            # mirroring `offset_chunking`, so a momentary blip during setup doesn't fail the whole
+            # activity. Permanent errors (auth failures, SSL-required) re-raise immediately.
+            connection = _connect_with_dropped_retry(_open_setup_connection, logger)
             try:
                 with connection:
                     with connection.cursor() as cursor:
