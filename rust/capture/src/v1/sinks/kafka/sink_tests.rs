@@ -109,18 +109,13 @@ impl Event for FakeEvent {
         self.event_headers.clone()
     }
 
-    fn partition_key(&self, _ctx: &Context, buf: &mut String) {
-        if let Some(k) = &self.partition_key {
-            buf.push_str(k);
-        }
+    fn partition_key(&self, _ctx: &Context) -> String {
+        self.partition_key.clone().unwrap_or_default()
     }
 
-    fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
+    fn serialize(&self, _ctx: &Context) -> anyhow::Result<String> {
         match &self.payload {
-            Ok(p) => {
-                buf.push_str(p);
-                Ok(())
-            }
+            Ok(p) => Ok(p.clone()),
             Err(e) => Err(anyhow::anyhow!(e.clone())),
         }
     }
