@@ -43,7 +43,10 @@ const MAX_FILE_BYTES = 1_000_000
 
 const MemoryScopeParamsSchema = z.object({
     team_id: z.coerce.number().int().positive('missing_team_id'),
-    application_id: z.string().min(1, 'missing_application_id'),
+    // application_id is interpolated into the S3 key (the tenancy boundary), so
+    // require the UUID shape Django forwards — a non-empty string isn't enough.
+    // Matches the tables route's scope schema.
+    application_id: z.string().uuid('application_id must be a UUID'),
 })
 
 const MemoryListQuerySchema = z.object({
