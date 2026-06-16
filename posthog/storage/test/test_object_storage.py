@@ -271,6 +271,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         # Only the internal client is built; presigned degrades to the internal client.
         patched_client.assert_called_once()
         assert storage.presigned_client is storage.aws_client
+        # The bad config is surfaced to Sentry even though the read path stays up.
+        patched_capture.assert_called_once()
 
     @patch("posthog.storage.object_storage.capture_exception")
     @patch("posthog.storage.object_storage.client")

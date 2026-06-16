@@ -455,7 +455,11 @@ def object_storage_client() -> ObjectStorageClient:
                     logger.exception("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=e)
                     capture_exception(e)
             else:
-                logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint)
+                # The Django system check only fails `manage.py`-style startup; gunicorn/ASGI
+                # workers skip it, so capture here too to surface the bad config in Sentry.
+                error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
+                logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
+                capture_exception(error)
         _client = ObjectStorage(aws_client, presigned_client)
 
     return _client

@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from botocore.exceptions import BotoCoreError, ClientError
 from parameterized import parameterized
 
 from posthog.storage import object_storage
@@ -110,6 +111,8 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         [
             ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}")),
             ("object_storage_error", object_storage.ObjectStorageError("read failed")),
+            ("boto_core_error", BotoCoreError()),
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
         ]
     )
     def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception):
