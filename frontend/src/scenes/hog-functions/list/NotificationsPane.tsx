@@ -23,6 +23,8 @@ export interface NotificationsPaneProps {
     dialogTitle?: string
     /** The billing feature required to use notifications. Defaults to AUDIT_LOGS. */
     requiredFeature?: AvailableFeature
+    /** Where the back arrow on a notification's configuration page should return to */
+    returnTo?: string
 }
 
 export function NotificationsPane({
@@ -30,6 +32,7 @@ export function NotificationsPane({
     description,
     dialogTitle,
     requiredFeature = AvailableFeature.AUDIT_LOGS,
+    returnTo,
 }: NotificationsPaneProps): JSX.Element {
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -56,6 +59,7 @@ export function NotificationsPane({
                 <HogFunctionList
                     forceFilterGroups={hogFunctionFilterList}
                     type="internal_destination"
+                    returnTo={returnTo}
                     extraControls={
                         <LemonButton
                             type="primary"
