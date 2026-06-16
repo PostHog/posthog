@@ -137,6 +137,7 @@ class TestIsBotFunction:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.left, ast.Call)
@@ -147,6 +148,7 @@ class TestIsBotFunction:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.right, ast.Constant)
@@ -292,6 +294,7 @@ class TestTrafficTypeFunctionPatterns:
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         index_call = comparison.left
@@ -331,6 +334,7 @@ class TestNullHandling:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.Call)
         comparison = result.args[0]
         assert isinstance(comparison, ast.CompareOperation)
 
