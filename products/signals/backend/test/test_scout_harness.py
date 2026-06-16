@@ -289,6 +289,93 @@ async def test_failed_run_returns_failed_outcome_and_skips_bridge_insert(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new=_fake_start_invoking_hook(session, result),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    capture.assert_called_once()
+    assert capture.call_args.kwargs["event"] == "signals_scout_run_finished"
+    assert capture.call_args.kwargs["distinct_id"] == str(ateam.uuid)
+    props = capture.call_args.kwargs["properties"]
+    assert props["skill_name"] == "signals-scout-errors"
+    assert props["skill_version"] == 1
+    assert props["status"] == TaskRun.Status.COMPLETED.value
+    assert props["emitted_count"] == 0
+    assert props["run_id"] == run_result.run_id
+    # task_run_id is the join key into LLM analytics for the richer per-run metrics.
+    assert props["task_run_id"] == str(session.task_run.id)
+    assert isinstance(props["runtime_seconds"], float)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failed_run_captures_run_finished_event(ateam, aerrors_skill):
+    with (
+        patch(
+            "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("sandbox refused to start"),
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_user_id_for_team",
+            return_value=42,
+        ),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    capture.assert_called_once()
+    props = capture.call_args.kwargs["properties"]
+    assert capture.call_args.kwargs["event"] == "signals_scout_run_finished"
+    assert props["status"] == TaskRun.Status.FAILED.value
+    # No bridge row persisted (TaskRun never created), so no emit tally or join key.
+    assert props["emitted_count"] == 0
+    assert props["task_run_id"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_cancelled_run_captures_run_finished_event(ateam, aerrors_skill):
+    async def fake_spawn(**_kwargs):
+        raise asyncio.CancelledError("worker is shutting down")
+
+    with (
+        patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    # The cancelled path still emits before re-raising, so the metric isn't lost on shutdown.
+    capture.assert_called_once()
+    props = capture.call_args.kwargs["properties"]
+    assert props["status"] == TaskRun.Status.CANCELLED.value
+    # Cancellation skips the DB read, so emit volume is left unknown rather than guessed.
+    assert props["emitted_count"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_missing_skill_does_not_create_run_row(ateam):
     with pytest.raises(SkillNotFoundError):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-missing")

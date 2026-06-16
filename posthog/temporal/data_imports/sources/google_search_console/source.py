@@ -4,6 +4,7 @@ import requests
 from google.auth.exceptions import RefreshError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -47,6 +48,11 @@ class GoogleSearchConsoleSource(
             "401 Client Error": "Your Google Search Console connection is invalid or expired. Please reconnect your account.",
             "403 Client Error": "PostHog is not authorized to read this Search Console property. Please make sure the connected Google account has access to the property.",
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Insufficient permissions. Please reconnect your Google Search Console account with the required scopes.",
+            # `RefreshError: invalid_grant` is raised while AuthorizedSession refreshes the OAuth
+            # access token — the stored refresh token has been revoked, expired, or invalidated
+            # (app access revoked, password change, long inactivity). It never recovers on retry,
+            # so stop the sync and ask the user to reconnect rather than burning activity retries.
+            "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
     def get_schemas(
@@ -111,6 +117,11 @@ class GoogleSearchConsoleSource(
                 "The Google Search Console connection for this source no longer exists. Please reconnect your Google account.",
             )
         except Exception as e:
+            if "matching query does not exist" in str(e):
+                return False, (
+                    "Your Google Search Console connection is no longer available — it may have been "
+                    "disconnected. Please reconnect your Google Search Console account."
+                )
             return False, f"Could not load Google Search Console credentials: {e}"
 
         try:
@@ -158,6 +169,8 @@ class GoogleSearchConsoleSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            keywords=["gsc"],
             label="Google Search Console",
             caption=(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "

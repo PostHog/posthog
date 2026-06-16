@@ -800,6 +800,24 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
+class DataWarehouseSourceCategory(StrEnum):
+    DATABASES = "Databases"
+    FILE_STORAGE = "File storage"
+    ADVERTISING = "Advertising"
+    MARKETING___EMAIL = "Marketing & email"
+    CRM = "CRM"
+    SALES = "Sales"
+    CUSTOMER_SUPPORT = "Customer support"
+    PAYMENTS___BILLING = "Payments & billing"
+    FINANCE___ACCOUNTING = "Finance & accounting"
+    ANALYTICS = "Analytics"
+    ENGINEERING___MONITORING = "Engineering & monitoring"
+    PRODUCTIVITY = "Productivity"
+    HR___RECRUITING = "HR & recruiting"
+    COMMUNICATION = "Communication"
+    E_COMMERCE = "E-commerce"
+
+
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -2253,6 +2271,7 @@ class ProductKey(StrEnum):
     SESSION_REPLAY = "session_replay"
     REPLAY_VISION = "replay_vision"
     SITE_APPS = "site_apps"
+    SKILLS = "skills"
     SUBSCRIPTIONS = "subscriptions"
     STREAMLIT_APPS = "streamlit_apps"
     SURVEYS = "surveys"

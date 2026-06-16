@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -41,6 +42,8 @@ class MondaySource(SimpleSource[MondaySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MONDAY,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            keywords=["monday.com"],
             label="monday.com",
             caption="""Enter your monday.com API token to pull your boards and items into the PostHog Data warehouse.
 
