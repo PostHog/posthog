@@ -131,7 +131,7 @@ def test_prior_same_sha_rerun_cap_is_not_rerun() -> None:
         StaticInsights(known_flake()),
         workflow_name="Backend CI",
         max_reruns_per_job=1,
-        cap_reached_reason="matching job already reached attempt 2 for head SHA abc123",
+        get_cap_reached_reason=lambda: "matching job already reached attempt 2 for head SHA abc123",
     )
 
     assert decision.action == "skip cap reached"

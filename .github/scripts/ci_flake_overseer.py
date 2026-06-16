@@ -10,6 +10,7 @@ import json
 import shlex
 import argparse
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol, cast
@@ -20,77 +21,81 @@ DecisionAction = Literal["rerun", "skip deterministic", "skip unknown", "skip ca
 ACTIVE_INSIGHT_STATUSES = {"open", "in_progress"}
 DEFAULT_ALLOWED_WORKFLOWS = ("Backend CI", "Dagster CI", "E2E CI Playwright")
 MAX_QUERY_COUNT = 8
+MAX_INSIGHTS_PER_QUERY = 3
 
-DETERMINISTIC_JOB_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"\brepo checks?\b",
-        r"\bopenapi\b",
-        r"\bmigrations?\b",
-        r"\blint\b",
-        r"\btype ?check\b",
-        r"\btypescript\b",
-        r"\bvisual\b",
-        r"\bsnapshot\b",
-        r"\bstorybook\b",
-        r"\btach\b",
-        r"\bimport-linter\b",
-    )
+
+def compile_patterns(*patterns: str) -> tuple[re.Pattern[str], ...]:
+    return tuple(re.compile(pattern, re.IGNORECASE) for pattern in patterns)
+
+
+DETERMINISTIC_JOB_PATTERNS = compile_patterns(
+    r"\brepo checks?\b",
+    r"\bopenapi\b",
+    r"\bmigrations?\b",
+    r"\blint\b",
+    r"\btype ?check\b",
+    r"\btypescript\b",
+    r"\bvisual\b",
+    r"\bsnapshot\b",
+    r"\bstorybook\b",
+    r"\btach\b",
+    r"\bimport-linter\b",
 )
 
-DETERMINISTIC_STEP_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"\bcheck module boundaries\b",
-        r"\bproduct facade enforcement\b",
-        r"\bopenapi\b",
-        r"\bmigrations?\b",
-        r"\blint\b",
-        r"\btype ?check\b",
-        r"\btypescript\b",
-        r"\bvisual review\b",
-        r"\bsnapshot\b",
-        r"\bverify changed playwright tests are stable\b",
-        r"\bverify new snapshots\b",
-    )
+DETERMINISTIC_STEP_PATTERNS = compile_patterns(
+    r"\bcheck module boundaries\b",
+    r"\bproduct facade enforcement\b",
+    r"\bopenapi\b",
+    r"\bmigrations?\b",
+    r"\blint\b",
+    r"\btype ?check\b",
+    r"\btypescript\b",
+    r"\bvisual review\b",
+    r"\bsnapshot\b",
+    r"\bverify changed playwright tests are stable\b",
+    r"\bverify new snapshots\b",
 )
 
-DETERMINISTIC_LOG_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"Repo checks failed deterministically",
-        r"OpenAPI (?:type )?checks? failed deterministically",
-        r"A retry cannot fix this failure",
-        r"tach check --dependencies --interfaces",
-        r"\blint-imports\b",
-        r"OpenAPI types are out of date",
-        r"hogli build:openapi",
-        r"makemigrations --check",
-        r"Snapshot commit job failed",
-        r"does not match (?:the )?snapshot",
-        r"__diff_output__",
-        r"Visual Review did not complete successfully",
-    )
+DETERMINISTIC_LOG_PATTERNS = compile_patterns(
+    r"Repo checks failed deterministically",
+    r"OpenAPI (?:type )?checks? failed deterministically",
+    r"A retry cannot fix this failure",
+    r"tach check --dependencies --interfaces",
+    r"\blint-imports\b",
+    r"OpenAPI types are out of date",
+    r"hogli build:openapi",
+    r"makemigrations --check",
+    r"Snapshot commit job failed",
+    r"does not match (?:the )?snapshot",
+    r"__diff_output__",
+    r"Visual Review did not complete successfully",
 )
 
-TEST_STEP_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"\brun core tests\b",
-        r"\brun temporal tests\b",
-        r"\brun product tests\b",
-        r"\brun dagster tests\b",
-        r"\brun playwright tests\b",
-    )
+TEST_STEP_PATTERNS = compile_patterns(
+    r"\brun core tests\b",
+    r"\brun temporal tests\b",
+    r"\brun product tests\b",
+    r"\brun dagster tests\b",
+    r"\brun playwright tests\b",
 )
 
-TEST_JOB_PATTERNS = tuple(
-    re.compile(pattern, re.IGNORECASE)
+TEST_JOB_PATTERNS = compile_patterns(
+    r"\bdjango tests\b",
+    r"\bproduct tests\b",
+    r"\bdagster tests\b",
+    r"\bplaywright e2e tests\b",
+)
+
+# Case-sensitive: test identifiers and error codes are matched exactly as they appear in logs.
+FAILURE_QUERY_PATTERNS = tuple(
+    re.compile(pattern)
     for pattern in (
-        r"\bdjango tests\b",
-        r"\bproduct tests\b",
-        r"\bdagster tests\b",
-        r"\bplaywright e2e tests\b",
+        r"FAILED\s+([A-Za-z0-9_./:-]+(?:::[A-Za-z0-9_./:-]+)*(?:\[[^\]\n]+\])?)",
+        r"([A-Za-z0-9_./-]+\.py::[A-Za-z0-9_:\[\]./-]+)",
+        r"\b(test_[A-Za-z0-9_]+)\b",
+        r"([A-Za-z0-9_./-]+\.spec\.tsx?:\d+:\d+\s+›\s+[^\n]+)",
+        r"\[[^\]\n]+\]\s+›\s+([^\n]{10,180})",
+        r"\b([A-Z][A-Z0-9_]{8,})\b",
     )
 )
 
@@ -216,7 +221,7 @@ class CiInsightsSource:
 
     def find_flake(self, queries: tuple[str, ...], workflow_name: str, job_name: str, log: str) -> FlakeMatch | None:
         for query in queries:
-            for insight in self.search(query)[:3]:
+            for insight in self.search(query)[:MAX_INSIGHTS_PER_QUERY]:
                 insight_id = as_str(insight.get("id"))
                 if not insight_id:
                     continue
@@ -264,7 +269,9 @@ class CiInsightsSource:
         if re.search(r"\bflak(?:y|e|iness)\b|\bintermittent(?:ly)?\b", text, re.IGNORECASE) is None:
             return None
         terms = significant_query_terms(query)
-        if terms and not any(term.lower() in text.lower() and term.lower() in log.lower() for term in terms):
+        text_lower = text.lower()
+        log_lower = log.lower()
+        if terms and not any(term.lower() in text_lower and term.lower() in log_lower for term in terms):
             return None
 
         return FlakeMatch(
@@ -386,17 +393,9 @@ def is_test_job_failure(job: Job) -> bool:
 
 
 def extract_failure_queries(log: str) -> tuple[str, ...]:
-    patterns = (
-        r"FAILED\s+([A-Za-z0-9_./:-]+(?:::[A-Za-z0-9_./:-]+)*(?:\[[^\]\n]+\])?)",
-        r"([A-Za-z0-9_./-]+\.py::[A-Za-z0-9_:\[\]./-]+)",
-        r"\b(test_[A-Za-z0-9_]+)\b",
-        r"([A-Za-z0-9_./-]+\.spec\.tsx?:\d+:\d+\s+›\s+[^\n]+)",
-        r"\[[^\]\n]+\]\s+›\s+([^\n]{10,180})",
-        r"\b([A-Z][A-Z0-9_]{8,})\b",
-    )
     queries: list[str] = []
-    for pattern in patterns:
-        for match in re.finditer(pattern, log):
+    for pattern in FAILURE_QUERY_PATTERNS:
+        for match in pattern.finditer(log):
             query = " ".join(match.group(1).strip().split())
             if query and query not in queries:
                 queries.append(query[:220])
@@ -431,7 +430,7 @@ def classify_job(
     insights: InsightsSource,
     workflow_name: str,
     max_reruns_per_job: int,
-    cap_reached_reason: str | None = None,
+    get_cap_reached_reason: Callable[[], str | None] | None = None,
 ) -> Decision:
     deterministic = deterministic_reason(job, log)
     if deterministic is not None:
@@ -442,6 +441,7 @@ def classify_job(
             reason=f"run attempt {job.run_attempt} is above the automatic rerun cap {max_reruns_per_job}",
             job=job,
         )
+    cap_reached_reason = get_cap_reached_reason() if get_cap_reached_reason is not None else None
     if cap_reached_reason is not None:
         return Decision(action="skip cap reached", reason=cap_reached_reason, job=job)
     if not is_test_job_failure(job):
@@ -478,8 +478,16 @@ def inspect_failed_jobs(
         except ExternalCommandError as exc:
             decisions.append(Decision(action="skip unknown", reason=f"could not fetch job log: {exc}", job=job))
             continue
-        cap_reached_reason = prior_rerun_cap_reason(repo, workflow_run, job, max_reruns_per_job)
-        decisions.append(classify_job(job, log, insights, workflow_run.name, max_reruns_per_job, cap_reached_reason))
+        decisions.append(
+            classify_job(
+                job,
+                log,
+                insights,
+                workflow_run.name,
+                max_reruns_per_job,
+                lambda job=job: prior_rerun_cap_reason(repo, workflow_run, job, max_reruns_per_job),
+            )
+        )
     return tuple(decisions)
 
 
@@ -513,13 +521,13 @@ def escape_annotation(value: str) -> str:
     return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
 
 
-def markdown_link(label: str, url: str) -> str:
-    safe_label = label.replace("|", "\\|").replace("\n", " ")
-    return f"[{safe_label}]({url})" if url else safe_label
-
-
 def escape_table(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
+
+
+def markdown_link(label: str, url: str) -> str:
+    safe_label = escape_table(label)
+    return f"[{safe_label}]({url})" if url else safe_label
 
 
 def write_summary(
