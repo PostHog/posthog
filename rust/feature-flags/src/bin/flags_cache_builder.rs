@@ -62,6 +62,14 @@ const REDIS_CONNECT_RETRIES: u32 = 3;
 const RETRY_BASE_MS: u64 = 200;
 const RETRY_BACKOFF_MULTIPLIER: u64 = 4;
 
+/// Pause after a batch that yielded only Kafka receive errors, to avoid hot-looping
+/// (and log/CPU spam) while the broker is unreachable.
+const KAFKA_RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Cap on the `x-dlq-error` header so an unusually long error can't blow Kafka's
+/// header/message size limit and fail the DLQ produce. The full error is logged.
+const DLQ_ERROR_HEADER_MAX: usize = 1024;
+
 // Metric names. End-to-end latency buckets follow the architecture doc.
 const MESSAGES_RECEIVED: &str = "flags_cache_builder_messages_received_total";
 const BUILDS_TOTAL: &str = "flags_cache_builder_builds_total";
@@ -69,6 +77,7 @@ const BUILD_RETRIES: &str = "flags_cache_builder_build_retries_total";
 const BUILD_DURATION_SECONDS: &str = "flags_cache_builder_build_duration_seconds";
 const E2E_LATENCY_SECONDS: &str = "flags_cache_builder_end_to_end_latency_seconds";
 const PARSE_ERRORS: &str = "flags_cache_builder_parse_errors_total";
+const KAFKA_RECV_ERRORS: &str = "flags_cache_builder_kafka_recv_errors_total";
 const DLQ_PRODUCED: &str = "flags_cache_builder_dlq_produced_total";
 const COALESCED_TEAMS: &str = "flags_cache_builder_coalesced_teams";
 
@@ -285,17 +294,31 @@ async fn consume_loop(
             continue;
         }
 
-        let by_team = coalesce_batch(batch);
+        let (by_team, had_kafka_error) = coalesce_batch(batch);
         if by_team.is_empty() {
-            // Batch held only poison pills; their offsets were auto-stored by
-            // json_recv. Commit so we don't reprocess them.
+            // Batch held only poison pills or receive errors. Poison offsets were
+            // auto-stored by json_recv, so commit to avoid reprocessing them.
             commit_offsets(&consumer);
+            if had_kafka_error {
+                // A receive error stores no offset, so there's nothing to make
+                // progress on until the broker recovers — back off rather than
+                // hot-loop on immediate errors.
+                tokio::time::sleep(KAFKA_RECV_ERROR_BACKOFF).await;
+            }
             continue;
         }
 
         metrics::histogram!(COALESCED_TEAMS).record(by_team.len() as f64);
 
         for (team_id, team_batch) in by_team {
+            // Stop between teams once shutdown is signalled: a large batch (up to
+            // max_batch unique teams, each with retry backoff) could otherwise
+            // outrun the graceful-shutdown budget and be killed mid-build. Offsets
+            // for finished teams are already stored; the commit below flushes them,
+            // and any unprocessed teams simply re-deliver on the next startup.
+            if shutdown.is_cancelled() {
+                break;
+            }
             // Also tick per team: a large batch of unique teams (with retry
             // backoff) could otherwise outlast the liveness deadline mid-batch.
             health.report_healthy();
@@ -316,13 +339,17 @@ async fn consume_loop(
     tracing::info!("Consumer loop draining; offsets committed up to last batch");
 }
 
-/// Dedupe a fetched batch by `team_id`, counting received messages and parse
-/// failures. Poison pills already had their offsets stored by `json_recv`.
+/// Dedupe a fetched batch by `team_id`, counting received messages and errors.
+/// Poison pills (parse failures) already had their offsets stored by `json_recv`;
+/// Kafka receive errors stored nothing. Returns the per-team work plus whether a
+/// Kafka receive error occurred, so the caller can back off instead of hot-looping
+/// while the broker is unreachable.
 fn coalesce_batch(
     batch: Vec<Result<(FlagsCacheInvalidation, Offset), RecvErr>>,
-) -> HashMap<TeamId, TeamBatch> {
+) -> (HashMap<TeamId, TeamBatch>, bool) {
     let mut by_team: HashMap<TeamId, TeamBatch> = HashMap::new();
     let mut received: u64 = 0;
+    let mut had_kafka_error = false;
 
     for result in batch {
         match result {
@@ -337,6 +364,14 @@ fn coalesce_batch(
                 }
                 entry.offsets.push(offset);
             }
+            // A receive error is a broker/transport problem, not a bad message:
+            // nothing was consumed and no offset was stored. Track it apart from
+            // poison pills so `parse_errors` stays meaningful.
+            Err(RecvErr::Kafka(e)) => {
+                had_kafka_error = true;
+                metrics::counter!(KAFKA_RECV_ERRORS).increment(1);
+                tracing::warn!(error = %e, "Kafka receive error");
+            }
             Err(e) => {
                 metrics::counter!(PARSE_ERRORS).increment(1);
                 tracing::warn!(error = %e, "Skipping unparseable invalidation (offset auto-stored)");
@@ -345,7 +380,7 @@ fn coalesce_batch(
     }
 
     metrics::counter!(MESSAGES_RECEIVED).increment(received);
-    by_team
+    (by_team, had_kafka_error)
 }
 
 /// Build one team's cache, routing to the DLQ on terminal failure. Offsets are
@@ -435,6 +470,19 @@ async fn build_once(
     persist_flags_cache(writer, team_id, &cache, ttl_seconds).await
 }
 
+/// Cap an error string to `DLQ_ERROR_HEADER_MAX` bytes for use as a Kafka header
+/// value, truncating on a char boundary so the result stays valid UTF-8.
+fn truncate_for_header(error: &str) -> String {
+    if error.len() <= DLQ_ERROR_HEADER_MAX {
+        return error.to_string();
+    }
+    let mut end = DLQ_ERROR_HEADER_MAX;
+    while !error.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &error[..end])
+}
+
 /// Re-produce the failed invalidation to the DLQ verbatim (so it stays a valid
 /// v1 message, replayable by this same consumer), with the failure reason in
 /// headers. Keyed by `team_id` to preserve partition affinity.
@@ -446,6 +494,7 @@ async fn dlq_produce(
 ) {
     let failed_at = Utc::now().to_rfc3339();
     let team_key = message.team_id.to_string();
+    let error_header = truncate_for_header(error);
     let results = send_keyed_iter_to_kafka_with_headers(
         dlq_producer,
         topic,
@@ -455,7 +504,7 @@ async fn dlq_produce(
                 OwnedHeaders::new()
                     .insert(Header {
                         key: "x-dlq-error",
-                        value: Some(error),
+                        value: Some(error_header.as_str()),
                     })
                     .insert(Header {
                         key: "x-dlq-failed-at",

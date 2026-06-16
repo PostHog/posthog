@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, Utc};
 use feature_flags::flags::cache_invalidation::{FlagsCacheInvalidation, Operation};
+use rstest::rstest;
 use serde_json::{json, Value};
 
 const FIXTURE: &str = include_str!("fixtures/flags_cache_invalidation_v1.json");
@@ -42,30 +43,16 @@ fn valid_base() -> Value {
     })
 }
 
-#[test]
-fn rejects_unknown_version() {
+/// Each case mutates one field of `valid_base()` and asserts the payload is
+/// rejected — mirroring Python's `extra="forbid"` model one-for-one. Setting a
+/// missing key (e.g. `unknown_field`) inserts it, exercising `deny_unknown_fields`.
+#[rstest]
+#[case::unknown_version("version", json!(2))]
+#[case::unknown_operation("operation", json!("clear"))]
+#[case::naive_datetime("emitted_at", json!("2026-04-23T10:37:00"))]
+#[case::extra_field("unknown_field", json!("oops"))]
+fn rejects_invalid_payload(#[case] field: &str, #[case] value: Value) {
     let mut payload = valid_base();
-    payload["version"] = json!(2);
-    assert!(serde_json::from_value::<FlagsCacheInvalidation>(payload).is_err());
-}
-
-#[test]
-fn rejects_unknown_operation() {
-    let mut payload = valid_base();
-    payload["operation"] = json!("clear");
-    assert!(serde_json::from_value::<FlagsCacheInvalidation>(payload).is_err());
-}
-
-#[test]
-fn rejects_naive_datetime() {
-    let mut payload = valid_base();
-    payload["emitted_at"] = json!("2026-04-23T10:37:00");
-    assert!(serde_json::from_value::<FlagsCacheInvalidation>(payload).is_err());
-}
-
-#[test]
-fn rejects_extra_field() {
-    let mut payload = valid_base();
-    payload["unknown_field"] = json!("oops");
+    payload[field] = value;
     assert!(serde_json::from_value::<FlagsCacheInvalidation>(payload).is_err());
 }
