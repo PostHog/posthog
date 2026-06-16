@@ -26,7 +26,7 @@ import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 

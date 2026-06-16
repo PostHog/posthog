@@ -1,4 +1,4 @@
-import { addProjectIdIfMissing, stripTrailingSlash } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, stripTrailingSlash } from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
