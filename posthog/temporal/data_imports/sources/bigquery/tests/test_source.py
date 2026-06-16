@@ -7,7 +7,9 @@ from google.api_core.exceptions import Forbidden, NotFound
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
+    BigQueryTokenRefreshError,
     _bq_select_clause,
     _get_query,
     _resolve_dataset_id,
@@ -82,6 +84,33 @@ def test_bigquery_get_columns_filters_existing_destination_tables():
 
     columns = BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
     assert list(columns.keys()) == ["table"]
+
+
+@pytest.mark.parametrize(
+    "error_message,expected_type,is_token_refresh",
+    [
+        # A bad OAuth token endpoint makes google-auth raise this opaque `TypeError` during the
+        # lazy token refresh — `get_columns` must surface a clear, non-retryable error instead.
+        ("string indices must be integers, not 'str'", BigQueryTokenRefreshError, True),
+        # Any other `TypeError` indicates a genuine bug and must propagate unchanged.
+        ("unrelated bug", TypeError, False),
+    ],
+)
+def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, is_token_refresh):
+    """Token-refresh `TypeError`s are wrapped as `BigQueryTokenRefreshError`; others propagate."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = TypeError(error_message)
+
+    with pytest.raises(expected_type) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert isinstance(exc_info.value, BigQueryTokenRefreshError) == is_token_refresh
+    if is_token_refresh:
+        # The raised message must carry the stable marker registered as non-retryable.
+        assert BIGQUERY_TOKEN_RESPONSE_ERROR in str(exc_info.value)
+        assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
+    else:
+        assert error_message in str(exc_info.value)
 
 
 @pytest.mark.parametrize(
