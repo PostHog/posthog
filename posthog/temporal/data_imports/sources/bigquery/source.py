@@ -42,7 +42,6 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
-            "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
             # OAuth2 error code returned by Google's token endpoint when the service account grant
             # is rejected — a rotated/revoked private key ("Invalid JWT Signature") or a deleted
             # service account ("account not found"). Raised as a `RefreshError` while refreshing the
@@ -64,8 +63,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # dataset/table doesn't exist in the location we query — the dataset was deleted or
             # renamed, or it lives in a different region than the one we run against. The google
             # exception stringifies as "404 Not found: Dataset ... was not found in location US",
-            # which the "NotFound: 404" pattern above never matches, so match the stable phrasing
-            # here. Retrying can't recover — the user must fix the dataset or set the correct region.
+            # so match the stable phrasing here. Retrying can't recover — the user must fix the
+            # dataset or set the correct region.
             "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a

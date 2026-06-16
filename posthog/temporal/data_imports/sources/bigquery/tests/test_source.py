@@ -582,8 +582,8 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     """A deleted/renamed dataset (or one in a region we don't query) surfaces from schema
     discovery as a google-api-core NotFound. Its str() is "404 Not found: Dataset ... was
-    not found in location <X>" — which the stale "NotFound: 404" pattern never matched — so
-    it must be recognised as non-retryable instead of retrying forever."""
+    not found in location <X>", which must be recognised as non-retryable via the
+    "was not found in location" pattern instead of retrying forever."""
     error = NotFound(
         f"Not found: Dataset my-proj:my_dataset was not found in location {location}; "
         f"reason: notFound, message: Not found: Dataset my-proj:my_dataset was not found in location {location}"
