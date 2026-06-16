@@ -101,6 +101,13 @@ class SSLRequiredError(Exception):
     pass
 
 
+# libpq connection option that pins the client encoding to UTF8. Some Postgres-wire-compatible
+# engines (notably Amazon Redshift) report their `client_encoding` as the legacy alias `UNICODE`,
+# which psycopg3's encoding map doesn't recognise — decoding the first query result then raises
+# `NotSupportedError: codec not available in Python: 'UNICODE'`. Forcing the encoding sidesteps it.
+FORCE_UTF8_CLIENT_ENCODING = "-c client_encoding=UTF8"
+
+
 # Substrings PgBouncer / libpq use when the upstream backend connection died
 # mid-stream. We hit these when a long-running sync holds a server-side cursor
 # (and thus an open transaction) idle across the slow delta-merge phase and the
@@ -261,6 +268,12 @@ def _connect_to_postgres(
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
+    # Redshift (and other Postgres-wire-compatible engines) report `client_encoding` as the legacy
+    # alias `UNICODE`, which psycopg3's encoding map doesn't recognise — it raises
+    # `NotSupportedError: codec not available in Python: 'UNICODE'` the first time it decodes a query
+    # result. Pinning the client encoding makes the server report `UTF8` instead, which psycopg maps
+    # cleanly. Callers may still override via `options` in kwargs.
+    options = kwargs.pop("options", FORCE_UTF8_CLIENT_ENCODING)
     try:
         return psycopg.connect(
             host=host,
@@ -277,6 +290,7 @@ def _connect_to_postgres(
             keepalives_idle=30,
             keepalives_interval=10,
             keepalives_count=5,
+            options=options,
             **kwargs,
         )
     except psycopg.OperationalError as e:
@@ -1846,6 +1860,7 @@ def postgres_source(
                     keepalives_idle=30,
                     keepalives_interval=10,
                     keepalives_count=5,
+                    options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
                 if require_ssl and "SSL" in str(e):
@@ -2099,6 +2114,7 @@ def postgres_source(
                         keepalives_idle=30,
                         keepalives_interval=10,
                         keepalives_count=5,
+                        options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
                     if require_ssl and "SSL" in str(e):

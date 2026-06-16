@@ -39,6 +39,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 )
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
+    FORCE_UTF8_CLIENT_ENCODING,
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
     PostgresDiscoveredSchema,
@@ -48,6 +49,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     SafeDateLoader,
     _build_count_query,
     _build_query,
+    _connect_to_postgres,
     _connect_with_dropped_retry,
     _get_estimated_row_count_for_partitioned_table,
     _get_partition_settings,
@@ -397,6 +399,37 @@ class TestConnectWithDroppedRetry:
                 _connect_with_dropped_retry(connect, logger, max_attempts=3)
 
         assert connect.call_count == 3
+
+
+# Redshift (and other Postgres-wire engines) report `client_encoding` as the legacy alias
+# `UNICODE`, which psycopg3 can't decode — it raises `NotSupportedError: codec not available in
+# Python: 'UNICODE'`. We pin the client encoding to UTF8 on connect to avoid the crash.
+class TestConnectForcesUtf8ClientEncoding:
+    def test_connect_pins_client_encoding_to_utf8(self):
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
+            _connect_to_postgres(
+                host="redshift-cluster.example.com",
+                port=5439,
+                database="dev",
+                user="user",
+                password="password",
+            )
+
+        assert connect_mock.call_args.kwargs["options"] == FORCE_UTF8_CLIENT_ENCODING
+        assert "client_encoding=UTF8" in FORCE_UTF8_CLIENT_ENCODING
+
+    def test_caller_supplied_options_take_precedence(self):
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.psycopg.connect") as connect_mock:
+            _connect_to_postgres(
+                host="db.example.com",
+                port=5432,
+                database="postgres",
+                user="user",
+                password="password",
+                options="-c statement_timeout=5000",
+            )
+
+        assert connect_mock.call_args.kwargs["options"] == "-c statement_timeout=5000"
 
 
 class TestStatementTimeoutAsNonRetryable:
