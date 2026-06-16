@@ -864,10 +864,8 @@ TOOLBAR_OAUTH_SCOPES = [
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)
 
-# ai-gateway (Go) internal admin API — lets Django admin read a team's LLM
-# gateway wallet balance and top up credits. Server-side only: the token is a
-# shared secret with the gateway and must never reach the browser. Unset by
-# default; the admin wallet field degrades gracefully when absent.
+# AI gateway internal admin API (wallet read + credit top-up from Django admin).
+# Server-side shared secret; never expose the token to the browser.
 AI_GATEWAY_INTERNAL_URL = get_from_env("AI_GATEWAY_INTERNAL_URL", "")
 AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 

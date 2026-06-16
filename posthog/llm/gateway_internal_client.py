@@ -9,11 +9,11 @@ INTERNAL_API_TIMEOUT_SECONDS = 5.0
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 
 
-class LLMGatewayInternalError(Exception):
+class AIGatewayInternalError(Exception):
     """An ai-gateway internal admin API call failed."""
 
 
-class LLMGatewayNotConfigured(LLMGatewayInternalError):
+class AIGatewayNotConfigured(AIGatewayInternalError):
     """AI_GATEWAY_INTERNAL_URL / AI_GATEWAY_INTERNAL_TOKEN are not set."""
 
 
@@ -52,7 +52,7 @@ def _config() -> tuple[str, str]:
     url = (settings.AI_GATEWAY_INTERNAL_URL or "").rstrip("/")
     token = settings.AI_GATEWAY_INTERNAL_TOKEN or ""
     if not url or not token:
-        raise LLMGatewayNotConfigured("AI_GATEWAY_INTERNAL_URL and AI_GATEWAY_INTERNAL_TOKEN must be set")
+        raise AIGatewayNotConfigured("AI_GATEWAY_INTERNAL_URL and AI_GATEWAY_INTERNAL_TOKEN must be set")
     return url, token
 
 
@@ -76,7 +76,7 @@ def get_wallet(team_id: int) -> Wallet:
         response.raise_for_status()
         data = response.json()
     except httpx.HTTPError as exc:
-        raise LLMGatewayInternalError(f"wallet read failed: {exc}") from exc
+        raise AIGatewayInternalError(f"wallet read failed: {exc}") from exc
 
     wallet = data.get("wallet") or {}
     recent = [
@@ -110,10 +110,10 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
             trust_env=False,
         )
     except httpx.HTTPError as exc:
-        raise LLMGatewayInternalError(f"credit request failed: {exc}") from exc
+        raise AIGatewayInternalError(f"credit request failed: {exc}") from exc
 
     if response.status_code >= 400:
-        raise LLMGatewayInternalError(_error_detail(response))
+        raise AIGatewayInternalError(_error_detail(response))
 
     data = response.json()
     return CreditResult(

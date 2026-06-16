@@ -2,7 +2,7 @@
 {% load i18n %}
 
 {% block content %}
-<p>Add prepaid credit to <strong>{{ team.name }}</strong>'s LLM gateway wallet. This appends a top-up entry to the gateway ledger and increases the team's spendable balance immediately.</p>
+<p>Add prepaid credit to <strong>{{ team.name }}</strong>'s AI gateway wallet. This appends a top-up entry to the gateway ledger and increases the team's spendable balance immediately.</p>
 
 <form method="post" onsubmit="this.querySelector('input[type=submit]').disabled = true;">
     {% csrf_token %}

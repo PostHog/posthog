@@ -13,10 +13,10 @@ from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.llm.gateway_internal_client import (
+    AIGatewayInternalError,
+    AIGatewayNotConfigured,
     CreditResult,
     LedgerEntry,
-    LLMGatewayInternalError,
-    LLMGatewayNotConfigured,
     Wallet,
 )
 from posthog.models.team.team import Team
@@ -344,12 +344,12 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
         return request
 
     def test_wallet_field_not_configured_degrades_gracefully(self) -> None:
-        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=LLMGatewayNotConfigured()):
+        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=AIGatewayNotConfigured()):
             rendered = str(self.admin.ai_gateway_wallet(self.team))
         assert "not configured" in rendered
 
     def test_wallet_field_unavailable_degrades_gracefully(self) -> None:
-        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=LLMGatewayInternalError("boom")):
+        with patch("posthog.admin.admins.team_admin.get_wallet", side_effect=AIGatewayInternalError("boom")):
             rendered = str(self.admin.ai_gateway_wallet(self.team))
         assert "wallet unavailable" in rendered
         assert "boom" in rendered
@@ -416,7 +416,7 @@ class TestTeamAdminAIGatewayWallet(BaseTest):
 
     def test_add_credit_post_gateway_error_shows_message_and_redirects_to_form(self) -> None:
         request = self._post({"amount_usd": "5", "reason": "x"})
-        with patch("posthog.admin.admins.team_admin.add_credit", side_effect=LLMGatewayInternalError("nope")):
+        with patch("posthog.admin.admins.team_admin.add_credit", side_effect=AIGatewayInternalError("nope")):
             response = self.admin.add_ai_gateway_credit_view(request, str(self.team.pk))
         assert response.status_code == 302
         assert response["Location"] == self.credit_url

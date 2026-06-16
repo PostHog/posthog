@@ -33,7 +33,7 @@ from posthog.admin.inlines.team_experiments_config_inline import TeamExperiments
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
-from posthog.llm.gateway_internal_client import LLMGatewayInternalError, LLMGatewayNotConfigured, add_credit, get_wallet
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.models.remote_config import RemoteConfig
@@ -469,7 +469,7 @@ class TeamAdmin(admin.ModelAdmin):
             context = {
                 **self.admin_site.each_context(request),
                 "team": team,
-                "title": f"Add LLM gateway credit - {team.name}",
+                "title": f"Add AI gateway credit - {team.name}",
                 # Tie idempotency to the rendered form so a double-submit replays
                 # the same key and the gateway dedupes the top-up.
                 "idempotency_key": str(uuid.uuid4()),
@@ -494,7 +494,7 @@ class TeamAdmin(admin.ModelAdmin):
 
         try:
             result = add_credit(team.id, str(amount), reason, idempotency_key)
-        except LLMGatewayInternalError as exc:
+        except AIGatewayInternalError as exc:
             messages.error(request, f"Failed to add credit: {exc}")
             return redirect(credit_url)
 
@@ -554,15 +554,15 @@ class TeamAdmin(admin.ModelAdmin):
             )
         return format_html("<em>Not enrolled</em>")
 
-    @admin.display(description="Wallet (LLM gateway credits)")
+    @admin.display(description="Wallet (AI gateway credits)")
     def ai_gateway_wallet(self, team: Team):
         if not team.pk:
             return "-"
         try:
             wallet = get_wallet(team.id)
-        except LLMGatewayNotConfigured:
+        except AIGatewayNotConfigured:
             return format_html("<em>(ai-gateway internal API not configured in this region)</em>")
-        except LLMGatewayInternalError as exc:
+        except AIGatewayInternalError as exc:
             return format_html("<em>(wallet unavailable: {})</em>", str(exc))
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(

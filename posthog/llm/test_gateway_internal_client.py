@@ -5,8 +5,8 @@ import httpx
 
 from posthog.llm.gateway_internal_client import (
     IDEMPOTENCY_KEY_HEADER,
-    LLMGatewayInternalError,
-    LLMGatewayNotConfigured,
+    AIGatewayInternalError,
+    AIGatewayNotConfigured,
     add_credit,
     get_wallet,
 )
@@ -78,7 +78,7 @@ class TestGetWallet:
     def test_raises_on_http_error(self, mock_settings):
         _configured(mock_settings)
         with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(500)):
-            with pytest.raises(LLMGatewayInternalError, match="wallet read failed"):
+            with pytest.raises(AIGatewayInternalError, match="wallet read failed"):
                 get_wallet(42)
 
 
@@ -118,7 +118,7 @@ class TestAddCredit:
         _configured(mock_settings)
         body = {"error": "amount_usd: must be positive"}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(400, body)):
-            with pytest.raises(LLMGatewayInternalError, match="amount_usd: must be positive"):
+            with pytest.raises(AIGatewayInternalError, match="amount_usd: must be positive"):
                 add_credit(42, "-1", "bad", "key-123")
 
 
@@ -128,12 +128,12 @@ class TestNotConfigured:
     def test_get_wallet_raises_when_unconfigured(self, mock_settings, url, token):
         mock_settings.AI_GATEWAY_INTERNAL_URL = url
         mock_settings.AI_GATEWAY_INTERNAL_TOKEN = token
-        with pytest.raises(LLMGatewayNotConfigured):
+        with pytest.raises(AIGatewayNotConfigured):
             get_wallet(42)
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_add_credit_raises_when_unconfigured(self, mock_settings):
         mock_settings.AI_GATEWAY_INTERNAL_URL = ""
         mock_settings.AI_GATEWAY_INTERNAL_TOKEN = ""
-        with pytest.raises(LLMGatewayNotConfigured):
+        with pytest.raises(AIGatewayNotConfigured):
             add_credit(42, "10", "x", "key")
