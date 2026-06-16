@@ -167,8 +167,7 @@ export function buildInsertCommands(
     focusInsertedText: (nodeId: string) => void,
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
-    openAIPrompt?: (nodeId: string) => void,
-    addAgent?: (nodeId: string) => void
+    openAIPrompt?: (nodeId: string) => void
 ): InsertCommand[] {
     const commonCategory = 'Common'
 
@@ -227,27 +226,13 @@ export function buildInsertCommands(
         ? [
               {
                   key: 'ai-ask',
-                  label: 'Ask PostHog AI',
+                  label: 'Ask AI',
                   category: commonCategory,
-                  description: 'Ask PostHog AI to write or edit this notebook',
+                  description: 'Ask AI to write or edit this notebook',
                   aliases: ['ai', 'ask', 'posthog ai'],
                   icon: <IconSparkles />,
                   closeOnRun: false,
                   run: openAIPrompt,
-              },
-          ]
-        : []
-
-    const agentCommands: InsertCommand[] = addAgent
-        ? [
-              {
-                  key: 'ai-add-agent',
-                  label: 'Add agent',
-                  category: 'AI',
-                  description: 'Add a notebook editing agent',
-                  aliases: ['agent', 'animal', 'collaborator'],
-                  icon: <IconSparkles />,
-                  run: addAgent,
               },
           ]
         : []
@@ -505,7 +490,6 @@ export function buildInsertCommands(
         ...mediaCommands,
         ...componentCommands,
         ...textStyleCommands,
-        ...agentCommands,
     ]
 }
 

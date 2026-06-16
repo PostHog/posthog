@@ -1,22 +1,23 @@
 import { serializeMarkdownNotebook } from './markdown'
 import {
+    NOTEBOOK_AI_AGENT_ID,
+    NOTEBOOK_AI_AGENT_NAME,
     appendNotebookAgentCommentReplyToMarkdown,
     applyNotebookAgentArtifactMarkdown,
     createNotebookAgent,
-    findMentionedNotebookAgent,
     getNotebookAgentAIQuery,
+    getNotebookAgentAvatarLabel,
     getNotebookAgentClientId,
     getNotebookAgentIdFromClientId,
-    getNotebookAgentMentionLabel,
     getNotebookAgentsFromMarkdown,
     insertNotebookAgentMarkdownAfterRef,
-    isNotebookAgentDismissalRequest,
     makeNotebookAgentNode,
+    preserveNotebookAIAgentNode,
     removeNotebookAgentFromMarkdown,
 } from './notebookAgents'
 
 describe('notebookAgents', () => {
-    it('creates animal names from the fixed list and round-trips agent tags', () => {
+    it('creates the singleton AI agent and round-trips agent tags', () => {
         const agent = createNotebookAgent([])
         const markdown = serializeMarkdownNotebook({
             type: 'doc',
@@ -29,58 +30,61 @@ describe('notebookAgents', () => {
             errors: [],
         })
 
-        expect(agent.name).toEqual('Turtle 🐢')
+        expect(agent).toEqual({ id: NOTEBOOK_AI_AGENT_ID, name: NOTEBOOK_AI_AGENT_NAME })
         expect(getNotebookAgentsFromMarkdown(markdown)).toEqual([
             {
-                id: agent.id,
-                name: 'Turtle 🐢',
+                id: NOTEBOOK_AI_AGENT_ID,
+                name: NOTEBOOK_AI_AGENT_NAME,
                 cursor: { nodeIndex: 1, offset: 4, listItemIndex: undefined },
             },
         ])
     })
 
-    it('finds mentions by animal name without requiring the emoji', () => {
-        const agent = { id: 'agent-1', name: 'Turtle 🐢' }
+    it('uses AI as the presence label', () => {
+        const agent = { id: NOTEBOOK_AI_AGENT_ID, name: NOTEBOOK_AI_AGENT_NAME }
 
-        expect(getNotebookAgentMentionLabel(agent)).toEqual('Turtle')
-        expect(findMentionedNotebookAgent('Hey @Turtle, add a chart', [agent])?.id).toEqual('agent-1')
-        expect(findMentionedNotebookAgent('Hey @Otter, add a chart', [agent])).toBeNull()
+        expect(getNotebookAgentAvatarLabel(agent)).toEqual('AI')
     })
 
     it('removes persisted agents and maps client ids back to agent ids', () => {
-        const markdown = '# Notebook\n\n<Agent id="agent-1" name="Turtle 🐢" />\n\nBody'
+        const markdown = '# Notebook\n\n<Agent id="ai" name="AI" />\n\nBody'
 
-        expect(removeNotebookAgentFromMarkdown(markdown, 'agent-1')).toEqual('# Notebook\n\nBody')
-        expect(getNotebookAgentIdFromClientId(getNotebookAgentClientId({ id: 'agent-1' }))).toEqual('agent-1')
+        expect(removeNotebookAgentFromMarkdown(markdown, NOTEBOOK_AI_AGENT_ID)).toEqual('# Notebook\n\nBody')
+        expect(getNotebookAgentIdFromClientId(getNotebookAgentClientId({ id: NOTEBOOK_AI_AGENT_ID }))).toEqual(
+            NOTEBOOK_AI_AGENT_ID
+        )
     })
 
-    it('recognizes simple dismissal requests', () => {
-        expect(isNotebookAgentDismissalRequest('Hey @Turtle, please go away')).toBe(true)
-        expect(isNotebookAgentDismissalRequest('Hey @Turtle, add a line chart')).toBe(false)
+    it('preserves the singleton AI agent across replacement markdown', () => {
+        expect(
+            preserveNotebookAIAgentNode(
+                '# Rewritten notebook',
+                '# Original notebook\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />'
+            )
+        ).toEqual('# Rewritten notebook\n\n<Agent id="ai" name="AI" cursor={{"nodeIndex":1}} />')
     })
 
     it('builds an agent query for the LLM without generating the response locally', () => {
         const query = getNotebookAgentAIQuery({
-            agent: { id: 'agent-1', name: 'Turtle 🐢' },
-            promptText: '@Turtle tell me a joke',
+            agent: { id: NOTEBOOK_AI_AGENT_ID, name: NOTEBOOK_AI_AGENT_NAME },
+            promptText: 'Tell me a joke',
             refId: 'ref-1',
         })
 
-        expect(query).toContain('Turtle 🐢')
-        expect(query).toContain('@Turtle tell me a joke')
+        expect(query).toContain(NOTEBOOK_AI_AGENT_NAME)
+        expect(query).toContain('Tell me a joke')
         expect(query).toContain('notebook artifact')
         expect(query).not.toContain('Why did')
     })
 
     it('appends LLM messages to the linked agent comment', () => {
-        const markdown =
-            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">@Turtle add content</ref>'
+        const markdown = '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">Add content</ref>'
 
         expect(
             appendNotebookAgentCommentReplyToMarkdown({
                 markdown,
                 refId: 'ref-1',
-                agent: { id: 'agent-1', name: 'Turtle 🐢' },
+                agent: { id: NOTEBOOK_AI_AGENT_ID, name: NOTEBOOK_AI_AGENT_NAME },
                 text: 'I will expand the outline and add examples.',
                 replyId: 'assistant-1',
             })
@@ -89,7 +93,7 @@ describe('notebookAgents', () => {
 
     it('inserts LLM markdown after the referenced row', () => {
         const markdown =
-            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">@Turtle tell me a joke</ref>\n\nAfter'
+            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">Tell me a joke</ref>\n\nAfter'
 
         expect(
             insertNotebookAgentMarkdownAfterRef({
@@ -98,13 +102,13 @@ describe('notebookAgents', () => {
                 insertedMarkdown: 'A generated answer from the LLM.',
             })
         ).toEqual(
-            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">@Turtle tell me a joke</ref>\n\nA generated answer from the LLM.\n\nAfter'
+            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">Tell me a joke</ref>\n\nA generated answer from the LLM.\n\nAfter'
         )
     })
 
     it('applies replacement artifacts while preserving the agent anchor and persisted agent', () => {
         const markdown =
-            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">@Turtle redo this</ref>\n\nOld content\n\n<Agent id="agent-1" name="Turtle 🐢" />'
+            '# Notebook\n\n<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">Redo this</ref>\n\nOld content\n\n<Agent id="ai" name="AI" />'
 
         expect(
             applyNotebookAgentArtifactMarkdown({
@@ -114,15 +118,15 @@ describe('notebookAgents', () => {
                 replace: true,
             })
         ).toEqual(
-            '<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">@Turtle redo this</ref>\n\n# New notebook\n\nGenerated by the LLM.\n\n<Agent id="agent-1" name="Turtle 🐢" />'
+            '<Comment ref="ref-1" replies={[]} />\n\n<ref id="ref-1">Redo this</ref>\n\n# New notebook\n\nGenerated by the LLM.\n\n<Agent id="ai" name="AI" />'
         )
     })
 
     it('does not duplicate the agent anchor when a replacement artifact already includes it', () => {
         const markdown =
-            '# Notebook\n\nIntro\n\n<Comment ref="ref-1" replies={[{"id":"thinking","author":"Turtle 🐢","text":"Thinking..."}]} />\n\n<ref id="ref-1">@Turtle what is up?</ref>\n\n<Agent id="agent-1" name="Turtle 🐢" />'
+            '# Notebook\n\nIntro\n\n<Comment ref="ref-1" replies={[{"id":"thinking","author":"AI","text":"Thinking..."}]} />\n\n<ref id="ref-1">What is up?</ref>\n\n<Agent id="ai" name="AI" />'
         const artifactMarkdown =
-            '# Notebook\n\nIntro\n\n<Comment ref="ref-1" replies={[{"id":"thinking","author":"Turtle 🐢","text":"Thinking..."}]} />\n\nNot much, ready to help.\n\n<ref id="ref-1">@Turtle what is up?</ref>'
+            '# Notebook\n\nIntro\n\n<Comment ref="ref-1" replies={[{"id":"thinking","author":"AI","text":"Thinking..."}]} />\n\nNot much, ready to help.\n\n<ref id="ref-1">What is up?</ref>'
 
         const result = applyNotebookAgentArtifactMarkdown({
             markdown,
@@ -131,7 +135,7 @@ describe('notebookAgents', () => {
             replace: true,
         })
 
-        expect(result).toEqual(`${artifactMarkdown}\n\n<Agent id="agent-1" name="Turtle 🐢" />`)
+        expect(result).toEqual(`${artifactMarkdown}\n\n<Agent id="ai" name="AI" />`)
         expect(result.match(/<Comment ref="ref-1"/g)).toHaveLength(1)
         expect(result.match(/<ref id="ref-1">/g)).toHaveLength(1)
     })

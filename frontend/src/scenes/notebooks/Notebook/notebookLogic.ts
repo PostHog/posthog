@@ -30,6 +30,7 @@ import {
     tryApplyTextChanges,
 } from 'lib/components/MarkdownNotebook/collaboration'
 import type { TextChange } from 'lib/components/MarkdownNotebook/collaboration'
+import { preserveNotebookAIAgentNode } from 'lib/components/MarkdownNotebook/notebookAgents'
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookCollaborationConflict } from 'lib/components/MarkdownNotebook/types'
 import { EditorRange, JSONContent } from 'lib/components/RichContentEditor/types'
@@ -1617,7 +1618,10 @@ export const notebookLogic = kea<notebookLogicType>([
             const nextMarkdown =
                 mode === 'insert-after-chat'
                     ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
-                    : preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
+                    : preserveNotebookAIAgentNode(
+                          preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId),
+                          currentMarkdown
+                      )
             if (nextMarkdown === currentMarkdown) {
                 return
             }

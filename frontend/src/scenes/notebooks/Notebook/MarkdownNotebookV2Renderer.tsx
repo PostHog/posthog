@@ -9,10 +9,8 @@ import {
     applyNotebookAgentArtifactMarkdown,
     getNotebookAgentClientId,
     getNotebookAgentColorIndex,
-    getNotebookAgentIdFromClientId,
     getNotebookAgentsFromMarkdown,
     insertNotebookAgentMarkdownAfterRef,
-    removeNotebookAgentFromMarkdown,
 } from 'lib/components/MarkdownNotebook/notebookAgents'
 import type { RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import { uuid } from 'lib/utils'
@@ -249,17 +247,6 @@ export function MarkdownNotebookV2(): JSX.Element {
         [updateMarkdownEditorValue]
     )
 
-    const handleRemoteCaretClick = useCallback(
-        (caret: RemoteNotebookCaret): void => {
-            const agentId = caret.agentId ?? getNotebookAgentIdFromClientId(caret.clientId)
-            if (caret.kind !== 'agent' || !agentId) {
-                return
-            }
-            updateMarkdownEditorValue((currentMarkdown) => removeNotebookAgentFromMarkdown(currentMarkdown, agentId))
-        },
-        [updateMarkdownEditorValue]
-    )
-
     return (
         <MarkdownNotebookRuntimeContext.Provider value={runtimeContext}>
             <MarkdownNotebook
@@ -271,7 +258,6 @@ export function MarkdownNotebookV2(): JSX.Element {
                 onChange={isEditable ? handleMarkdownEditorChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}
                 remoteCarets={remoteCarets}
-                onRemoteCaretClick={isEditable ? handleRemoteCaretClick : undefined}
                 onCaretChange={isEditable ? publishMarkdownCaret : undefined}
                 onAskAI={isEditable ? handleAskAI : undefined}
                 createAIChatId={uuid}

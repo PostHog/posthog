@@ -14,19 +14,20 @@ export { reconcileNotebookDocuments } from './reconcile'
 export { markdownCrc, mergeNotebookMarkdownChanges, tryApplyTextChanges } from './collaboration'
 export type { TextChange } from './collaboration'
 export {
+    NOTEBOOK_AI_AGENT_ID,
+    NOTEBOOK_AI_AGENT_NAME,
     appendNotebookAgentCommentReplyToMarkdown,
     applyNotebookAgentArtifactMarkdown,
-    findMentionedNotebookAgent,
     getNotebookAgentAIQuery,
+    getNotebookAgentAvatarLabel,
     getNotebookAgentClientId,
     getNotebookAgentColorIndex,
     getNotebookAgentCursorProp,
-    getNotebookAgentEmoji,
     getNotebookAgentIdFromClientId,
-    getNotebookAgentMentionLabel,
     getNotebookAgentSyntheticUserId,
     getNotebookAgentsFromMarkdown,
     insertNotebookAgentMarkdownAfterRef,
+    preserveNotebookAIAgentNode,
     removeNotebookAgentFromMarkdown,
 } from './notebookAgents'
 export type { NotebookAgent } from './notebookAgents'

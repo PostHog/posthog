@@ -6,11 +6,10 @@ import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import {
+    getNotebookAgentAvatarLabel,
     getNotebookAgentColorIndex,
-    getNotebookAgentEmoji,
     getNotebookAgentSyntheticUserId,
     getNotebookAgentsFromMarkdown,
-    removeNotebookAgentFromMarkdown,
 } from 'lib/components/MarkdownNotebook/notebookAgents'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDocumentExpand } from 'lib/lemon-ui/icons'
@@ -151,14 +150,10 @@ function formatNotebookPresenceNames(names: string[]): string {
 
 export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null => {
     const { user } = useValues(userLogic)
-    const { isEditable, markdownEditorValue, markdownRemoteParticipants } = useValues(
-        notebookLogic(props)
-    ) as unknown as {
-        isEditable: boolean
+    const { markdownEditorValue, markdownRemoteParticipants } = useValues(notebookLogic(props)) as unknown as {
         markdownEditorValue: string
         markdownRemoteParticipants: NotebookRemoteParticipant[]
     }
-    const { handleMarkdownEditorChange } = useActions(notebookLogic(props))
     const { remoteParticipants } = useValues(notebookCollabLogic({ shortId: props.shortId })) as unknown as {
         remoteParticipants: NotebookRemoteParticipant[]
     }
@@ -191,24 +186,16 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
                   .join(', ')
             : undefined
     const tooltip = notebookPresenceTooltip(participants)
-    const removeAgent = (agentId: string): void => {
-        if (!isEditable) {
-            return
-        }
-        handleMarkdownEditorChange(removeNotebookAgentFromMarkdown(markdownEditorValue, agentId))
-    }
-
     return (
         <Tooltip title={tooltip} placement="left">
             <div className="ProfileBubbles" aria-label={tooltip}>
                 {shownParticipants.map((participant) =>
                     participant.isAgent && participant.agentId ? (
-                        <button
+                        <div
                             key={`${participant.userId}-${participant.clientId}`}
                             className="NotebookPresence__agent-bubble"
-                            type="button"
-                            title={isEditable ? `Remove ${participant.userName}` : participant.userName}
-                            aria-label={isEditable ? `Remove ${participant.userName}` : participant.userName}
+                            title={participant.userName}
+                            aria-label={participant.userName}
                             style={
                                 {
                                     '--notebook-agent-color': getSeriesColor(
@@ -216,11 +203,9 @@ export const NotebookPresence = (props: NotebookLogicProps): JSX.Element | null 
                                     ),
                                 } as React.CSSProperties
                             }
-                            onClick={() => removeAgent(participant.agentId as string)}
-                            disabled={!isEditable}
                         >
-                            {getNotebookAgentEmoji({ name: participant.userName })}
-                        </button>
+                            {getNotebookAgentAvatarLabel({ name: participant.userName })}
+                        </div>
                     ) : (
                         <ProfilePicture
                             key={`${participant.userId}-${participant.clientId}`}

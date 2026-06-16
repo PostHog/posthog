@@ -139,9 +139,9 @@ export function EditablePromptComponent({
                         aria-expanded={!isCollapsed}
                         onClick={() => setIsCollapsed((currentValue) => !currentValue)}
                     >
-                        <span className="MarkdownNotebook__ai-prompt-tag" aria-label="Ask PostHog AI prompt">
+                        <span className="MarkdownNotebook__ai-prompt-tag" aria-label="Ask AI prompt">
                             <IconSparkles />
-                            Ask PostHog AI
+                            Ask AI
                         </span>
                     </button>
                     <LemonButton
@@ -164,7 +164,7 @@ export function EditablePromptComponent({
                             onChange={updateQuestion}
                             onPressEnter={submitPrompt}
                             onKeyDown={handleKeyDown}
-                            placeholder="Ask PostHog AI..."
+                            placeholder="Ask AI..."
                             minRows={2}
                             maxRows={6}
                             autoFocus={isActive}

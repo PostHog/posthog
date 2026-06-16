@@ -11,35 +11,8 @@ import { hashString } from './utils'
 
 export const NOTEBOOK_AGENT_COMPONENT_TAG = 'Agent'
 export const NOTEBOOK_AGENT_CLIENT_ID_PREFIX = 'notebook-agent:'
-
-const NOTEBOOK_AGENT_NAME_OPTIONS = [
-    'Turtle 🐢',
-    'Otter 🦦',
-    'Panda 🐼',
-    'Koala 🐨',
-    'Fox 🦊',
-    'Frog 🐸',
-    'Bee 🐝',
-    'Whale 🐳',
-    'Dolphin 🐬',
-    'Penguin 🐧',
-    'Owl 🦉',
-    'Duck 🦆',
-    'Rabbit 🐰',
-    'Mouse 🐭',
-    'Cat 🐱',
-    'Dog 🐶',
-    'Lion 🦁',
-    'Tiger 🐯',
-    'Bear 🐻',
-    'Monkey 🐵',
-    'Horse 🐴',
-    'Zebra 🦓',
-    'Giraffe 🦒',
-    'Elephant 🐘',
-]
-
-const NOTEBOOK_AGENT_DISMISSAL_REGEX = /\b(go away|leave|remove yourself|stop editing|bye|goodbye)\b/i
+export const NOTEBOOK_AI_AGENT_ID = 'ai'
+export const NOTEBOOK_AI_AGENT_NAME = 'AI'
 
 export type NotebookAgent = {
     id: string
@@ -78,7 +51,7 @@ export function getNotebookAgentFromNode(node: NotebookBlockNode): NotebookAgent
 export function getNotebookAgentsFromNodes(nodes: NotebookBlockNode[]): NotebookAgent[] {
     return nodes.flatMap((node) => {
         const agent = getNotebookAgentFromNode(node)
-        return agent ? [agent] : []
+        return agent?.id === NOTEBOOK_AI_AGENT_ID ? [{ ...agent, name: NOTEBOOK_AI_AGENT_NAME }] : []
     })
 }
 
@@ -86,14 +59,10 @@ export function getNotebookAgentsFromMarkdown(markdown: string): NotebookAgent[]
     return getNotebookAgentsFromNodes(parseMarkdownNotebook(markdown).nodes)
 }
 
-export function createNotebookAgent(existingAgents: NotebookAgent[]): NotebookAgent {
-    const usedNames = new Set(existingAgents.map((agent) => agent.name))
-    const name =
-        NOTEBOOK_AGENT_NAME_OPTIONS.find((candidate) => !usedNames.has(candidate)) ?? getFallbackAgentName(usedNames)
-
+export function createNotebookAgent(_existingAgents: NotebookAgent[] = []): NotebookAgent {
     return {
-        id: createNotebookAgentId(),
-        name,
+        id: NOTEBOOK_AI_AGENT_ID,
+        name: NOTEBOOK_AI_AGENT_NAME,
     }
 }
 
@@ -130,6 +99,26 @@ export function removeNotebookAgentFromDocument(document: NotebookDocument, agen
     }
 }
 
+export function preserveNotebookAIAgentNode(nextMarkdown: string, currentMarkdown: string): string {
+    const currentDocument = parseMarkdownNotebook(currentMarkdown)
+    const currentAIAgentNode = currentDocument.nodes.find(
+        (node) => getNotebookAgentFromNode(node)?.id === NOTEBOOK_AI_AGENT_ID
+    )
+    if (!currentAIAgentNode) {
+        return nextMarkdown
+    }
+
+    const nextDocument = parseMarkdownNotebook(nextMarkdown)
+    if (nextDocument.nodes.some((node) => getNotebookAgentFromNode(node)?.id === NOTEBOOK_AI_AGENT_ID)) {
+        return nextMarkdown
+    }
+
+    return serializeMarkdownNotebook({
+        ...nextDocument,
+        nodes: [...nextDocument.nodes, currentAIAgentNode],
+    })
+}
+
 export function getNotebookAgentClientId(agent: Pick<NotebookAgent, 'id'>): string {
     return `${NOTEBOOK_AGENT_CLIENT_ID_PREFIX}${agent.id}`
 }
@@ -150,25 +139,8 @@ export function getNotebookAgentSyntheticUserId(agent: Pick<NotebookAgent, 'id'>
     return 100_000 + getNotebookAgentColorIndex(agent)
 }
 
-export function getNotebookAgentMentionLabel(agent: Pick<NotebookAgent, 'name'>): string {
-    return agent.name.split(/\s+/)[0] ?? agent.name
-}
-
-export function getNotebookAgentEmoji(agent: Pick<NotebookAgent, 'name'>): string {
-    return agent.name.split(/\s+/).at(-1) ?? ''
-}
-
-export function findMentionedNotebookAgent(text: string, agents: NotebookAgent[]): NotebookAgent | null {
-    return (
-        agents.find((agent) => {
-            const mentionLabel = escapeRegExp(getNotebookAgentMentionLabel(agent))
-            return new RegExp(`(^|\\s)@${mentionLabel}(?=\\b|\\s|$|[,.:;!?])`, 'i').test(text)
-        }) ?? null
-    )
-}
-
-export function isNotebookAgentDismissalRequest(text: string): boolean {
-    return NOTEBOOK_AGENT_DISMISSAL_REGEX.test(text)
+export function getNotebookAgentAvatarLabel(agent: Pick<NotebookAgent, 'name'>): string {
+    return (agent.name.trim().split(/\s+/)[0] || NOTEBOOK_AI_AGENT_NAME).slice(0, 2).toUpperCase()
 }
 
 export function getNotebookAgentAIQuery({ agent, promptText, refId }: NotebookAgentAIContext): string {
@@ -356,23 +328,4 @@ function inlineNodesHaveRef(nodes: NotebookInlineNode[], refId: string): boolean
     return nodes.some(
         (node) => node.type === 'text' && node.marks?.some((mark) => mark.type === 'ref' && mark.id === refId)
     )
-}
-
-function createNotebookAgentId(): string {
-    if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
-        return window.crypto.randomUUID()
-    }
-    return `agent-${Math.random().toString(36).slice(2, 10)}`
-}
-
-function getFallbackAgentName(usedNames: Set<string>): string {
-    let index = 2
-    while (usedNames.has(`Turtle ${index} 🐢`)) {
-        index += 1
-    }
-    return `Turtle ${index} 🐢`
-}
-
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
