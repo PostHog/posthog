@@ -65,15 +65,23 @@ __all__ = [
 # tracked gRPC transport's logs/metrics.
 BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 
-# gRPC channel options for the Storage Read API. A single ARROW page from the
-# Storage Read API routinely exceeds gRPC's default 4 MiB receive limit, which
-# surfaces as `ResourceExhausted: Received message larger than max`. The default
-# `BigQueryReadGrpcTransport` sets these to -1 (unlimited) when it builds its own
-# channel — but because we pass a pre-built `channel=`, those defaults are skipped,
-# so we must replicate them on the channel we construct ourselves.
+# Upper bound on a single Storage Read API gRPC message. A single ARROW page from
+# the Storage Read API routinely exceeds gRPC's default 4 MiB receive limit (the
+# failing page that motivated this was ~4.4 MiB), which surfaces as
+# `ResourceExhausted: Received message larger than max`. The Google transport lifts
+# this to -1 (unlimited) when it builds its own channel — but because we pass a
+# pre-built `channel=`, that default is skipped, so we set the limit ourselves.
+#
+# We deliberately keep a finite cap rather than mirroring Google's unlimited
+# default: an unbounded receive limit lets a pathological table allocate arbitrary
+# worker memory before the `DEFAULT_TABLE_SIZE_BYTES` batching check ever runs.
+# 256 MiB sits far above any realistic Arrow page yet keeps a backstop — it also
+# comfortably clears the pipeline's own in-memory batch targets
+# (`DEFAULT_TABLE_SIZE_BYTES` / `DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES`).
+_BIGQUERY_STORAGE_MAX_MESSAGE_BYTES = 256 * 1024 * 1024  # 256 MiB
 _BIGQUERY_STORAGE_CHANNEL_OPTIONS = [
-    ("grpc.max_send_message_length", -1),
-    ("grpc.max_receive_message_length", -1),
+    ("grpc.max_send_message_length", _BIGQUERY_STORAGE_MAX_MESSAGE_BYTES),
+    ("grpc.max_receive_message_length", _BIGQUERY_STORAGE_MAX_MESSAGE_BYTES),
 ]
 
 

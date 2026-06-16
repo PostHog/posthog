@@ -463,9 +463,10 @@ def test_bigquery_storage_read_client_lifts_grpc_message_size_limit():
     """Storage Read API ARROW pages exceed gRPC's default 4 MiB receive limit.
 
     Because we pass a pre-built `channel=` to the transport, the transport's own
-    unlimited-message-size defaults are skipped, so the channel we build must set
-    them itself — otherwise reads blow up with `ResourceExhausted: Received
-    message larger than max`.
+    message-size defaults are skipped, so the channel we build must raise the limit
+    itself — otherwise reads blow up with `ResourceExhausted: Received message
+    larger than max`. We raise it to a finite generous cap (not unlimited) so a
+    pathological page can't allocate arbitrary worker memory.
     """
     with (
         mock.patch(
@@ -488,5 +489,7 @@ def test_bigquery_storage_read_client_lifts_grpc_message_size_limit():
             pass
 
     options = dict(mock_transport.create_channel.call_args.kwargs["options"])
-    assert options["grpc.max_receive_message_length"] == -1
-    assert options["grpc.max_send_message_length"] == -1
+    assert options["grpc.max_receive_message_length"] == 256 * 1024 * 1024
+    assert options["grpc.max_send_message_length"] == 256 * 1024 * 1024
+    # Finite, not unlimited — guards against pathological pages exhausting memory.
+    assert options["grpc.max_receive_message_length"] != -1
