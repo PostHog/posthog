@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR,
     _get_shopify_access_token,
 )
 from posthog.temporal.data_imports.sources.shopify.source import ShopifySource
@@ -73,9 +74,25 @@ def test_graphql_access_denied_is_non_retryable(error_message):
 @pytest.mark.parametrize(
     "error_message",
     [
+        "402 Client Error: Payment Required for url: https://my-store.myshopify.com/admin/api/2025-10/graphql.json",
+        "402 Client Error: Payment Required for url: https://another-store.myshopify.com/admin/api/2024-01/graphql.json",
+    ],
+)
+def test_payment_required_is_non_retryable(error_message):
+    assert SHOPIFY_PAYMENT_REQUIRED_ERROR in error_message
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
         "Shopify: rate limit exceeded...",
         "Shopify: internal error from request 503 Service Unavailable",
         "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",
+        "429 Client Error: Too Many Requests for url: https://my-store.myshopify.com/admin/api/2025-10/graphql.json",
     ],
 )
 def test_transient_graphql_errors_stay_retryable(error_message):
