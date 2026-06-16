@@ -5146,10 +5146,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        groups = response.json()["filters"]["groups"]
-        self.assertIsNone(response.json()["filters"]["aggregation_group_type_index"])
-        self.assertIsNone(groups[0]["aggregation_group_type_index"])
-        self.assertEqual(groups[1]["aggregation_group_type_index"], 0)
 
         # Flag-level aggregation collapses to None once condition sets are mixed
         filters = response.json()["filters"]

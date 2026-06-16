@@ -100,7 +100,7 @@ const PERSON = 'person' as const
 type AggregationValue = number | typeof PERSON
 
 type MatchByOption = {
-    value: string
+    value: 'properties' | 'device'
     icon: JSX.Element
     label: string
     description: string
@@ -970,8 +970,8 @@ export function FeatureFlagReleaseConditionsCollapsible({
     const currentSelected = isDeviceTargeting && onBucketingIdentifierChange ? 'device' : 'properties'
 
     // Handler for option selection logic (shared by click and keyboard events)
-    const selectMatchByOption = (value: string): void => {
-        const applyChange = (targetValue: string): void => {
+    const selectMatchByOption = (value: 'properties' | 'device'): void => {
+        const applyChange = (targetValue: 'properties' | 'device'): void => {
             if (targetValue === 'properties') {
                 onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
             } else if (targetValue === 'device') {
