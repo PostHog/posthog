@@ -294,20 +294,6 @@ class TestVitallySourceGetSchemas:
         mock_capture.assert_not_called()
 
 
-class TestVitallySourceNonRetryableErrors:
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "401 Client Error: Unauthorized for url: https://firstignite.rest.vitally.io/resources/customObjects?limit=100",
-            "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/users?limit=1",
-        ],
-    )
-    def test_recognises_credential_errors_as_non_retryable(self, error_message):
-        non_retryable_errors = VitallySource().get_non_retryable_errors()
-
-        assert any(pattern in error_message for pattern in non_retryable_errors)
-
-
 class TestVitallyNonRetryableErrors:
     @pytest.mark.parametrize(
         "observed_error",
