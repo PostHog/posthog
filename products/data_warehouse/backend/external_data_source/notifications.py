@@ -110,7 +110,7 @@ def notify_external_data_sync_failures(team_id: int) -> None:
         if sent:
             # Mark every listed schema as communicated, so the daily catch-up only
             # re-triggers for failures that happened after this email went out.
-            ExternalDataSchema.objects.filter(id__in=[schema.id for schema in failing_schemas]).update(
+            ExternalDataSchema.objects.filter(team_id=team_id, id__in=[schema.id for schema in failing_schemas]).update(
                 last_error_notified_at=timezone.now()
             )
     except Exception:
