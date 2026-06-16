@@ -276,6 +276,41 @@ def _get_sslmode(require_ssl: bool) -> str:
     return "require" if require_ssl else "prefer"
 
 
+# Transaction-mode connection poolers reject the libpq `options` startup parameter outright:
+# Supabase's Supavisor (port 6543) and PgBouncer in transaction mode report "unsupported startup
+# parameter: options", and AWS RDS Proxy reports "RDS Proxy currently doesn't support command-line
+# options". We only send `options` to pin client_encoding=UTF8 for Redshift's legacy UNICODE alias
+# (see FORCE_UTF8_CLIENT_ENCODING), and Redshift never sits behind these poolers — so when a server
+# rejects `options`, dropping it and retrying is safe (UTF8 is the default client encoding for real
+# Postgres). The RDS Proxy text uses a typographic apostrophe, so match the apostrophe-free tail.
+_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS = (
+    "unsupported startup parameter: options",
+    "support command-line options",
+)
+
+
+def _is_options_startup_param_unsupported(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS)
+
+
+def _connect_with_options_fallback(**connect_kwargs: Any) -> psycopg.Connection:
+    """`psycopg.connect` that retries without the libpq `options` startup parameter when the
+    server rejects it.
+
+    See `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
+    `options` and why dropping it is safe.
+    """
+    try:
+        return psycopg.connect(**connect_kwargs)
+    except psycopg.OperationalError as e:
+        if connect_kwargs.get("options") and _is_options_startup_param_unsupported(e):
+            return psycopg.connect(**{k: v for k, v in connect_kwargs.items() if k != "options"})
+        raise
+
+
 def _connect_to_postgres(
     *,
     host: str,
@@ -296,7 +331,7 @@ def _connect_to_postgres(
     caller_options = kwargs.pop("options", None)
     options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
     try:
-        return psycopg.connect(
+        return _connect_with_options_fallback(
             host=host,
             port=port,
             dbname=database,
@@ -1934,7 +1969,7 @@ def postgres_source(
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
-                conn = psycopg.connect(
+                conn = _connect_with_options_fallback(
                     host=host,
                     port=port,
                     dbname=database,
@@ -2192,7 +2227,7 @@ def postgres_source(
 
             def get_connection():
                 try:
-                    connection = psycopg.connect(
+                    connection = _connect_with_options_fallback(
                         host=host,
                         port=port,
                         dbname=database,
