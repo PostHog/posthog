@@ -1955,6 +1955,31 @@ class TestGetPartitionSettings:
         assert result is None
         capture_mock.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            # Direct read-replica recovery conflict on the sizing query.
+            psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery"),
+            # Downstream symptom: an earlier best-effort query in this transaction hit the transient
+            # condition above and left it in INERROR, so the sizing query fails with this instead.
+            psycopg.errors.InFailedSqlTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            ),
+        ],
+    )
+    def test_handled_transient_errors_return_none_without_capturing(self, exc):
+        # Both are handled, transient conditions that resurface (and are classified) via the real
+        # extraction query, so partition sizing must degrade to None without flooding error tracking.
+        logger = structlog.get_logger()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = exc
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
+            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+
+        assert result is None
+        capture_mock.assert_not_called()
+
 
 class TestIsRecoveryConflictError:
     @pytest.mark.parametrize(
