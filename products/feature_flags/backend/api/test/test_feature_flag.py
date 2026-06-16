@@ -6253,8 +6253,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
-            key="both_flag",
-            evaluation_runtime="both",
+            key="all_flag",
+            evaluation_runtime="all",
         )
 
         # Test filtering by server environment
@@ -6269,11 +6269,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert len(response["results"]) == 1
         assert response["results"][0]["key"] == "client_flag"
 
-        # Test filtering by both environment
-        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=both")
+        # Test filtering by all environment
+        filtered_flags_list = self.client.get(f"/api/projects/@current/feature_flags?evaluation_runtime=all")
         response = filtered_flags_list.json()
         assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == "both_flag"
+        assert response["results"][0]["key"] == "all_flag"
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_flag_is_cached_on_create_and_update(self, mock_on_commit):
