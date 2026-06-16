@@ -5533,6 +5533,7 @@ export type APIScopeObject =
     | 'llm_skill'
     | 'logs'
     | 'marketing_analytics'
+    | 'mcp_analytics'
     | 'metrics'
     | 'notebook'
     | 'organization'
