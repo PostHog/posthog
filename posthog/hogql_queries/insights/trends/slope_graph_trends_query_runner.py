@@ -62,13 +62,9 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
         if not _needs_full_scan(series_query):
             existing = series_query.properties
             end_buckets_filter = self._end_buckets_filter()
-            if isinstance(existing, list):
-                series_query.properties = [*existing, end_buckets_filter]
-            elif existing is None:
-                series_query.properties = [end_buckets_filter]
-            else:
-                # A PropertyGroupFilter — wrap the existing group and the bucket filter under a new
-                # AND so the saved filters are preserved, never replaced.
+            if isinstance(existing, PropertyGroupFilter):
+                # Wrap the existing group and the bucket filter under a new AND so the saved filters
+                # are preserved, never replaced.
                 series_query.properties = PropertyGroupFilter(
                     type=FilterLogicalOperator.AND_,
                     values=[
@@ -76,6 +72,8 @@ class SlopeGraphTrendsQueryRunner(TrendsQueryRunner):
                         PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[end_buckets_filter]),
                     ],
                 )
+            else:
+                series_query.properties = [*(existing or []), end_buckets_filter]
 
         response = TrendsQueryRunner(
             query=series_query,

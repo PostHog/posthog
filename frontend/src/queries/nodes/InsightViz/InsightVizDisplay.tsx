@@ -279,6 +279,9 @@ export function InsightVizDisplay({
         return null
     })()
 
+    // The slope graph draws its own legend inside the chart, so it opts out of the side-legend column.
+    const showSideLegend = supportsDisplay && showLegend && display !== ChartDisplayType.SlopeGraph
+
     function renderActiveView(): JSX.Element | null {
         switch (activeView) {
             case InsightType.TRENDS:
@@ -466,15 +469,12 @@ export function InsightVizDisplay({
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',
-                                supportsDisplay &&
-                                    showLegend &&
-                                    display !== ChartDisplayType.SlopeGraph &&
-                                    'InsightVizDisplay__content--with-legend'
+                                showSideLegend && 'InsightVizDisplay__content--with-legend'
                             )}
                         >
                             {BlockingEmptyState ? (
                                 BlockingEmptyState
-                            ) : supportsDisplay && showLegend && display !== ChartDisplayType.SlopeGraph ? (
+                            ) : showSideLegend ? (
                                 <>
                                     <div className="InsightVizDisplay__content__left">{renderActiveView()}</div>
                                     <div className="InsightVizDisplay__content__right empty:hidden">

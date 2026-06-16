@@ -46,9 +46,6 @@ export interface Series<Meta = unknown> {
     points?: {
         /** Radius in CSS pixels. */
         radius: number
-        /** Draw a dot only at the first and last data point, skipping interior ones (used by the
-         *  slope chart, whose midpoint is synthetic). */
-        startAndEndValuesOnly?: boolean
     }
     /** Line stroke configuration. */
     stroke?: {
