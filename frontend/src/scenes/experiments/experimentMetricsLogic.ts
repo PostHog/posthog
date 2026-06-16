@@ -37,6 +37,7 @@ export interface ExperimentMetricsLogicProps {
 
 const RECALCULATION_POLL_INTERVAL_MS = 2000
 const RECALCULATION_STALE_AFTER_HOURS = 24
+const MAX_POLL_RETRIES = 5
 
 export const RECALCULATION_STATUSES = {
     pending: 'pending',
@@ -338,6 +339,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      */
                     cache.recalcStartMs = Date.now()
                     cache.pollCount = 0
+                    cache.pollRetryCount = 0
                     actions.setCurrentRecalculation(recalculation)
                     actions.reportExperimentMetricRecalculation('triggered', {
                         experiment_id: experimentId,
@@ -380,6 +382,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 const { projectId, experimentId } = resolvedIds
+                // First tick of a new run (the active id changed): reset the retry streak so a prior run that
+                // exhausted its retries doesn't leave the counter at the cap for this one.
+                if (cache.activeRecalculationId !== recalculationId) {
+                    cache.pollRetryCount = 0
+                }
                 cache.activeRecalculationId = recalculationId
 
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
@@ -393,10 +400,20 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         recalculationId
                     )
                 } catch {
-                    // Transient error. Try again on the next tick.
+                    /**
+                     * Retry on transient errors, but give up after MAX_POLL_RETRIES consecutive failures so a
+                     * persistently failing endpoint can't poll forever.
+                     */
+                    cache.pollRetryCount = (cache.pollRetryCount ?? 0) + 1
+                    if (cache.pollRetryCount >= MAX_POLL_RETRIES) {
+                        lemonToast.error('Failed to load recalculation results. Please reload to try again.')
+                        return
+                    }
                     actions.pollRecalculation(recalculationId)
                     return
                 }
+                // Healthy response; reset the retry streak so an earlier blip doesn't count against later ticks.
+                cache.pollRetryCount = 0
                 // A newer poll may have started while the request was in flight; abort before writing results.
                 breakpoint()
                 /**

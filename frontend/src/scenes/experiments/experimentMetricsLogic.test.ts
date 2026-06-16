@@ -20,6 +20,8 @@ jest.mock('@posthog/lemon-ui', () => ({
 
 // Mirrors the private poll interval in experimentMetricsLogic.
 const POLL_INTERVAL_MS = 2000
+// Mirrors the private MAX_POLL_RETRIES in experimentMetricsLogic.
+const MAX_POLL_RETRIES = 5
 
 const EXPERIMENT = experimentJson as unknown as Experiment
 const PRIMARY_METRIC_UUID = '434cb6ba-7fa6-4ca1-b7a0-8970b2d9a47d'
@@ -402,6 +404,39 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             // The failed primary metric gets an error with the failure message for its in-row box.
             expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
+        })
+
+        it('gives up after MAX_POLL_RETRIES consecutive retrieve failures', async () => {
+            let retrieveCalls = 0
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => {
+                        retrieveCalls += 1
+                        return [500, {}]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                        201,
+                        inProgressRecalculation,
+                    ],
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            // Flush afterMount → 404 → trigger → poll(create), then drive enough ticks to exhaust retries.
+            await jest.advanceTimersByTimeAsync(0)
+            for (let i = 0; i < MAX_POLL_RETRIES + 2; i++) {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }
+
+            // Stops retrieving once the cap is hit and surfaces an error; never loops forever.
+            expect(retrieveCalls).toBe(MAX_POLL_RETRIES)
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                'Failed to load recalculation results. Please reload to try again.'
+            )
         })
     })
 
