@@ -6,7 +6,7 @@ import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { hexToRGBA } from 'lib/utils'
+import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
