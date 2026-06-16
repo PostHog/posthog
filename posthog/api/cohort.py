@@ -1722,7 +1722,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         )
 
     @extend_schema(responses=CohortUsedInResponseSerializer)
-    @action(methods=["GET"], detail=True, required_scopes=["cohort:read"])
+    @action(methods=["GET"], detail=True, required_scopes=["cohort:read", "feature_flag:read", "insight:read"])
     def used_in(self, request: request.Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         # Hide references the caller has been denied at the object level, matching the
