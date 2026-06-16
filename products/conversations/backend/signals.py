@@ -1,6 +1,9 @@
 from email.utils import make_msgid
 from typing import Any, cast
 
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.functions import Greatest
@@ -17,11 +20,14 @@ from posthog.models.instance_setting import get_instance_setting
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
-from .models import EmailOutboxMessage, Ticket
+from .models import EmailChannel, EmailOutboxMessage, Ticket
 from .models.constants import Channel
 from .tasks import post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
 
 logger = structlog.get_logger(__name__)
+
+WIDGET_EMAIL_REPLY_PROMOTION_LIMIT_PER_HOUR = 100
+WIDGET_EMAIL_REPLY_PROMOTION_TTL_SECONDS = 60 * 60
 
 
 def _is_private_message(item_context: dict | None) -> bool:
@@ -34,6 +40,72 @@ def _is_private_message(item_context: dict | None) -> bool:
 def _get_comment_created_by_id(comment: Comment) -> int | None:
     created_by_id = getattr(comment, "created_by_id", None)
     return created_by_id if isinstance(created_by_id, int) else None
+
+
+def _get_widget_reply_email(ticket: Ticket) -> str:
+    email = (ticket.anonymous_traits or {}).get("email")
+    if not isinstance(email, str):
+        return ""
+
+    email = email.strip()
+    if not email:
+        return ""
+
+    try:
+        validate_email(email)
+    except ValidationError:
+        return ""
+
+    if ticket.distinct_id != email:
+        return ""
+
+    return email
+
+
+def _reserve_widget_email_reply_promotion_slot(team_id: int) -> bool:
+    key = f"conversations:widget_email_reply_promotions:{team_id}"
+    try:
+        if cache.add(key, 1, timeout=WIDGET_EMAIL_REPLY_PROMOTION_TTL_SECONDS):
+            return True
+        return cache.incr(key) <= WIDGET_EMAIL_REPLY_PROMOTION_LIMIT_PER_HOUR
+    except Exception:
+        return True
+
+
+def _prepare_ticket_for_email_reply(ticket: Ticket) -> bool:
+    if ticket.email_from and ticket.email_config_id:
+        return True
+
+    if ticket.channel_source != Channel.WIDGET:
+        return False
+
+    email_from = ticket.email_from or _get_widget_reply_email(ticket)
+    if not email_from:
+        return False
+
+    email_config = ticket.email_config
+    if email_config is None:
+        email_config = (
+            EmailChannel.objects.filter(team_id=ticket.team_id, domain_verified=True).order_by("created_at").first()
+        )
+        if email_config is None:
+            return False
+
+    if not _reserve_widget_email_reply_promotion_slot(ticket.team_id):
+        return False
+
+    update_fields: list[str] = []
+    if not ticket.email_from:
+        ticket.email_from = email_from
+        update_fields.append("email_from")
+    if not ticket.email_config_id:
+        ticket.email_config = email_config
+        update_fields.append("email_config")
+
+    if update_fields:
+        ticket.save(update_fields=update_fields)
+
+    return True
 
 
 @receiver(post_save, sender=Ticket)
@@ -331,14 +403,15 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
 @receiver(post_save, sender=Comment)
 def send_email_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member replies to an email-sourced ticket, send the reply
-    back to the customer via email through a Celery task.
+    When a team member replies to an email-sourced ticket, or a widget ticket
+    where the customer provided an email address, send the reply back to the
+    customer via email through a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
     - Non-private messages
     - Messages with a created_by (team member, not customer)
-    - Tickets with channel_source="email"
+    - Tickets with channel_source="email", or channel_source="widget" with a valid email trait
     """
     if instance.scope != "conversations_ticket":
         return
@@ -371,17 +444,23 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # is down, the row still exists and flush_pending_email_replies will send it.
     ticket = (
         Ticket.objects.select_related("team", "email_config")
-        .filter(id=item_id, team_id=team_id, channel_source=Channel.EMAIL)
+        .filter(id=item_id, team_id=team_id, channel_source__in=[Channel.EMAIL, Channel.WIDGET])
         .first()
     )
-    if not ticket or not ticket.email_from:
+    if not ticket:
         return
 
     settings_dict = ticket.team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         return
 
+    if not _prepare_ticket_for_email_reply(ticket):
+        return
+
     config = ticket.email_config
+    if config is None:
+        return
+
     inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN") or (config.domain if config else None)
     message_id = make_msgid(domain=inbound_domain) if inbound_domain else make_msgid()
 

@@ -465,3 +465,115 @@ class TestEmailReplySignalGuard(BaseTest):
         )
 
         assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
+
+    @parameterized.expand(
+        [
+            ("valid_email", {"name": "Customer", "email": "customer@example.com"}, "customer@example.com"),
+        ]
+    )
+    def test_widget_ticket_with_email_trait_creates_email_outbox(
+        self, _mock_on_commit, _name, anonymous_traits, distinct_id
+    ):
+        widget_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id=distinct_id,
+            anonymous_traits=anonymous_traits,
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(widget_ticket.id),
+            content="reply from support",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        outbox = EmailOutboxMessage.objects.get(ticket=widget_ticket)
+        widget_ticket.refresh_from_db()
+
+        assert outbox.comment.content == "reply from support"
+        assert widget_ticket.email_from == "customer@example.com"
+        assert widget_ticket.email_config_id == self.config.id
+
+    @parameterized.expand(
+        [
+            ("missing_email", {}),
+            ("invalid_email", {"email": "not-an-email"}),
+            ("unmatched_distinct_id", {"email": "customer@example.com"}),
+        ]
+    )
+    def test_widget_ticket_without_valid_email_trait_does_not_create_email_outbox(
+        self, _mock_on_commit, _name, anonymous_traits
+    ):
+        widget_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="user-123",
+            anonymous_traits=anonymous_traits,
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(widget_ticket.id),
+            content="reply from support",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        assert EmailOutboxMessage.objects.filter(ticket=widget_ticket).count() == 0
+
+    def test_widget_ticket_without_verified_email_config_does_not_create_email_outbox(self, _mock_on_commit):
+        self.config.domain_verified = False
+        self.config.save(update_fields=["domain_verified"])
+        widget_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="customer@example.com",
+            anonymous_traits={"email": "customer@example.com"},
+        )
+
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(widget_ticket.id),
+            content="reply from support",
+            created_by=self.user,
+            item_context={"author_type": "support", "is_private": False},
+        )
+
+        widget_ticket.refresh_from_db()
+
+        assert widget_ticket.email_config_id is None
+        assert EmailOutboxMessage.objects.filter(ticket=widget_ticket).count() == 0
+
+    def test_widget_ticket_over_promotion_limit_does_not_create_email_outbox(self, _mock_on_commit):
+        widget_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="customer@example.com",
+            anonymous_traits={"email": "customer@example.com"},
+        )
+
+        with patch(
+            "products.conversations.backend.signals._reserve_widget_email_reply_promotion_slot", return_value=False
+        ):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(widget_ticket.id),
+                content="reply from support",
+                created_by=self.user,
+                item_context={"author_type": "support", "is_private": False},
+            )
+
+        widget_ticket.refresh_from_db()
+
+        assert widget_ticket.email_config_id is None
+        assert EmailOutboxMessage.objects.filter(ticket=widget_ticket).count() == 0
