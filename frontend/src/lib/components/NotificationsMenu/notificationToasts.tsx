@@ -5,6 +5,7 @@ import {
     IconFlask,
     IconFolder,
     IconNotification,
+    IconPieChart,
     IconPlug,
     IconTrending,
     IconWarning,
@@ -25,6 +26,7 @@ const NOTIFICATION_TYPE_ICONS: Record<string, JSX.Element> = {
     experiment_concluded: <IconFlask className="size-5 text-primary shrink-0" />,
     project_created: <IconFolder className="size-5 text-primary shrink-0" />,
     usage_spike: <IconTrending className="size-5 text-warning shrink-0" />,
+    web_analytics_digest: <IconPieChart className="size-5 text-primary shrink-0" />,
 }
 
 export function getNotificationIcon(notificationType: string): JSX.Element {

@@ -257,10 +257,13 @@ tools:
             (stuck onboardings), connected integrations, warehouse sources, signal source configs (split
             enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
             newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
-            `llma-skill-get`) to orient on the team in one tool call instead of paginating through
+            `skill-get`) to orient on the team in one tool call instead of paginating through
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-runs-emission-reports:
+        operation: signals_scout_runs_emission_reports
+        enabled: false
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true

@@ -129,7 +129,7 @@ call out anything anomalous (never run, last run errored, stuck in dry-run for a
 
 1. **Read its config** — find the row in `config-list` for `signals-scout-error-tracking`:
    schedule, posture, last run.
-2. **Read its body** — `posthog:llma-skill-get {"skill_name": "signals-scout-error-tracking"}`
+2. **Read its body** — `posthog:skill-get {"skill_name": "signals-scout-error-tracking"}`
    returns the team's actual instruction set (which may be a canonical default or a diverged,
    hand-edited row). This is what the agent is told to do every run — its signal-vs-noise
    discriminator, explore patterns, and disqualifiers. To understand _why_ a scout behaves the

@@ -246,6 +246,501 @@
             "readOnlyHint": true
         }
     },
+    "agent-applications-create": {
+        "description": "Create a new agent. Requires `name` + `slug` (unique within the team). The fresh application has no revisions; create a draft via `agent-applications-revisions-create`, populate its bundle, then freeze + promote.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Create an agent application",
+        "title": "Create an agent application",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-destroy": {
+        "description": "Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped to `archived=false`).",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Archive an agent application",
+        "title": "Archive an agent application",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-env-keys-clear": {
+        "description": "Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts — in-flight sessions keep the value they resolved at start.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Clear one secret",
+        "title": "Clear one secret",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-env-keys-get": {
+        "description": "Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write landed.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Check whether one secret is set",
+        "title": "Check whether one secret is set",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-env-keys-list": {
+        "description": "Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already populated so you don't ask the user to set something that's already set. Pair with `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List the names of secrets currently set",
+        "title": "List the names of secrets currently set",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-list": {
+        "description": "List every agent application in the project. Returns id, slug, name, description, live_revision, archived state. Use the slug to drive subsequent calls — it's stable and human-readable.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List agent applications",
+        "title": "List agent applications",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-partial-update": {
+        "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Update an agent application",
+        "title": "Update an agent application",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-preview-proxy": {
+        "description": "Authoring-side proxy for invoking a non-live revision. Closes the anonymous-draft-invoke gap — the public ingress refuses draft invokes that don't carry a valid `x-agent-preview-token` (short-lived JWT bound to (app, revision)), and this proxy mints + attaches the token after authenticating the Django caller. Path `rest` is one of `run` (start a new session), `send` (append to an existing one), `cancel` (kill it), `listen` (SSE tail). `revision_id` query param is required and must be a non-live revision of this application. See docs/agent-platform/plans/draft-preview-auth.md.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Invoke a draft revision via the Django preview-proxy",
+        "title": "Invoke a draft revision via the Django preview-proxy",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-retrieve": {
+        "description": "Fetch one application by id or slug (both unique within the team). Returns metadata only — to inspect the running spec or bundle, look up the live revision via `agent-applications-revisions-list` then call `agent-applications-revisions-retrieve` and `agent-applications-revisions-manifest-retrieve`.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get an agent application",
+        "title": "Get an agent application",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-agent-md-update": {
+        "description": "Body `{ content: \"…\" }`. Overwrites the agent's system prompt. Use for surgical edits to the prompt; leaves skills, tools, and spec untouched. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Replace agent.md",
+        "title": "Replace agent.md",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-archive-create": {
+        "description": "Mark a revision archived. If it was the live revision, clears the parent application's `live_revision` (the app has no deployable version until another revision is promoted). Idempotent.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Archive a revision",
+        "title": "Archive a revision",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-bundle-retrieve": {
+        "description": "Returns `{ agent_md, skills, tools, spec }` — the typed view of the revision. Use this when you want to edit the whole agent locally (pull, mutate in-memory, push back via the bundle PUT). Skills carry `description`, `body`, and optional `files[]`. Tools carry `description`, `args_schema`, `source` (TypeScript). `spec` is the author-facing slice (skills/tools are server-derived at freeze).",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get the typed bundle",
+        "title": "Get the typed bundle",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-bundle-update": {
+        "description": "Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in the payload is deleted. For incremental edits use the single-resource PUTs (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Full-replace the typed bundle",
+        "title": "Full-replace the typed bundle",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-clone-from-create": {
+        "description": "Copy every file in `source_revision_id`'s bundle into this (draft) revision. Use after `agent-applications-revisions-create` if you didn't go through `new-draft` for some reason. Both revisions must belong to the same team.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Clone bundle from another revision",
+        "title": "Clone bundle from another revision",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-create": {
+        "description": "Create a new revision in state `draft`. Body shape mirrors the AgentRevision serializer — the only fields you typically set are `spec` (initial JSON) and `parent_revision` (optional, lets the diff UI show what you're changing). The bundle starts empty; use `agent-applications-revisions-clone-from-create` or `agent-applications-revisions-new-draft-create` to seed it from an existing revision.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Create a draft revision",
+        "title": "Create a draft revision",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-cron-fire-create": {
+        "description": "Fire a single cron job out-of-band, bypassing the scheduler's window logic. Use this to iterate on a cron agent's `prompt` (or to debug `external_key` placeholder expansion) without waiting for the next real firing. Required: `cron_name` (matches `spec.triggers[].config.name` on a `type: cron` trigger). Optional: `request_id` — pass a stable id per logical click so repeat fires resolve to the same session instead of stacking duplicates. Returns `{ ok, session_id, fired_at, idempotency_key }`; track the session via `agent-applications-sessions-retrieve` to read the conversation. Authoring-loop completion piece — without this, \"did my prompt do the right thing?\" is unanswerable until the cron actually fires.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Manually fire one cron job",
+        "title": "Manually fire one cron job",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-freeze-create": {
+        "description": "Walks the bundle, computes a manifest sha256, stamps it on the row, flips state `draft → ready`. After this the bundle is immutable. Idempotent — freezing a `ready` revision is a no-op that returns the existing sha256.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Freeze a draft revision",
+        "title": "Freeze a draft revision",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-list": {
+        "description": "List every revision (draft, ready, live, archived) for one application, newest first. Use to find the current live revision id or pick a known-good revision to clone for an edit.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List revisions of an application",
+        "title": "List revisions of an application",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-manifest-retrieve": {
+        "description": "Returns `{ revision_id, state, bundle_sha256, files: [{ path, size, sha256 }, …] }`. Use to discover what's in a bundle without pulling all the bytes — sha256 lets you spot which files have changed since you last looked.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List files in a revision's bundle",
+        "title": "List files in a revision's bundle",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-new-draft-create": {
+        "description": "One-shot helper: creates a draft revision under `application_id` and clones every file from `source_revision_id` into the new bundle in a single round-trip. Use this for the common \"edit live\" workflow — branch from the current live revision, mutate files, freeze, promote.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Branch a new draft from an existing revision",
+        "title": "Branch a new draft from an existing revision",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-partial-update": {
+        "description": "Replace `spec` on a draft revision. Only `state=draft` revisions accept spec edits — promote bumps the revision to `ready` which freezes the spec. Validation against the AgentSpec zod schema runs on the runner side; an invalid spec will surface when the next session starts, not here.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Update a revision's spec",
+        "title": "Update a revision's spec",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-promote-create": {
+        "description": "Flips a `ready` revision to `live` and sets the parent application's `live_revision`. The previously live revision is archived automatically. Requires `state=ready` and `bundle_sha256` set (call `freeze` first). Idempotent: promoting an already-live revision is a no-op.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Promote a revision to live",
+        "title": "Promote a revision to live",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-retrieve": {
+        "description": "Fetch one revision's metadata: state, spec (the structural JSON), bundle_uri, bundle_sha256, parent revision id, timestamps. For the bundle contents see `agent-applications-revisions-manifest-retrieve` / `agent-applications-revisions-bundle-retrieve`.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get a revision",
+        "title": "Get a revision",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-skills-destroy": {
+        "description": "Removes the skill body + every companion file under `skills/<id>/files/`. Returns 404 if the skill doesn't exist. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Delete one skill",
+        "title": "Delete one skill",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-skills-update": {
+        "description": "Body `{ description, body, files? }`. Creates the skill if it doesn't exist, replaces it if it does. `files[]` is the optional list of companion docs (path relative to `skills/<id>/files/`). Skill id comes from the URL. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Upsert one skill",
+        "title": "Upsert one skill",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-slack-manifest": {
+        "description": "Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → \"From an app manifest\" — its OAuth scopes and bot event subscriptions are derived from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link; surface `notes` (e.g. invite the bot to its channels). 400 if the revision has no slack trigger.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Generate the Slack app manifest for a revision",
+        "title": "Generate the Slack app manifest for a revision",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-spec-update": {
+        "description": "Body `{ spec: { … } }`. Replaces the author-writable spec slice (model, triggers, mcps, integrations, secrets, limits, auth, entrypoint, reasoning). `skills[]` and `tools[]` are NOT author-writable — they're derived at freeze from the typed resources. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Replace the author-facing spec",
+        "title": "Replace the author-facing spec",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-system-prompt": {
+        "description": "Returns the fully-assembled system prompt the runner would pass to the model at session start — framework preamble + agent.md (or `spec.entrypoint`) + skills index. Use to verify what the model actually sees before promoting; particularly useful for confirming `spec.framework_prompt.omit` opt-outs took effect or for debugging author-vs-framework precedence. Response also includes `framework_prompt_version` so you can tell whether a pin (`spec.framework_prompt.version_pin`) is in effect. Works on any revision state.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Preview the assembled system prompt for a revision",
+        "title": "Preview the assembled system prompt for a revision",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-tools-destroy": {
+        "description": "Removes source.ts, compiled.js, schema.json from the bundle. Returns 404 if the tool doesn't exist. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Delete one custom tool",
+        "title": "Delete one custom tool",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-tools-update": {
+        "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Upsert one custom tool",
+        "title": "Upsert one custom tool",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-revisions-validate-create": {
+        "description": "Pre-flight checks before deploying. Returns `{ ok, errors: [...] }`. Catches: missing entrypoint file, unknown native tool ids, custom tools missing `compiled.js` / `schema.json`, skill paths that don't exist in the bundle, declared secrets that aren't set in the application env. Works on any revision state — use this on a draft before calling `agent-applications-revisions-freeze-create`.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Validate a revision's bundle + spec",
+        "title": "Validate a revision's bundle + spec",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-sessions-list": {
+        "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List sessions for an agent",
+        "title": "List sessions for an agent",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
+    "agent-applications-sessions-retrieve": {
+        "description": "Full `AgentSession` row: state, principal, conversation (user / assistant / toolResult messages), pending_inputs, retry_count, timestamps. Always includes a `usage_total` block (tokens + cost) aggregated over the entire session. Pass `last_n=<int>` to trim the response to the most recent N messages — useful for long sessions where you only care about the tail; `conversation_trimmed: true` plus `conversation_total_turns` tells you how much was hidden, and `usage_total` is still computed over the full untrimmed conversation so cost reporting stays accurate.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get one session",
+        "title": "Get one session",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
+    },
     "agent-feedback": {
         "description": "Optional: report a concrete problem with this PostHog MCP server itself — a tool, input schema, response format, error, or these instructions. Keep feedback about the MCP, not the user's task, their data, or your findings. ONLY use this when something went wrong or was missing: friction that slowed you down, a surprise, a missing capability, an unhelpful error, wrong results, or unclear docs. Feedback must be constructive and actionable — point at a specific defect the PostHog team can fix and name the change in `suggested_improvement`. Do NOT submit positive or 'everything worked' reports — they are noise we cannot act on. Skip it entirely for routine tasks where nothing went wrong. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting problems to the PostHog team, not for ending the conversation.",
         "category": "Feedback",
@@ -261,6 +756,21 @@
             "openWorldHint": false,
             "readOnlyHint": true
         }
+    },
+    "agent-native-tools-list": {
+        "description": "Read-only catalog of every `@posthog/*` native tool an agent can wire into `spec.tools`. Each entry includes the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap` / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a revision's spec.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List native tools the runner knows",
+        "title": "List native tools the runner knows",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform-mcp"
     },
     "alert-create": {
         "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
@@ -537,7 +1047,7 @@
         "feature_flag": "tracing"
     },
     "apm-spans-tree": {
-        "description": "Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` — the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` — the child span identity\n- `count` — number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds\n- `error_count` — child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` — DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
+        "description": "Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.\n\nRequires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.\n\nReturns rows with:\n\n- `parent_service`, `parent_name` — the parent span identity (`parent_name` is `\"<ROOT>\"` for root spans)\n- `service_name`, `name` — the child span identity\n- `count` — number of spans matched for this `(parent, child)` edge\n- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds\n- `error_count` — child spans with OTel status code `Error` (status_code = 2)\n- `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start\n- `calls_per_parent_invocation` — how many times this child runs per parent invocation (null for root edges). A child can top `total_duration_nano` purely by fan-out volume; divide by this to compare per-call cost\n\nRows are ordered by `total_duration_nano` DESC and capped at 5000.\n\nUse to answer:\n\n- \"What does the `/checkout` flow actually call downstream?\"\n- \"Which child operation under `POST /orders` is the slowest?\"\n- \"Where is time spent inside `process_payment` — DB, external API, or something else?\"\n- \"Did the call tree under `/api/feed` change between last week and this week?\" (with `compareFilter`)\n\nFor a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.\n\nAll parameters must be nested inside a `query` object.\n\n# Comparison window\n\nSet `query.compareFilter.compare: true` to also fetch a comparison window. The response then includes a `compare` array of the same shape as `results`.\n\n- Omit `compare_to` (or set null) to compare against the immediately previous period of equal length.\n- Set `compare_to: \"-7d\"` to compare against the window 7 days earlier (same length as the primary window).\n\n# Data narrowing\n\n## Property filters\n\n`query.filterGroup` narrows the matched span set. Same filter shape and operators as `apm-spans-aggregate` / `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\nUse `apm-attributes-list` and `apm-attribute-values-list` to discover available attribute keys/values.\n\n## Time period\n\nUse `query.dateRange` to control the time window. Default is the last hour (`-1h`).\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.spanName (required)\n\nThe span name that anchors the matched trace set. Every trace containing at least one span with this name (in the given `serviceName`) is included.\n\nPick a high-level entry-point span (e.g. an HTTP route or job name). Generic names (`HTTP`, `GET`) match too many traces and produce noisy aggregates. Use `query-apm-spans` first if you need to discover concrete span names.\n\n## query.serviceName (required)\n\nThe service the tree should be scoped to. Applied to the spans CTE so the returned rows only contain spans from this service, even when the matched traces also touch other services. Use `apm-services-list` to discover service names.\n\n## query.dateRange\n\nDate range for the primary window. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.compareFilter\n\nOptional comparison-window configuration. Same shape as in `apm-spans-aggregate`.\n\n## query.serviceNames\n\nList of service names to filter the matched span set. Use `apm-services-list` to discover services.\n\n## query.filterGroup\n\nProperty filters applied to both windows. See the \"Property filters\" section.\n\n# Examples\n\n## Call tree under a specific operation in the last hour\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\"\n  }\n}\n```\n\n## Call tree over the last day\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"checkout_flow\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Compare today's call tree vs last week\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"compareFilter\": { \"compare\": true, \"compare_to\": \"-7d\" }\n  }\n}\n```\n\n## Restrict to error-bearing traces\n\n```json\n{\n  \"query\": {\n    \"spanName\": \"POST /api/orders\",\n    \"serviceName\": \"web-server\",\n    \"filterGroup\": [{ \"key\": \"status_code\", \"operator\": \"exact\", \"type\": \"span\", \"value\": 2 }]\n  }\n}\n```\n\n# Reminders\n\n- `spanName` and `serviceName` are both required. Bound `spanName` to a specific high-level span (avoid generic names like `HTTP`); set `serviceName` to the one service whose call-tree you want.\n- Root spans have `parent_name = \"<ROOT>\"` and `avg_start_offset_nano = 0`.\n- Duration values are in nanoseconds.\n- Results are ordered by `total_duration_nano` DESC and capped at 5000 rows.\n- `calls_per_parent_invocation` is derived from the returned rows. If results hit the 5000-row cap (only happens with very high span-name cardinality in one service), a parent's edges can be split across the cut and the ratio can read high — treat it as approximate when the row count is at the cap.\n- For a flat per-operation aggregate without parent linkage, use `apm-spans-aggregate`.\n- Use `apm-services-list`, `apm-attributes-list`, `apm-attribute-values-list` to discover values before filtering.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Aggregate span call tree",
@@ -552,7 +1062,7 @@
         "feature_flag": "tracing"
     },
     "apm-trace-get": {
-        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
+        "description": "Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including parent-child relationships, timing, status information, and each span's attributes map. Each span carries self_time_nano — its duration not covered by child spans — so \"where did the wall-clock go\" is answered by sorting on it: a large self_time_nano on a parent span is an uninstrumented gap, not time in any child. Use this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the payload compact.",
         "category": "Tracing",
         "feature": "tracing",
         "summary": "Retrieve trace spans",
@@ -4114,11 +4624,11 @@
         }
     },
     "llma-skill-archive": {
-        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use llma-skill-get first if you need to inspect the skill before archiving it.",
+        "description": "DEPRECATED: renamed to skill-archive. This alias forwards to skill-archive and will be removed. Call skill-archive directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Archive skill",
-        "title": "Archive skill",
+        "summary": "Deprecated alias for skill-archive.",
+        "title": "Archive skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": true,
@@ -4128,11 +4638,11 @@
         }
     },
     "llma-skill-create": {
-        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "description": "DEPRECATED: renamed to skill-create. This alias forwards to skill-create and will be removed. Call skill-create directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Create skill",
-        "title": "Create skill",
+        "summary": "Deprecated alias for skill-create.",
+        "title": "Create skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4142,11 +4652,11 @@
         }
     },
     "llma-skill-duplicate": {
-        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "description": "DEPRECATED: renamed to skill-duplicate. This alias forwards to skill-duplicate and will be removed. Call skill-duplicate directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Duplicate skill",
-        "title": "Duplicate skill",
+        "summary": "Deprecated alias for skill-duplicate.",
+        "title": "Duplicate skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4156,11 +4666,11 @@
         }
     },
     "llma-skill-file-create": {
-        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use llma-skill-update with files to replace, or llma-skill-file-delete followed by llma-skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "description": "DEPRECATED: renamed to skill-file-create. This alias forwards to skill-file-create and will be removed. Call skill-file-create directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Create skill file",
-        "title": "Create skill file",
+        "summary": "Deprecated alias for skill-file-create.",
+        "title": "Create skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4170,11 +4680,11 @@
         }
     },
     "llma-skill-file-delete": {
-        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "description": "DEPRECATED: renamed to skill-file-delete. This alias forwards to skill-file-delete and will be removed. Call skill-file-delete directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Delete skill file",
-        "title": "Delete skill file",
+        "summary": "Deprecated alias for skill-file-delete.",
+        "title": "Delete skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": true,
@@ -4184,11 +4694,11 @@
         }
     },
     "llma-skill-file-get": {
-        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from llma-skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "description": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Get skill file",
-        "title": "Get skill file",
+        "summary": "Deprecated alias for skill-file-get.",
+        "title": "Get skill file (deprecated)",
         "required_scopes": ["llm_skill:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4198,11 +4708,11 @@
         }
     },
     "llma-skill-file-rename": {
-        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "description": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Rename skill file",
-        "title": "Rename skill file",
+        "summary": "Deprecated alias for skill-file-rename.",
+        "title": "Rename skill file (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4212,11 +4722,11 @@
         }
     },
     "llma-skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "DEPRECATED: renamed to skill-get. This alias forwards to skill-get and will be removed. Call skill-get directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Get skill",
-        "title": "Get skill",
+        "summary": "Deprecated alias for skill-get.",
+        "title": "Get skill (deprecated)",
         "required_scopes": ["llm_skill:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4226,11 +4736,11 @@
         }
     },
     "llma-skill-list": {
-        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "description": "DEPRECATED: renamed to skill-list. This alias forwards to skill-list and will be removed. Call skill-list directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "List skills",
-        "title": "List skills",
+        "summary": "Deprecated alias for skill-list.",
+        "title": "List skills (deprecated)",
         "required_scopes": ["llm_skill:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4240,11 +4750,11 @@
         }
     },
     "llma-skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nllma-skill-file-create / llma-skill-file-delete / llma-skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
+        "description": "DEPRECATED: renamed to skill-update. This alias forwards to skill-update and will be removed. Call skill-update directly with the same arguments.",
         "category": "Skills",
         "feature": "skills",
-        "summary": "Update skill",
-        "title": "Update skill",
+        "summary": "Deprecated alias for skill-update.",
+        "title": "Update skill (deprecated)",
         "required_scopes": ["llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4703,6 +5213,53 @@
             "readOnlyHint": true
         },
         "feature_flag": "marketing-analytics-mcp"
+    },
+    "mcp-analytics-intent-clusters-recompute": {
+        "description": "Trigger an asynchronous recompute of the intent-cluster snapshot: embed the project's recorded agent intents and re-cluster them. Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Recompute intent clusters",
+        "title": "Recompute intent clusters",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-analytics-intent-clusters-retrieve": {
+        "description": "Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents, each with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Get intent cluster snapshot",
+        "title": "Get intent cluster snapshot",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-analytics-sessions-generate-intent": {
+        "description": "Generate (or return the cached) LLM summary of the agent's goal for a session, derived from the session's recorded intents. The first call summarises and persists the result; subsequent calls return the stored summary.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Generate session intent summary",
+        "title": "Generate session intent summary",
+        "required_scopes": ["mcp_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "mcp-analytics"
     },
     "notebook-edit": {
         "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
@@ -5681,7 +6238,7 @@
         }
     },
     "signals-scout-project-profile-get": {
-        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get the project profile",
@@ -5776,6 +6333,146 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "skill-archive": {
+        "description": "Archive every active version of an agent skill by name. This hides the skill from default lists and cannot be undone. Use skill-get first if you need to inspect the skill before archiving it.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Archive skill",
+        "title": "Archive skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-create": {
+        "description": "Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a description explaining when to use it, and the skill body (SKILL.md instruction content as markdown). Optionally include license, compatibility, allowed_tools, metadata, and bundled files.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill",
+        "title": "Create skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-duplicate": {
+        "description": "Duplicate an existing agent skill under a new name. Copies the latest version's content, metadata, and bundled files to create a new skill at version 1.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Duplicate skill",
+        "title": "Duplicate skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-create": {
+        "description": "Add a new bundled file to an agent skill. Fails with 409 if a file at the given path already exists — use skill-update with files to replace, or skill-file-delete followed by skill-file-create to overwrite. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Create skill file",
+        "title": "Create skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-delete": {
+        "description": "Remove a bundled file from an agent skill by path. Fails with 404 if the file is not in the latest version. Publishes a new skill version and returns 200 with the updated skill body (not 204) — read its 'version' field to chain further edits via base_version. Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Delete skill file",
+        "title": "Delete skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-file-get": {
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill file",
+        "title": "Get skill file",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-file-rename": {
+        "description": "Rename a bundled file within an agent skill. Fails with 404 if old_path is not in the latest version, and with 409 if new_path already exists. Use this to move a file without rewriting its content. Publishes a new skill version and returns the updated skill (read its 'version' field to chain further edits via base_version). Supply base_version for optimistic concurrency.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Rename skill file",
+        "title": "Rename skill file",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "skill-get": {
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Get skill",
+        "title": "Get skill",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-list": {
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "List skills",
+        "title": "List skills",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "skill-update": {
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Update skill",
+        "title": "Update skill",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "sql-variables-create": {
@@ -7145,7 +7842,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms/function_push, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
+        "description": "Create a workflow. Needs an actions array with exactly one type='trigger' (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes — function/function_email/function_sms, delay (e.g. '30m'), conditional_branch, wait_until_condition — connected by edges. Created as a draft; activate with workflows-enable. 'batch' = broadcast to an audience, one run per matching person (emails/messages). The audience is config.filters.properties: person-property conditions ({type:'person',key,value,operator}) and/or cohort references ({type:'cohort',key:'id',value:<id>,operator:'in'}). Prefer inline person-property conditions or a dynamic (filter-based) cohort via cohorts-create — these re-evaluate as people qualify; a static cohort is a frozen list, use only when given an explicit set. An event trigger fires on every occurrence matching the event and the trigger's filters; throttle repeat firings with trigger_masking (dedup/sampling — not behavioral filtering). Behavioral cohorts/targeting ('did event X at least N times over the last M days') are unsupported — if the user requests one, reject it and explain why. A batch workflow doesn't fire on enable alone: dispatch it with workflows-run-batch (one-off) or attach a recurring schedule with workflows-schedule-create.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
