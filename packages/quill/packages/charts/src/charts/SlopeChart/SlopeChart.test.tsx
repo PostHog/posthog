@@ -151,6 +151,19 @@ describe('SlopeChart', () => {
             )
             expect(chart.slopeLegendItems().map((i) => i.secondaryLabel)).toEqual(['↑80', '↓60'])
         })
+
+        it('orders rows biggest-to-smallest by end value', () => {
+            // Input order (A, B, C) differs from descending end values (B 90, C 60, A 30).
+            const series: Series<SlopeSeriesMeta>[] = [
+                { key: 'a', label: 'A', data: [0, 30] },
+                { key: 'b', label: 'B', data: [0, 90] },
+                { key: 'c', label: 'C', data: [0, 60] },
+            ]
+            const { chart } = renderHogChart(
+                <SlopeChart series={series} labels={LABELS} config={{ legend: { show: true } }} theme={THEME} />
+            )
+            expect(chart.slopeLegendItems().map((i) => i.label)).toEqual(['B', 'C', 'A'])
+        })
     })
 
     describe('incompleteEnd', () => {
