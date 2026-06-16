@@ -232,12 +232,29 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsMaxWallSecondsMax = 2
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+
 export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
+    max_memory_mb: 512,
+    max_cpu_cores: 0.25,
 }
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault = []
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax = 2147483647
+
+export const agentApplicationsRevisionsCreateBodySpecResumeEnabledDefault = false
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsDefault = 604800000
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsExclusiveMin = 0
+export const agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax = 2147483647
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -635,10 +652,49 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            framework_prompt: zod
+                .object({
+                    omit: zod
+                        .array(
+                            zod.enum([
+                                'meta_tool_guidance',
+                                'state_contract',
+                                'tool_failure_guidance',
+                                'approval_guidance',
+                                'reasoning_hint',
+                            ])
+                        )
+                        .default(agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault),
+                    version_pin: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax)
+                        .optional(),
+                })
+                .optional(),
+            resume: zod
+                .object({
+                    enabled: zod.boolean().default(agentApplicationsRevisionsCreateBodySpecResumeEnabledDefault),
+                    max_completed_age_ms: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsExclusiveMin)
+                        .max(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsMax)
+                        .default(agentApplicationsRevisionsCreateBodySpecResumeMaxCompletedAgeMsDefault),
+                })
+                .optional(),
         })
         .optional(),
 })
@@ -792,12 +848,29 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxWallSeconds
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax = 200000
 
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault = 512
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault = 0.25
+export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin = 0
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_turns: 50,
     max_tool_calls: 200,
     max_wall_seconds: 900,
+    max_memory_mb: 512,
+    max_cpu_cores: 0.25,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax = 2147483647
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeEnabledDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsDefault = 604800000
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsExclusiveMin = 0
+export const agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsMax = 2147483647
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -1213,10 +1286,49 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensExclusiveMin)
                         .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxOutputTokensMax)
                         .optional(),
+                    max_memory_mb: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxMemoryMbDefault),
+                    max_cpu_cores: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresExclusiveMin)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
+            framework_prompt: zod
+                .object({
+                    omit: zod
+                        .array(
+                            zod.enum([
+                                'meta_tool_guidance',
+                                'state_contract',
+                                'tool_failure_guidance',
+                                'approval_guidance',
+                                'reasoning_hint',
+                            ])
+                        )
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault),
+                    version_pin: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax)
+                        .optional(),
+                })
+                .optional(),
+            resume: zod
+                .object({
+                    enabled: zod.boolean().default(agentApplicationsRevisionsPartialUpdateBodySpecResumeEnabledDefault),
+                    max_completed_age_ms: zod
+                        .number()
+                        .gt(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsExclusiveMin)
+                        .max(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsMax)
+                        .default(agentApplicationsRevisionsPartialUpdateBodySpecResumeMaxCompletedAgeMsDefault),
+                })
+                .optional(),
         })
         .optional(),
 })
