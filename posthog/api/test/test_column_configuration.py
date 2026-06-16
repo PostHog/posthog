@@ -128,7 +128,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
     def test_user_can_only_edit_their_views(self):
         another_config = ColumnConfiguration.objects.create(
             team=self.team,
-            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            visibility=ColumnConfiguration.Visibility.SHARED,
             context_key="context-key",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
@@ -144,7 +144,7 @@ class TestColumnConfigurationAPI(APIBaseTest):
     def test_user_can_only_delete_their_views(self):
         another_config = ColumnConfiguration.objects.create(
             team=self.team,
-            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            visibility=ColumnConfiguration.Visibility.SHARED,
             context_key="context-key",
             columns=["*", "person", "timestamp"],
             created_by=self.another_user,
@@ -156,6 +156,41 @@ class TestColumnConfigurationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "You do not have permission to change this view"
+
+    def test_list_without_context_key_excludes_others_private_views(self):
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+        own = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/")
+
+        assert response.status_code == status.HTTP_200_OK
+        ids = {row["id"] for row in response.json()["results"]}
+        assert ids == {str(own.id)}
+
+    def test_cannot_retrieve_another_users_private_view(self):
+        another_config = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=ColumnConfiguration.Visibility.PRIVATE,
+            context_key="context-key",
+            columns=["*"],
+            created_by=self.another_user,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/column_configurations/{str(another_config.id)}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_update_via_patch(self):
         create_response = self.client.post(
@@ -387,7 +422,12 @@ class TestColumnConfigurationAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["properties"] == ["properties must be an object"]
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid",
+            "detail": "properties must be an object",
+            "attr": "properties",
+        }
 
     def test_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")

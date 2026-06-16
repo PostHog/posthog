@@ -78,12 +78,12 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ColumnConfigurationSerializer
 
     def safely_get_queryset(self, queryset):
+        # Always visibility-scope (own private + team shared) so a request without a
+        # context_key — or an object lookup by id — can't reach another user's private view.
+        queryset = queryset.filter(Q(visibility="private", created_by=self.request.user) | Q(visibility="shared"))
         context_key = self.request.GET.get("context_key")
         if context_key:
-            queryset = queryset.filter(
-                Q(context_key=context_key)
-                & (Q(visibility="private", created_by=self.request.user) | Q(visibility="shared"))
-            )
+            queryset = queryset.filter(context_key=context_key)
         return queryset.order_by("visibility", "-created_at")
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
