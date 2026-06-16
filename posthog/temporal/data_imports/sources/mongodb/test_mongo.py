@@ -337,6 +337,12 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', "
                 "'code': 18, 'codeName': 'AuthenticationFailed'}",
             ),
+            # Real pymongo OperationFailure string for bad credentials on MongoDB Atlas (code 8000).
+            (
+                "atlas_bad_auth",
+                "bad auth : authentication failed, full error: {'ok': 0, 'errmsg': 'bad auth : "
+                "authentication failed', 'code': 8000, 'codeName': 'AtlasError'}",
+            ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # ServerSelectionTimeoutError variants — cluster unreachable for the whole selection
@@ -390,6 +396,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         [
             ("code_name", "AuthenticationFailed", "password"),
             ("message", "Authentication failed", "password"),
+            ("atlas_bad_auth", "bad auth", "password"),
             ("unreachable_topology", "Topology Description:", "allowlist"),
         ]
     )
