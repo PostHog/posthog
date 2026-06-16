@@ -141,11 +141,9 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                     SourceFieldInputConfig(
                         name="fallback_decryption_keys",
                         label="Fallback decryption keys",
-                        # This should be a set/list/array of passwords, but container types
-                        # don't seem to be supported, so we expect it to be split by ','
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
-                        placeholder="",
+                        placeholder="key1,key2,key3",
                         secret=True,
                     ),
                     SourceFieldInputConfig(
