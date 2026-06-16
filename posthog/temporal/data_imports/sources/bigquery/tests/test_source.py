@@ -186,6 +186,49 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     assert "WHERE `updated_at` > 42" in query
 
 
+def test_bigquery_get_query_datetime_initial_value_has_no_timezone_offset():
+    """BigQuery DATETIME columns are timezone-naive; a literal with a UTC offset (the shared
+    tz-aware initial cursor value) fails with "Could not cast literal ... to type DATETIME"."""
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.DateTime,
+    )
+    assert "WHERE `updated_at` > '1970-01-01T00:00:00'" in query
+    assert "+00:00" not in query
+
+
+def test_bigquery_get_query_datetime_strips_offset_from_stored_value():
+    """A stored tz-aware cursor value must also lose its offset for DATETIME columns."""
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    last_value = parser.parse("2024-03-11T09:26:04+00:00")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=last_value,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.DateTime,
+    )
+    assert "WHERE `updated_at` > '2024-03-11T09:26:04'" in query
+    assert "+00:00" not in query
+
+
+def test_bigquery_get_query_timestamp_keeps_timezone_offset():
+    """BigQuery TIMESTAMP columns are timezone-aware, so the UTC offset must be preserved."""
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        incremental_field="created_at",
+        incremental_field_type=IncrementalFieldType.Timestamp,
+    )
+    assert "WHERE `created_at` > '1970-01-01T00:00:00+00:00'" in query
+
+
 @pytest.mark.parametrize(
     "malicious_column",
     [
@@ -200,6 +243,35 @@ def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
     """`enabled_columns` flows from user config — must be allowlisted before backtick quoting."""
     with pytest.raises(InvalidIdentifierError):
         _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Rotated/revoked service account private key.
+        "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+        # Deleted service account.
+        "('invalid_grant: Invalid grant: account not found', {'error': 'invalid_grant', 'error_description': 'Invalid grant: account not found'})",
+    ],
+)
+def test_non_retryable_errors_match_rejected_credentials(observed_error):
+    """A `RefreshError` carrying the OAuth2 `invalid_grant` code means Google rejected the
+    service account grant — retrying can't recover, so the sync must be disabled."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "transient_error",
+    [
+        # A token refresh that failed for a transient reason must stay retryable.
+        "RefreshError: ('Failed to retrieve token', {'error': 'internal_failure'})",
+        "RefreshError: HTTPError 503 Service Unavailable",
+    ],
+)
+def test_non_retryable_errors_does_not_match_transient_refresh_failures(transient_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert not any(key in transient_error for key in non_retryable_errors)
 
 
 def _run_delete_all_temp_destination_tables(side_effect, logger):
