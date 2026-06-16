@@ -161,6 +161,20 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import {
+    NOTEBOOK_AGENT_COMPONENT_TAG,
+    NotebookAgent,
+    createNotebookAgent,
+    findMentionedNotebookAgent,
+    getNotebookAgentAIQuery,
+    getNotebookAgentCursorProp,
+    getNotebookAgentFromNode,
+    getNotebookAgentsFromNodes,
+    isNotebookAgentDismissalRequest,
+    isNotebookAgentNode,
+    makeNotebookAgentNode,
+    removeNotebookAgentFromDocument,
+} from './notebookAgents'
+import {
     NotebookOperation,
     applyNotebookOperations,
     diffNotebookDocuments,
@@ -225,6 +239,8 @@ export type MarkdownNotebookProps = {
     onInteractionStateChange?: (isInteractionActive: boolean) => void
     /** Carets of other clients editing this notebook, rendered as a positioned overlay. */
     remoteCarets?: RemoteNotebookCaret[]
+    /** Called when a clickable remote caret, such as a persisted notebook agent, is selected. */
+    onRemoteCaretClick?: (caret: RemoteNotebookCaret) => void
     /** Reports the local caret whenever it moves; null when the selection leaves the notebook. */
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
@@ -238,12 +254,17 @@ export type MarkdownNotebookProps = {
 export type MarkdownNotebookAskAIRequest = {
     chatId: string
     query: string
-    source: 'slash' | 'selection'
+    source: 'slash' | 'selection' | 'agent'
     chatNodeId: string
     chatMarker: string
     markdown: string
     markdownWithChat: string
     selectedMarkdown?: string
+    agent?: {
+        id: string
+        name: string
+        refId: string
+    }
 }
 
 type CommitDocumentOptions = {
@@ -275,6 +296,13 @@ type NotebookHistoryEntry = {
 type NotebookHistoryState = {
     undo: NotebookHistoryEntry[]
     redo: NotebookHistoryEntry[]
+}
+
+type NotebookAgentMentionTarget = {
+    nodeId: string
+    nodeIndex: number
+    listItemIndex?: number
+    text: string
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
@@ -369,6 +397,7 @@ export function MarkdownNotebook({
     onConflict,
     onInteractionStateChange,
     remoteCarets,
+    onRemoteCaretClick,
     onCaretChange,
     initialInsertMenu,
     placeholder = 'Start writing...',
@@ -2345,6 +2374,242 @@ export function MarkdownNotebook({
         })
     }
 
+    const getNotebookAgents = useCallback(
+        (): NotebookAgent[] => getNotebookAgentsFromNodes(documentRef.current.nodes),
+        []
+    )
+
+    const updateNotebookAgentProps = useCallback(
+        (
+            nodes: NotebookBlockNode[],
+            agentId: string,
+            props: Partial<Pick<NotebookAgent, 'cursor' | 'name'>>
+        ): NotebookBlockNode[] => {
+            return nodes.map((node) => {
+                const agent = getNotebookAgentFromNode(node)
+                if (!agent || agent.id !== agentId || node.type !== 'component') {
+                    return node
+                }
+
+                return {
+                    ...node,
+                    props: {
+                        ...node.props,
+                        ...(props.name !== undefined ? { name: props.name } : {}),
+                        ...(props.cursor !== undefined ? { cursor: getNotebookAgentCursorProp(props.cursor) } : {}),
+                    },
+                }
+            })
+        },
+        []
+    )
+
+    const addNotebookAgent = useCallback(
+        (targetNodeId: string): void => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const targetIndex = Math.max(
+                0,
+                nodes.findIndex((node) => node.id === targetNodeId)
+            )
+            const existingAgents = getNotebookAgentsFromNodes(nodes)
+            const agent = {
+                ...createNotebookAgent(existingAgents),
+                cursor: { nodeIndex: targetIndex, offset: 0 },
+            }
+            const agentNode = {
+                ...makeNotebookAgentNode(agent),
+                id: makeEmptyParagraph(`agent-${agent.id}`).id,
+            }
+            const nextNodes = nodes
+                .map((node) => {
+                    if (node.id !== targetNodeId || !isTextBlockNode(node)) {
+                        return node
+                    }
+
+                    const text = getInlineText(node.children).trim()
+                    if (!text.startsWith('/') && text.toLowerCase() !== 'agent' && text.toLowerCase() !== 'add agent') {
+                        return node
+                    }
+
+                    return { ...node, children: [] }
+                })
+                .concat(agentNode)
+
+            commitDocument({ ...currentDocument, nodes: nextNodes })
+        },
+        [commitDocument]
+    )
+
+    const removeNotebookAgent = useCallback(
+        (agentId: string): void => {
+            commitDocument(removeNotebookAgentFromDocument(documentRef.current, agentId))
+        },
+        [commitDocument]
+    )
+
+    const startNotebookAgentResponse = useCallback(
+        (agent: NotebookAgent, target: NotebookAgentMentionTarget): void => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const targetNode = nodes[target.nodeIndex]
+            if (!targetNode) {
+                return
+            }
+
+            const refId = createNotebookRefId()
+            const commentNode: NotebookComponentBlockNode = {
+                id: makeEmptyParagraph(`agent-comment-${targetNode.id}`).id,
+                type: 'component',
+                tagName: 'Comment',
+                props: {
+                    ref: refId,
+                    replies: [
+                        {
+                            id: makeEmptyParagraph(`agent-thinking-${agent.id}`).id,
+                            author: agent.name,
+                            text: 'Thinking...',
+                            at: new Date().toISOString(),
+                        },
+                    ],
+                },
+            }
+            const nextNodesWithComment = nodes.flatMap((node, index): NotebookBlockNode[] => {
+                let updatedNode = node
+                if (node.id === target.nodeId) {
+                    if (isTextBlockNode(node)) {
+                        updatedNode = {
+                            ...node,
+                            children: setInlineRefMark(
+                                node.children,
+                                { nodeId: node.id, start: 0, end: getInlineText(node.children).length },
+                                refId
+                            ),
+                        }
+                    } else if (node.type === 'list' && target.listItemIndex !== undefined) {
+                        updatedNode = {
+                            ...node,
+                            items: node.items.map((item, itemIndex) =>
+                                itemIndex === target.listItemIndex
+                                    ? {
+                                          ...item,
+                                          children: setInlineRefMark(
+                                              item.children,
+                                              {
+                                                  nodeId: node.id,
+                                                  start: 0,
+                                                  end: getInlineText(item.children).length,
+                                              },
+                                              refId
+                                          ),
+                                      }
+                                    : item
+                            ),
+                        }
+                    }
+                }
+                if (index !== target.nodeIndex) {
+                    return [updatedNode]
+                }
+                return index === 0 ? [updatedNode, commentNode] : [commentNode, updatedNode]
+            })
+            const commentIndex = target.nodeIndex === 0 ? target.nodeIndex + 1 : target.nodeIndex
+            const nextNodes = updateNotebookAgentProps(nextNodesWithComment, agent.id, {
+                cursor: { nodeIndex: commentIndex },
+            })
+
+            markNotebookNodeFreshlyInserted(commentNode.id)
+            window.getSelection()?.removeAllRanges()
+            const nextDocument = { ...currentDocument, nodes: nextNodes }
+            commitDocument(nextDocument)
+
+            if (onAskAI) {
+                const chatId = createAIChatId()
+                const markdown = serializeMarkdownNotebook(nextDocument)
+                const chatMarker = serializeMarkdownNotebook({ type: 'doc', nodes: [commentNode], errors: [] }).trim()
+                onAskAI({
+                    chatId,
+                    query: getNotebookAgentAIQuery({ agent, promptText: target.text, refId }),
+                    source: 'agent',
+                    chatNodeId: commentNode.id,
+                    chatMarker,
+                    markdown,
+                    markdownWithChat: markdown,
+                    selectedMarkdown: target.text,
+                    agent: {
+                        id: agent.id,
+                        name: agent.name,
+                        refId,
+                    },
+                })
+            }
+        },
+        [commitDocument, createAIChatId, onAskAI, updateNotebookAgentProps]
+    )
+
+    const getNotebookAgentMentionTarget = useCallback((): NotebookAgentMentionTarget | null => {
+        const notebookElement = notebookRef.current
+        if (!notebookElement) {
+            return null
+        }
+
+        const selection = window.getSelection()
+        const inlineEditableElement = getInlineEditableElementForSelection(selection, notebookElement)
+        if (!inlineEditableElement) {
+            return null
+        }
+
+        const nodeId = inlineEditableElement.dataset.markdownNotebookNodeId
+        if (!nodeId) {
+            return null
+        }
+
+        const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+        const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+        const node = nodes[nodeIndex]
+        if (!node) {
+            return null
+        }
+
+        if (isTextBlockNode(node)) {
+            return { nodeId, nodeIndex, text: getInlineText(node.children) }
+        }
+
+        if (node.type === 'list') {
+            const listItemIndexValue = inlineEditableElement.dataset.markdownNotebookListItemIndex
+            const fallbackIndex = listItemIndexValue === undefined ? 0 : Number(listItemIndexValue)
+            const listItemIndex = getListItemIndex(
+                node.items,
+                Number.isFinite(fallbackIndex) ? fallbackIndex : 0,
+                inlineEditableElement.dataset.markdownNotebookListItemId
+            )
+            const item = node.items[listItemIndex] ?? null
+            return item ? { nodeId, nodeIndex, listItemIndex, text: getInlineText(item.children) } : null
+        }
+
+        return null
+    }, [])
+
+    const submitNotebookAgentMention = useCallback((): boolean => {
+        const target = getNotebookAgentMentionTarget()
+        if (!target) {
+            return false
+        }
+
+        const agent = findMentionedNotebookAgent(target.text, getNotebookAgents())
+        if (!agent) {
+            return false
+        }
+
+        if (isNotebookAgentDismissalRequest(target.text)) {
+            removeNotebookAgent(agent.id)
+            return true
+        }
+
+        startNotebookAgentResponse(agent, target)
+        return true
+    }, [getNotebookAgentMentionTarget, getNotebookAgents, removeNotebookAgent, startNotebookAgentResponse])
+
     const renderedNodes = getRenderedNodes()
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
@@ -2368,20 +2633,28 @@ export function MarkdownNotebook({
                 (nodeId) => {
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
-                onAskAI ? openAIPrompt : undefined
+                onAskAI ? openAIPrompt : undefined,
+                addNotebookAgent
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt]
+        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, addNotebookAgent]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
         if (document.nodes.length || mode === 'view') {
-            return document.nodes
+            return document.nodes.filter((node) => !isNotebookAgentNode(node))
         }
         return [emptyNodeRef.current]
     }
 
     useEffect(() => {
-        const componentNodeIds = new Set(document.nodes.flatMap((node) => (node.type === 'component' ? [node.id] : [])))
+        const componentNodeIds = new Set(
+            document.nodes.flatMap((node): string[] => {
+                if (node.type !== 'component' || node.tagName === NOTEBOOK_AGENT_COMPONENT_TAG) {
+                    return []
+                }
+                return [node.id]
+            })
+        )
         const initializedComponentPanelNodeIds = initializedComponentPanelNodeIdsRef.current
         if (initializedComponentPanelNodeIds === null) {
             initializedComponentPanelNodeIdsRef.current = componentNodeIds
@@ -4034,6 +4307,20 @@ export function MarkdownNotebook({
     }
 
     const handleNotebookKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (
+            mode === 'edit' &&
+            event.key === 'Enter' &&
+            !event.shiftKey &&
+            !event.altKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            submitNotebookAgentMention()
+        ) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
         if (mode !== 'edit' || event.altKey || !(event.metaKey || event.ctrlKey)) {
             return
         }
@@ -4784,6 +5071,12 @@ export function MarkdownNotebook({
             return
         }
 
+        if (submitNotebookAgentMention()) {
+            event.preventDefault()
+            event.stopPropagation()
+            return
+        }
+
         if (splitTextBlockAtCurrentSelection()) {
             event.preventDefault()
             event.stopPropagation()
@@ -5193,6 +5486,7 @@ export function MarkdownNotebook({
                             blockRefs={blockRefs}
                             listItemRefs={listItemRefs}
                             containerRef={mainRef}
+                            onCaretClick={onRemoteCaretClick}
                         />
                     ) : null}
                     {floatingToolbar && mode === 'edit' ? (

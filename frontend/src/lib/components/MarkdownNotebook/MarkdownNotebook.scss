@@ -68,11 +68,19 @@
 .MarkdownNotebook__remote-caret {
     position: absolute;
     width: 0;
+    padding: 0;
     pointer-events: none;
+    background: transparent;
+    border: 0;
     border-left: 2px solid var(--remote-presence-color, currentColor);
     transition:
         top 120ms ease-out,
         left 120ms ease-out;
+
+    &--clickable {
+        pointer-events: auto;
+        cursor: pointer;
+    }
 
     &-flag {
         position: absolute;
@@ -95,7 +103,9 @@
 
 .MarkdownNotebook__remote-block {
     position: absolute;
+    padding: 0;
     pointer-events: none;
+    background: transparent;
     border: 2px solid color-mix(in oklab, var(--remote-presence-color, currentColor) 70%, transparent);
     border-radius: 0.25rem;
     transition:
@@ -103,6 +113,11 @@
         left 120ms ease-out,
         width 120ms ease-out,
         height 120ms ease-out;
+
+    &--clickable {
+        pointer-events: auto;
+        cursor: pointer;
+    }
 
     .MarkdownNotebook__remote-caret-flag {
         position: absolute;

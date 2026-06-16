@@ -2559,6 +2559,67 @@ Tail paragraph`
         expect(container.querySelector('[data-testid="revenue-card"]')?.textContent).toEqual('arr')
     })
 
+    it('adds a persisted hidden notebook agent from the slash menu', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: withNotebookTitle(' '), onChange }))
+        const textBlock = getBodyTextBlock(container)
+
+        textBlock.textContent = '/agent'
+        fireEvent.input(textBlock)
+
+        const addAgentButton = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
+            (button) => button.textContent === 'Add agent'
+        )
+
+        expect(addAgentButton).toBeInstanceOf(HTMLButtonElement)
+        fireEvent.click(addAgentButton as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        expect(markdown).toMatch(
+            new RegExp(
+                `${TEST_NOTEBOOK_TITLE_MARKDOWN}\\n\\n\\s\\n\\n<Agent id="[^"]+" name="Turtle 🐢" cursor=\\{\\{"nodeIndex":1,"offset":0\\}\\} />`
+            )
+        )
+        expect(container.querySelector('.MarkdownNotebook__unknown-component')).toBeNull()
+    })
+
+    it('starts an LLM-backed @agent request with a linked comment', () => {
+        const onChange = jest.fn()
+        const onAskAI = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nHey @Turtle, add a line chart\n\n<Agent id="agent-1" name="Turtle 🐢" cursor={{"nodeIndex":1,"offset":0}} />`,
+                onChange,
+                onAskAI,
+                registry: createDiscussionCommentTestRegistry(),
+            })
+        )
+        const textBlock = getBodyTextBlock(container)
+
+        selectTextInElement(textBlock, textBlock.textContent?.length ?? 0, textBlock.textContent?.length ?? 0)
+        fireEvent.keyDown(textBlock, { key: 'Enter' })
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)"/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toContain('"author":"Turtle 🐢","text":"Thinking..."')
+        expect(markdown).toContain(`<ref id="${refId}">Hey @Turtle, add a line chart</ref>`)
+        expect(markdown).not.toContain('<Query query={{"kind":"InsightVizNode"')
+
+        expect(onAskAI).toHaveBeenCalledTimes(1)
+        expect(onAskAI.mock.calls[0][0]).toMatchObject({
+            source: 'agent',
+            selectedMarkdown: 'Hey @Turtle, add a line chart',
+            agent: {
+                id: 'agent-1',
+                name: 'Turtle 🐢',
+                refId,
+            },
+        })
+        expect(onAskAI.mock.calls[0][0].query).toContain('add a line chart')
+        expect(onAskAI.mock.calls[0][0].query).toContain('notebook artifact')
+    })
+
     it('keeps inserted blank rows after receiving the serialized markdown value', () => {
         const onChange = jest.fn()
         const { container, rerender } = render(

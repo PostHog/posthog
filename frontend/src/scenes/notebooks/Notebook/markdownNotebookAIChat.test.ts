@@ -75,7 +75,12 @@ describe('markdown notebook AI chat messages', () => {
             thinkingOnlyMessage('completed'),
         ])
 
-        expect(completion).toEqual({ status: 'done', message: 'Updated the notebook.' })
+        expect(completion).toEqual({
+            status: 'done',
+            kind: 'artifact',
+            hasArtifact: true,
+            message: 'Updated the notebook.',
+        })
     })
 
     describe('getNotebookAIChatDisplayMessages', () => {
