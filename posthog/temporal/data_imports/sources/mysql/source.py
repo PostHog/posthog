@@ -128,6 +128,14 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # adds more failed connections and keeps the host blocked. Match only the stable phrase,
             # not the volatile host IP or the `mysqladmin`/`mariadb-admin` wording that varies by server.
             "is blocked because of many connection errors": "Your MySQL/MariaDB server has blocked PostHog's host after too many interrupted connections (error 1129). Ask your database admin to run 'FLUSH HOSTS' (or 'mysqladmin flush-hosts') and consider raising 'max_connect_errors', then retry the sync.",
+            # Raised by the `sshtunnel` library from `open_ssh_tunnel` when the customer's SSH
+            # bastion/gateway can't bring up a session — the gateway is unreachable, refusing
+            # connections, or misconfigured. This is a deterministic config/connectivity problem
+            # with the customer's own SSH host; retrying just re-fails until they fix it. The
+            # global `Any_Source_Errors` already classes this string as non-retryable, but the
+            # schema-discovery (`sync_new_schemas_activity`) and import paths only consult the
+            # per-source list, so it must be listed here too.
+            "Could not establish session to SSH gateway": "We couldn't open the SSH tunnel to your database — the SSH gateway didn't establish a session. Check that the SSH tunnel host, port, and credentials are correct and that the gateway is reachable and accepting connections.",
             # OpenSSL's signature for "tried to speak TLS to an endpoint that replied with
             # non-TLS bytes" — the source has SSL enabled but the server (or a proxy in front
             # of it, e.g. a plain TCP proxy) doesn't speak TLS, or the host/port is wrong. This
