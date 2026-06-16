@@ -39,7 +39,7 @@ def _fire(reminder: Reminder) -> None:
         data = NotificationData(
             team_id=reminder.team_id,
             notification_type=NotificationType.REMINDER,
-            priority=Priority.NORMAL,
+            priority=Priority.CRITICAL,
             title=reminder.title,
             body=reminder.message,
             target_type=TargetType.USER,
@@ -50,7 +50,7 @@ def _fire(reminder: Reminder) -> None:
         data = NotificationData(
             organization_id=reminder.organization_id,
             notification_type=NotificationType.REMINDER,
-            priority=Priority.NORMAL,
+            priority=Priority.CRITICAL,
             title=reminder.title,
             body=reminder.message,
             target_type=TargetType.USER,
