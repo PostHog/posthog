@@ -84,7 +84,7 @@ function withDefaultProductAnalyticsTags(query: Node): Node {
         return {
             ...query,
             source: { ...query.source, tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
-        }
+        } as Node
     }
     // EventsNode is the only DataTableNode source kind without a `tags` field; its schema forbids extra
     // keys, so injecting tags there would make the query payload invalid. Skip it.
@@ -94,7 +94,7 @@ function withDefaultProductAnalyticsTags(query: Node): Node {
             return {
                 ...query,
                 source: { ...query.source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
-            }
+            } as Node
         }
     }
     return query
