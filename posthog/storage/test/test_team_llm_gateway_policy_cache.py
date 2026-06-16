@@ -137,7 +137,7 @@ class TestLLMGatewayPolicySignals(BaseTest):
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.HYPERCACHE_SIGNAL_UPDATE_COUNTER")
     @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.settings")
-    @patch("posthog.storage.team_llm_gateway_policy_signal_handlers.update_team_llm_gateway_policy_cache_task.delay")
+    @patch("posthog.tasks.team_llm_gateway_policy.update_team_llm_gateway_policy_cache_task.delay")
     def test_enqueue_failure_records_counter_and_does_not_propagate(
         self, mock_delay, mock_settings, mock_counter, mock_transaction
     ):
