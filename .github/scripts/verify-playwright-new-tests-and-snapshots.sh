@@ -79,21 +79,37 @@ if [ ${#tests_to_run[@]} -eq 0 ]; then
     exit 0
 fi
 
-# Verification runs serially (--workers=1), so total work is files × repeat. Wide
-# mechanical refactors can touch dozens of spec files; repeating each 10x would blow
-# past the job's 45-minute timeout. Scale the repeat count down to fit a file-run
-# budget, and below MIN_REPEAT repetitions there's no flake signal left — skip.
-MAX_TOTAL_FILE_RUNS=60
+# Verification runs serially (--workers=1), so total work is tests × repeat. Budget by
+# test count, not file count: a single heavy spec file can hold a dozen+ tests, so a few
+# changed files repeated 10x can blow past the job's 45-minute timeout even when the file
+# count looks small. Scale the repeat count down to fit a test-run budget, and below
+# MIN_REPEAT repetitions there's no flake signal left — skip (the wide mechanical-refactor
+# case, where the changed tests already ran once in the main pass).
+MAX_TOTAL_TEST_RUNS=50
 MIN_REPEAT=2
 
-num_files=${#tests_to_run[@]}
-if ((num_files * REPEAT_COUNT > MAX_TOTAL_FILE_RUNS)); then
-    scaled_repeat=$((MAX_TOTAL_FILE_RUNS / num_files))
+# Enumerate tests (across describes/parameterization/projects) without running them. If
+# listing fails for any reason, fall back to a grep over `test(` declarations so a tooling
+# hiccup degrades to a rougher estimate rather than a hard failure under `set -e`.
+num_tests=$(pnpm --filter=@posthog/playwright exec playwright test "${tests_to_run[@]}" --list --reporter=json 2>/dev/null \
+    | jq '[.. | .specs? // empty | .[] | .tests | length] | add // 0' 2>/dev/null || echo 0)
+if ! [[ "$num_tests" =~ ^[0-9]+$ ]] || [ "$num_tests" -lt 1 ]; then
+    num_tests=0
+    for test_file in "${tests_to_run[@]}"; do
+        count=$(grep -cE '^[[:space:]]*test(\.(only|skip|fixme))?\(' "$test_file" || true)
+        num_tests=$((num_tests + count))
+    done
+    echo "Warning: could not enumerate tests via --list; estimated $num_tests test(s) from \`test(\` declarations"
+fi
+if ((num_tests < 1)); then num_tests=1; fi
+
+if ((num_tests * REPEAT_COUNT > MAX_TOTAL_TEST_RUNS)); then
+    scaled_repeat=$((MAX_TOTAL_TEST_RUNS / num_tests))
     if ((scaled_repeat < MIN_REPEAT)); then
-        echo "Skipping flake verification: $num_files changed spec files exceed the time budget even at --repeat-each=$MIN_REPEAT (likely a broad mechanical refactor)"
+        echo "Skipping flake verification: $num_tests tests across ${#tests_to_run[@]} changed spec file(s) exceed the time budget even at --repeat-each=$MIN_REPEAT (likely a broad mechanical refactor)"
         exit 0
     fi
-    echo "Scaling --repeat-each from $REPEAT_COUNT to $scaled_repeat: $num_files changed spec files exceed the $MAX_TOTAL_FILE_RUNS file-run budget"
+    echo "Scaling --repeat-each from $REPEAT_COUNT to $scaled_repeat: $num_tests tests exceed the $MAX_TOTAL_TEST_RUNS test-run budget"
     REPEAT_COUNT=$scaled_repeat
 fi
 
