@@ -140,31 +140,6 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertEqual(self._ids(tagNames=["billing"]), [str(local_account.id)])
 
-    def test_csm_filter_by_id(self):
-        match = create_account(team_id=self.team.id, name="Has CSM", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        create_account(team_id=self.team.id, name="Other CSM", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        self.assertEqual(self._ids(csm=[7]), [str(match.id)])
-
-    def test_csm_filter_matches_any_of_multiple_ids(self):
-        seven = create_account(team_id=self.team.id, name="Seven", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        nine = create_account(team_id=self.team.id, name="Nine", _properties={"csm": {"id": 9, "email": "b@x.com"}})
-        create_account(team_id=self.team.id, name="Eleven", _properties={"csm": {"id": 11, "email": "c@x.com"}})
-        self.assertEqual(set(self._ids(csm=[7, 9])), {str(seven.id), str(nine.id)})
-
-    def test_account_executive_filter_by_id(self):
-        match = create_account(
-            team_id=self.team.id, name="A", _properties={"account_executive": {"id": 7, "email": "a@x.com"}}
-        )
-        create_account(team_id=self.team.id, name="B")
-        self.assertEqual(self._ids(accountExecutive=[7]), [str(match.id)])
-
-    def test_account_owner_filter_by_id(self):
-        match = create_account(
-            team_id=self.team.id, name="A", _properties={"account_owner": {"id": 7, "email": "a@x.com"}}
-        )
-        create_account(team_id=self.team.id, name="B")
-        self.assertEqual(self._ids(accountOwner=[7]), [str(match.id)])
-
     @parameterized.expand(
         [
             ("absent_keys", {"_properties": {}}),
@@ -176,7 +151,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         unassigned = create_account(team_id=self.team.id, name="Unassigned", **unassigned_kwargs)
         self.assertEqual(self._ids(allRolesUnassigned=True), [str(unassigned.id)])
 
-    def test_combined_role_and_tags(self):
+    def test_combined_assigned_to_and_tags(self):
         enterprise_tag = Tag.objects.create(name="enterprise", team=self.team)
         startup_tag = Tag.objects.create(name="startup", team=self.team)
 
@@ -186,16 +161,10 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         wrong_tag = create_account(team_id=self.team.id, name="B", _properties={"csm": {"id": 7, "email": "a@x.com"}})
         wrong_tag.tagged_items.create(tag=startup_tag)
 
-        wrong_csm = create_account(team_id=self.team.id, name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
-        wrong_csm.tagged_items.create(tag=enterprise_tag)
+        wrong_user = create_account(team_id=self.team.id, name="C", _properties={"csm": {"id": 8, "email": "c@x.com"}})
+        wrong_user.tagged_items.create(tag=enterprise_tag)
 
-        self.assertEqual(self._ids(csm=[7], tagNames=["enterprise"]), [str(match.id)])
-
-    def test_role_filter_respects_team_isolation(self):
-        other_team = Team.objects.create(organization=self.organization)
-        create_account(team_id=other_team.id, name="Theirs", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        mine = create_account(team_id=self.team.id, name="Mine", _properties={"csm": {"id": 7, "email": "a@x.com"}})
-        self.assertEqual(self._ids(csm=[7]), [str(mine.id)])
+        self.assertEqual(self._ids(assignedToUserIds=[7], tagNames=["enterprise"]), [str(match.id)])
 
     @parameterized.expand(
         [
@@ -456,9 +425,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def test_set_tags_on_object_helper_matches(self):
         # Mirror existing API test setup that uses set_tags_on_object.
-        account = create_account(team_id=self.team.id, name="A", _properties={"csm": {"id": 7, "email": "a@x.com"}})
+        account = create_account(team_id=self.team.id, name="A")
         set_tags_on_object(["enterprise"], account)
-        self.assertEqual(self._ids(csm=[7], tagNames=["enterprise"]), [str(account.id)])
+        self.assertEqual(self._ids(tagNames=["enterprise"]), [str(account.id)])
 
     def test_custom_select_uses_only_requested_columns(self):
         create_account(team_id=self.team.id, name="A")
