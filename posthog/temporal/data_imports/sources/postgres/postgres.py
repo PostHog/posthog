@@ -120,6 +120,19 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "terminating connection due to",
 )
 
+# Exception types that can carry a mid-stream connection drop. ProtocolViolation is
+# PgBouncer's synthetic error packet and OperationalError is libpq detecting the dead
+# socket; both also cover permanent failures (auth, SSL) so they need a message match.
+# IdleInTransactionSessionTimeout is the backend itself reporting SQLSTATE 25P03 before
+# it closes the session — it derives from InternalError, *not* OperationalError, so the
+# generic except clauses miss it unless it is listed explicitly. The recovery handlers
+# catch on this tuple so the type slips through to _is_connection_dropped_error.
+_CONNECTION_DROPPED_EXC_TYPES: tuple[type[BaseException], ...] = (
+    psycopg.errors.ProtocolViolation,
+    psycopg.OperationalError,
+    psycopg.errors.IdleInTransactionSessionTimeout,
+)
+
 
 def _safe_close_connection(connection: psycopg.Connection) -> None:
     """Close a connection without raising.
@@ -143,7 +156,16 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     psycopg surfaces these as ProtocolViolation (PgBouncer's synthetic error
     packet) or OperationalError (libpq detecting the dead socket), so we match on
     type and message rather than a single SQLSTATE.
+
+    The backend can also terminate the session itself before the socket dies: when a
+    server-side cursor holds a transaction open across the slow delta-merge longer than
+    the source's idle_in_transaction_session_timeout, Postgres raises SQLSTATE 25P03
+    (IdleInTransactionSessionTimeout). That code unambiguously means an idle-in-transaction
+    cull — exactly the transient drop the recovery path resumes from — so we match it on
+    type alone, no message check needed.
     """
+    if isinstance(error, psycopg.errors.IdleInTransactionSessionTimeout):
+        return True
     if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
         message = " ".join(str(arg) for arg in error.args).lower()
         return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
@@ -185,7 +207,7 @@ def _connect_with_dropped_retry(
     while True:
         try:
             return connect()
-        except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+        except _CONNECTION_DROPPED_EXC_TYPES as e:
             if not _is_connection_dropped_error(e):
                 raise
             attempt += 1
@@ -2241,7 +2263,7 @@ def postgres_source(
                         if timeout_error is not None:
                             raise timeout_error from e
                         raise
-                    except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+                    except _CONNECTION_DROPPED_EXC_TYPES as e:
                         if not _is_connection_dropped_error(e):
                             _safe_close_connection(connection)
                             raise
@@ -2367,11 +2389,12 @@ def postgres_source(
                     return
 
                 raise
-            except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+            except _CONNECTION_DROPPED_EXC_TYPES as e:
                 # The server cursor holds a transaction open across the slow
                 # delta-merge between yields; the source can cull the backend
                 # (idle_in_transaction_session_timeout / PgBouncer) and the next
-                # fetch fails with "server conn crashed?". Resume from the current
+                # fetch fails with "server conn crashed?" or, when the backend itself
+                # reports the cull, IdleInTransactionSessionTimeout. Resume from the current
                 # offset via offset_chunking, which runs in autocommit so it never
                 # holds a transaction open across the merge.
                 if not _is_connection_dropped_error(e):

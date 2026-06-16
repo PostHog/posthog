@@ -327,6 +327,11 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("consuming input failed: EOF detected"),
             psycopg.OperationalError("terminating connection due to administrator command"),
             psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+            # SQLSTATE 25P03: the backend culled an idle-in-transaction session held open
+            # by a server-side cursor. Derives from InternalError (not OperationalError),
+            # so it is matched on type — with the standard message and message-less.
+            psycopg.errors.IdleInTransactionSessionTimeout("terminating connection due to idle-in-transaction timeout"),
+            psycopg.errors.IdleInTransactionSessionTimeout(""),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
