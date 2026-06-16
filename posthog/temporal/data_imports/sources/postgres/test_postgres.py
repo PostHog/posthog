@@ -2275,17 +2275,20 @@ class TestGetPartitionSettings:
         assert result is None
         capture_mock.assert_not_called()
 
-    def test_unexpected_error_is_still_captured(self):
-        # A genuinely unexpected failure on the sizing query must still surface to error tracking.
+    def test_failing_sizing_query_falls_back_to_none_without_capturing(self):
         logger = structlog.get_logger()
+
+        # Mirrors the upstream/transient conditions seen in production (e.g. an aborted
+        # transaction surfacing as "the connection is lost") where the sizing query fails.
         cursor = mock.MagicMock()
-        cursor.execute.side_effect = Exception("some unexpected failure")
+        cursor.execute.side_effect = psycopg.OperationalError("the connection is lost")
 
-        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as capture_mock:
-            result = _get_partition_settings(cast(Any, cursor), "public", "t", logger, is_partitioned=False)
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            result = _get_partition_settings(cast(Any, cursor), "public", "some_table", logger)
 
+        # Best-effort sizing degrades to None and never reports the handled failure.
         assert result is None
-        capture_mock.assert_called_once()
+        mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
         "exc",

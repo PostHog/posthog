@@ -1633,21 +1633,14 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: table does not exist, returning None: {e}")
         return None
     except Exception as e:
-        # Partition sizing is best-effort: on failure we return None and the sync proceeds
-        # unpartitioned. Two handled conditions must not flood error tracking:
-        #   - A read replica can cancel this sizing query with a recovery conflict
-        #     (`SerializationFailure` "conflict with recovery"); it's transient and expected on
-        #     replicas, and the row-streaming reader retries it in-process.
-        #   - An earlier best-effort query in this same transaction (chunk sizing, row count,
-        #     partition detection) can hit that transient condition and leave the transaction in
-        #     `INERROR`, so this query then fails with `InFailedSqlTransaction` purely as a
-        #     downstream symptom.
-        # Both resurface (and are classified through the normal retryable/non-retryable path) via
-        # the real extraction query, so degrade quietly. Genuinely unexpected failures are still
-        # captured.
-        if not _is_recovery_conflict_error(e) and not isinstance(e, psycopg.errors.InFailedSqlTransaction):
-            capture_exception(e)
-        logger.debug(f"_get_partition_settings: returning None due to error: {e}")
+        # Partition sizing is a best-effort estimate; returning None just falls back to
+        # unpartitioned extraction. This query shares its table with the real extraction
+        # query, so any genuine problem (permissions, missing table) resurfaces there and is
+        # classified through the normal retryable/non-retryable path. Capturing it here too
+        # would only flood error tracking with handled duplicates of transient/upstream
+        # conditions we already tolerate (aborted transactions, dropped connections, read-replica
+        # recovery conflicts), so we log at debug and fall back to None.
+        logger.debug(f"_get_partition_settings: returning None due to error: {e}", exc_info=e)
         return None
 
     result = cursor.fetchone()
