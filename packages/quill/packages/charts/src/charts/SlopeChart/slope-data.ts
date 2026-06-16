@@ -7,8 +7,8 @@ export interface SlopeSeriesMeta {
     showStartLabel?: boolean
     /** Show this series' end (right) value label. Falls back to the chart-level default. */
     showEndLabel?: boolean
-    /** The last point is the current, still-accumulating period. The chart dashes the connector to
-     *  show the comparison's end is provisional. */
+    /** The last point is the current, still-accumulating period. The chart dashes only the second
+     *  half of the connector to show the end — not the whole comparison — is provisional. */
     incompleteEnd?: boolean
 }
 

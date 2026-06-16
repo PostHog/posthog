@@ -30,8 +30,8 @@ export const Default: Story = {
     },
 }
 
-/** When the last point is the current, still-accumulating period (`meta.incompleteEnd`), the
- *  connector dashes to show the comparison's end is provisional. */
+/** When the last point is the current, still-accumulating period (`meta.incompleteEnd`), only the
+ *  second half of each connector dashes — the start-to-mid half stays solid. */
 export const IncompleteEnd: Story = {
     render: () => {
         const theme = useReactiveTheme()

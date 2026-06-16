@@ -150,19 +150,19 @@ function SlopeChartInner<Meta = SlopeSeriesMeta>({
         return { margins: { ...base, ...config?.margins }, nameOffsetX: offset }
     }, [series, labels, showsStart, showsEnd, showSeriesLabels, valueFormatter, config?.margins])
 
-    // When the last point is the current incomplete period, dash the connector so it reads as
-    // provisional. A slope is just its two ends, so there's no interior point to split — the whole
-    // line dashes.
+    // When the last point is the current incomplete period, dash only the *second half* of the
+    // connector so it reads as "the end is provisional", not the whole comparison.
     const dashEnd = useMemo(() => series.some((s) => (s.meta as SlopeSeriesMeta | undefined)?.incompleteEnd), [series])
 
-    // A slope is a two-point line — collapse each series to its two points, with a dot at each.
+    // A slope is a two-point line — collapse each series to its two points, with a dot at each. A
+    // dashed end splits the single segment at its midpoint (renderer-side, no phantom point).
     const slopeSeries = useMemo<Series<Meta>[]>(
         () =>
             series.map((s) => ({
                 ...s,
                 data: [slopeStart(s), slopeEnd(s)],
                 points: { ...s.points, radius: pointRadius },
-                ...(dashEnd ? { stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromIndex: 0 } } } : {}),
+                ...(dashEnd ? { stroke: { ...s.stroke, partial: { ...s.stroke?.partial, fromFraction: 0.5 } } } : {}),
             })),
         [series, pointRadius, dashEnd]
     )
