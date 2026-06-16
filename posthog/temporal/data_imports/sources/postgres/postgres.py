@@ -273,7 +273,8 @@ def _connect_to_postgres(
     # `NotSupportedError: codec not available in Python: 'UNICODE'` the first time it decodes a query
     # result. Pinning the client encoding makes the server report `UTF8` instead, which psycopg maps
     # cleanly. Callers may still override via `options` in kwargs.
-    options = kwargs.pop("options", FORCE_UTF8_CLIENT_ENCODING)
+    caller_options = kwargs.pop("options", None)
+    options = f"{FORCE_UTF8_CLIENT_ENCODING} {caller_options}" if caller_options else FORCE_UTF8_CLIENT_ENCODING
     try:
         return psycopg.connect(
             host=host,
