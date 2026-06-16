@@ -65,7 +65,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled })
+    const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
 
     const insightDisplayName = insight?.name || insight?.derived_name
 
