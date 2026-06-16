@@ -1,0 +1,185 @@
+from typing import Any
+
+from django.db import models
+from django.utils import timezone
+
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.utils import UUIDModel
+
+from products.replay_vision.backend.rrule import compute_next_occurrences
+
+
+def default_selection() -> dict[str, Any]:
+    # Past-day summarizer observations — the most common "and then" digest.
+    return {"scanner_type": "summarizer", "window_days": 1}
+
+
+class TriggerType(models.TextChoices):
+    SCHEDULE = "schedule", "Schedule"
+    THRESHOLD = "threshold", "Threshold"  # reserved for alerts; rejected at the API for now
+
+
+class ActionMode(models.TextChoices):
+    SUMMARY = "summary", "Summary"
+    PER_OBSERVATION = "per_observation", "Per observation"  # reserved; rejected at the API for now
+
+
+class VisionAction(TeamScopedRootMixin, UUIDModel):
+    """An "and then…" automation over a scanner's observations: gather, (optionally) synthesize, deliver.
+
+    MVP is schedule-triggered summary digests; the trigger_type/mode enums leave room for
+    threshold alerts and per-observation reactions without a schema change.
+    """
+
+    all_teams = models.Manager()  # noqa: DJ012 — escape hatch for cross-team Temporal/admin access
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="vision_actions")
+    scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="vision_actions",
+        help_text="Scanner whose observations this action operates on. Null leaves room for cross-scanner actions.",
+    )
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=True)
+
+    trigger_type = models.CharField(
+        max_length=20,
+        choices=TriggerType.choices,
+        default=TriggerType.SCHEDULE,
+        help_text="What fires the action. MVP supports 'schedule' only.",
+    )
+    mode = models.CharField(
+        max_length=20,
+        choices=ActionMode.choices,
+        default=ActionMode.SUMMARY,
+        help_text="What the action produces. MVP supports 'summary' only.",
+    )
+
+    next_run_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Computed next fire time for schedule triggers; the scheduler scans this.",
+    )
+    last_run_at = models.DateTimeField(null=True, blank=True)
+
+    trigger_config = models.JSONField(
+        default=dict,
+        help_text="Trigger parameters. Schedule: {rrule, timezone}. Threshold (reserved): {metric, window, op, value}.",
+    )
+    selection = models.JSONField(
+        default=default_selection,
+        help_text="Observation filter applied at synthesis time (scanner_ids, verdict, tags, scores, status, window_days).",
+    )
+    synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    delivery_config = models.JSONField(
+        default=list,
+        help_text="List of destination targets, e.g. [{type: 'slack', integration_id, channel}].",
+    )
+
+    hog_flow = models.ForeignKey(
+        "workflows.HogFlow",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Delivery flow provisioned by the API; the action emits an event this flow delivers.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "name"], name="vision_action_unique_team_name"),
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "next_run_at"],
+                name="vision_action_due_idx",
+                condition=models.Q(enabled=True),
+            ),
+        ]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Cache the rrule so save() can detect cadence changes. Guard against deferred-field
+        # recursion the same way Subscription does (accessing a deferred field triggers a reload).
+        if not ({"trigger_type", "trigger_config"} & self.get_deferred_fields()):
+            self._cached_rrule = self._rrule_string()
+
+    def _rrule_string(self) -> str | None:
+        if self.trigger_type != TriggerType.SCHEDULE:
+            return None
+        return (self.trigger_config or {}).get("rrule")
+
+    def _recompute_next_run_at(self) -> None:
+        rrule = self._rrule_string()
+        if not rrule:
+            self.next_run_at = None
+            return
+        timezone_str = (self.trigger_config or {}).get("timezone", "UTC")
+        starts_at = self.created_at or timezone.now()
+        occurrences = compute_next_occurrences(
+            rrule_string=rrule, starts_at=starts_at, timezone_str=timezone_str, count=1
+        )
+        self.next_run_at = occurrences[0] if occurrences else None
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # UUIDModel assigns `id` at __init__, so `not self.id` never detects a create —
+        # `_state.adding` is the correct new-vs-persisted signal here.
+        current_rrule = self._rrule_string()
+        if self._state.adding or getattr(self, "_cached_rrule", None) != current_rrule:
+            self._recompute_next_run_at()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = [*update_fields, "next_run_at"]
+        super().save(*args, **kwargs)
+        self._cached_rrule = current_rrule
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.trigger_type})"
+
+
+class VisionActionRunStatus(models.TextChoices):
+    STARTING = "starting", "Starting"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
+
+
+class VisionActionRun(TeamScopedRootMixin, UUIDModel):
+    """History of a single VisionAction execution. The full synthesized report lives here (not on
+    the Temporal wire) and backs the 'view full digest' link."""
+
+    all_teams = models.Manager()  # noqa: DJ012 — escape hatch for cross-team Temporal/admin access
+
+    vision_action = models.ForeignKey(VisionAction, on_delete=models.CASCADE, related_name="runs")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+
+    temporal_workflow_id = models.CharField(max_length=255, null=True, blank=True)
+    idempotency_key = models.CharField(max_length=255, unique=True)
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20, choices=VisionActionRunStatus.choices, default=VisionActionRunStatus.STARTING
+    )
+    synthesized_markdown = models.TextField(blank=True, default="")
+    slack_text = models.TextField(blank=True, default="")
+    observation_count = models.PositiveIntegerField(default=0)
+    error = models.JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["vision_action", "-created_at"], name="vision_action_run_recent_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Run {self.id} of {self.vision_action_id} ({self.status})"
