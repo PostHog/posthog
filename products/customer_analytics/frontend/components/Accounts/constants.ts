@@ -11,11 +11,13 @@ export const DEFAULT_TILES: AccountsOverviewTile[] = [
     { id: 'default-accounts', label: 'Accounts', metric: { type: 'count' } },
 ]
 
-const teamIdForPersistence = window.POSTHOG_APP_CONTEXT?.current_team?.id
-export const ACCOUNTS_OVERVIEW_PERSIST_CONFIG = {
-    persist: true,
-    prefix: `${teamIdForPersistence}_customer_analytics_accounts_overview__`,
-}
+// Overview tiles used to be persisted per-team in localStorage; they now live in saved views
+// (`properties.tiles`). We no longer WRITE this key — `accountsOverviewTilesLogic` only reads any
+// pre-existing value once on mount (to seed the working state) and emits an
+// `OverviewTilesLocalStorageRead` tombstone. Once that event stops firing, no browser still carries
+// a legacy value and this read path (plus the prefix) can be deleted.
+const overviewTilesTeamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
+export const ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX = `${overviewTilesTeamId}_customer_analytics_accounts_overview__`
 
 // Canonical analytics event names for the accounts list. Every `posthog.capture`
 // in this directory must reference these — a mistyped string silently forks a new
@@ -29,6 +31,7 @@ export const AccountsEvents = {
     Sorted: 'customer analytics accounts sorted',
     ColumnsSaved: 'customer analytics accounts columns saved',
     OverviewTilesEdited: 'customer analytics accounts overview tiles edited',
+    OverviewTilesLocalStorageRead: 'customer analytics accounts overview tiles localstorage read',
     ViewSaved: 'customer analytics accounts view saved',
     ViewUpdated: 'customer analytics accounts view updated',
     ViewSelected: 'customer analytics accounts view selected',

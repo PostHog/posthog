@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -11,7 +11,7 @@ import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
-    ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
+    ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX,
     AccountsEvents,
     AccountsOverviewThresholdOperator,
     DEFAULT_TILES,
@@ -155,6 +155,27 @@ export function diffOverviewTiles(
     return { changed: added > 0 || removed > 0 || updated > 0 || reordered, added, removed, updated, reordered }
 }
 
+// Read-only access to the legacy per-team localStorage tiles (see ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX
+// in constants.ts). We never write this key; we read any pre-existing CUSTOM value once on mount to
+// seed the working state and emit a tombstone, so the localStorage read path can eventually be removed.
+function readLegacyOverviewTiles(): AccountsOverviewTile[] | null {
+    try {
+        const key = Object.keys(window.localStorage).find(
+            (k) => k.startsWith(ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX) && k.endsWith('.tiles')
+        )
+        if (!key) {
+            return null
+        }
+        const parsed = JSON.parse(window.localStorage.getItem(key) ?? 'null')
+        if (Array.isArray(parsed) && parsed.length > 0 && !objectsEqual(parsed, DEFAULT_TILES)) {
+            return parsed as AccountsOverviewTile[]
+        }
+    } catch {
+        // Inaccessible or malformed localStorage — fall back to defaults.
+    }
+    return null
+}
+
 export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsOverviewTilesLogic']),
     connect(() => ({
@@ -180,7 +201,6 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     reducers(() => ({
         tiles: [
             DEFAULT_TILES,
-            ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
             {
                 addTile: (
                     state: AccountsOverviewTile[],
@@ -296,4 +316,13 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             actions.setTileFilter(values.tileFilter?.tileId === tile.id ? null : next)
         },
     })),
+    afterMount(({ actions }) => {
+        // Seed from any legacy localStorage tiles (read-only) and emit a tombstone so we can tell
+        // when the localStorage read path is safe to remove. Saved views are the durable store.
+        const legacyTiles = readLegacyOverviewTiles()
+        if (legacyTiles) {
+            actions.setTiles(legacyTiles)
+            posthog.capture(AccountsEvents.OverviewTilesLocalStorageRead, { tile_count: legacyTiles.length })
+        }
+    }),
 ])

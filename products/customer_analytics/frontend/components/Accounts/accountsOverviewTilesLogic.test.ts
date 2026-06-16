@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -15,7 +16,12 @@ import {
     tileMetricExpression,
     tileToRowFilter,
 } from './accountsOverviewTilesLogic'
-import { MAX_ACCOUNTS_OVERVIEW_TILES } from './constants'
+import {
+    ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX,
+    AccountsEvents,
+    DEFAULT_TILES,
+    MAX_ACCOUNTS_OVERVIEW_TILES,
+} from './constants'
 
 describe('stripHogqlAlias', () => {
     it('strips a trailing AS alias', () => {
@@ -223,5 +229,44 @@ describe('accountsOverviewTilesLogic setTiles', () => {
             { id: 'b', label: 'B', metric: { type: 'count' as const } },
         ]
         await expectLogic(logic, () => logic.actions.setTiles(tiles)).toMatchValues({ tiles })
+    })
+})
+
+describe('accountsOverviewTilesLogic legacy localStorage tiles (read-only + tombstone)', () => {
+    const LEGACY_KEY = `${ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX}.scenes.customerAnalytics.accounts.accountsOverviewTilesLogic.tiles`
+    const customTiles: AccountsOverviewTile[] = [{ id: 'legacy', label: 'Legacy', metric: { type: 'count' as const } }]
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+    })
+
+    afterEach(() => {
+        localStorage.clear()
+        jest.restoreAllMocks()
+    })
+
+    it('reads a pre-existing custom value on mount, emits a tombstone, and never writes it back', async () => {
+        localStorage.setItem(LEGACY_KEY, JSON.stringify(customTiles))
+        const logic = accountsOverviewTilesLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ tiles: customTiles })
+        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.OverviewTilesLocalStorageRead, { tile_count: 1 })
+
+        // never writes: changing tiles must not update or recreate the legacy key
+        logic.actions.setTiles([{ id: 'x', label: 'X', metric: { type: 'count' as const } }])
+        expect(JSON.parse(localStorage.getItem(LEGACY_KEY) as string)).toEqual(customTiles)
+    })
+
+    it('ignores a default-valued legacy key — no seed, no tombstone', async () => {
+        localStorage.setItem(LEGACY_KEY, JSON.stringify(DEFAULT_TILES))
+        const logic = accountsOverviewTilesLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ tiles: DEFAULT_TILES })
+        expect(posthog.capture).not.toHaveBeenCalledWith(
+            AccountsEvents.OverviewTilesLocalStorageRead,
+            expect.anything()
+        )
     })
 })
