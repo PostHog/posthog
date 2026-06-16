@@ -215,47 +215,36 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
     assert "WHERE `updated_at` > 42" in query
 
 
-def test_bigquery_get_query_datetime_initial_value_has_no_timezone_offset():
-    """BigQuery DATETIME columns are timezone-naive; a literal with a UTC offset (the shared
-    tz-aware initial cursor value) fails with "Could not cast literal ... to type DATETIME"."""
+@pytest.mark.parametrize(
+    "field_type,last_value,expected_clause,offset_present",
+    [
+        # DATETIME columns are timezone-naive — a tz-aware literal can't be cast and BigQuery rejects it
+        # with "Could not cast literal ... to type DATETIME". On the first incremental sync the cursor
+        # defaults to the 1970-01-01 UTC initial value, whose isoformat carries a '+00:00' offset; for a
+        # DATETIME field the literal must be naive.
+        (IncrementalFieldType.DateTime, None, "WHERE `cursor` > '1970-01-01T00:00:00'", False),
+        # A tz-aware value carried over from a previous sync is also rendered naive for DATETIME fields.
+        (
+            IncrementalFieldType.DateTime,
+            parser.parse("2024-03-11T09:26:04+00:00"),
+            "WHERE `cursor` > '2024-03-11T09:26:04'",
+            False,
+        ),
+        # TIMESTAMP columns are timezone-aware, so the offset must be preserved in the literal.
+        (IncrementalFieldType.Timestamp, None, "WHERE `cursor` > '1970-01-01T00:00:00+00:00'", True),
+    ],
+)
+def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_value, expected_clause, offset_present):
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=None,
-        bq_table=bq_table,
-        incremental_field="updated_at",
-        incremental_field_type=IncrementalFieldType.DateTime,
-    )
-    assert "WHERE `updated_at` > '1970-01-01T00:00:00'" in query
-    assert "+00:00" not in query
-
-
-def test_bigquery_get_query_datetime_strips_offset_from_stored_value():
-    """A stored tz-aware cursor value must also lose its offset for DATETIME columns."""
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    last_value = parser.parse("2024-03-11T09:26:04+00:00")
     query = _get_query(
         should_use_incremental_field=True,
         db_incremental_field_last_value=last_value,
         bq_table=bq_table,
-        incremental_field="updated_at",
-        incremental_field_type=IncrementalFieldType.DateTime,
+        incremental_field="cursor",
+        incremental_field_type=field_type,
     )
-    assert "WHERE `updated_at` > '2024-03-11T09:26:04'" in query
-    assert "+00:00" not in query
-
-
-def test_bigquery_get_query_timestamp_keeps_timezone_offset():
-    """BigQuery TIMESTAMP columns are timezone-aware, so the UTC offset must be preserved."""
-    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
-    query = _get_query(
-        should_use_incremental_field=True,
-        db_incremental_field_last_value=None,
-        bq_table=bq_table,
-        incremental_field="created_at",
-        incremental_field_type=IncrementalFieldType.Timestamp,
-    )
-    assert "WHERE `created_at` > '1970-01-01T00:00:00+00:00'" in query
+    assert expected_clause in query
+    assert ("+00:00" in query) is offset_present
 
 
 @pytest.mark.parametrize(
