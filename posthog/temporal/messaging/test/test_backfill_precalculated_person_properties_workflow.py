@@ -7,11 +7,12 @@ import temporalio.exceptions
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
-    build_person_properties_select_exprs,
+    build_person_properties_select_fields,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
@@ -20,6 +21,22 @@ from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
+
+
+class _FieldChainCollector(TraversingVisitor):
+    """Collect every ``ast.Field`` chain reachable from a node (e.g. inside argMax wrappers)."""
+
+    def __init__(self) -> None:
+        self.chains: list[list[str | int]] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.chains.append(list(node.chain))
+
+
+def _collect_field_chains(node: ast.Expr) -> list[list[str | int]]:
+    collector = _FieldChainCollector()
+    collector.visit(node)
+    return collector.chains
 
 
 class _NoopHeartbeater:
@@ -225,22 +242,16 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
 
-    def test_build_person_properties_select_exprs_keeps_keys_in_field_chain(self):
+    def test_build_person_properties_select_fields_keeps_keys_in_field_chain(self):
         malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
 
-        property_exprs, property_alias_mapping = build_person_properties_select_exprs([malicious_property])
+        select_fields, property_alias_mapping = build_person_properties_select_fields([malicious_property])
 
         assert property_alias_mapping == {"prop_0": malicious_property}
-        assert len(property_exprs) == 1
 
-        alias_expr = property_exprs[0]
-        assert isinstance(alias_expr, ast.Alias)
-        assert alias_expr.alias == "prop_0"
-
-        # The malicious key must live inside an ast.Field chain — never inline as a SQL fragment.
-        field_expr = alias_expr.expr
-        assert isinstance(field_expr, ast.Field)
-        assert field_expr.chain == ["properties", malicious_property]
+        # The malicious key must live inside an argmax_select field chain — never inline as a SQL
+        # fragment. argmax_select wraps the chain in an ``ast.Field``, keeping the key parameterized.
+        assert select_fields == {"prop_0": ["properties", malicious_property]}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -330,10 +341,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias.startswith("prop_")
         ]
         assert len(property_aliases) == 1
-        # The key lives inside an ast.Field chain — never concatenated into the SQL as a fragment.
-        prop_field = property_aliases[0].expr
-        assert isinstance(prop_field, ast.Field)
-        assert prop_field.chain == ["properties", malicious_property]
+        # The key lives inside an ast.Field chain (wrapped in argMax by argmax_select) — never
+        # concatenated into the SQL as a fragment.
+        prop_chains = _collect_field_chains(property_aliases[0])
+        assert any(chain[-2:] == ["properties", malicious_property] for chain in prop_chains)
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -419,11 +430,14 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         ]
         assert property_aliases == []
 
-        # The full ``properties`` JSON is selected instead, and the '%' key never appears as a field.
-        properties_fields = [
-            expr for expr in node.select if isinstance(expr, ast.Field) and expr.chain == ["properties"]
+        # The full ``properties`` JSON is selected instead (argmax_select aliases it as "properties"),
+        # and the '%' key never appears as a field chain element anywhere in the query.
+        properties_aliases = [
+            expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias == "properties"
         ]
-        assert len(properties_fields) == 1
+        assert len(properties_aliases) == 1
+        assert any(chain[-1:] == ["properties"] for chain in _collect_field_chains(properties_aliases[0]))
+        assert all(percent_property not in chain for chain in _collect_field_chains(node))
 
 
 class TestCombineFilterBytecodes:
