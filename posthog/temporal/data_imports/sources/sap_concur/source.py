@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SapConcurSource(SimpleSource[SapConcurSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SAP_CONCUR,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="SAP Concur",
             iconPath="/static/services/sap_concur.png",
             fields=cast(list[FieldType], []),
