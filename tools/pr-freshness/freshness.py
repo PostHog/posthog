@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["anthropic", "PyGithub"]
+# dependencies = [
+#     "anthropic==0.109.2",
+#     "PyGithub==2.9.1",
+# ]
 # ///
 # ruff: noqa: T201
 """Stamp a "PR freshness" check on open PRs, with a per-PR staleness budget.
