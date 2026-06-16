@@ -17,6 +17,8 @@ from products.dashboards.backend.widget_specs.registry import (
     WIDGET_SPECS,
     DashboardWidgetType,
     WidgetRegistryEntry,
+    count_active_widget_filters,
+    extract_widget_filters,
     get_widget_registry_entry,
     validate_widget_config,
 )
@@ -37,6 +39,8 @@ __all__ = [
     "WidgetRegistryEntry",
     "WIDGET_SPECS",
     "WIDGET_REGISTRY",
+    "count_active_widget_filters",
+    "extract_widget_filters",
     "get_widget_registry_entry",
     "validate_widget_config",
 ]

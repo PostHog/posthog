@@ -1,10 +1,4 @@
-import { actions, afterMount, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-
-import { teamLogic } from 'scenes/teamLogic'
-
-import { experimentsList } from 'products/experiments/frontend/generated/api'
-import type { ExperimentApi } from 'products/experiments/frontend/generated/api.schemas'
+import { actions, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import { isWidgetConfigValidationError } from '../../utils'
 import {
@@ -23,9 +17,6 @@ import {
 
 export type EditExperimentResultsWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
 
-/** Enough options for the picker without paginating — dashboards rarely point at older experiments. */
-const EXPERIMENT_OPTIONS_LIMIT = 100
-
 export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWidgetModalLogicType>([
     path(['products', 'dashboards', 'widgets', 'experiments', 'editExperimentResultsWidgetModalLogic']),
 
@@ -38,10 +29,6 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
         description: '',
     } as EditExperimentResultsWidgetModalLogicProps),
 
-    connect(() => ({
-        values: [teamLogic, ['currentProjectId']],
-    })),
-
     actions({
         setExperimentId: (experimentId: number | null) => ({ experimentId }),
         ...widgetEditModalTileActions,
@@ -51,21 +38,6 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
         submitSuccess: true,
         submitFailure: true,
     }),
-
-    loaders(({ values }) => ({
-        experimentOptions: [
-            [] as ExperimentApi[],
-            {
-                loadExperimentOptions: async (): Promise<ExperimentApi[]> => {
-                    const response = await experimentsList(String(values.currentProjectId), {
-                        limit: EXPERIMENT_OPTIONS_LIMIT,
-                        order: '-created_at',
-                    })
-                    return response.results ?? []
-                },
-            },
-        ],
-    })),
 
     reducers({
         experimentId: [
@@ -183,8 +155,4 @@ export const editExperimentResultsWidgetModalLogic = kea<editExperimentResultsWi
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadExperimentOptions()
-    }),
 ])

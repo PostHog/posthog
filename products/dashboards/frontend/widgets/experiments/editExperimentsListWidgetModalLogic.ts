@@ -32,8 +32,6 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
 
     actions({
         setLimit: (limit: number) => ({ limit }),
-        setStatus: (status: ExperimentsListWidgetStatus) => ({ status }),
-        setCreatedBy: (createdBy: number | null) => ({ createdBy }),
         ...widgetEditModalTileActions,
         setFieldErrors: (fieldErrors: ExperimentsListWidgetFieldErrors) => ({ fieldErrors }),
         clearFieldError: (field: keyof ExperimentsListWidgetFieldErrors) => ({ field }),
@@ -49,21 +47,10 @@ export const editExperimentsListWidgetModalLogic = kea<editExperimentsListWidget
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
             },
         ],
-        status: [
-            'all' as ExperimentsListWidgetStatus,
-            {
-                setStatus: (
-                    _: ExperimentsListWidgetStatus,
-                    { status }: { status: ExperimentsListWidgetStatus }
-                ): ExperimentsListWidgetStatus => status,
-            },
-        ],
-        createdBy: [
-            null as number | null,
-            {
-                setCreatedBy: (_: number | null, { createdBy }: { createdBy: number | null }) => createdBy,
-            },
-        ],
+        // status and creator are edited on the tile filter bar, not in this modal — these reducers only
+        // carry the values from config through validation so saving the limit/name preserves the filters.
+        status: ['all' as ExperimentsListWidgetStatus, {}],
+        createdBy: [null as number | null, {}],
         tileName: [
             '',
             {

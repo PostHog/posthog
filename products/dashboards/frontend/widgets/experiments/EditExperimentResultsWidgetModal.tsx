@@ -4,18 +4,16 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editExperimentResultsWidgetModalLogic } from './editExperimentResultsWidgetModalLogic'
+import { ExperimentPickerSelect } from './ExperimentPickerSelect'
 
 function EditExperimentResultsWidgetModalContents(): JSX.Element {
     const {
         experimentId,
-        experimentOptions,
-        experimentOptionsLoading,
         tileName,
         tileDescription,
         activeFieldErrors,
@@ -69,20 +67,16 @@ function EditExperimentResultsWidgetModalContents(): JSX.Element {
                         help="Primary metric results for this experiment are shown on the tile."
                         error={activeFieldErrors.experimentId}
                     >
-                        <LemonSelect
-                            fullWidth
-                            placeholder="Select an experiment"
-                            loading={experimentOptionsLoading}
+                        <ExperimentPickerSelect
+                            pickerKey="results-modal"
                             value={experimentId}
+                            size="medium"
+                            fullWidth
                             onChange={(value) => {
                                 setExperimentId(value)
                                 clearFieldError('experimentId')
                             }}
-                            options={experimentOptions.map((experiment) => ({
-                                value: experiment.id,
-                                label: experiment.name,
-                            }))}
-                            data-attr="experiment-results-widget-experiment-select"
+                            dataAttr="experiment-results-widget-experiment-select"
                         />
                     </LemonField.Pure>
                 </section>

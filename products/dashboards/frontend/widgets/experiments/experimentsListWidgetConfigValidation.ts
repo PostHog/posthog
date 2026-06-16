@@ -19,10 +19,31 @@ export type ExperimentsListWidgetFieldErrors = Partial<Record<ExperimentsListWid
 
 export type ExperimentsListWidgetStatus = NonNullable<ExperimentsWidgetConfig['status']>
 
+export const EXPERIMENTS_WIDGET_STATUS_OPTIONS: { value: ExperimentsListWidgetStatus; label: string }[] = [
+    { value: 'all', label: 'Any status' },
+    { value: 'draft', label: 'Draft' },
+    { value: 'running', label: 'Running' },
+    { value: 'paused', label: 'Paused' },
+    { value: 'stopped', label: 'Complete' },
+]
+
 const experimentsConfigDefaults = experimentsWidgetConfigSchema.parse({})
 
 export function parseExperimentsListWidgetConfig(config: Record<string, unknown>): ExperimentsWidgetConfig {
     return parseWidgetConfig(experimentsWidgetConfigSchema, config)
+}
+
+/** Merge a partial status/creator change into an existing config, returning the full validated config. */
+export function patchExperimentsListWidgetConfig(
+    config: Record<string, unknown>,
+    patch: { status?: ExperimentsListWidgetStatus; createdBy?: number | null }
+): ExperimentsWidgetConfig {
+    const parsed = parseExperimentsListWidgetConfig(config)
+    return experimentsWidgetConfigSchema.parse({
+        ...parsed,
+        ...(patch.status !== undefined ? { status: patch.status } : {}),
+        ...(patch.createdBy !== undefined ? { createdBy: patch.createdBy } : {}),
+    })
 }
 
 export function validateExperimentsListWidgetConfigInput(input: {

@@ -66,7 +66,11 @@ function ExperimentResultsWidgetMetric({ entry }: { entry: ExperimentResultsWidg
     )
 }
 
-export function ExperimentResultsWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
+export function ExperimentResultsWidget({
+    result,
+    loading,
+    onUpdateConfig,
+}: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ExperimentResultsWidgetResult | null | undefined
 
     if (loading) {
@@ -77,7 +81,11 @@ export function ExperimentResultsWidget({ result, loading }: DashboardWidgetComp
         return (
             <ExperimentResultsWidgetMessage
                 title="No experiment selected"
-                message="Pick an experiment in the widget settings to see its results here."
+                message={
+                    onUpdateConfig
+                        ? 'Pick an experiment from the selector above to see its results here.'
+                        : 'No experiment has been selected for this tile yet.'
+                }
             />
         )
     }
@@ -100,6 +108,7 @@ export function ExperimentResultsWidget({ result, loading }: DashboardWidgetComp
                 <div className="flex items-center justify-between gap-2">
                     <Link
                         to={urls.experiment(experiment.id)}
+                        target="_blank"
                         className="truncate font-semibold text-primary"
                         title={experiment.name}
                     >

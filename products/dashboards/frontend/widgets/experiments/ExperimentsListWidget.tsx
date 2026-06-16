@@ -1,10 +1,13 @@
+import { clsx } from 'clsx'
+
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
+import { CONCLUSION_DISPLAY_CONFIG } from 'scenes/experiments/constants'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
-import type { ExperimentStatus } from '~/types'
+import { type ExperimentConclusion, type ExperimentStatus } from '~/types'
 
 import {
     WIDGET_LIST_COUNT_EXPERIMENTS,
@@ -20,6 +23,7 @@ export type ExperimentsListWidgetRow = {
     id: number
     name: string
     status: string
+    conclusion: ExperimentConclusion | null
     start_date: string | null
     end_date: string | null
     created_at: string | null
@@ -39,6 +43,16 @@ export type ExperimentsListWidgetResult = {
     totalCountCapped?: boolean
 }
 
+function ExperimentConclusionLabel({ conclusion }: { conclusion: ExperimentConclusion }): JSX.Element {
+    const config = CONCLUSION_DISPLAY_CONFIG[conclusion]
+    return (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
+            <span className={clsx('size-2 shrink-0 rounded-full', config?.color)} />
+            {config?.title ?? conclusion}
+        </span>
+    )
+}
+
 function ExperimentsListWidgetRowItem({ experiment }: { experiment: ExperimentsListWidgetRow }): JSX.Element {
     const creatorName = experiment.created_by?.first_name || experiment.created_by?.email
 
@@ -47,21 +61,25 @@ function ExperimentsListWidgetRowItem({ experiment }: { experiment: ExperimentsL
             <div className="flex min-w-0 flex-col">
                 <Link
                     to={urls.experiment(experiment.id)}
+                    target="_blank"
                     className="truncate font-semibold text-primary"
                     title={experiment.name}
                 >
                     {experiment.name}
                 </Link>
-                <span className="truncate text-xs text-muted">
+                <div className="flex min-w-0 items-center gap-1 text-xs text-muted">
                     {experiment.created_at ? (
-                        <>
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap">
                             Created <TZLabel time={experiment.created_at} />
-                        </>
+                        </span>
                     ) : null}
-                    {creatorName ? <> by {creatorName}</> : null}
-                </span>
+                    {creatorName ? <span className="truncate">by {creatorName}</span> : null}
+                </div>
             </div>
-            <StatusTag status={experiment.status as ExperimentStatus} />
+            <div className="flex shrink-0 flex-col items-end gap-1">
+                <StatusTag status={experiment.status as ExperimentStatus} />
+                {experiment.conclusion ? <ExperimentConclusionLabel conclusion={experiment.conclusion} /> : null}
+            </div>
         </div>
     )
 }

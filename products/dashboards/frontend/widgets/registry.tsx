@@ -23,8 +23,10 @@ import { EditExperimentResultsWidgetModal } from './experiments/EditExperimentRe
 import { EditExperimentsListWidgetModal } from './experiments/EditExperimentsListWidgetModal'
 import { ExperimentResultsWidget } from './experiments/ExperimentResultsWidget'
 import { parseExperimentResultsWidgetConfigApiError } from './experiments/experimentResultsWidgetConfigValidation'
+import { ExperimentResultsWidgetTileFilters } from './experiments/ExperimentResultsWidgetTileFilters'
 import { ExperimentsListWidget } from './experiments/ExperimentsListWidget'
 import { parseExperimentsListWidgetConfigApiError } from './experiments/experimentsListWidgetConfigValidation'
+import { ExperimentsListWidgetTileFilters } from './experiments/ExperimentsListWidgetTileFilters'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
@@ -145,12 +147,14 @@ export const DASHBOARD_WIDGET_REGISTRY = {
     },
     experiments_list: {
         Component: ExperimentsListWidget,
+        TileFilters: ExperimentsListWidgetTileFilters,
         EditModal: EditExperimentsListWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentsListWidgetConfigApiError,
     },
     experiment_results: {
         Component: ExperimentResultsWidget,
+        TileFilters: ExperimentResultsWidgetTileFilters,
         EditModal: EditExperimentResultsWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentResultsWidgetConfigApiError,

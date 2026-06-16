@@ -17,6 +17,15 @@ export function parseExperimentResultsWidgetConfig(config: Record<string, unknow
     return parseWidgetConfig(experimentResultsWidgetConfigSchema, config)
 }
 
+/** Set the selected experiment on an existing config, returning the full validated config. */
+export function patchExperimentResultsWidgetConfig(
+    config: Record<string, unknown>,
+    experimentId: number | null
+): ExperimentResultsWidgetConfig {
+    const parsed = parseExperimentResultsWidgetConfig(config)
+    return experimentResultsWidgetConfigSchema.parse({ ...parsed, experimentId })
+}
+
 export function validateExperimentResultsWidgetConfigInput(input: {
     experimentId: number | null
 }):

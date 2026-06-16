@@ -37,6 +37,7 @@ def _serialize_experiment_row(experiment: Experiment) -> dict[str, Any]:
         "id": experiment.id,
         "name": experiment.name,
         "status": derive_experiment_status(experiment),
+        "conclusion": experiment.conclusion,
         "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
         "end_date": experiment.end_date.isoformat() if experiment.end_date else None,
         "created_at": experiment.created_at.isoformat() if experiment.created_at else None,
