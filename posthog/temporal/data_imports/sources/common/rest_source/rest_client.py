@@ -1,6 +1,8 @@
 import copy
 import logging
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 
 from requests import Request, Response, Session
@@ -25,13 +27,54 @@ class RESTClientRetryableError(Exception):
         self.retry_after = retry_after
 
 
+# Upper bound on how long we'll honor a server-provided retry delay, so a
+# misreported header can't stall a worker for an unbounded amount of time.
+MAX_RETRY_AFTER_SECONDS = 300.0
+
+
+def _parse_retry_after(response: Response) -> Optional[float]:
+    """Best-effort retry delay (seconds) from a rate-limited / erroring response.
+
+    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date)
+    first. When it's absent, falls back to Sentry's ``X-Sentry-Rate-Limit-Reset``
+    (a UNIX epoch timestamp): Sentry's API signals its rate-limit window with
+    that header rather than ``Retry-After``, and Sentry's flat / fan-out
+    endpoints (e.g. ``project_users``) sync through this generic client, so
+    without it a 429 backs off on the short exponential fallback and exhausts
+    retries while still rate-limited. Capped at ``MAX_RETRY_AFTER_SECONDS``.
+    """
+    retry_after_header = response.headers.get("Retry-After")
+    if retry_after_header:
+        try:
+            return min(float(retry_after_header), MAX_RETRY_AFTER_SECONDS)
+        except ValueError:
+            try:
+                dt = parsedate_to_datetime(retry_after_header)
+            except (TypeError, ValueError):
+                return None
+            return min(max(0.0, (dt - datetime.now(UTC)).total_seconds()), MAX_RETRY_AFTER_SECONDS)
+
+    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
+    if reset_header:
+        try:
+            reset_epoch = int(reset_header)
+        except ValueError:
+            return None
+        wait_seconds = reset_epoch - int(datetime.now(UTC).timestamp())
+        if wait_seconds <= 0:
+            return None
+        return min(float(wait_seconds), MAX_RETRY_AFTER_SECONDS)
+
+    return None
+
+
 def _retry_wait_seconds(state: RetryCallState) -> float:
     fallback = min(2 ** (state.attempt_number - 1), 60)
     if state.outcome is None or not state.outcome.failed:
         return float(fallback)
     exc = state.outcome.exception()
     if isinstance(exc, RESTClientRetryableError) and exc.retry_after is not None:
-        return min(exc.retry_after, 300.0)
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
     return float(fallback)
 
 
@@ -128,26 +171,9 @@ class RESTClient:
         response = self.session.send(prepared)
 
         if response.status_code == 429 or response.status_code >= 500:
-            retry_after: Optional[float] = None
-            retry_after_header = response.headers.get("Retry-After")
-            if retry_after_header:
-                try:
-                    retry_after = min(float(retry_after_header), 300.0)
-                except ValueError:
-                    import datetime
-                    from email.utils import parsedate_to_datetime
-
-                    try:
-                        dt = parsedate_to_datetime(retry_after_header)
-                        retry_after = min(
-                            max(0.0, (dt - datetime.datetime.now(datetime.UTC)).total_seconds()),
-                            300.0,
-                        )
-                    except Exception:
-                        pass
             raise RESTClientRetryableError(
                 f"HTTP {response.status_code} for {response.url}",
-                retry_after=retry_after,
+                retry_after=_parse_retry_after(response),
             )
 
         response_hooks = hooks.get("response", [])

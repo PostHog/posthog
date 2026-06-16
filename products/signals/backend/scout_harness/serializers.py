@@ -164,6 +164,35 @@ class SignalScoutEmissionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LinkedSignalReportSerializer(serializers.Serializer):
+    """Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
+    for the scout UI to render a clickable chip and deep-link into the inbox, which loads
+    the full report itself."""
+
+    id = serializers.UUIDField(help_text="UUID of the linked `SignalReport`.")
+    title = serializers.CharField(
+        allow_null=True,
+        help_text="LLM-generated report title, or null if the report hasn't been summarised yet.",
+    )
+    status = serializers.CharField(help_text="Current report status (e.g. `potential`, `ready`, `resolved`).")
+
+
+class ScoutEmissionReportLinkSerializer(serializers.Serializer):
+    """One finding the run emitted, paired with the inbox report (if any) its signal grouped into.
+
+    Best-effort reverse of the report -> signals link: `report` is null when the finding hasn't
+    grouped into a report yet, was de-duplicated away, or its signal was deleted."""
+
+    finding_id = serializers.CharField(help_text="Stable id the finding was emitted under.")
+    source_id = serializers.CharField(
+        help_text="Deterministic `run:<run_id>:finding:<finding_id>` join key into the signal store.",
+    )
+    report = LinkedSignalReportSerializer(
+        allow_null=True,
+        help_text="The inbox report this finding linked to, or null if none could be resolved.",
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 

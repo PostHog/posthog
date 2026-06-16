@@ -70,8 +70,9 @@ class ClassifierScanner(BaseScanner, frozen=True):
                     default_factory=list,
                     max_length=_MAX_FREEFORM_TAGS,
                     description=(
-                        f"Up to {_MAX_FREEFORM_TAGS} short lowercase phrases capturing aspects not covered by the "
-                        "fixed vocabulary. Skip when nothing meaningful applies."
+                        f"Up to {_MAX_FREEFORM_TAGS} short lowercase snake_case identifiers, ONLY for concepts no "
+                        "fixed-vocabulary tag covers. Never paraphrase or restate a fixed tag here. Skip when nothing "
+                        "meaningful applies."
                     ),
                 ),
             )
