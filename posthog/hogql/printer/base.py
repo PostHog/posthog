@@ -931,8 +931,6 @@ class BasePrinter(Visitor[str]):
 
     def visit_call(self, node: ast.Call):
         if node.name == "_defaultChannelType":
-            # Expand the default channel-type classification to its full multiIf right here, so the
-            # catalog holds a single node and only queries that select the field pay the expansion.
             from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid printer->schema import cycle
                 expand_default_channel_type_call,
             )
