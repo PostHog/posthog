@@ -328,6 +328,66 @@ class TestDirectMySQLQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError):
             executor.execute()
 
+    def test_raw_query_allows_cte_select(self):
+        source = self._create_source()
+
+        query = "WITH one AS (SELECT 1 AS value) SELECT value FROM one"
+        executor = HogQLQueryExecutor(
+            query=query,
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        implementation, cursor = self._mock_mysql_connection(
+            rows=[(1,)],
+            description=[("value", pymysql.constants.FIELD_TYPE.LONGLONG, None, None, None, None, None)],
+        )
+
+        with patch(
+            "posthog.hogql.query.validate_direct_mysql_source_config",
+            return_value=(implementation, MagicMock()),
+        ):
+            with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
+                response = executor.execute()
+
+        self.assertEqual(executor.direct_sql, query)
+        self.assertEqual(response.results, [(1,)])
+        cursor.execute.assert_any_call(query, None)
+
+    @parameterized.expand(
+        [
+            ("delete", "DELETE FROM orders WHERE id = 1"),
+            ("set_global", "SET GLOBAL max_connections = 1"),
+            ("kill", "KILL 1"),
+            ("into_outfile", "SELECT * FROM orders INTO OUTFILE '/tmp/orders.csv'"),
+            ("into_dumpfile", "SELECT * FROM orders INTO DUMPFILE '/tmp/orders.csv'"),
+            ("select_into_variable", "SELECT * FROM orders INTO @orders"),
+            ("load_file", "SELECT LOAD_FILE('/etc/passwd')"),
+            ("load_file_in_cte", "WITH data AS (SELECT LOAD_FILE('/etc/passwd') AS contents) SELECT * FROM data"),
+            ("executable_comment", "SELECT 1 /*!50000 INTO OUTFILE '/tmp/orders.csv' */"),
+            ("mariadb_executable_comment", "SELECT 1 /*M!100100 INTO OUTFILE '/tmp/orders.csv' */"),
+            ("for_update", "SELECT * FROM orders FOR UPDATE"),
+            ("lock_in_share_mode", "SELECT * FROM orders LOCK IN SHARE MODE"),
+        ]
+    )
+    def test_raw_query_rejects_unsafe_mysql_statements(self, _name: str, query: str):
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query=query,
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        with patch("posthog.hogql.query.validate_direct_mysql_source_config") as mock_validate:
+            with self.assertRaisesRegex(ExposedHogQLError, "Raw MySQL queries must be read-only SELECT statements."):
+                executor.execute()
+
+        mock_validate.assert_not_called()
+        self.assertIsNone(executor.direct_sql)
+
     def test_execute_runs_read_only_transaction_and_maps_types(self):
         source = self._create_source()
         self._create_table(source, "orders")

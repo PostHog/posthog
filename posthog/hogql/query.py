@@ -8,6 +8,8 @@ import sqlparse
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
 from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
+from sqlparse import tokens as sqlparse_tokens
+from sqlparse.sql import Statement
 
 from posthog.schema import (
     HogLanguage,
@@ -70,6 +72,7 @@ tracer = trace.get_tracer(__name__)
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
+RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
 
 POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     16: "Bool",
@@ -209,6 +212,47 @@ def ensure_single_direct_statement(sql: str) -> str:
     statements = [statement for statement in sqlparse.split(sql) if statement.strip(" \t\r\n;")]
     if len(statements) > 1:
         raise ExposedHogQLError("Raw queries must contain a single statement.")
+    return sql
+
+
+def _is_executable_mysql_comment(value: str) -> bool:
+    normalized = value.lstrip().upper()
+    return normalized.startswith("/*!") or normalized.startswith("/*M!")
+
+
+def _raw_mysql_token_values(statement: Statement) -> list[str]:
+    token_values: list[str] = []
+    for token in statement.flatten():
+        if token.ttype in sqlparse_tokens.Comment:
+            if _is_executable_mysql_comment(token.value):
+                raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+            continue
+        if token.is_whitespace or token.ttype in sqlparse_tokens.Literal.String:
+            continue
+        value = token.value.strip().upper()
+        if value:
+            token_values.append(value)
+    return token_values
+
+
+def ensure_read_only_raw_mysql_statement(sql: str) -> str:
+    sql = ensure_single_direct_statement(sql)
+    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    if len(statements) != 1 or statements[0].get_type() != "SELECT":
+        raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+
+    token_values = _raw_mysql_token_values(statements[0])
+    for index, value in enumerate(token_values):
+        normalized_value = value.strip("`")
+        if value == "INTO":
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+        if normalized_value == "LOAD_FILE" and index + 1 < len(token_values) and token_values[index + 1] == "(":
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+        if value == "FOR" and index + 1 < len(token_values) and token_values[index + 1] == "UPDATE":
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+        if token_values[index : index + 4] == ["LOCK", "IN", "SHARE", "MODE"]:
+            raise ExposedHogQLError(RAW_MYSQL_READ_ONLY_ERROR)
+
     return sql
 
 
@@ -885,12 +929,13 @@ class HogQLQueryExecutor:
             raise ExposedHogQLError("Sending a raw query requires a valid connection.")
         self.connection_id = str(source.id)
         self.direct_source_id = self.connection_id
-        self.direct_sql = ensure_single_direct_statement(str(self.query))
         if source.is_direct_mysql:
             self.direct_dialect = "mysql"
+            self.direct_sql = ensure_read_only_raw_mysql_statement(str(self.query))
             self._execute_direct_mysql_query()
         else:
             self.direct_dialect = "postgres"
+            self.direct_sql = ensure_single_direct_statement(str(self.query))
             self._execute_direct_postgres_query()
 
     def _capture_send_raw_query_translation_error(self) -> None:
