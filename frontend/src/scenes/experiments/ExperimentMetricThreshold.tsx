@@ -6,8 +6,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ExperimentMetric, isExperimentMeanMetric } from '~/queries/schema/schema-general'
 import { ExperimentMetricMathType } from '~/types'
 
-// Threshold turns a per-user accumulated value into a binary outcome ("did this user reach N"),
-// so it only makes sense for math types that sum/count per user.
+/**
+ * Threshold turns a per-user accumulated value into a binary outcome ("did this user reach N"),
+ * so it only makes sense for math types that sum/count per user.
+ */
 const THRESHOLD_ENABLED_MATH_TYPES = new Set<ExperimentMetricMathType>([
     ExperimentMetricMathType.Sum,
     ExperimentMetricMathType.TotalCount,
@@ -51,7 +53,9 @@ export function ExperimentMetricThreshold({ math, value, onChange }: ExperimentM
                     step={1}
                     placeholder="e.g. 100"
                     value={value}
-                    // Treat empty / cleared (0) / NaN as "no threshold" so dependent fields re-enable.
+                    /**
+                     * Treat empty / cleared (0) / NaN as "no threshold" so dependent fields re-enable.
+                     */
                     onChange={(newValue) => onChange(newValue ? newValue : undefined)}
                     disabled={!enabled}
                 />

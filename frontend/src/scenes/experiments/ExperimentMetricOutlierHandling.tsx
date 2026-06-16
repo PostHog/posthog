@@ -100,8 +100,10 @@ export function ExperimentMetricOutlierHandling({
     metric: ExperimentMeanMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element {
-    // Winsorization caps continuous outliers, which is meaningless once a threshold
-    // collapses the metric into a binary outcome.
+    /**
+     * Winsorization caps continuous outliers, which is meaningless once a threshold
+     * collapses the metric into a binary outcome.
+     */
     const disabledByThreshold = isMetricThresholdSet(metric)
 
     return (

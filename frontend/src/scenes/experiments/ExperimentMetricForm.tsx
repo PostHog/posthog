@@ -41,7 +41,7 @@ import {
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
-import { ExperimentMetricThreshold } from './ExperimentMetricThreshold'
+import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -156,10 +156,16 @@ export function ExperimentMetricForm({
     const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
         const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
         if (metricConfig) {
-            handleSetMetric({
-                ...metric,
-                ...metricConfig,
-            })
+            const updatedMetric = { ...metric, ...metricConfig }
+            /**
+             * Switching to a math type that doesn't support thresholds must clear any stale
+             * threshold, otherwise the disabled threshold input traps the value and outlier
+             * handling stays disabled with no way to recover.
+             */
+            if (isExperimentMeanMetric(updatedMetric) && !isThresholdAvailableForMath(updatedMetric.source.math)) {
+                updatedMetric.threshold = undefined
+            }
+            handleSetMetric(updatedMetric)
         }
     }
 
@@ -374,8 +380,10 @@ export function ExperimentMetricForm({
                                 handleSetMetric({
                                     ...metric,
                                     threshold: value,
-                                    // Setting a threshold disables outlier handling, so clear any stale
-                                    // bounds to keep the metric consistent with the UI and pass validation.
+                                    /**
+                                     * Setting a threshold disables outlier handling, so clear any stale
+                                     * bounds to keep the metric consistent with the UI and pass validation.
+                                     */
                                     ...(value !== undefined && {
                                         lower_bound_percentile: undefined,
                                         upper_bound_percentile: undefined,
