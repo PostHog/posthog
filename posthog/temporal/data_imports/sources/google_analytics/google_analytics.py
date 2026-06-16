@@ -172,7 +172,7 @@ def _run_report(
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
-    raise GoogleAnalyticsQuotaExceededError(f"Data API quota for property '{pid}' exhausted")
+    raise AssertionError("unreachable")
 
 
 def _parse_ga4_date(value: str) -> dt.date | str:
@@ -201,10 +201,10 @@ def _rows_to_dicts(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for row in payload.get("rows", []):
         record: dict[str, Any] = {}
         for name, dim_value in zip(dimension_names, row.get("dimensionValues", [])):
-            value = dim_value.get("value")
-            record[name] = _parse_ga4_date(value) if name == "date" and value is not None else value
+            value = dim_value["value"]
+            record[name] = _parse_ga4_date(value) if name == "date" else value
         for header, metric_value in zip(metric_headers, row.get("metricValues", [])):
-            record[header["name"]] = _convert_metric_value(metric_value.get("value"), header.get("type", ""))
+            record[header["name"]] = _convert_metric_value(metric_value["value"], header.get("type", ""))
         out.append(record)
     return out
 
