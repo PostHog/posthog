@@ -18,6 +18,7 @@
             "type": "slack",
             "config": {
                 "mention_only": true,
+                "allow_direct_messages": true,
                 "trusted_workspaces": ["T0XXXXXXX"]
             }
         },
