@@ -88,22 +88,6 @@ METADATA: dict[str, dict[str, str]] = {
 # lags the zod schema for some fields (e.g. chat/mcp `allow_restart`), so we
 # strip anything not listed here before writing. Keep aligned with
 # `products/agent_platform/backend/spec_schema.py`, not just `spec.ts`.
-ALLOWED_TRIGGER_CONFIG: dict[str, set[str]] = {
-    "chat": {"allow_restart"},
-    "mcp": {"allow_restart"},
-    "webhook": {"path"},
-    "slack": {
-        "channel_id",
-        "mention_only",
-        "auto_resume_threads",
-        "allow_workspace_participants",
-        "ack_reaction",
-        "allow_direct_messages",
-        "trusted_workspaces",
-    },
-    "cron": {"name", "schedule", "timezone", "prompt", "external_key", "catch_up", "max_catch_up_age_seconds"},
-}
-
 # Triggers that carry their own per-trigger `auth` block. Intrinsic triggers
 # (slack / cron) are gated differently (signing secret / internal) and carry no
 # auth modes. Mirrors the declarative/intrinsic split in `spec.ts`.
@@ -212,21 +196,19 @@ def select_bundles(bundles: list[Path], selectors: list[str]) -> list[Path]:
 
 
 def load_v0_spec(spec_file: Path) -> dict:
-    """Load a bundle's spec.json and strip features the platform doesn't accept
-    yet (resume block, disallowed trigger config). Auth is multi-mode natively;
-    we pass spec.auth.modes through verbatim. `mcps[]` uses the discriminated
-    union the platform accepts — destructive remote tools carry inline approval
-    gating via `tools[].approval_policy` — so it is NOT stripped here.
+    """Load a bundle's spec.json and apply local-dev-only overrides. The spec
+    is otherwise passed through verbatim — the platform's own write-time
+    validation (`AGENT_SPEC_JSON_SCHEMA_FOR_WRITE`, mirrored from the canonical
+    zod `AgentSpecSchema`) is the single source of truth for what's accepted,
+    so an unsupported field fails loudly at deploy rather than being silently
+    dropped here. The only mutations are the `AUTH_MODE` per-trigger auth
+    override and the `MCP_URL` rewrites, both purely for local testing.
     """
     spec = json.loads(spec_file.read_text())
 
-    spec["tools"] = [t for t in spec.get("tools", []) if t.get("kind") in ("native", "custom", "client")]
-
-    # Auth is per-trigger now; there is no spec-level auth. AUTH_MODE overrides
-    # each declarative trigger's modes for local testability (`public` to skip
-    # auth, `posthog` to require a bearer, etc.). Production leaves the bundle's
-    # per-trigger auth in place.
-    spec.pop("auth", None)
+    # AUTH_MODE overrides each declarative trigger's modes for local
+    # testability (`public` to skip auth, `posthog` to require a bearer, etc.).
+    # Production leaves the bundle's per-trigger auth in place.
     auth_override: dict | None = None
     auth_mode_override = os.environ.get("AUTH_MODE")
     if auth_mode_override:
@@ -239,14 +221,7 @@ def load_v0_spec(spec_file: Path) -> dict:
         else:
             auth_override = {"modes": [{"type": auth_mode_override}]}
 
-    spec.pop("resume", None)
-
     for t in spec.get("triggers", []):
-        cfg = t.setdefault("config", {})
-        allowed = ALLOWED_TRIGGER_CONFIG.get(t.get("type"), set())
-        for k in list(cfg.keys()):
-            if k not in allowed:
-                cfg.pop(k)
         if t.get("type") in DECLARATIVE_TRIGGERS:
             if auth_override is not None:
                 t["auth"] = json.loads(json.dumps(auth_override))

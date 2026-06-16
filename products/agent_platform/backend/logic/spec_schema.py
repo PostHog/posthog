@@ -436,7 +436,13 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
         "secrets": {"default": [], "type": "array", "items": {"type": "string"}},
         "limits": {
-            "default": {"max_turns": 50, "max_tool_calls": 200, "max_wall_seconds": 900},
+            "default": {
+                "max_turns": 50,
+                "max_tool_calls": 200,
+                "max_wall_seconds": 900,
+                "max_memory_mb": 512,
+                "max_cpu_cores": 0.25,
+            },
             "type": "object",
             "properties": {
                 "max_turns": {"default": 50, "type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
@@ -457,12 +463,55 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "exclusiveMinimum": 0,
                     "maximum": 200000,
                 },
+                "max_memory_mb": {
+                    "default": 512,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                },
+                "max_cpu_cores": {"default": 0.25, "type": "number", "exclusiveMinimum": 0},
             },
-            "required": ["max_turns", "max_tool_calls", "max_wall_seconds"],
+            "required": ["max_turns", "max_tool_calls", "max_wall_seconds", "max_memory_mb", "max_cpu_cores"],
             "additionalProperties": False,
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
+        "framework_prompt": {
+            "type": "object",
+            "properties": {
+                "omit": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "meta_tool_guidance",
+                            "state_contract",
+                            "tool_failure_guidance",
+                            "approval_guidance",
+                            "reasoning_hint",
+                        ],
+                    },
+                },
+                "version_pin": {"type": "integer", "exclusiveMinimum": 0, "maximum": 9007199254740991},
+            },
+            "required": ["omit"],
+            "additionalProperties": False,
+        },
+        "resume": {
+            "type": "object",
+            "properties": {
+                "enabled": {"default": False, "type": "boolean"},
+                "max_completed_age_ms": {
+                    "default": 604800000,
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                },
+            },
+            "required": ["enabled", "max_completed_age_ms"],
+            "additionalProperties": False,
+        },
     },
     "required": [
         "model",
