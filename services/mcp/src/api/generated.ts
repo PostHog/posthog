@@ -21779,6 +21779,11 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -34230,6 +34235,11 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
     }
 
     /**
