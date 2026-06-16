@@ -1,5 +1,6 @@
 import gc
 import copy
+import inspect
 import weakref
 import dataclasses
 from typing import Any
@@ -10,7 +11,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.hogql import ast
-from posthog.hogql.base import AST
+from posthog.hogql.base import AST, _build_clone_fn
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
@@ -315,6 +316,24 @@ def _all_concrete_ast_classes():
         {c for c in subclasses(AST) if dataclasses.is_dataclass(c)},
         key=lambda c: c.__name__,
     )
+
+
+def test_node_coverage_guard_sees_all_node_types():
+    # __subclasses__() only sees classes that have been imported; `from posthog.hogql import ast`
+    # above pulls in every node type. Pin a floor so that if a node module stops being imported
+    # (silently dropping its classes from the guard below) this fails loudly instead of skipping.
+    assert len(_all_concrete_ast_classes()) >= 100
+
+
+def test_clone_codegen_is_sandboxed_and_inspectable():
+    fn = _build_clone_fn(ast.Alias)
+    # The generated function runs with empty builtins (only `id`), so it cannot reach
+    # open/eval/exec/__import__ even though it was produced by exec.
+    assert set(fn.__globals__["__builtins__"]) == {"id"}
+    # The generated source is registered for inspection -- no opaque <string> codegen.
+    source = inspect.getsource(fn)
+    assert "new = _cls.__new__(_cls)" in source
+    assert "new.expr = _cv(self.expr, memo)" in source
 
 
 def _field_marker(i: int) -> Any:

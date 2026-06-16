@@ -1,5 +1,6 @@
 import re
 import copy
+import linecache
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from enum import Enum
@@ -143,12 +144,13 @@ def _clone_value(value: Any, memo: dict[int, Any]) -> Any:
 
 
 def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
-    # Compile a straight-line clone function specialized to this one class, then cache it
-    # (see AST.__deepcopy__). This is the same trick dataclasses uses to generate __init__:
-    # emitting code with the field names baked in is much faster than a generic clone that,
-    # on every call, iterates fields() and getattr/setattr-s each one reflectively.
+    # Generate a straight-line clone function specialized to this one class, then cache it
+    # (see AST.__deepcopy__). This is the same code-generation stdlib dataclasses uses to
+    # build __init__/__repr__/__eq__ (dataclasses._FuncBuilder exec's a def assembled from
+    # the field list): baking the field names into the body avoids a per-call fields() walk
+    # with reflective getattr/setattr.
     #
-    # For e.g. ast.Alias (fields: start, end, type, alias, expr) this exec's:
+    # For e.g. ast.Alias (fields: start, end, type, alias, expr) this generates:
     #
     #     def _clone(self, memo):
     #         new = _cls.__new__(_cls)      # bare instance, no __init__/__post_init__
@@ -160,8 +162,9 @@ def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
     #         new.expr = _cv(self.expr, memo)
     #         return new
     #
-    # Reading self.<field> directly assumes every slot is set, which holds for any node built
-    # through the dataclass __init__ (the only way nodes are constructed in practice).
+    # Reading self.<field> directly requires every slot to be set; that holds for any node
+    # built through the dataclass __init__ (the only construction path in practice). Cloning a
+    # node made via __new__ with unset slots is unsupported and intentionally raises AttributeError.
     body = ["def _clone(self, memo):", "    new = _cls.__new__(_cls)", "    memo[id(self)] = new"]
     for f in fields(cls):
         if f.name in ("start", "end"):
@@ -169,9 +172,18 @@ def _build_clone_fn(cls: type) -> Callable[["AST", dict[int, Any]], "AST"]:
         else:
             body.append(f"    new.{f.name} = _cv(self.{f.name}, memo)")
     body.append("    return new")
-    namespace: dict[str, Any] = {"_cls": cls, "_cv": _clone_value}
-    # nosemgrep: python.lang.security.audit.exec-detected.exec-detected (codegen over a fixed dataclass field list, no external input; same technique as dataclasses' own __init__)
-    exec("\n".join(body), namespace)  # noqa: S102
+    source = "\n".join(body)
+    # Register the generated source under a descriptive filename so tracebacks inside the clone
+    # show the real line and inspect.getsource(fn) works -- the codegen is fully inspectable.
+    filename = f"<hogql deepcopy {cls.__module__}.{cls.__qualname__}>"
+    linecache.cache[filename] = (len(source), None, [line + "\n" for line in body], filename)
+    # The source is assembled only from this class's own field identifiers (fixed at class
+    # definition; @dataclass already rejects any non-identifier name with SyntaxError) plus the
+    # two helper names below -- no runtime value is interpolated, so there is no injection point.
+    # Empty builtins so the generated function can reach nothing but the single `id` it needs.
+    namespace: dict[str, Any] = {"__builtins__": {"id": id}, "_cls": cls, "_cv": _clone_value}
+    # nosemgrep: python.lang.security.audit.exec-detected.exec-detected (dataclasses-style codegen; source is only validated field identifiers, no runtime input; runs with empty builtins)
+    exec(compile(source, filename, "exec"), namespace)  # noqa: S102
     return namespace["_clone"]
 
 
