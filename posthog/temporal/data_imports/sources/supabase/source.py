@@ -61,8 +61,6 @@ class SupabaseSource(PostgresSource):
 
     @staticmethod
     def _adjust_field(field: _SourceField) -> _SourceField:
-        if isinstance(field, SourceFieldInputConfig) and field.name == "schema":
-            return field.model_copy(update={"required": True, "label": "Schema", "caption": None})
         if isinstance(field, SourceFieldInputConfig) and field.name == "host":
             return field.model_copy(
                 update={

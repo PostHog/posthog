@@ -15,12 +15,12 @@ def _field(name: str) -> SourceFieldInputConfig:
     )
 
 
-def test_supabase_requires_schema_field():
+def test_supabase_schema_field_is_optional():
+    # Multi-schema is supported (same as Postgres), so the schema field must not be required.
     schema_field = _field("schema")
 
-    assert schema_field.required is True
+    assert schema_field.required is False
     assert schema_field.label == "Schema"
-    assert schema_field.caption is None
 
 
 def test_supabase_is_generally_available():
