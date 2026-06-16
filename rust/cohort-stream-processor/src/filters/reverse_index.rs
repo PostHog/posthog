@@ -58,6 +58,9 @@ pub struct TeamFilters {
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts.
     pub by_lsk_to_composable_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
+    /// `referenced cohort → [referrer cohorts]`, sorted. The structural inverse of the reference
+    /// graph; read via [`TeamFilters::cohorts_referencing`].
+    pub by_referenced_cohort: HashMap<CohortId, Vec<CohortId>>,
     /// Each cohort's composition class, computed once at freeze.
     pub eligibility: HashMap<CohortId, CohortEligibility>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
@@ -79,10 +82,20 @@ impl Default for TeamFilters {
             person_property_conditions: HashSet::new(),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
             by_lsk_to_composable_cohorts: HashMap::new(),
+            by_referenced_cohort: HashMap::new(),
             eligibility: HashMap::new(),
             cohorts: HashMap::new(),
             timezone: UTC,
         }
+    }
+}
+
+impl TeamFilters {
+    /// Cohorts that reference `id`, sorted ascending; empty when none.
+    pub fn cohorts_referencing(&self, id: CohortId) -> &[CohortId] {
+        self.by_referenced_cohort
+            .get(&id)
+            .map_or(&[], Vec::as_slice)
     }
 }
 
@@ -164,9 +177,23 @@ impl TeamFiltersBuilder {
             eligibility.insert(tree.cohort_id, classify(tree, &flags));
         }
 
+        let mut by_referenced_cohort: HashMap<CohortId, Vec<CohortId>> = HashMap::new();
         if self.flags.values().any(|flags| flags.has_cohort_ref) {
             let analysis = cohort_graph::analyze(&self.cohorts);
             refine_ref_bearing(&mut eligibility, &analysis);
+            // Invert the reference graph (referenced → [referrers]). Not filtered by eligibility, so
+            // it stays populated even though referrers are excluded from composition.
+            for (&referrer, targets) in &analysis.ref_targets {
+                for &target in targets {
+                    by_referenced_cohort
+                        .entry(target)
+                        .or_default()
+                        .push(referrer);
+                }
+            }
+            for referrers in by_referenced_cohort.values_mut() {
+                referrers.sort_unstable();
+            }
             if !analysis.in_cycle.is_empty() {
                 counter!(COHORT_IN_CYCLE_TOTAL).increment(analysis.in_cycle.len() as u64);
                 let mut cycle_ids: Vec<i32> = analysis.in_cycle.iter().map(|id| id.0).collect();
@@ -228,6 +255,7 @@ impl TeamFiltersBuilder {
             person_property_conditions,
             by_lsk_to_single_leaf_cohorts,
             by_lsk_to_composable_cohorts,
+            by_referenced_cohort,
             eligibility,
             cohorts: self.cohorts,
             timezone,
@@ -618,6 +646,11 @@ mod tests {
 
     fn cohort_ref() -> Value {
         json!({ "type": "cohort", "value": 99, "negation": false })
+    }
+
+    /// A cohort-reference leaf pointing at `target`.
+    fn cohort_ref_to(target: i32) -> Value {
+        json!({ "type": "cohort", "value": target, "negation": false })
     }
 
     #[test]
@@ -1090,6 +1123,71 @@ mod tests {
         assert!(
             frozen.by_lsk_to_composable_cohorts.is_empty(),
             "neither a single-leaf nor an excluded cohort is composable",
+        );
+    }
+
+    #[test]
+    fn reverse_index_inverts_ref_targets() {
+        let mut builder = TeamFiltersBuilder::default();
+        // A(1) → B(2), D(4); C(3) → B(2).
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![cohort_ref_to(2), cohort_ref_to(4)]),
+            )
+            .unwrap();
+        builder
+            .add_cohort(CohortId(3), TeamId(7), &wrap(vec![cohort_ref_to(2)]))
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.cohorts_referencing(CohortId(2)),
+            [CohortId(1), CohortId(3)].as_slice(),
+            "B is referenced by A and C, sorted",
+        );
+        assert_eq!(
+            frozen.cohorts_referencing(CohortId(4)),
+            [CohortId(1)].as_slice(),
+        );
+        assert!(
+            frozen.cohorts_referencing(CohortId(5)).is_empty(),
+            "an unreferenced cohort has no referrers",
+        );
+    }
+
+    #[test]
+    fn ref_bearing_cohort_is_reverse_indexed_but_stays_dormant() {
+        let mut builder = TeamFiltersBuilder::default();
+        // B: a resolvable single-leaf cohort.
+        builder
+            .add_cohort(
+                CohortId(2),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+        // A references B: ref-bearing, so excluded but still reverse-indexed.
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref_to(2)]))
+            .unwrap();
+        let frozen = builder.freeze(UTC);
+
+        assert_eq!(
+            frozen.cohorts_referencing(CohortId(2)),
+            [CohortId(1)].as_slice(),
+        );
+        assert_eq!(
+            frozen.eligibility[&CohortId(1)],
+            CohortEligibility::Excluded(ExcludedReason::HasCohortRef),
+        );
+        assert!(
+            frozen
+                .by_lsk_to_composable_cohorts
+                .values()
+                .all(|cohorts| !cohorts.contains(&CohortId(1))),
+            "a ref-bearing cohort must not compose",
         );
     }
 }

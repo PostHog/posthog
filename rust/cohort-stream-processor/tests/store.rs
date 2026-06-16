@@ -433,13 +433,19 @@ fn delete_partition_reclaims_the_merge_cfs() {
         .get_tombstone(&tombstone_key(0, 100, 7))
         .unwrap()
         .is_none());
-    assert!(store.scan_pending_transfers(0, usize::MAX).unwrap().is_empty());
+    assert!(store
+        .scan_pending_transfers(0, usize::MAX)
+        .unwrap()
+        .is_empty());
 
     assert!(store
         .get_tombstone(&tombstone_key(1, 100, 7))
         .unwrap()
         .is_some());
-    assert_eq!(store.scan_pending_transfers(1, usize::MAX).unwrap().len(), 1);
+    assert_eq!(
+        store.scan_pending_transfers(1, usize::MAX).unwrap().len(),
+        1
+    );
 }
 
 #[test]
@@ -465,10 +471,19 @@ fn scan_pending_transfers_returns_only_its_partition_in_key_order() {
     assert_eq!(scanned[1].0, pending_transfer_key(5, 100, 30));
     assert_eq!(scanned[1].1, b"p30");
 
-    assert_eq!(store.scan_pending_transfers(4, usize::MAX).unwrap().len(), 1);
-    assert_eq!(store.scan_pending_transfers(6, usize::MAX).unwrap().len(), 1);
+    assert_eq!(
+        store.scan_pending_transfers(4, usize::MAX).unwrap().len(),
+        1
+    );
+    assert_eq!(
+        store.scan_pending_transfers(6, usize::MAX).unwrap().len(),
+        1
+    );
     assert!(
-        store.scan_pending_transfers(7, usize::MAX).unwrap().is_empty(),
+        store
+            .scan_pending_transfers(7, usize::MAX)
+            .unwrap()
+            .is_empty(),
         "an empty partition scans to nothing",
     );
 }

@@ -132,8 +132,13 @@ async fn run_worker(
                     re_keys.extend(effects.re_keys);
                 }
                 ShuffleMessage::Sweep { due_before_ms } => {
-                    if flush_event_changes_before_inline(&sink, &mut buffer, partition_id, &mut held)
-                        .await
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
                     {
                         break;
                     }
@@ -149,8 +154,13 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::Merge { event, offset } => {
-                    if flush_event_changes_before_inline(&sink, &mut buffer, partition_id, &mut held)
-                        .await
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
                     {
                         break;
                     }
@@ -168,8 +178,13 @@ async fn run_worker(
                     .await;
                 }
                 ShuffleMessage::Transfer { transfer, offset } => {
-                    if flush_event_changes_before_inline(&sink, &mut buffer, partition_id, &mut held)
-                        .await
+                    if flush_event_changes_before_inline(
+                        &sink,
+                        &mut buffer,
+                        partition_id,
+                        &mut held,
+                    )
+                    .await
                     {
                         break;
                     }
@@ -261,7 +276,10 @@ async fn run_worker(
 /// (sweep/merge/transfer) produce in the same batch — keeping produce order in state-commit order.
 /// No-op (and success) when the buffer is empty, so it adds no produce call to event-free or
 /// already-flushed sub-batches. Returns the failed-ack count (`0` = fully acked / empty).
-async fn flush_membership_buffer(sink: &Arc<dyn MembershipSink>, buffer: &mut OutputBuffer) -> usize {
+async fn flush_membership_buffer(
+    sink: &Arc<dyn MembershipSink>,
+    buffer: &mut OutputBuffer,
+) -> usize {
     if buffer.is_empty() {
         return 0;
     }
@@ -283,8 +301,7 @@ async fn flush_event_changes_before_inline(
         *held = true;
         warn!(
             partition_id,
-            errors,
-            "produce to cohort_membership_changed_shadow failed; holding offset for replay",
+            errors, "produce to cohort_membership_changed_shadow failed; holding offset for replay",
         );
         return true;
     }

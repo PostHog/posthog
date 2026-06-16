@@ -596,7 +596,9 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
 
     // Reopen without wiping: the pending transfer is recovered from the scan.
     let store = temp_store_in(&dir);
-    let recovered = store.scan_pending_transfers(p_old_part, usize::MAX).unwrap();
+    let recovered = store
+        .scan_pending_transfers(p_old_part, usize::MAX)
+        .unwrap();
     assert_eq!(
         recovered.len(),
         1,
@@ -624,7 +626,10 @@ fn reopen_between_drain_and_apply_recovers_via_scan_pending_transfers() {
         })
         .unwrap();
     assert!(
-        store.scan_pending_transfers(p_old_part, usize::MAX).unwrap().is_empty(),
+        store
+            .scan_pending_transfers(p_old_part, usize::MAX)
+            .unwrap()
+            .is_empty(),
         "the outbox is cleared post-apply"
     );
 

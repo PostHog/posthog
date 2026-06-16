@@ -223,7 +223,10 @@ mod tests {
         let entries = vec![(2_000_000_000, 9), (2_000_000_100, 2)];
         // `2_000_000_000 + 200_000_000` overflows i32 → unfixed code panics in `slide_window_forward`.
         let (after, start) = slide(entries.clone(), 2_000_000_000, 200_000_000, i32::MAX);
-        assert_eq!(after, entries, "an essentially infinite window never slides out");
+        assert_eq!(
+            after, entries,
+            "an essentially infinite window never slides out"
+        );
         assert_eq!(start, 2_000_000_000, "window anchor unchanged");
     }
 

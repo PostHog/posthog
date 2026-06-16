@@ -18,6 +18,20 @@ pub const COHORT_ELIGIBILITY_TOTAL: &str = "cohort_eligibility_total";
 /// Cohorts excluded because they sit in a cohort-reference cycle (counter).
 pub const COHORT_IN_CYCLE_TOTAL: &str = "cohort_in_cycle_total";
 
+/// Cascade depths reached, from the `depth` field on cascade messages, labelled by
+/// `originating_cohort_id` (histogram).
+pub const CASCADE_DEPTH_OBSERVED: &str = "cascade_depth_observed";
+/// Outgoing cascades dropped because `incoming.depth >= cohort_cascade_depth_cap`, labelled by
+/// `originating_cohort_id` (counter).
+pub const CASCADE_DEPTH_EXCEEDED_TOTAL: &str = "cascade_depth_exceeded_total";
+/// Cycles caught at runtime by the `cascade_chain` membership check, labelled by
+/// `originating_cohort_id`, `cycle_cohort_id` (counter). Distinct from [`COHORT_IN_CYCLE_TOTAL`],
+/// which is Tarjan-SCC-based at catalog-refresh time.
+pub const CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL: &str = "cascade_cycle_detected_runtime_total";
+/// Referrer re-evaluations dropped past `cohort_cascade_fanout_cap`, labelled by `upstream_cohort_id`
+/// (counter).
+pub const CASCADE_FANOUT_CAPPED_TOTAL: &str = "cascade_fanout_capped_total";
+
 /// `(cohort, person)` pairs re-evaluated by Stage 2 composition (counter).
 pub const STAGE2_COHORTS_EVALUATED: &str = "stage2_cohorts_evaluated_total";
 /// Composable-cohort membership flips, labelled by `kind` (`entered`|`left`) (counter).
@@ -228,4 +242,21 @@ pub fn install_recorder() -> PrometheusHandle {
     PrometheusBuilder::new()
         .install_recorder()
         .expect("failed to install Prometheus recorder")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cascade_metric_names_are_stable() {
+        // Pin the wire names: a rename must not silently break dashboards or alerts.
+        assert_eq!(CASCADE_DEPTH_OBSERVED, "cascade_depth_observed");
+        assert_eq!(CASCADE_DEPTH_EXCEEDED_TOTAL, "cascade_depth_exceeded_total");
+        assert_eq!(
+            CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL,
+            "cascade_cycle_detected_runtime_total",
+        );
+        assert_eq!(CASCADE_FANOUT_CAPPED_TOTAL, "cascade_fanout_capped_total");
+    }
 }

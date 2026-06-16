@@ -4,6 +4,7 @@
 //! leaf_state_key, person_id)` state in RocksDB, evaluates cohort membership incrementally, and
 //! emits membership transitions. A periodic sweep handles time-driven eviction.
 
+pub mod cascade;
 pub mod config;
 pub mod consumers;
 pub mod filters;

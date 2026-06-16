@@ -170,6 +170,15 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub merge_gc_scan_limit: usize,
 
+    // --- Cascade (cohort-of-cohort) depth + fan-out caps ---
+    /// Max cascade hops before an outgoing cascade is dropped (`incoming.depth >= this`). Default 8.
+    #[envconfig(default = "8")]
+    pub cohort_cascade_depth_cap: u8,
+
+    /// Max referrer re-evaluations per upstream flip. Default 1000.
+    #[envconfig(default = "1000")]
+    pub cohort_cascade_fanout_cap: usize,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -454,6 +463,8 @@ mod tests {
             merge_tombstone_retention_ms: 777_600_000,
             merge_gc_interval_ms: 3_600_000,
             merge_gc_scan_limit: 10_000,
+            cohort_cascade_depth_cap: 8,
+            cohort_cascade_fanout_cap: 1000,
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
@@ -670,6 +681,25 @@ mod tests {
         assert_eq!(config.merge_tombstone_retention_ms, 456);
         assert_eq!(config.merge_gc_interval(), Duration::from_millis(789));
         assert_eq!(config.merge_gc_scan_limit, 5);
+    }
+
+    #[test]
+    fn cascade_caps_default_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert_eq!(defaults.cohort_cascade_depth_cap, 8);
+        assert_eq!(defaults.cohort_cascade_fanout_cap, 1000);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_CASCADE_DEPTH_CAP", "3"),
+            ("COHORT_CASCADE_FANOUT_CAP", "50"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert_eq!(config.cohort_cascade_depth_cap, 3);
+        assert_eq!(config.cohort_cascade_fanout_cap, 50);
     }
 
     #[test]

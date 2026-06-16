@@ -198,13 +198,24 @@ fn merge_behavioral_pair(
             // the daily arm's `align_and_sum`. Without this the count is inflated until the next sweep.
             let (entries, window_start_day) = match meta.window_days {
                 Some(window_days) => {
-                    let target_now_day = now_day_for_window((*old_start).max(*new_start), window_days);
+                    let target_now_day =
+                        now_day_for_window((*old_start).max(*new_start), window_days);
                     let mut old_entries = old_entries.clone();
                     let mut old_start = *old_start;
-                    slide_window_forward(&mut old_entries, &mut old_start, window_days, target_now_day);
+                    slide_window_forward(
+                        &mut old_entries,
+                        &mut old_start,
+                        window_days,
+                        target_now_day,
+                    );
                     let mut new_entries = new_entries.clone();
                     let mut new_start = *new_start;
-                    slide_window_forward(&mut new_entries, &mut new_start, window_days, target_now_day);
+                    slide_window_forward(
+                        &mut new_entries,
+                        &mut new_start,
+                        window_days,
+                        target_now_day,
+                    );
                     union_by_day(&old_entries, old_start, &new_entries, new_start)
                 }
                 // Meta desync (no finite window to slide to): union as-is.

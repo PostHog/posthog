@@ -168,7 +168,10 @@ mod tests {
             daily_eviction_deadline(&[1], 1_000, 2_147_483_000, UTC),
             i64::MAX,
         );
-        assert_eq!(daily_eviction_deadline(&[1], 1_000, u32::MAX, UTC), i64::MAX);
+        assert_eq!(
+            daily_eviction_deadline(&[1], 1_000, u32::MAX, UTC),
+            i64::MAX
+        );
     }
 
     #[test]
