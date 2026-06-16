@@ -8,6 +8,7 @@ import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } 
 
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Dayjs } from 'lib/dayjs'
 import {
     capitalizeFirstLetter,
     ceilMsToClosestSecond,
@@ -30,6 +31,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
+import type { InspectorListItemEvent } from '../inspector/playerInspectorLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
 import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
@@ -37,6 +39,46 @@ import { sessionSummaryProgressLogic } from './sessionSummaryProgressLogic'
 import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
+
+// The summary backend filters these out before summarizing, so mirror them here: the
+// "Summarize" button should be disabled when every event would be filtered away (otherwise
+// the user triggers a summary that fails with "This recording has no events to summarize").
+// Keep in sync with SESSION_SUMMARY_EVENT_BLOCKLIST and SESSION_EVENTS_REPLAY_CUTOFF_MS in
+// ee/hogai/session_summaries/constants.py.
+const SUMMARY_EVENT_MINI_FILTER_KEYS = [
+    'events-posthog',
+    'events-custom',
+    'events-pageview',
+    'events-autocapture',
+    'events-exceptions',
+]
+const SUMMARY_EVENT_BLOCKLIST = ['$feature_flag_called']
+const SUMMARY_EVENTS_REPLAY_CUTOFF_MS = 5000
+
+/**
+ * Whether any event would survive the backend summary filters — i.e. is not blocklisted and
+ * does not fall within the replay cutoff of the recording start/end. Mirrors the backend so
+ * the Summarize button is only enabled when a summary could actually be produced.
+ */
+export function hasSummarizableEvents(
+    eventItems: InspectorListItemEvent[],
+    start: Dayjs | null,
+    end: Dayjs | null
+): boolean {
+    return eventItems.some((item) => {
+        if (SUMMARY_EVENT_BLOCKLIST.includes(item.data.event)) {
+            return false
+        }
+        if (start && end) {
+            const msSinceStart = item.timestamp.diff(start)
+            const msTillEnd = end.diff(item.timestamp)
+            if (msSinceStart <= SUMMARY_EVENTS_REPLAY_CUTOFF_MS || msTillEnd <= SUMMARY_EVENTS_REPLAY_CUTOFF_MS) {
+                return false
+            }
+        }
+        return true
+    })
+}
 
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
@@ -191,16 +233,17 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (feedbackBySessionId): boolean => !!feedbackBySessionId[props.sessionRecordingId],
         ],
         summaryDisabledReason: [
-            (s) => [s.allItemsByMiniFilterKey],
-            (allItemsByMiniFilterKey): string | undefined => {
-                const hasAnyEvents = [
-                    'events-posthog',
-                    'events-custom',
-                    'events-pageview',
-                    'events-autocapture',
-                    'events-exceptions',
-                ].some((key) => allItemsByMiniFilterKey[key]?.length > 0)
-                return hasAnyEvents ? undefined : 'Session events are not available yet. Try again in a few minutes.'
+            (s) => [s.allItemsByMiniFilterKey, s.sessionPlayerData],
+            (allItemsByMiniFilterKey, sessionPlayerData): string | undefined => {
+                const eventItems = SUMMARY_EVENT_MINI_FILTER_KEYS.flatMap(
+                    (key) => allItemsByMiniFilterKey[key] ?? []
+                ).filter((item): item is InspectorListItemEvent => item.type === 'events')
+                if (eventItems.length === 0) {
+                    return 'Session events are not available yet. Try again in a few minutes.'
+                }
+                return hasSummarizableEvents(eventItems, sessionPlayerData.start ?? null, sessionPlayerData.end ?? null)
+                    ? undefined
+                    : 'This recording has no events to summarize.'
             },
         ],
         loading: [

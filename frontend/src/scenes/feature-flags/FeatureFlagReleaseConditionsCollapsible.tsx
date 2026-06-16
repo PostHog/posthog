@@ -54,9 +54,9 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyNumber } from 'lib/utils'
-import { clamp } from 'lib/utils'
+import { clamp, humanFriendlyNumber, pluralize } from 'lib/utils'
 
+import { groupsModel } from '~/models/groupsModel'
 import {
     AnyPropertyFilter,
     FeatureFlagBucketingIdentifier,
@@ -435,6 +435,7 @@ const ConditionContent = ({
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
     const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const { aggregationLabel } = useValues(groupsModel)
 
     // Combined ref callback
     const combinedRef = (element: HTMLDivElement | null): void => {
@@ -475,6 +476,10 @@ const ConditionContent = ({
     }
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
+    const resolvedSingularTargetName = aggregationLabel(
+        group.aggregation_group_type_index ?? releaseFilters.aggregation_group_type_index,
+        true
+    ).singular
 
     return (
         <div
@@ -665,45 +670,44 @@ const ConditionContent = ({
                                                     const receivingFlag = Math.floor(
                                                         (affected * clamp(rolloutPct, 0, 100)) / 100
                                                     )
-                                                    if (rolloutPct === 100) {
-                                                        return (
-                                                            <>
-                                                                <b className="tabular-nums">
-                                                                    {humanFriendlyNumber(affected)}
-                                                                </b>{' '}
-                                                                of{' '}
-                                                                <span className="tabular-nums">
-                                                                    {humanFriendlyNumber(total)}
-                                                                </span>{' '}
-                                                                {resolvedTargetName} match these filters
-                                                            </>
-                                                        )
-                                                    }
                                                     return (
-                                                        <>
-                                                            Will match ~
-                                                            <b className="tabular-nums">
-                                                                {humanFriendlyNumber(receivingFlag)}
-                                                            </b>{' '}
-                                                            of{' '}
-                                                            <span className="tabular-nums">
-                                                                {humanFriendlyNumber(total)}
-                                                            </span>{' '}
-                                                            {resolvedTargetName} (
-                                                            <span className="tabular-nums">{rolloutPct}%</span> of{' '}
-                                                            <span className="tabular-nums">
-                                                                {humanFriendlyNumber(affected)}
-                                                            </span>{' '}
-                                                            matching the filters)
-                                                        </>
+                                                        <div className="flex flex-col">
+                                                            <span>
+                                                                Filters match:{' '}
+                                                                <b className="tabular-nums">
+                                                                    ~
+                                                                    {pluralize(
+                                                                        affected,
+                                                                        resolvedSingularTargetName,
+                                                                        resolvedTargetName
+                                                                    )}
+                                                                </b>
+                                                                {(group.aggregation_group_type_index ??
+                                                                    releaseFilters.aggregation_group_type_index) ==
+                                                                    null && (
+                                                                    <Tooltip
+                                                                        title={MATCHING_ESTIMATE_TOOLTIP}
+                                                                        interactive
+                                                                    >
+                                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                                    </Tooltip>
+                                                                )}
+                                                            </span>
+                                                            <span>
+                                                                Rollout will be to{' '}
+                                                                <b className="tabular-nums">
+                                                                    ~
+                                                                    {pluralize(
+                                                                        receivingFlag,
+                                                                        resolvedSingularTargetName,
+                                                                        resolvedTargetName
+                                                                    )}
+                                                                </b>{' '}
+                                                                - <b className="tabular-nums">{rolloutPct}%</b>
+                                                            </span>
+                                                        </div>
                                                     )
                                                 })()}
-                                                {(group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index) == null && (
-                                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
-                                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                                    </Tooltip>
-                                                )}
                                             </div>
                                         ) : (
                                             <div className="text-xs text-muted mt-2 flex items-center gap-1">

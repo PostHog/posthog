@@ -609,7 +609,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         if (!(error instanceof ApiError) || error.status !== 404) {
                             posthog.captureException(error, { feature: 'cohort-used-in' })
                         }
-                        return null
+                        // Keep any previously loaded value so a failed refresh doesn't blank the banner.
+                        return values.usedIn
                     }
                 },
             },
@@ -660,11 +661,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
-        },
-        // Refresh once the save request actually resolves; submitCohortSuccess fires as soon
-        // as the synchronous submit handler dispatches saveCohort.
-        saveCohortSuccess: () => {
-            actions.loadUsedIn()
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             const isPendingCalculation = checkIsPendingCalculation(cohort)

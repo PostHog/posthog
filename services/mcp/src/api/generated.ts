@@ -509,15 +509,9 @@ export namespace Schemas {
     }
 
     export interface AccountsQuery {
-      /** Match accounts whose account executive is any of these user ids (OR semantics). */
-      accountExecutive?: number[] | null;
-      /** Match accounts whose account owner is any of these user ids (OR semantics). */
-      accountOwner?: number[] | null;
       allRolesUnassigned?: boolean | null;
       /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
       assignedToUserIds?: number[] | null;
-      /** Match accounts whose CSM is any of these user ids (OR semantics). */
-      csm?: number[] | null;
       /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
       filterExpression?: string | null;
       kind?: 'AccountsQuery';
@@ -8225,6 +8219,7 @@ export namespace Schemas {
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
+     * * `histogram_quantile` - histogram_quantile
      */
     export type AggregationEnum = typeof AggregationEnum[keyof typeof AggregationEnum];
 
@@ -8236,6 +8231,7 @@ export namespace Schemas {
       P95: 'p95',
       Rate: 'rate',
       Increase: 'increase',
+      HistogramQuantile: 'histogram_quantile',
     } as const;
 
     export interface InsightsThresholdBounds {
@@ -16516,8 +16512,10 @@ export namespace Schemas {
     }
 
     export interface DeprovisionWarehouseResponse {
+      /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
       status: string;
-      team: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org: string;
     }
 
     /**
@@ -21775,6 +21773,11 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -30088,6 +30091,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `logs` - Logs
+     * * `health_checks` - Health checks
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -30103,6 +30107,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       Logs: 'logs',
+      HealthChecks: 'health_checks',
     } as const;
 
     /**
@@ -30115,6 +30120,7 @@ export namespace Schemas {
      * * `issue_spiking` - Issue spiking
      * * `cross_source_issue` - Cross source issue
      * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -30129,6 +30135,7 @@ export namespace Schemas {
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
       AlertStateChange: 'alert_state_change',
+      HealthIssue: 'health_issue',
     } as const;
 
     export interface SignalSourceConfig {
@@ -34226,6 +34233,11 @@ export namespace Schemas {
          * @nullable
          */
       is_remote_configuration?: boolean | null;
+      /**
+         * Whether to persist a user's flag value across the anonymous-to-identified transition (the 'persist across authentication steps' option). Incompatible with device_id bucketing.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
     }
 
     /**
@@ -38736,7 +38748,7 @@ export namespace Schemas {
 
     export interface PersonSplitRequest {
       /**
-         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is used and the person's properties are wiped. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
+         * The distinct_id to **keep** on this person; every *other* distinct_id is moved to its own new single-id person. If omitted, the first distinct_id on the person is kept. The original person always retains its properties; to clear individual properties afterward, use the delete_property endpoint. To surgically *remove* one or more distinct_ids while leaving the merge intact, use `distinct_ids_to_split` instead — these parameters are inverses of each other and cannot be combined.
          * @nullable
          */
       main_distinct_id?: string | null;
@@ -40481,8 +40493,14 @@ export namespace Schemas {
     }
 
     export interface ProvisionWarehouseResponse {
+      /** Provisioning lifecycle message, e.g. 'provisioning started' */
       status: string;
-      team: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org: string;
+      /** Root database username */
+      username: string;
+      /** Root database password — returned only here at provision time and on reset-password */
+      password: string;
     }
 
     /**
@@ -47561,6 +47579,17 @@ export namespace Schemas {
       readonly projected_monthly_observations: number;
     }
 
+    export interface WarehouseConnection {
+      /** Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
+      host: string;
+      /** Postgres wire-protocol port */
+      port: number;
+      /** Database to connect to — always 'ducklake' */
+      database: string;
+      /** Root database username */
+      username: string;
+    }
+
     /**
      * * `pending` - pending
      * * `provisioning` - provisioning
@@ -47582,13 +47611,38 @@ export namespace Schemas {
     } as const;
 
     export interface WarehouseStatusResponse {
-      team_name: string;
+      /** duckgres org identifier (the PostHog organization id) */
+      org_id: string;
+      /** Overall provisioning lifecycle state
+       *
+       * * `pending` - pending
+       * * `provisioning` - provisioning
+       * * `ready` - ready
+       * * `failed` - failed
+       * * `deleting` - deleting
+       * * `deleted` - deleted */
       state: WarehouseStatusResponseStateEnum;
+      /** Human-readable detail for the current state */
       status_message: string;
-      /** @nullable */
+      /** Object-store sub-resource provisioning state */
+      s3_state: string;
+      /** Metadata-store sub-resource provisioning state */
+      metadata_store_state: string;
+      /** Worker identity sub-resource provisioning state */
+      identity_state: string;
+      /** Credentials sub-resource provisioning state */
+      secrets_state: string;
+      /**
+         * When the warehouse became ready
+         * @nullable
+         */
       ready_at: string | null;
-      /** @nullable */
+      /**
+         * When provisioning failed
+         * @nullable
+         */
       failed_at: string | null;
+      connection?: WarehouseConnection | null;
     }
 
     export interface WeeklyDigestResponse {
@@ -48221,6 +48275,40 @@ export namespace Schemas {
       scope?: MetricAttributeScopeEnum;
     }
 
+    export interface _MetricClause {
+      /**
+         * Clause name a formula refers to (e.g. 'a').
+         * @maxLength 64
+         */
+      name: string;
+      /**
+         * Exact metric name this clause queries.
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Aggregation applied per time bucket; same semantics as the top-level aggregation.
+       *
+       * * `sum` - sum
+       * * `avg` - avg
+       * * `count` - count
+       * * `p95` - p95
+       * * `rate` - rate
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
+      aggregation?: AggregationEnum;
+      /**
+         * Quantile in (0, 1) for 'histogram_quantile'.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
+      /** Label predicates ANDed together for this clause. */
+      filters?: _MetricFilter[];
+      /** Labels to split this clause into separate series by. */
+      groupBy?: _MetricGroupBy[];
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -48235,19 +48323,27 @@ export namespace Schemas {
 
     export interface _MetricQueryBody {
       /**
-         * Exact metric name to query (e.g. 'http.server.duration').
+         * Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.
          * @maxLength 255
          */
-      metricName: string;
-      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).
+      metricName?: string;
+      /** Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.
        *
        * * `sum` - sum
        * * `avg` - avg
        * * `count` - count
        * * `p95` - p95
        * * `rate` - rate
-       * * `increase` - increase */
+       * * `increase` - increase
+       * * `histogram_quantile` - histogram_quantile */
       aggregation?: AggregationEnum;
+      /**
+         * Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      quantile?: number | null;
       /** Label predicates ANDed together. Rows must satisfy every filter. */
       filters?: _MetricFilter[];
       /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -48263,6 +48359,14 @@ export namespace Schemas {
        * * `day` - day
        * * `week` - week */
       interval?: MetricQueryIntervalEnum | null;
+      /** Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'. */
+      clauses?: _MetricClause[];
+      /**
+         * Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.
+         * @maxLength 512
+         * @nullable
+         */
+      formula?: string | null;
       /** Lower bound (inclusive) for the query range. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
@@ -55796,7 +55900,7 @@ export namespace Schemas {
 
 
     export const FeatureFlagsListEvaluationRuntime = {
-      Both: 'both',
+      All: 'all',
       Client: 'client',
       Server: 'server',
     } as const;
