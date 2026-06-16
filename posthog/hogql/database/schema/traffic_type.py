@@ -26,14 +26,14 @@ def user_agent_expr(properties_path: Optional[list[str]] = None) -> ast.Expr:
 # so the big expression only materializes for queries that select the field.
 def create_is_bot_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
-        name=name, expr=ast.Call(name="__preview_isBot", args=[user_agent_expr(properties_path)]), isolate_scope=True
+        name=name, expr=ast.Call(name="isLikelyBot", args=[user_agent_expr(properties_path)]), isolate_scope=True
     )
 
 
 def create_traffic_type_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=ast.Call(name="__preview_getTrafficType", args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getTrafficType", args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
 
@@ -41,7 +41,7 @@ def create_traffic_type_field(name: str, properties_path: Optional[list[str]] = 
 def create_traffic_category_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=ast.Call(name="__preview_getTrafficCategory", args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getTrafficCategory", args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
 
@@ -49,7 +49,7 @@ def create_traffic_category_field(name: str, properties_path: Optional[list[str]
 def create_bot_name_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=ast.Call(name="__preview_getBotName", args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getBotName", args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
 
@@ -57,6 +57,6 @@ def create_bot_name_field(name: str, properties_path: Optional[list[str]] = None
 def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = None) -> ExpressionField:
     return ExpressionField(
         name=name,
-        expr=ast.Call(name="__preview_getBotOperator", args=[user_agent_expr(properties_path)]),
+        expr=ast.Call(name="getBotOperator", args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
