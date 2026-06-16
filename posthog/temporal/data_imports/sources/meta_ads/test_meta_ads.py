@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.meta_ads import meta_ads
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
     META_AUTH_ERROR_MESSAGE,
     PAGE_LIMIT_FALLBACK_SIZES,
@@ -814,3 +815,32 @@ class TestNonRetryableErrors:
     )
     def test_is_permanent_auth_error(self, body: dict, expected: bool) -> None:
         assert _is_permanent_auth_error(_mock_response(400, body)) is expected
+
+
+class TestGetIntegration:
+    def test_refreshes_stale_db_connection_before_query(self, monkeypatch) -> None:
+        # The ORM read runs lazily inside `get_rows` on a worker thread whose pooled
+        # Django connection may have been closed server-side, surfacing as
+        # `OperationalError: the connection is closed`. We must drop the stale
+        # connection before querying, so the read happens on a fresh connection.
+        calls: list[str] = []
+
+        monkeypatch.setattr(meta_ads, "close_old_connections", lambda: calls.append("close_old_connections"))
+
+        integration = mock.MagicMock()
+        integration.errors = None
+
+        def fake_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
+            calls.append("Integration.objects.get")
+            return integration
+
+        monkeypatch.setattr(meta_ads.Integration.objects, "get", fake_get)
+        monkeypatch.setattr(meta_ads, "MetaAdsIntegration", lambda i: mock.MagicMock(integration=i))
+
+        config = mock.MagicMock()
+        config.meta_ads_integration_id = 1
+
+        result = meta_ads.get_integration(config, team_id=1)
+
+        assert calls == ["close_old_connections", "Integration.objects.get"]
+        assert result is integration
